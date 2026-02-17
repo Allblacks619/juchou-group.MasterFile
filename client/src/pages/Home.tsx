@@ -74,10 +74,10 @@ export default function Home() {
             className="max-w-3xl"
           >
             <div className="gold-line w-24 mb-8" />
-            <h1 className="text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight text-warm-white mb-6">
+            <h1 className="text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight text-warm-white mb-6" style={{fontSize: '54px'}}>
               {hero.headline}
             </h1>
-            <p className="text-base md:text-lg text-warm-gray leading-relaxed max-w-2xl">
+            <p className="text-base md:text-lg text-warm-gray leading-relaxed max-w-2xl" style={{fontSize: '17px'}}>
               {hero.sub}
             </p>
           </motion.div>
