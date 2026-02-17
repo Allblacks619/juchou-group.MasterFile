@@ -439,5 +439,5 @@ export const EMAIL = "info@juchou-group.com";
 export const PHONE = "050-5873-4183";
 
 // Placeholder Google Apps Script endpoints (user will replace with real ones)
-export const RECRUIT_FORM_ENDPOINT = "https://script.google.com/macros/s/YOUR_RECRUIT_SCRIPT_ID/exec";
-export const CONTACT_FORM_ENDPOINT = "https://script.google.com/macros/s/YOUR_CONTACT_SCRIPT_ID/exec";
+export const RECRUIT_FORM_ENDPOINT = "https://script.google.com/macros/s/AKfycbxmtpGPy-iFK2GMVeZMqdmasFr2Bgf1W_VDa-IlIn3WsnMBgiMyW6dbbQpgDjaBw9YWhQ/exec";
+export const CONTACT_FORM_ENDPOINT = "https://script.google.com/macros/s/AKfycbxmtpGPy-iFK2GMVeZMqdmasFr2Bgf1W_VDa-IlIn3WsnMBgiMyW6dbbQpgDjaBw9YWhQ/exec";
