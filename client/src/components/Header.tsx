@@ -9,7 +9,7 @@ import type { Lang } from "@/lib/translations";
 import { Menu, X } from "lucide-react";
 
 const LOGO_URL =
-  "https://files.manuscdn.com/user_upload_by_module/session_file/310519663330554130/CtYvLyODvIfdtgNS.png";
+  "https://files.manuscdn.com/user_upload_by_module/session_file/310519663330554130/ekwsVLnLZDZZusPp.png";
 
 const langOptions: { code: Lang; label: string; flag: string }[] = [
   { code: "ja", label: "JP", flag: "\u{1F1EF}\u{1F1F5}" },   // 🇯🇵

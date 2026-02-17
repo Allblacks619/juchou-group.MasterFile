@@ -7,7 +7,7 @@ import { INSTAGRAM_URL, EMAIL, PHONE } from "@/lib/translations";
 import { Instagram, Mail, Phone as PhoneIcon } from "lucide-react";
 
 const LOGO_URL =
-  "https://files.manuscdn.com/user_upload_by_module/session_file/310519663330554130/CtYvLyODvIfdtgNS.png";
+  "https://files.manuscdn.com/user_upload_by_module/session_file/310519663330554130/ekwsVLnLZDZZusPp.png";
 const QR_URL =
   "https://files.manuscdn.com/user_upload_by_module/session_file/310519663330554130/dmgnirwDgiwzwstH.jpeg";
 
