@@ -6,13 +6,21 @@
 import { motion } from "framer-motion";
 import { Link } from "wouter";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { INSTAGRAM_URL, EMAIL, PHONE } from "@/lib/translations";
+import {
+  INSTAGRAM_URL,
+  LINEWORKS_URL,
+  INSTAGRAM_QR_URL,
+  LINEWORKS_QR_URL,
+  EMAIL,
+  PHONE,
+} from "@/lib/translations";
 import Layout from "@/components/Layout";
 import Section from "@/components/Section";
 import {
   Instagram,
   Mail,
   Phone as PhoneIcon,
+  MessageCircle,
   MapPin,
   ArrowRight,
   Shield,
@@ -31,8 +39,7 @@ const WORK_CONDUIT =
 const WORK_PANEL =
   "https://private-us-east-1.manuscdn.com/sessionFile/rCWGzbC5Fv9wiMEJ7c9ECd/sandbox/u8e1iFu3wsTxSX5PcFrJA5-img-3_1771261784000_na1fn_d29yay1wYW5lbA.jpg?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvckNXR3piQzVGdjl3aU1FSjdjOUVDZC9zYW5kYm94L3U4ZTFpRnUzd3NUeFNYNVBjRnJKQTUtaW1nLTNfMTc3MTI2MTc4NDAwMF9uYTFmbl9kMjl5YXkxd1lXNWxiQS5qcGc~eC1vc3MtcHJvY2Vzcz1pbWFnZS9yZXNpemUsd18xOTIwLGhfMTkyMC9mb3JtYXQsd2VicC9xdWFsaXR5LHFfODAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3OTg3NjE2MDB9fX1dfQ__&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=DYWFDlTk-fC2-M8OoS~ttkDGLU22lPw50cudMHeosJThjGUggmj-ZIUbUoyVwmL3SlviGP6LNMn79s64eG6Z~C7933gqnUB5tDko4lvxG5edmeTi1GiB-BoWqIaabFbJpUXGyYR1QBoIXWiTpZyo3AZt0qeAHOe~MkJBAj~Mqz4F1rlqOYUEdluQL7b~sqAsbHHiaWq46nCr2F2r9ozvY0As31zkMxnV9jSd7zE8arcqrh64D765zdz8uXTfRyXpbJG942A~ibNSTp3g4L5V1JmkYkZ3rYns24BKXkzwQgJYl49wzKnAGE5T~P9Ticuo6vGg1~h1FvBin6jq93MEBQ__";
 
-const QR_URL =
-  "https://files.manuscdn.com/user_upload_by_module/session_file/310519663330554130/dmgnirwDgiwzwstH.jpeg";
+
 
 const stanceIcons = [CheckCircle, Ruler, Clock, Shield, HardHat];
 
@@ -289,29 +296,57 @@ export default function Home() {
               <ArrowRight size={16} />
             </Link>
 
-            {/* Instagram QR + link */}
-            <div className="flex flex-col items-center gap-4 mt-4">
-              <a
-                href={INSTAGRAM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block"
-              >
-                <img
-                  src={QR_URL}
-                  alt="Instagram QR Code"
-                  className="w-36 h-36 md:w-40 md:h-40 rounded-lg object-cover bg-white p-1.5 mx-auto"
-                />
-              </a>
-              <a
-                href={INSTAGRAM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-sm text-warm-gray hover:text-gold transition-colors no-underline"
-              >
-                <Instagram size={14} />
-                {cta.instagram}
-              </a>
+            {/* QR Codes — Instagram & LINE WORKS */}
+            <div className="grid grid-cols-2 gap-6 mt-6">
+              {/* Instagram */}
+              <div className="flex flex-col items-center gap-3">
+                <a
+                  href={INSTAGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                >
+                  <img
+                    src={INSTAGRAM_QR_URL}
+                    alt="Instagram QR Code"
+                    className="w-32 h-32 md:w-36 md:h-36 rounded-lg object-cover mx-auto"
+                  />
+                </a>
+                <a
+                  href={INSTAGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-sm text-warm-gray hover:text-gold transition-colors no-underline"
+                >
+                  <Instagram size={14} />
+                  {cta.instagram}
+                </a>
+              </div>
+
+              {/* LINE WORKS */}
+              <div className="flex flex-col items-center gap-3">
+                <a
+                  href={LINEWORKS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                >
+                  <img
+                    src={LINEWORKS_QR_URL}
+                    alt="LINE WORKS QR Code"
+                    className="w-32 h-32 md:w-36 md:h-36 rounded-lg object-cover mx-auto"
+                  />
+                </a>
+                <a
+                  href={LINEWORKS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-sm text-warm-gray hover:text-gold transition-colors no-underline"
+                >
+                  <MessageCircle size={14} />
+                  LINE WORKS
+                </a>
+              </div>
             </div>
           </motion.div>
         </div>

@@ -8,10 +8,21 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import {
   EMAIL,
   PHONE,
+  INSTAGRAM_URL,
+  LINEWORKS_URL,
+  INSTAGRAM_QR_URL,
+  LINEWORKS_QR_URL,
   CONTACT_FORM_ENDPOINT,
 } from "@/lib/translations";
 import Layout from "@/components/Layout";
-import { Mail, Phone as PhoneIcon, CheckCircle, ArrowRight } from "lucide-react";
+import {
+  Mail,
+  Phone as PhoneIcon,
+  CheckCircle,
+  ArrowRight,
+  Instagram,
+  MessageCircle,
+} from "lucide-react";
 
 export default function Contact() {
   const { lang, t } = useLanguage();
@@ -41,6 +52,9 @@ export default function Contact() {
       setLoading(false);
     }
   };
+
+  const inputClass =
+    "w-full bg-dark-surface/50 border border-gold/10 text-warm-white px-4 py-3 text-sm focus:border-gold/40 focus:outline-none transition-colors";
 
   return (
     <Layout>
@@ -77,70 +91,26 @@ export default function Contact() {
                 </motion.div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-6">
-                  {/* Company Name */}
                   <div>
-                    <label className="block text-sm text-gold/70 mb-2">
-                      {c.companyName}
-                    </label>
-                    <input
-                      name="companyName"
-                      required
-                      className="w-full bg-dark-surface/50 border border-gold/10 text-warm-white px-4 py-3 text-sm focus:border-gold/40 focus:outline-none transition-colors"
-                    />
+                    <label className="block text-sm text-gold/70 mb-2">{c.companyName}</label>
+                    <input name="companyName" required className={inputClass} />
                   </div>
-
-                  {/* Person Name */}
                   <div>
-                    <label className="block text-sm text-gold/70 mb-2">
-                      {c.personName}
-                    </label>
-                    <input
-                      name="personName"
-                      required
-                      className="w-full bg-dark-surface/50 border border-gold/10 text-warm-white px-4 py-3 text-sm focus:border-gold/40 focus:outline-none transition-colors"
-                    />
+                    <label className="block text-sm text-gold/70 mb-2">{c.personName}</label>
+                    <input name="personName" required className={inputClass} />
                   </div>
-
-                  {/* Phone */}
                   <div>
-                    <label className="block text-sm text-gold/70 mb-2">
-                      {c.phone}
-                    </label>
-                    <input
-                      name="phone"
-                      type="tel"
-                      required
-                      className="w-full bg-dark-surface/50 border border-gold/10 text-warm-white px-4 py-3 text-sm focus:border-gold/40 focus:outline-none transition-colors"
-                    />
+                    <label className="block text-sm text-gold/70 mb-2">{c.phone}</label>
+                    <input name="phone" type="tel" required className={inputClass} />
                   </div>
-
-                  {/* Email */}
                   <div>
-                    <label className="block text-sm text-gold/70 mb-2">
-                      {c.email}
-                    </label>
-                    <input
-                      name="email"
-                      type="email"
-                      required
-                      className="w-full bg-dark-surface/50 border border-gold/10 text-warm-white px-4 py-3 text-sm focus:border-gold/40 focus:outline-none transition-colors"
-                    />
+                    <label className="block text-sm text-gold/70 mb-2">{c.email}</label>
+                    <input name="email" type="email" required className={inputClass} />
                   </div>
-
-                  {/* Message */}
                   <div>
-                    <label className="block text-sm text-gold/70 mb-2">
-                      {c.message}
-                    </label>
-                    <textarea
-                      name="message"
-                      rows={6}
-                      required
-                      className="w-full bg-dark-surface/50 border border-gold/10 text-warm-white px-4 py-3 text-sm focus:border-gold/40 focus:outline-none transition-colors resize-none"
-                    />
+                    <label className="block text-sm text-gold/70 mb-2">{c.message}</label>
+                    <textarea name="message" rows={6} required className={`${inputClass} resize-none`} />
                   </div>
-
-                  {/* Submit */}
                   <button
                     type="submit"
                     disabled={loading}
@@ -159,13 +129,15 @@ export default function Contact() {
               )}
             </div>
 
-            {/* Direct Contact */}
+            {/* Direct Contact Sidebar */}
             <div className="lg:col-span-1">
-              <div className="border border-gold/10 bg-dark-surface/30 p-8 sticky top-28">
-                <h3 className="text-base font-bold text-warm-white mb-6">
+              <div className="border border-gold/10 bg-dark-surface/30 p-8 sticky top-28 space-y-8">
+                <h3 className="text-base font-bold text-warm-white">
                   {c.directContact}
                 </h3>
-                <div className="space-y-5">
+
+                {/* Contact links */}
+                <div className="space-y-4">
                   <a
                     href={`mailto:${EMAIL}`}
                     className="flex items-center gap-3 text-sm text-warm-gray hover:text-gold transition-colors no-underline"
@@ -180,6 +152,48 @@ export default function Contact() {
                     <PhoneIcon size={16} className="text-gold/50 shrink-0" />
                     {PHONE}
                   </a>
+                  <a
+                    href={INSTAGRAM_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 text-sm text-warm-gray hover:text-gold transition-colors no-underline"
+                  >
+                    <Instagram size={16} className="text-gold/50 shrink-0" />
+                    @juchou.group
+                  </a>
+                  <a
+                    href={LINEWORKS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 text-sm text-warm-gray hover:text-gold transition-colors no-underline"
+                  >
+                    <MessageCircle size={16} className="text-gold/50 shrink-0" />
+                    LINE WORKS
+                  </a>
+                </div>
+
+                {/* QR Codes */}
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gold/10">
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-xs text-gold/60 tracking-wider uppercase">Instagram</p>
+                    <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={INSTAGRAM_QR_URL}
+                        alt="Instagram QR"
+                        className="w-24 h-24 rounded-lg object-cover"
+                      />
+                    </a>
+                  </div>
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-xs text-gold/60 tracking-wider uppercase">LINE WORKS</p>
+                    <a href={LINEWORKS_URL} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={LINEWORKS_QR_URL}
+                        alt="LINE WORKS QR"
+                        className="w-24 h-24 rounded-lg object-cover"
+                      />
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>

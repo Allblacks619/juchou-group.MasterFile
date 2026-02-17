@@ -268,9 +268,20 @@ export const translations = {
       formYears: "経験年数",
       formYearsOptions: ["1年未満", "1〜3年", "3〜5年", "5年以上"],
       formDesiredPay: "希望日当",
+      formCertLabel: "保有資格",
+      formCertYes: "有",
+      formCertNo: "無",
+      formCertPlaceholder: "資格名を入力",
+      formCertAdd: "+ 資格を追加",
+      formContactMethod: "折り返し連絡希望方法",
+      formContactMethodRequired: "連絡方法を選択してください",
+      formContactEmail: "メール",
+      formContactInstagram: "Instagram",
+      formContactLineworks: "LINE WORKS",
+      formInstagramPrompt: "弊社Instagramプロフィールからダイレクトメッセージをお送りください。折り返し連絡のため、DMにお名前をお伝えください。",
+      formLineworksPrompt: "下記のQRコードまたはリンクから弊社LINE WORKSの連絡先を追加し、ダイレクトメッセージをお送りください。折り返し連絡のため、DMにお名前をお伝えください。",
       formSubmit: "送信する",
-      formSuccess: "送信ありがとうございます。\n照合のため、InstagramからDMでお名前を送ってください。",
-      formInstagramBtn: "Instagramを開く",
+      formSuccess: "送信ありがとうございます。選択された連絡方法で折り返しご連絡いたします。",
     },
     pt: {
       headline: "Estamos recrutando futuros membros fundadores.",
@@ -325,9 +336,20 @@ export const translations = {
       formYears: "Anos de experiência",
       formYearsOptions: ["Menos de 1 ano", "1 a 3 anos", "3 a 5 anos", "Mais de 5 anos"],
       formDesiredPay: "Diária desejada",
+      formCertLabel: "Qualificações",
+      formCertYes: "Sim",
+      formCertNo: "Não",
+      formCertPlaceholder: "Nome da qualificação",
+      formCertAdd: "+ Adicionar qualificação",
+      formContactMethod: "Método de contato preferido",
+      formContactMethodRequired: "Selecione um método de contato",
+      formContactEmail: "E-mail",
+      formContactInstagram: "Instagram",
+      formContactLineworks: "LINE WORKS",
+      formInstagramPrompt: "Envie uma mensagem direta pelo perfil do nosso Instagram. Para retorno, informe seu nome no DM.",
+      formLineworksPrompt: "Adicione nosso contato pelo QR code ou link abaixo no LINE WORKS e envie uma mensagem direta. Para retorno, informe seu nome no DM.",
       formSubmit: "Enviar",
-      formSuccess: "Obrigado pelo envio.\nPara verificação, envie seu nome por DM no Instagram.",
-      formInstagramBtn: "Abrir Instagram",
+      formSuccess: "Obrigado pelo envio. Entraremos em contato pelo método selecionado.",
     },
     en: {
       headline: "We are recruiting future founding members.",
@@ -382,9 +404,20 @@ export const translations = {
       formYears: "Years of experience",
       formYearsOptions: ["Less than 1 year", "1–3 years", "3–5 years", "5+ years"],
       formDesiredPay: "Desired daily rate",
+      formCertLabel: "Qualifications",
+      formCertYes: "Yes",
+      formCertNo: "No",
+      formCertPlaceholder: "Qualification name",
+      formCertAdd: "+ Add qualification",
+      formContactMethod: "Preferred contact method",
+      formContactMethodRequired: "Please select a contact method",
+      formContactEmail: "Email",
+      formContactInstagram: "Instagram",
+      formContactLineworks: "LINE WORKS",
+      formInstagramPrompt: "Please send a direct message from our Instagram profile. To help us get back to you, include your name in the DM.",
+      formLineworksPrompt: "Add our contact via the QR code or link below on LINE WORKS and send a direct message. To help us get back to you, include your name in the DM.",
       formSubmit: "Submit",
-      formSuccess: "Thank you for your submission.\nFor verification, please send your name via Instagram DM.",
-      formInstagramBtn: "Open Instagram",
+      formSuccess: "Thank you for your submission. We will contact you via your selected method.",
     },
   },
 
@@ -435,8 +468,14 @@ export const translations = {
 
 export const INSTAGRAM_URL =
   "https://www.instagram.com/juchou.group?igsh=ZjV6NjAyZHA2bWt0&utm_source=qr";
+export const LINEWORKS_URL = "https://works.do/GGOfZpH";
 export const EMAIL = "info@juchou-group.com";
 export const PHONE = "050-5873-4183";
+
+export const INSTAGRAM_QR_URL =
+  "https://files.manuscdn.com/user_upload_by_module/session_file/310519663330554130/xllpcDXqCFSNtSXm.png";
+export const LINEWORKS_QR_URL =
+  "https://files.manuscdn.com/user_upload_by_module/session_file/310519663330554130/NWIyCHHnUZCNwTKP.png";
 
 // Placeholder Google Apps Script endpoints (user will replace with real ones)
 export const RECRUIT_FORM_ENDPOINT = "https://script.google.com/macros/s/AKfycbxmtpGPy-iFK2GMVeZMqdmasFr2Bgf1W_VDa-IlIn3WsnMBgiMyW6dbbQpgDjaBw9YWhQ/exec";
