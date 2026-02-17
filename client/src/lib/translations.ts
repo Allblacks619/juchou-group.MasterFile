@@ -36,8 +36,8 @@ export const translations = {
       body: '「仕事」はその日の作業を指す。だが「職」は、一生をかけて磨き上げる技能であり、自分自身の価値そのものだ。充寵グループでは、ただ働くのではなく、電気工事という\u201c職\u201dを身につけ、誇りを持って現場に立つことを大切にしている。日々の作業の積み重ねが、やがて揺るぎない技術と信頼になる。それが「職を持つ」ということだ。',
     },
     pt: {
-      title: "Não é apenas trabalho — é um ofício.",
-      body: "\"Trabalho\" é o que se faz no dia a dia. Mas \"ofício\" é uma habilidade que se aprimora ao longo da vida — é o seu próprio valor. No Grupo Jyuchou, não se trata apenas de trabalhar: trata-se de dominar o ofício da instalação elétrica e estar no canteiro de obras com orgulho. O acúmulo diário de experiência se transforma em técnica inabalável e confiança. Isso é ter um ofício.",
+      title: "Não é apenas trabalho — é uma PROFISSÃO",
+      body: "\"Trabalho\" é o que se faz no dia a dia. Mas \"profissão\" é uma habilidade que se aprimora ao longo da vida — é o seu próprio valor. No Grupo Jyuchou, não se trata apenas de trabalhar: trata-se de dominar a profissão de instalação elétrica e estar no canteiro de obras com orgulho. O acúmulo diário de experiência se transforma em técnica inabalável e confiança. Isso é ter uma profissão.",
     },
     en: {
       title: "Not just a job — a skilled trade.",
