@@ -40,6 +40,9 @@ export default function Recruit() {
   const r = t.recruit[lang];
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [birthYear, setBirthYear] = useState("");
+  const [birthMonth, setBirthMonth] = useState("");
+  const [birthDay, setBirthDay] = useState("");
   const [experience, setExperience] = useState<"experienced" | "inexperienced" | "">("");
   const [hasCert, setHasCert] = useState<"yes" | "no" | "">("");
   const [certifications, setCertifications] = useState<string[]>([""]);
@@ -80,6 +83,9 @@ export default function Recruit() {
     formData.forEach((value, key) => {
       data[key] = value.toString();
     });
+
+    // Combine birthdate
+    data.birthdate = `${birthYear}${r.formBirthYear}${birthMonth}${r.formBirthMonth}${birthDay}${r.formBirthDay}`;
 
     // Add certifications as comma-separated
     if (hasCert === "yes") {
@@ -259,10 +265,50 @@ export default function Recruit() {
               <input name="name" required className={inputClass} />
             </div>
 
-            {/* Birthdate */}
+            {/* Birthdate — Year / Month / Day */}
             <div>
               <label className="block text-sm text-gold/70 mb-2">{r.formBirthdate}</label>
-              <input name="birthdate" type="date" required className={inputClass} />
+              <div className="grid grid-cols-3 gap-3">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min="1940"
+                    max="2010"
+                    placeholder="1990"
+                    value={birthYear}
+                    onChange={(e) => setBirthYear(e.target.value)}
+                    required
+                    className={inputClass}
+                  />
+                  <span className="text-warm-gray text-sm shrink-0">{r.formBirthYear}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min="1"
+                    max="12"
+                    placeholder="5"
+                    value={birthMonth}
+                    onChange={(e) => setBirthMonth(e.target.value)}
+                    required
+                    className={inputClass}
+                  />
+                  <span className="text-warm-gray text-sm shrink-0">{r.formBirthMonth}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    placeholder="15"
+                    value={birthDay}
+                    onChange={(e) => setBirthDay(e.target.value)}
+                    required
+                    className={inputClass}
+                  />
+                  <span className="text-warm-gray text-sm shrink-0">{r.formBirthDay}</span>
+                </div>
+              </div>
             </div>
 
             {/* Email */}
