@@ -13,6 +13,9 @@ import Layout from "@/components/Layout";
 import Section from "@/components/Section";
 import { Instagram, CheckCircle, ArrowRight, Briefcase, Award, Wrench, DollarSign } from "lucide-react";
 
+const QR_URL =
+  "https://files.manuscdn.com/user_upload_by_module/session_file/310519663330554130/dmgnirwDgiwzwstH.jpeg";
+
 const WORK_SITE =
   "https://private-us-east-1.manuscdn.com/sessionFile/rCWGzbC5Fv9wiMEJ7c9ECd/sandbox/u8e1iFu3wsTxSX5PcFrJA5-img-4_1771261767000_na1fn_d29yay1zaXRl.jpg?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvckNXR3piQzVGdjl3aU1FSjdjOUVDZC9zYW5kYm94L3U4ZTFpRnUzd3NUeFNYNVBjRnJKQTUtaW1nLTRfMTc3MTI2MTc2NzAwMF9uYTFmbl9kMjl5YXkxemFYUmwuanBnP3gtb3NzLXByb2Nlc3M9aW1hZ2UvcmVzaXplLHdfMTkyMCxoXzE5MjAvZm9ybWF0LHdlYnAvcXVhbGl0eSxxXzgwIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzk4NzYxNjAwfX19XX0_&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=VoWf-JLIJh7HnM1qZ0nBBBs~OWt6vFaxpe1f9Dlxf7anzhAuoJTFJIM4DNV3udXRO0OzluAPy4ArPgAlUiSHc6vcuIbBNRFULpIYk6c7O8RywXJv8hy5vuZOU8RxLCYWMjSMEipBqILyVg2lFkAZd~1PH10gvUbEkaBjMzNWsDI8OHQTyptWxiBdPX47rYB1s-xo4hVHg4Od4VWl30q1w4jG7EZdSxQDwWp~eXFItllEQ1GeQ6Jr0HWHeIemA7tKf1MwuzISdcyBlQtd3TZ9Fp0Z0wThU4S8a7umbSE8a74FwRH11pyVwqEOomvNX4yC4qTmkE6UTKXPp8CDmG~oog__";
 
@@ -207,6 +210,18 @@ export default function Recruit() {
             <p className="text-warm-white text-lg whitespace-pre-line mb-8">
               {r.formSuccess}
             </p>
+            <a
+              href={INSTAGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mb-6"
+            >
+              <img
+                src={QR_URL}
+                alt="Instagram QR Code"
+                className="w-36 h-36 rounded-lg object-cover bg-white p-1.5 mx-auto"
+              />
+            </a>
             <a
               href={INSTAGRAM_URL}
               target="_blank"
