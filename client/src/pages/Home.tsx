@@ -6,6 +6,7 @@
 import { motion } from "framer-motion";
 import { Link } from "wouter";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePageSEO } from "@/hooks/usePageSEO";
 import {
   INSTAGRAM_URL,
   LINEWORKS_URL,
@@ -45,6 +46,7 @@ const stanceIcons = [CheckCircle, Ruler, Clock, Shield, HardHat];
 
 export default function Home() {
   const { lang, t, prefix } = useLanguage();
+  usePageSEO("home", lang);
   const hero = t.hero[lang];
   const shoku = t.shoku[lang];
   const stance = t.stance[lang];

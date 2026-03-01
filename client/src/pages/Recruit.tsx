@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePageSEO } from "@/hooks/usePageSEO";
 import {
   INSTAGRAM_URL,
   LINEWORKS_URL,
@@ -38,6 +39,7 @@ type ContactMethod = "" | "email" | "instagram" | "lineworks";
 
 export default function Recruit() {
   const { lang, t } = useLanguage();
+  usePageSEO("recruit", lang);
   const r = t.recruit[lang];
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);

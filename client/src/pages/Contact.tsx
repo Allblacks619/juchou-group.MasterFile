@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePageSEO } from "@/hooks/usePageSEO";
 import {
   EMAIL,
   PHONE,
@@ -26,6 +27,7 @@ import {
 
 export default function Contact() {
   const { lang, t } = useLanguage();
+  usePageSEO("contact", lang);
   const c = t.contact[lang];
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
