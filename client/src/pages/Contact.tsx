@@ -36,14 +36,15 @@ export default function Contact() {
 
     const form = e.currentTarget;
     const formData = new FormData(form);
-    const data = Object.fromEntries(formData.entries());
+    const data: Record<string, string> = {};
+    formData.forEach((value, key) => {
+      data[key] = value.toString();
+    });
 
     try {
-      await fetch(CONTACT_FORM_ENDPOINT, {
-        method: "POST",
+      const params = new URLSearchParams(data).toString();
+      await fetch(`${CONTACT_FORM_ENDPOINT}?${params}`, {
         mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
       });
       setSubmitted(true);
     } catch {

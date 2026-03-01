@@ -94,11 +94,9 @@ export default function Recruit() {
     data.contactMethod = contactMethod;
 
     try {
-      await fetch(RECRUIT_FORM_ENDPOINT, {
-        method: "POST",
+      const params = new URLSearchParams(data).toString();
+      await fetch(`${RECRUIT_FORM_ENDPOINT}?${params}`, {
         mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
       });
       setSubmitted(true);
     } catch {
