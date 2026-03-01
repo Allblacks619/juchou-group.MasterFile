@@ -14,6 +14,7 @@ import {
   RECRUIT_FORM_ENDPOINT,
 } from "@/lib/translations";
 import Layout from "@/components/Layout";
+import { prefectures } from "@/lib/prefectures";
 import Section from "@/components/Section";
 import {
   Instagram,
@@ -263,47 +264,50 @@ export default function Recruit() {
               <input name="name" required className={inputClass} />
             </div>
 
-            {/* Birthdate — Year / Month / Day */}
+            {/* Birthdate — Year / Month / Day dropdowns */}
             <div>
               <label className="block text-sm text-gold/70 mb-2">{r.formBirthdate}</label>
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min="1940"
-                    max="2010"
-                    placeholder="1990"
+                  <select
                     value={birthYear}
                     onChange={(e) => setBirthYear(e.target.value)}
                     required
                     className={inputClass}
-                  />
+                  >
+                    <option value="">{r.formBirthYear}</option>
+                    {Array.from({ length: 71 }, (_, i) => 2010 - i).map((y) => (
+                      <option key={y} value={String(y)}>{y}</option>
+                    ))}
+                  </select>
                   <span className="text-warm-gray text-sm shrink-0">{r.formBirthYear}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min="1"
-                    max="12"
-                    placeholder="5"
+                  <select
                     value={birthMonth}
                     onChange={(e) => setBirthMonth(e.target.value)}
                     required
                     className={inputClass}
-                  />
+                  >
+                    <option value="">{r.formBirthMonth}</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                      <option key={m} value={String(m)}>{m}</option>
+                    ))}
+                  </select>
                   <span className="text-warm-gray text-sm shrink-0">{r.formBirthMonth}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min="1"
-                    max="31"
-                    placeholder="15"
+                  <select
                     value={birthDay}
                     onChange={(e) => setBirthDay(e.target.value)}
                     required
                     className={inputClass}
-                  />
+                  >
+                    <option value="">{r.formBirthDay}</option>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                      <option key={d} value={String(d)}>{d}</option>
+                    ))}
+                  </select>
                   <span className="text-warm-gray text-sm shrink-0">{r.formBirthDay}</span>
                 </div>
               </div>
@@ -315,10 +319,17 @@ export default function Recruit() {
               <input name="email" type="email" required className={inputClass} />
             </div>
 
-            {/* Prefecture */}
+            {/* Prefecture — 47都道府県ドロップダウン */}
             <div>
               <label className="block text-sm text-gold/70 mb-2">{r.formPrefecture}</label>
-              <input name="prefecture" required className={inputClass} />
+              <select name="prefecture" required className={inputClass} defaultValue="">
+                <option value="" disabled>{r.formPrefectureSelect}</option>
+                {prefectures.map((pref) => (
+                  <option key={pref.ja} value={lang === "ja" ? pref.ja : pref.romaji}>
+                    {lang === "ja" ? pref.ja : pref.romaji}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Motivation */}
