@@ -2,13 +2,21 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation } from "wouter";
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import Home from "./pages/Home";
 import Recruit from "./pages/Recruit";
 import Contact from "./pages/Contact";
+import AppLayout from "./components/AppLayout";
+
+// Lazy load app pages
+const AppDashboard = lazy(() => import("./pages/AppDashboard"));
+const AppInvitations = lazy(() => import("./pages/AppInvitations"));
+const AppCompany = lazy(() => import("./pages/AppCompany"));
+const AppEmployees = lazy(() => import("./pages/AppEmployees"));
+const AppEmployeeDetail = lazy(() => import("./pages/AppEmployeeDetail"));
 
 function ScrollToTop() {
   const [location] = useLocation();
@@ -16,6 +24,14 @@ function ScrollToTop() {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [location]);
   return null;
+}
+
+function AppFallback() {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <p className="text-muted-foreground">読み込み中...</p>
+    </div>
+  );
 }
 
 function Router() {
@@ -37,6 +53,22 @@ function Router() {
         <Route path="/en" component={Home} />
         <Route path="/en/recruit" component={Recruit} />
         <Route path="/en/contact" component={Contact} />
+
+        {/* Business App Routes (auth required) */}
+        <Route path="/app" nest>
+          <AppLayout>
+            <Suspense fallback={<AppFallback />}>
+              <Switch>
+                <Route path="/" component={AppDashboard} />
+                <Route path="/invitations" component={AppInvitations} />
+                <Route path="/company" component={AppCompany} />
+                <Route path="/employees" component={AppEmployees} />
+                <Route path="/employees/:id" component={AppEmployeeDetail} />
+                <Route component={NotFound} />
+              </Switch>
+            </Suspense>
+          </AppLayout>
+        </Route>
 
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
