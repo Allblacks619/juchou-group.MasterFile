@@ -11,9 +11,9 @@
 - [x] 招待時設定（ローマ字ID、仮パスワード、権限、メール）
 - [x] 招待管理UI（作成フォーム、履歴一覧）
 - [x] 権限チェック（admin/leader/worker）
-- [ ] ワンクリックコピー・メール送信
-- [ ] 初回ログイン時パスワード変更必須
-- [ ] パスワード再発行機能
+- [x] ワンクリックコピー（招待リンク・ID・パスワード）
+- [x] 初回ログイン時パスワード変更必須
+- [x] パスワード変更機能（サイドバーから）
 
 ## Phase 3: 会社プロフィール設定
 - [x] 会社基本情報（名前、住所、電話、メール、登録番号、適格請求事業者番号）
@@ -45,3 +45,19 @@
 ## バグ修正
 - [x] /appページにアクセスしてもホームページが表示される問題を修正
 - [x] ログインが正しく動作するようにする
+
+## 独自認証システム（Manus OAuth廃止）
+- [x] パスワードハッシュ（bcrypt）導入
+- [x] DBスキーマにloginId/passwordHash/mustChangePasswordカラム追加
+- [x] 独自ログインAPI（/api/auth/login）
+- [x] 独自ログアウトAPI（/api/auth/logout）
+- [x] 招待受諾API（/api/auth/accept-invite）- トークン検証、アカウント作成
+- [x] パスワード変更API
+- [x] セッション管理（JWT）
+- [x] 管理者初期アカウント作成（ID: Mitsuro Oki / Pass: Paulodetarso7663）
+- [x] カスタムログインページ（/app/login）
+- [x] 招待受諾ページ（/app/invite/:token）
+- [x] パスワード変更ページ（/app/change-password）
+- [x] AppLayoutの認証ガードを独自認証に切り替え
+- [x] Manus OAuthのログインボタンを削除
+- [x] vitestテスト更新（29テスト全パス）

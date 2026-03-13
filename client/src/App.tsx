@@ -10,6 +10,9 @@ import Home from "./pages/Home";
 import Recruit from "./pages/Recruit";
 import Contact from "./pages/Contact";
 import AppLayout from "./components/AppLayout";
+import AppLogin from "./pages/AppLogin";
+import AppChangePassword from "./pages/AppChangePassword";
+import AppInviteAccept from "./pages/AppInviteAccept";
 
 // Lazy load app pages
 const AppDashboard = lazy(() => import("./pages/AppDashboard"));
@@ -53,6 +56,11 @@ function Router() {
         <Route path="/en" component={Home} />
         <Route path="/en/recruit" component={Recruit} />
         <Route path="/en/contact" component={Contact} />
+
+        {/* Custom Auth Pages (no AppLayout wrapper) */}
+        <Route path="/app/login" component={AppLogin} />
+        <Route path="/app/change-password" component={AppChangePassword} />
+        <Route path="/app/invite/:token" component={AppInviteAccept} />
 
         {/* Business App Routes (auth required) */}
         <Route path="/app" nest>

@@ -14,7 +14,9 @@ export const users = mysqlTable("users", {
   /** App-level role: admin=統合管理者, leader=責任者, worker=作業員 */
   appRole: mysqlEnum("appRole", ["admin", "leader", "worker"]).default("worker").notNull(),
   /** Login ID (romaji name) for invitation-based login */
-  loginId: varchar("loginId", { length: 128 }),
+  loginId: varchar("loginId", { length: 128 }).unique(),
+  /** Hashed password (bcrypt) */
+  passwordHash: varchar("passwordHash", { length: 256 }),
   /** Must change password on first login */
   mustChangePassword: boolean("mustChangePassword").default(false).notNull(),
   /** Linked employee profile ID */

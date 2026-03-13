@@ -1,7 +1,7 @@
 import { eq, and, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
-  InsertUser, users,
+  InsertUser, users, User,
   InsertInvitation, invitations,
   InsertCompanyProfile, companyProfile,
   InsertEmployee, employees,
@@ -9,6 +9,8 @@ import {
   InsertDocument, documents,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
+
+export type UserRecord = User;
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -81,6 +83,11 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.loginId = user.loginId;
     }
 
+    if (user.passwordHash !== undefined) {
+      values.passwordHash = user.passwordHash;
+      updateSet.passwordHash = user.passwordHash;
+    }
+
     if (user.mustChangePassword !== undefined) {
       values.mustChangePassword = user.mustChangePassword;
       updateSet.mustChangePassword = user.mustChangePassword;
@@ -117,6 +124,26 @@ export async function getUserByOpenId(openId: string) {
 
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserByLoginId(loginId: string) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get user: database not available");
+    return undefined;
+  }
+
+  const result = await db.select().from(users).where(eq(users.loginId, loginId)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function updateUserPassword(userId: number, passwordHash: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(users).set({
+    passwordHash,
+    mustChangePassword: false,
+  }).where(eq(users.id, userId));
 }
 
 export async function getAllUsers() {

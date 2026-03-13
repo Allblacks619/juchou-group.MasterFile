@@ -1,16 +1,15 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
 import {
   Building2,
   Users,
-  FileText,
   UserPlus,
   LayoutDashboard,
   LogOut,
   Menu,
   X,
+  KeyRound,
 } from "lucide-react";
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 
@@ -23,8 +22,15 @@ const navItems = [
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, loading, isAuthenticated, logout } = useAuth();
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Check if user must change password
+  useEffect(() => {
+    if (user && (user as any).mustChangePassword) {
+      navigate("/app/change-password");
+    }
+  }, [user, navigate]);
 
   if (loading) {
     return (
@@ -35,22 +41,23 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }
 
   if (!isAuthenticated) {
+    // Redirect to custom login page instead of Manus OAuth
+    if (typeof window !== "undefined") {
+      window.location.href = "/app/login";
+    }
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <h1 className="text-2xl font-bold">ログインが必要です</h1>
-          <p className="text-muted-foreground">業務アプリにアクセスするにはログインしてください</p>
-          <a href={getLoginUrl()}>
-            <Button className="bg-gold text-background hover:bg-gold-dim">
-              ログイン
-            </Button>
-          </a>
-        </div>
+        <p className="text-muted-foreground">ログインページに移動中...</p>
       </div>
     );
   }
 
   const appRole = (user as any)?.appRole || "worker";
+
+  const handleLogout = async () => {
+    await logout();
+    window.location.href = "/app/login";
+  };
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -113,24 +120,35 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 {user?.name?.[0] || "U"}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{user?.name || "ユーザー"}</p>
-                <p className="text-xs text-muted-foreground truncate">{user?.email || ""}</p>
+                <p className="text-sm font-medium truncate">{user?.name || (user as any)?.loginId || "ユーザー"}</p>
+                <p className="text-xs text-muted-foreground truncate capitalize">{appRole}</p>
               </div>
             </div>
             <div className="flex gap-2">
-              <a href="/" className="flex-1">
-                <Button variant="outline" size="sm" className="w-full text-xs">
-                  サイトへ
-                </Button>
-              </a>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => logout()}
+                className="flex-1 text-xs"
+                onClick={() => navigate("/app/change-password")}
+              >
+                <KeyRound className="h-3 w-3 mr-1" />
+                パスワード
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLogout}
                 className="text-xs"
               >
                 <LogOut className="h-3 w-3" />
               </Button>
+            </div>
+            <div className="mt-2">
+              <a href="/" className="block">
+                <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground">
+                  コーポレートサイトへ
+                </Button>
+              </a>
             </div>
           </div>
         </div>
