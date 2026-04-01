@@ -14,10 +14,10 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
-  { path: "/", label: "ダッシュボード", icon: LayoutDashboard },
-  { path: "/invitations", label: "招待管理", icon: UserPlus, adminOnly: true },
-  { path: "/company", label: "会社設定", icon: Building2, adminOnly: true },
-  { path: "/employees", label: "従業員管理", icon: Users },
+  { path: "/app", label: "ダッシュボード", icon: LayoutDashboard },
+  { path: "/app/invitations", label: "招待管理", icon: UserPlus, adminOnly: true },
+  { path: "/app/company", label: "会社設定", icon: Building2, adminOnly: true },
+  { path: "/app/employees", label: "従業員管理", icon: Users },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -28,9 +28,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   // Check if user must change password
   useEffect(() => {
     if (user && (user as any).mustChangePassword) {
-      navigate("/app/change-password");
+      window.location.href = "/app/change-password";
     }
-  }, [user, navigate]);
+  }, [user]);
 
   if (loading) {
     return (
@@ -41,8 +41,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    // Redirect to custom login page instead of Manus OAuth
-    if (typeof window !== "undefined") {
+    // Redirect to custom login page using full page navigation
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/app/login")) {
       window.location.href = "/app/login";
     }
     return (
@@ -94,7 +94,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             {navItems
               .filter((item) => !item.adminOnly || appRole === "admin" || appRole === "leader")
               .map((item) => {
-                const isActive = location === item.path || (item.path !== "/" && location.startsWith(item.path));
+                const isActive = location === item.path || (item.path !== "/app" && location.startsWith(item.path));
                 return (
                   <Link
                     key={item.path}
@@ -129,7 +129,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 variant="outline"
                 size="sm"
                 className="flex-1 text-xs"
-                onClick={() => navigate("/app/change-password")}
+                onClick={() => window.location.href = "/app/change-password"}
               >
                 <KeyRound className="h-3 w-3 mr-1" />
                 パスワード
@@ -144,7 +144,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               </Button>
             </div>
             <div className="mt-2">
-              <a href="/" className="block">
+              <a href="/" className="block no-underline">
                 <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground">
                   コーポレートサイトへ
                 </Button>

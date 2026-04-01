@@ -37,6 +37,24 @@ function AppFallback() {
   );
 }
 
+/** Protected app routes wrapped in AppLayout */
+function AppRoutes() {
+  return (
+    <AppLayout>
+      <Suspense fallback={<AppFallback />}>
+        <Switch>
+          <Route path="/app" component={AppDashboard} />
+          <Route path="/app/invitations" component={AppInvitations} />
+          <Route path="/app/company" component={AppCompany} />
+          <Route path="/app/employees" component={AppEmployees} />
+          <Route path="/app/employees/:id" component={AppEmployeeDetail} />
+          <Route component={NotFound} />
+        </Switch>
+      </Suspense>
+    </AppLayout>
+  );
+}
+
 function Router() {
   return (
     <>
@@ -57,26 +75,14 @@ function Router() {
         <Route path="/en/recruit" component={Recruit} />
         <Route path="/en/contact" component={Contact} />
 
-        {/* Custom Auth Pages (no AppLayout wrapper) */}
+        {/* Custom Auth Pages (no AppLayout wrapper, no auth required) */}
         <Route path="/app/login" component={AppLogin} />
         <Route path="/app/change-password" component={AppChangePassword} />
         <Route path="/app/invite/:token" component={AppInviteAccept} />
 
-        {/* Business App Routes (auth required) */}
-        <Route path="/app" nest>
-          <AppLayout>
-            <Suspense fallback={<AppFallback />}>
-              <Switch>
-                <Route path="/" component={AppDashboard} />
-                <Route path="/invitations" component={AppInvitations} />
-                <Route path="/company" component={AppCompany} />
-                <Route path="/employees" component={AppEmployees} />
-                <Route path="/employees/:id" component={AppEmployeeDetail} />
-                <Route component={NotFound} />
-              </Switch>
-            </Suspense>
-          </AppLayout>
-        </Route>
+        {/* Business App Routes (auth required via AppLayout) */}
+        <Route path="/app" component={AppRoutes} />
+        <Route path="/app/:rest*" component={AppRoutes} />
 
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
