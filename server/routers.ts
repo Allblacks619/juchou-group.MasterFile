@@ -178,6 +178,101 @@ export const appRouter = router({
       return profile ?? null;
     }),
 
+    /** Update own profile (any authenticated user) */
+    updateMyProfile: protectedProcedure
+      .input(z.object({
+        nameKanji: z.string().optional(),
+        nameKana: z.string().optional(),
+        nameRomaji: z.string().optional(),
+        dateOfBirth: z.string().optional(),
+        bloodType: z.enum(["A", "B", "AB", "O"]).nullable().optional(),
+        gender: z.enum(["male", "female"]).nullable().optional(),
+        nationality: z.string().optional(),
+        residenceStatus: z.string().optional(),
+        residenceCardNumber: z.string().optional(),
+        residenceCardExpiry: z.string().optional(),
+        passportNumber: z.string().optional(),
+        passportExpiry: z.string().optional(),
+        postalCode: z.string().optional(),
+        address: z.string().optional(),
+        phone: z.string().optional(),
+        email: z.string().optional(),
+        healthCheckDate: z.string().optional(),
+        healthInsuranceNumber: z.string().optional(),
+        insuranceType: z.enum(["national", "social", "construction"]).nullable().optional(),
+        workersCompNumber: z.string().optional(),
+        pensionNumber: z.string().optional(),
+        careerUpNumber: z.string().optional(),
+        employmentType: z.enum(["sole_proprietor", "employee", "other"]).nullable().optional(),
+        emergencyNameKana: z.string().optional(),
+        emergencyNameKanji: z.string().optional(),
+        emergencyRelationship: z.string().optional(),
+        emergencyPostalCode: z.string().optional(),
+        emergencyAddress: z.string().optional(),
+        emergencyPhone: z.string().optional(),
+        bankName: z.string().optional(),
+        branchName: z.string().optional(),
+        accountType: z.enum(["ordinary", "checking"]).nullable().optional(),
+        accountNumber: z.string().optional(),
+        accountHolder: z.string().optional(),
+        isInvoiceIssuer: z.boolean().optional(),
+        invoiceIssuerNumber: z.string().optional(),
+        height: z.number().optional(),
+        weight: z.number().optional(),
+        experienceYears: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const profile = await db.getEmployeeByUserId(ctx.user.id);
+        if (!profile) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "従業員プロフィールが見つかりません" });
+        }
+        const data: any = { ...input };
+        if (input.dateOfBirth) data.dateOfBirth = new Date(input.dateOfBirth);
+        if (input.residenceCardExpiry) data.residenceCardExpiry = new Date(input.residenceCardExpiry);
+        if (input.passportExpiry) data.passportExpiry = new Date(input.passportExpiry);
+        if (input.healthCheckDate) data.healthCheckDate = new Date(input.healthCheckDate);
+        return db.updateEmployee(profile.id, data);
+      }),
+
+    /** Check missing required fields for own profile */
+    getMyMissingFields: protectedProcedure.query(async ({ ctx }) => {
+      const profile = await db.getEmployeeByUserId(ctx.user.id);
+      if (!profile) {
+        return { hasProfile: false, missingFields: [], completionPercent: 0 };
+      }
+
+      const requiredFields: { key: string; label: string; section: string }[] = [
+        { key: "nameKanji", label: "氏名（漢字）", section: "基本情報" },
+        { key: "nameKana", label: "氏名（カナ）", section: "基本情報" },
+        { key: "nameRomaji", label: "氏名（ローマ字）", section: "基本情報" },
+        { key: "dateOfBirth", label: "生年月日", section: "基本情報" },
+        { key: "bloodType", label: "血液型", section: "基本情報" },
+        { key: "phone", label: "電話番号", section: "連絡先" },
+        { key: "postalCode", label: "郵便番号", section: "住所" },
+        { key: "address", label: "住所", section: "住所" },
+        { key: "emergencyNameKanji", label: "緊急連絡先氏名", section: "緊急連絡先" },
+        { key: "emergencyPhone", label: "緊急連絡先電話番号", section: "緊急連絡先" },
+        { key: "emergencyRelationship", label: "緊急連絡先続柄", section: "緊急連絡先" },
+        { key: "bankName", label: "銀行名", section: "振込先" },
+        { key: "branchName", label: "支店名", section: "振込先" },
+        { key: "accountNumber", label: "口座番号", section: "振込先" },
+        { key: "accountHolder", label: "口座名義", section: "振込先" },
+      ];
+
+      const missingFields = requiredFields.filter(f => {
+        const val = (profile as any)[f.key];
+        return val === null || val === undefined || val === "";
+      });
+
+      const completionPercent = Math.round(((requiredFields.length - missingFields.length) / requiredFields.length) * 100);
+
+      return {
+        hasProfile: true,
+        missingFields: missingFields.map(f => ({ key: f.key, label: f.label, section: f.section })),
+        completionPercent,
+      };
+    }),
+
     create: leaderOrAdminProcedure
       .input(z.object({
         nameKanji: z.string().min(1),

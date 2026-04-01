@@ -144,6 +144,20 @@ export function registerCustomAuthRoutes(app: Express) {
         return;
       }
 
+      // Create employee profile linked to this user
+      const empResult = await db.createEmployee({
+        nameKanji: invitation.loginId,
+        nameRomaji: invitation.loginId,
+        userId: newUser.id,
+        email: invitation.recipientEmail ?? undefined,
+      });
+
+      // Link employee to user
+      await db.upsertUser({
+        openId: newUser.openId,
+        employeeId: empResult.id as number,
+      });
+
       // Mark invitation as used
       await db.markInvitationUsed(token, newUser.id);
 

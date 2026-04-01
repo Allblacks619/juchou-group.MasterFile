@@ -8,6 +8,7 @@ import {
   Menu,
   X,
   KeyRound,
+  UserCircle,
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/button";
 
 const navItems = [
   { path: "/app", label: "ダッシュボード", icon: LayoutDashboard },
+  { path: "/app/my-profile", label: "マイプロフィール", icon: UserCircle },
   { path: "/app/invitations", label: "招待管理", icon: UserPlus, adminOnly: true },
   { path: "/app/company", label: "会社設定", icon: Building2, adminOnly: true },
   { path: "/app/employees", label: "従業員管理", icon: Users },
