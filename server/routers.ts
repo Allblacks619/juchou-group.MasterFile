@@ -174,7 +174,26 @@ export const appRouter = router({
       }),
 
     getMyProfile: protectedProcedure.query(async ({ ctx }) => {
-      const profile = await db.getEmployeeByUserId(ctx.user.id);
+      let profile = await db.getEmployeeByUserId(ctx.user.id);
+      if (!profile) {
+        // Auto-create employee record for users without one (e.g., created before auto-creation was implemented)
+        try {
+          const empResult = await db.createEmployee({
+            nameKanji: ctx.user.name || ctx.user.loginId || "",
+            nameRomaji: ctx.user.loginId || ctx.user.name || "",
+            userId: ctx.user.id,
+            email: ctx.user.email ?? undefined,
+          });
+          // Link employee to user
+          await db.upsertUser({
+            openId: ctx.user.openId,
+            employeeId: empResult.id as number,
+          });
+          profile = await db.getEmployeeByUserId(ctx.user.id);
+        } catch (err) {
+          console.error("[Employee] Auto-create failed:", err);
+        }
+      }
       return profile ?? null;
     }),
 
