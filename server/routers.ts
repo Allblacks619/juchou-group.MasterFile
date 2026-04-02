@@ -995,6 +995,75 @@ export const appRouter = router({
       return allProjects.filter(p => p.status === "active");
     }),
 
+    /** Get last used project for current employee */
+    lastProject: protectedProcedure.query(async ({ ctx }) => {
+      const employee = await db.getEmployeeByUserId(ctx.user.id);
+      if (!employee) return null;
+      // Get most recent attendance record to find last project
+      const records = await db.getAttendanceByEmployee(employee.id);
+      if (records.length === 0) return null;
+      // Sort by workDate desc, then by updatedAt desc
+      records.sort((a, b) => {
+        const dateA = new Date(b.workDate).getTime();
+        const dateB = new Date(a.workDate).getTime();
+        if (dateA !== dateB) return dateA - dateB;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+      const lastProjectId = records[0].projectId;
+      const allProjects = await db.getAllProjects();
+      return allProjects.find(p => p.id === lastProjectId) || null;
+    }),
+
+    /** Get project attendance data with member info (for team view) */
+    projectTeamData: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        startDate: z.string(),
+        endDate: z.string(),
+      }))
+      .query(async ({ input }) => {
+        const records = await db.getAttendanceByProject(
+          input.projectId,
+          new Date(input.startDate),
+          new Date(input.endDate),
+        );
+        // Collect unique employee IDs and guest names
+        const empIds = new Set<number>();
+        const guestNames = new Set<string>();
+        for (const rec of records) {
+          if (rec.employeeId) empIds.add(rec.employeeId);
+          if (rec.guestName) guestNames.add(rec.guestName);
+        }
+        // Get employee info
+        const allEmployees = await db.getAllEmployees();
+        const members = allEmployees
+          .filter(e => empIds.has(e.id))
+          .map(e => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}`, type: "employee" as const }));
+        const guests = Array.from(guestNames).map(name => ({ id: 0, nameKanji: name, type: "guest" as const }));
+        return {
+          members: [...members, ...guests],
+          records: records.map(r => ({
+            id: r.id,
+            employeeId: r.employeeId,
+            guestName: r.guestName,
+            projectId: r.projectId,
+            workDate: r.workDate,
+            hoursWorked: r.hoursWorked,
+            overtimeHours: r.overtimeHours,
+            workType: r.workType,
+            shiftType: r.shiftType,
+            notes: r.notes,
+          })),
+        };
+      }),
+
+    /** Get my employee info */
+    myEmployeeInfo: protectedProcedure.query(async ({ ctx }) => {
+      const employee = await db.getEmployeeByUserId(ctx.user.id);
+      if (!employee) return null;
+      return { id: employee.id, nameKanji: employee.nameKanji || employee.nameRomaji || "" };
+    }),
+
     /** Generate attendance PDF */
     generatePdf: protectedProcedure
       .input(z.object({

@@ -156,26 +156,26 @@ function CellEditPopover({ cell, onUpdate, onClear }: CellEditPopoverProps) {
         </div>
       </div>
 
-      {/* Overtime Hours */}
+      {/* Overtime Hours - 0.5 increments up to 12h */}
       <div>
         <label className="text-xs text-muted-foreground mb-1 block">
           <Clock className="h-3 w-3 inline mr-1" />残業時間
         </label>
-        <div className="flex flex-wrap gap-1">
-          {[0, 10, 20, 30, 40, 50, 60, 70, 80].map((val) => (
-            <button
-              key={val}
-              className={`text-xs px-2 py-1 rounded border transition-colors ${
-                cell.overtimeHours === val
-                  ? "bg-blue-500/20 text-blue-400 border-blue-400/50"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-              onClick={() => onUpdate({ overtimeHours: val })}
-            >
-              {val / 10}h
-            </button>
-          ))}
-        </div>
+        <Select
+          value={cell.overtimeHours.toString()}
+          onValueChange={(v) => onUpdate({ overtimeHours: Number(v) })}
+        >
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="max-h-[200px]">
+            {Array.from({ length: 25 }, (_, i) => i * 5).map((val) => (
+              <SelectItem key={val} value={val.toString()}>
+                {val / 10}時間
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Clear button */}

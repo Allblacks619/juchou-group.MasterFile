@@ -35,11 +35,26 @@ vi.mock("./db", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     },
+    {
+      id: 3,
+      employeeId: 10,
+      guestName: null,
+      projectId: 1,
+      workDate: new Date("2026-04-02"),
+      hoursWorked: 80,
+      overtimeHours: 15, // 1.5h overtime (0.5 increment)
+      workType: "normal",
+      shiftType: "night",
+      notes: null,
+      enteredBy: 2,
+      createdAt: new Date(),
+      updatedAt: new Date("2026-04-02T10:00:00Z"),
+    },
   ];
 
   return {
     getAttendanceByDateRange: vi.fn().mockResolvedValue(mockRecords),
-    getAttendanceByEmployee: vi.fn().mockResolvedValue([mockRecords[0]]),
+    getAttendanceByEmployee: vi.fn().mockResolvedValue([mockRecords[0], mockRecords[2]]),
     getAttendanceByProject: vi.fn().mockResolvedValue(mockRecords),
     upsertAttendance: vi.fn().mockImplementation(async (data: any) => ({
       id: 99,
@@ -48,13 +63,14 @@ vi.mock("./db", () => {
       updatedAt: new Date(),
     })),
     deleteAttendance: vi.fn().mockResolvedValue(undefined),
-    getEmployeeByUserId: vi.fn().mockResolvedValue({ id: 10, nameKanji: "テスト太郎" }),
+    getEmployeeByUserId: vi.fn().mockResolvedValue({ id: 10, nameKanji: "テスト太郎", nameRomaji: "test-taro" }),
     getAllProjects: vi.fn().mockResolvedValue([
       { id: 1, name: "テスト現場", status: "active" },
       { id: 2, name: "完了現場", status: "completed" },
     ]),
     getAllEmployees: vi.fn().mockResolvedValue([
       { id: 10, nameKanji: "テスト太郎", nameRomaji: "test-taro" },
+      { id: 20, nameKanji: "佐藤花子", nameRomaji: "sato-hanako" },
     ]),
   };
 });
@@ -147,9 +163,62 @@ describe("attendance", () => {
       const result = await caller.attendance.myProjects();
 
       expect(Array.isArray(result)).toBe(true);
-      // Should only return active projects
       for (const p of result) {
         expect(p.status).toBe("active");
+      }
+    });
+  });
+
+  describe("attendance.lastProject", () => {
+    it("returns the last project from most recent attendance", async () => {
+      const ctx = createWorkerContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const result = await caller.attendance.lastProject();
+
+      // Should return a project (based on mock data, employee 10 has records for project 1)
+      expect(result).toBeDefined();
+      if (result) {
+        expect(result.id).toBe(1);
+        expect(result.name).toBe("テスト現場");
+      }
+    });
+  });
+
+  describe("attendance.projectTeamData", () => {
+    it("returns members and records for a project", async () => {
+      const ctx = createWorkerContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const result = await caller.attendance.projectTeamData({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+
+      expect(result).toBeDefined();
+      expect(Array.isArray(result.members)).toBe(true);
+      expect(Array.isArray(result.records)).toBe(true);
+      // Should include employee member and guest member
+      const empMember = result.members.find(m => m.type === "employee");
+      const guestMember = result.members.find(m => m.type === "guest");
+      expect(empMember).toBeDefined();
+      expect(guestMember).toBeDefined();
+      expect(guestMember?.nameKanji).toBe("田中太郎");
+    });
+  });
+
+  describe("attendance.myEmployeeInfo", () => {
+    it("returns employee info for the logged-in user", async () => {
+      const ctx = createWorkerContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const result = await caller.attendance.myEmployeeInfo();
+
+      expect(result).toBeDefined();
+      if (result) {
+        expect(result.id).toBe(10);
+        expect(result.nameKanji).toBe("テスト太郎");
       }
     });
   });
@@ -205,6 +274,42 @@ describe("attendance", () => {
       });
 
       expect(result).toBeDefined();
+    });
+
+    it("supports 0.5 increment overtime (e.g. 1.5h = 15)", async () => {
+      const ctx = createWorkerContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const result = await caller.attendance.upsert({
+        employeeId: 10,
+        projectId: 1,
+        workDate: "2026-04-03",
+        hoursWorked: 80,
+        overtimeHours: 15, // 1.5 hours
+        workType: "normal",
+        shiftType: "day",
+      });
+
+      expect(result).toBeDefined();
+      expect(result.overtimeHours).toBe(15);
+    });
+
+    it("supports up to 12h overtime (120)", async () => {
+      const ctx = createWorkerContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const result = await caller.attendance.upsert({
+        employeeId: 10,
+        projectId: 1,
+        workDate: "2026-04-04",
+        hoursWorked: 80,
+        overtimeHours: 120, // 12 hours
+        workType: "normal",
+        shiftType: "day",
+      });
+
+      expect(result).toBeDefined();
+      expect(result.overtimeHours).toBe(120);
     });
   });
 

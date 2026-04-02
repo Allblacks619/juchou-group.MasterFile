@@ -76,8 +76,7 @@ export default function AppMyProfile() {
         gender: profile.gender || "",
         nationality: profile.nationality || "日本",
         experienceYears: profile.experienceYears ?? "",
-        height: profile.height ?? "",
-        weight: profile.weight ?? "",
+
         // Residence
         residenceStatus: profile.residenceStatus || "",
         residenceCardNumber: profile.residenceCardNumber || "",
@@ -127,8 +126,7 @@ export default function AppMyProfile() {
     }
     // Convert numeric fields
     if (data.experienceYears !== undefined) data.experienceYears = data.experienceYears ? Number(data.experienceYears) : undefined;
-    if (data.height !== undefined) data.height = data.height ? Number(data.height) : undefined;
-    if (data.weight !== undefined) data.weight = data.weight ? Number(data.weight) : undefined;
+
     // Handle nullable enums
     if (data.bloodType === undefined) data.bloodType = null;
     if (data.gender === undefined) data.gender = null;
@@ -404,16 +402,7 @@ export default function AppMyProfile() {
                   <Label htmlFor="experienceYears">経験年数</Label>
                   <Input id="experienceYears" type="number" value={form.experienceYears ?? ""} onChange={(e) => set("experienceYears", e.target.value)} placeholder="5" />
                 </div>
-                <div>
-                  <Label htmlFor="height">身長 (cm)</Label>
-                  <Input id="height" type="number" value={form.height ?? ""} onChange={(e) => set("height", e.target.value)} placeholder="170" />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="weight">体重 (kg)</Label>
-                  <Input id="weight" type="number" value={form.weight ?? ""} onChange={(e) => set("weight", e.target.value)} placeholder="65" />
-                </div>
+
               </div>
             </CardContent>
           </Card>

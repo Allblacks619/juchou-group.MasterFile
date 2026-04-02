@@ -146,8 +146,7 @@ export default function AppEmployeeDetail() {
     accountHolder: "",
     isInvoiceIssuer: false,
     invoiceIssuerNumber: "",
-    height: 0,
-    weight: 0,
+
     bloodPressureHigh: 0,
     bloodPressureLow: 0,
     insuredNumber: "",
@@ -197,8 +196,7 @@ export default function AppEmployeeDetail() {
         accountHolder: emp.accountHolder || "",
         isInvoiceIssuer: emp.isInvoiceIssuer || false,
         invoiceIssuerNumber: emp.invoiceIssuerNumber || "",
-        height: emp.height || 0,
-        weight: emp.weight || 0,
+
         bloodPressureHigh: (emp as any).bloodPressureHigh || 0,
         bloodPressureLow: (emp as any).bloodPressureLow || 0,
         insuredNumber: (emp as any).insuredNumber || "",
@@ -224,10 +222,10 @@ export default function AppEmployeeDetail() {
       if (data[key] === "") data[key] = undefined;
     });
     if (data.experienceYears === 0) data.experienceYears = undefined;
-    if (data.height === 0) data.height = undefined;
+
     if (data.bloodPressureHigh === 0) data.bloodPressureHigh = undefined;
     if (data.bloodPressureLow === 0) data.bloodPressureLow = undefined;
-    if (data.weight === 0) data.weight = undefined;
+
 
     if (isNew) {
       createMutation.mutate(data);
@@ -395,14 +393,7 @@ export default function AppEmployeeDetail() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>身長 (cm)</Label>
-                  <Input type="number" value={form.height || ""} onChange={(e) => updateField("height", parseInt(e.target.value) || 0)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>体重 (kg)</Label>
-                  <Input type="number" value={form.weight || ""} onChange={(e) => updateField("weight", parseInt(e.target.value) || 0)} />
-                </div>
+
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
