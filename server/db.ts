@@ -1,4 +1,4 @@
-import { eq, and, lt, sql } from "drizzle-orm";
+import { eq, and, lt, gte, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users, User,
@@ -10,6 +10,9 @@ import {
   InsertClient, clients,
   InsertProject, projects,
   InsertEmployeeRate, employeeRates,
+  InsertAttendance, attendance,
+  InsertInvoice, invoices,
+  InsertInvoiceItem, invoiceItems,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -442,4 +445,175 @@ export async function deleteEmployeeRate(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(employeeRates).where(eq(employeeRates.id, id));
+}
+
+// ── Attendance ──
+
+export async function createAttendance(data: InsertAttendance) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(attendance).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function getAttendanceById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(attendance).where(eq(attendance.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getAttendanceByDateRange(startDate: Date, endDate: Date, projectId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [
+    gte(attendance.workDate, startDate),
+    lte(attendance.workDate, endDate),
+  ];
+  if (projectId) conditions.push(eq(attendance.projectId, projectId));
+  return db.select().from(attendance).where(and(...conditions));
+}
+
+export async function getAttendanceByEmployee(employeeId: number, startDate?: Date, endDate?: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(attendance.employeeId, employeeId)];
+  if (startDate) conditions.push(gte(attendance.workDate, startDate));
+  if (endDate) conditions.push(lte(attendance.workDate, endDate));
+  return db.select().from(attendance).where(and(...conditions));
+}
+
+export async function getAttendanceByProject(projectId: number, startDate?: Date, endDate?: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(attendance.projectId, projectId)];
+  if (startDate) conditions.push(gte(attendance.workDate, startDate));
+  if (endDate) conditions.push(lte(attendance.workDate, endDate));
+  return db.select().from(attendance).where(and(...conditions));
+}
+
+export async function updateAttendance(id: number, data: Partial<InsertAttendance>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(attendance).set({ ...data, updatedAt: new Date() }).where(eq(attendance.id, id));
+  return getAttendanceById(id);
+}
+
+export async function deleteAttendance(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(attendance).where(eq(attendance.id, id));
+}
+
+/** Upsert attendance: if same employee+project+date exists, update; else insert */
+export async function upsertAttendance(data: InsertAttendance) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Check if record exists for same employee, project, date
+  const workDateStart = new Date(data.workDate);
+  workDateStart.setHours(0, 0, 0, 0);
+  const workDateEnd = new Date(data.workDate);
+  workDateEnd.setHours(23, 59, 59, 999);
+  
+  const existing = await db.select().from(attendance).where(
+    and(
+      eq(attendance.employeeId, data.employeeId),
+      eq(attendance.projectId, data.projectId),
+      gte(attendance.workDate, workDateStart),
+      lte(attendance.workDate, workDateEnd),
+    )
+  ).limit(1);
+  
+  if (existing.length > 0) {
+    await db.update(attendance).set({
+      hoursWorked: data.hoursWorked,
+      overtimeHours: data.overtimeHours,
+      workType: data.workType,
+      notes: data.notes,
+      updatedAt: new Date(),
+    }).where(eq(attendance.id, existing[0].id));
+    return { ...existing[0], ...data };
+  } else {
+    const result = await db.insert(attendance).values(data);
+    return { id: result[0].insertId, ...data };
+  }
+}
+
+// ── Invoices ──
+
+export async function createInvoice(data: InsertInvoice) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(invoices).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function getInvoiceById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getAllInvoices() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(invoices);
+}
+
+export async function getInvoicesByClient(clientId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(invoices).where(eq(invoices.clientId, clientId));
+}
+
+export async function updateInvoice(id: number, data: Partial<InsertInvoice>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(invoices).set({ ...data, updatedAt: new Date() }).where(eq(invoices.id, id));
+  return getInvoiceById(id);
+}
+
+export async function deleteInvoice(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Delete items first
+  await db.delete(invoiceItems).where(eq(invoiceItems.invoiceId, id));
+  await db.delete(invoices).where(eq(invoices.id, id));
+}
+
+// ── Invoice Items ──
+
+export async function createInvoiceItem(data: InsertInvoiceItem) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(invoiceItems).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function getInvoiceItemsByInvoice(invoiceId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(invoiceItems).where(eq(invoiceItems.invoiceId, invoiceId));
+}
+
+export async function deleteInvoiceItemsByInvoice(invoiceId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(invoiceItems).where(eq(invoiceItems.invoiceId, invoiceId));
+}
+
+/** Generate next invoice number for a given month */
+export async function getNextInvoiceNumber(yearMonth: string): Promise<string> {
+  const db = await getDb();
+  if (!db) return `INV-${yearMonth}-001`;
+  const prefix = `INV-${yearMonth}-`;
+  const existing = await db.select().from(invoices)
+    .where(sql`${invoices.invoiceNumber} LIKE ${prefix + '%'}`)
+  const maxNum = existing.reduce((max, inv) => {
+    const num = parseInt(inv.invoiceNumber.replace(prefix, ""), 10);
+    return isNaN(num) ? max : Math.max(max, num);
+  }, 0);
+  return `${prefix}${String(maxNum + 1).padStart(3, "0")}`;
 }

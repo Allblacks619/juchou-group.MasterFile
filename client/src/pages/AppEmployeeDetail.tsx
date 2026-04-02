@@ -28,9 +28,33 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Upload, Plus, Trash2, User, Shield, Heart, Banknote, Award, FileText } from "lucide-react";
+import { ArrowLeft, Upload, Plus, Trash2, User, Shield, Heart, Banknote, Award, FileText, FileDown, Loader2 } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { format } from "date-fns";
+
+/** PDF Roster download button */
+function RosterPdfButton({ employeeId }: { employeeId: number }) {
+  const generatePdf = trpc.pdf.rosterSingle.useMutation({
+    onSuccess: (data) => {
+      window.open(data.url, "_blank");
+      toast.success("名簿PDFを生成しました");
+    },
+    onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
+  });
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={generatePdf.isPending}
+      onClick={() => generatePdf.mutate({ employeeId })}
+      className="gap-1.5"
+    >
+      {generatePdf.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+      名簿PDF
+    </Button>
+  );
+}
 
 export default function AppEmployeeDetail() {
   const params = useParams<{ id: string }>();
@@ -259,16 +283,19 @@ export default function AppEmployeeDetail() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => setLocation("/app/employees")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          戻る
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            {isNew ? "新規従業員登録" : form.nameKanji || "従業員詳細"}
-          </h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={() => setLocation("/app/employees")}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            戻る
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {isNew ? "新規従業員登録" : form.nameKanji || "従業員詳細"}
+            </h1>
+          </div>
         </div>
+        {!isNew && employeeId && <RosterPdfButton employeeId={employeeId} />}
       </div>
 
       <Tabs defaultValue="basic" className="space-y-4">

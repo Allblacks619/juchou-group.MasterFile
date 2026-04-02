@@ -22,6 +22,8 @@ const AppEmployees = lazy(() => import("./pages/AppEmployees"));
 const AppEmployeeDetail = lazy(() => import("./pages/AppEmployeeDetail"));
 const AppMyProfile = lazy(() => import("./pages/AppMyProfile"));
 const AppRates = lazy(() => import("./pages/AppRates"));
+const AppAttendance = lazy(() => import("./pages/AppAttendance"));
+const AppInvoices = lazy(() => import("./pages/AppInvoices"));
 
 function ScrollToTop() {
   const [location] = useLocation();
@@ -52,6 +54,8 @@ function AppRoutes() {
           <Route path="/app/employees/:id" component={AppEmployeeDetail} />
           <Route path="/app/my-profile" component={AppMyProfile} />
           <Route path="/app/rates" component={AppRates} />
+          <Route path="/app/attendance" component={AppAttendance} />
+          <Route path="/app/invoices" component={AppInvoices} />
           <Route component={NotFound} />
         </Switch>
       </Suspense>

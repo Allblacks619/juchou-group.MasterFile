@@ -361,3 +361,102 @@ export const employeeRates = mysqlTable("employee_rates", {
 
 export type EmployeeRate = typeof employeeRates.$inferSelect;
 export type InsertEmployeeRate = typeof employeeRates.$inferInsert;
+
+/**
+ * Attendance records (出面表 / 出勤管理)
+ * One record per employee per day per project
+ */
+export const attendance = mysqlTable("attendance", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Employee ID */
+  employeeId: int("employeeId").notNull(),
+  /** Project ID */
+  projectId: int("projectId").notNull(),
+  /** Work date (stored as timestamp, use date part only) */
+  workDate: timestamp("workDate").notNull(),
+  /** Hours worked (e.g. 8.0, 4.5 for half day). Stored as int * 10 to avoid float issues (80 = 8.0h) */
+  hoursWorked: int("hoursWorked").default(80).notNull(),
+  /** Overtime hours * 10 (e.g. 15 = 1.5h) */
+  overtimeHours: int("overtimeHours").default(0).notNull(),
+  /** Work type: normal, half_day, overtime, holiday, absence */
+  workType: mysqlEnum("workType", ["normal", "half_day", "overtime", "holiday", "absence"]).default("normal").notNull(),
+  /** Notes */
+  notes: text("notes"),
+  /** Entered by user ID */
+  enteredBy: int("enteredBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Attendance = typeof attendance.$inferSelect;
+export type InsertAttendance = typeof attendance.$inferInsert;
+
+/**
+ * Invoices (請求書)
+ * One invoice per client per month (or per project)
+ */
+export const invoices = mysqlTable("invoices", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Invoice number (e.g. INV-2026-04-001) */
+  invoiceNumber: varchar("invoiceNumber", { length: 64 }).notNull(),
+  /** Client ID */
+  clientId: int("clientId").notNull(),
+  /** Project ID (optional, can be per-project or per-client) */
+  projectId: int("projectId"),
+  /** Billing period start */
+  periodStart: timestamp("periodStart").notNull(),
+  /** Billing period end */
+  periodEnd: timestamp("periodEnd").notNull(),
+  /** Issue date */
+  issueDate: timestamp("issueDate").notNull(),
+  /** Due date */
+  dueDate: timestamp("dueDate"),
+  /** Subtotal (before tax, stored as integer yen) */
+  subtotal: int("subtotal").default(0).notNull(),
+  /** Tax amount */
+  taxAmount: int("taxAmount").default(0).notNull(),
+  /** Total amount */
+  totalAmount: int("totalAmount").default(0).notNull(),
+  /** Tax rate (e.g. 10 for 10%) */
+  taxRate: int("taxRate").default(10).notNull(),
+  /** Status */
+  status: mysqlEnum("status", ["draft", "sent", "paid", "overdue", "cancelled"]).default("draft").notNull(),
+  /** Notes */
+  notes: text("notes"),
+  /** PDF URL (generated) */
+  pdfUrl: text("pdfUrl"),
+  /** Created by user ID */
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Invoice = typeof invoices.$inferSelect;
+export type InsertInvoice = typeof invoices.$inferInsert;
+
+/**
+ * Invoice line items (請求書明細)
+ */
+export const invoiceItems = mysqlTable("invoice_items", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Invoice ID */
+  invoiceId: int("invoiceId").notNull(),
+  /** Employee ID */
+  employeeId: int("employeeId"),
+  /** Description (e.g. worker name + project) */
+  description: text("description").notNull(),
+  /** Quantity (e.g. number of days * 10, so 200 = 20.0 days) */
+  quantity: int("quantity").default(0).notNull(),
+  /** Unit label */
+  unit: varchar("unit", { length: 32 }).default("日"),
+  /** Unit price (yen) */
+  unitPrice: int("unitPrice").default(0).notNull(),
+  /** Amount (quantity/10 * unitPrice) */
+  amount: int("amount").default(0).notNull(),
+  /** Notes */
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type InvoiceItem = typeof invoiceItems.$inferSelect;
+export type InsertInvoiceItem = typeof invoiceItems.$inferInsert;

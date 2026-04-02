@@ -12,8 +12,32 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, User, ChevronRight } from "lucide-react";
+import { Plus, Search, User, ChevronRight, FileDown, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { useLocation } from "wouter";
+
+function RosterListPdfButton() {
+  const generatePdf = trpc.pdf.rosterList.useMutation({
+    onSuccess: (data) => {
+      window.open(data.url, "_blank");
+      toast.success("名簿一覧PDFを生成しました");
+    },
+    onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
+  });
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={generatePdf.isPending}
+      onClick={() => generatePdf.mutate({ employeeIds: [] })}
+      className="gap-1.5"
+    >
+      {generatePdf.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+      名簿一覧PDF
+    </Button>
+  );
+}
 
 export default function AppEmployees() {
   const [, setLocation] = useLocation();
@@ -40,13 +64,16 @@ export default function AppEmployees() {
             従業員のプロフィール情報を管理します
           </p>
         </div>
-        <Button
-          className="bg-gold text-background hover:bg-gold-dim"
-          onClick={() => setLocation("/app/employees/new")}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          新規登録
-        </Button>
+        <div className="flex gap-2">
+          <RosterListPdfButton />
+          <Button
+            className="bg-gold text-background hover:bg-gold-dim"
+            onClick={() => setLocation("/app/employees/new")}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            新規登録
+          </Button>
+        </div>
       </div>
 
       <Card>

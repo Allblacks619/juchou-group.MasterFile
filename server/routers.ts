@@ -7,6 +7,8 @@ import { nanoid } from "nanoid";
 import * as db from "./db";
 import { storagePut } from "./storage";
 import { TRPCError } from "@trpc/server";
+import { generateRosterPdf, generateRosterListPdf } from "./pdfRoster";
+import { generateInvoicePdf } from "./pdfInvoice";
 
 // ── Helper: check admin or leader role ──
 const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -757,6 +759,330 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteEmployeeRate(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ── PDF Generation (作業員名簿) ──
+  pdf: router({
+    /** Generate individual worker roster PDF */
+    rosterSingle: leaderOrAdminProcedure
+      .input(z.object({
+        employeeId: z.number(),
+        projectName: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const employee = await db.getEmployeeById(input.employeeId);
+        if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員が見つかりません" });
+        const qualifications = await db.getQualificationsByEmployee(input.employeeId);
+        const company = await db.getCompanyProfile();
+
+        const pdfBuffer = await generateRosterPdf({
+          employee,
+          qualifications,
+          company,
+          projectName: input.projectName,
+        });
+
+        // Upload to S3
+        const fileName = `roster_${employee.nameRomaji || employee.id}_${Date.now()}.pdf`;
+        const fileKey = `rosters/${fileName}`;
+        const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
+
+        return { url, fileName };
+      }),
+
+    /** Generate multi-worker roster list PDF */
+    rosterList: leaderOrAdminProcedure
+      .input(z.object({
+        employeeIds: z.array(z.number()),
+        projectName: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const allEmployees = await db.getAllEmployees();
+        const selectedEmployees = input.employeeIds.length > 0
+          ? allEmployees.filter(e => input.employeeIds.includes(e.id))
+          : allEmployees;
+
+        const workers = await Promise.all(
+          selectedEmployees.map(async (emp) => ({
+            employee: emp,
+            qualifications: await db.getQualificationsByEmployee(emp.id),
+          }))
+        );
+
+        const company = await db.getCompanyProfile();
+        const pdfBuffer = await generateRosterListPdf(workers, company, input.projectName);
+
+        const fileName = `roster_list_${Date.now()}.pdf`;
+        const fileKey = `rosters/${fileName}`;
+        const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
+
+        return { url, fileName };
+      }),
+  }),
+
+  // ── Attendance (出面表 / 出勤管理) ──
+  attendance: router({
+    /** List attendance records for a date range (optionally filtered by project) */
+    list: leaderOrAdminProcedure
+      .input(z.object({
+        startDate: z.string(),
+        endDate: z.string(),
+        projectId: z.number().optional(),
+      }))
+      .query(async ({ input }) => {
+        return db.getAttendanceByDateRange(
+          new Date(input.startDate),
+          new Date(input.endDate),
+          input.projectId,
+        );
+      }),
+
+    /** List attendance for a specific employee */
+    byEmployee: protectedProcedure
+      .input(z.object({
+        employeeId: z.number(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        return db.getAttendanceByEmployee(
+          input.employeeId,
+          input.startDate ? new Date(input.startDate) : undefined,
+          input.endDate ? new Date(input.endDate) : undefined,
+        );
+      }),
+
+    /** Upsert a single attendance record */
+    upsert: leaderOrAdminProcedure
+      .input(z.object({
+        employeeId: z.number(),
+        projectId: z.number(),
+        workDate: z.string(),
+        hoursWorked: z.number().default(80),
+        overtimeHours: z.number().default(0),
+        workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence"]).default("normal"),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.upsertAttendance({
+          employeeId: input.employeeId,
+          projectId: input.projectId,
+          workDate: new Date(input.workDate),
+          hoursWorked: input.hoursWorked,
+          overtimeHours: input.overtimeHours,
+          workType: input.workType,
+          notes: input.notes || null,
+          enteredBy: ctx.user.id,
+        });
+      }),
+
+    /** Batch upsert attendance records (for grid entry) */
+    batchUpsert: leaderOrAdminProcedure
+      .input(z.object({
+        records: z.array(z.object({
+          employeeId: z.number(),
+          projectId: z.number(),
+          workDate: z.string(),
+          hoursWorked: z.number().default(80),
+          overtimeHours: z.number().default(0),
+          workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence"]).default("normal"),
+          notes: z.string().optional(),
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const results = [];
+        for (const rec of input.records) {
+          const result = await db.upsertAttendance({
+            employeeId: rec.employeeId,
+            projectId: rec.projectId,
+            workDate: new Date(rec.workDate),
+            hoursWorked: rec.hoursWorked,
+            overtimeHours: rec.overtimeHours,
+            workType: rec.workType,
+            notes: rec.notes || null,
+            enteredBy: ctx.user.id,
+          });
+          results.push(result);
+        }
+        return { count: results.length };
+      }),
+
+    /** Delete an attendance record */
+    delete: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteAttendance(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ── Invoices (請求書) ──
+  invoice: router({
+    /** List all invoices */
+    list: leaderOrAdminProcedure.query(async () => {
+      return db.getAllInvoices();
+    }),
+
+    /** Get single invoice with items */
+    get: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const invoice = await db.getInvoiceById(input.id);
+        if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+        const items = await db.getInvoiceItemsByInvoice(input.id);
+        return { invoice, items };
+      }),
+
+    /** Create invoice from attendance data */
+    createFromAttendance: leaderOrAdminProcedure
+      .input(z.object({
+        clientId: z.number(),
+        projectId: z.number(),
+        periodStart: z.string(),
+        periodEnd: z.string(),
+        taxRate: z.number().default(10),
+        notes: z.string().optional(),
+        dueDate: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // Get attendance records for the period
+        const records = await db.getAttendanceByDateRange(
+          new Date(input.periodStart),
+          new Date(input.periodEnd),
+          input.projectId,
+        );
+
+        // Get rates for this project
+        const rates = await db.getRatesByProject(input.projectId);
+        const rateMap = new Map(rates.map(r => [r.employeeId, r]));
+
+        // Get all employees for names
+        const allEmployees = await db.getAllEmployees();
+        const empMap = new Map(allEmployees.map(e => [e.id, e]));
+
+        // Group attendance by employee
+        const byEmployee = new Map<number, typeof records>();
+        for (const rec of records) {
+          const arr = byEmployee.get(rec.employeeId) || [];
+          arr.push(rec);
+          byEmployee.set(rec.employeeId, arr);
+        }
+
+        // Build invoice items
+        const items: Array<{ employeeId: number; description: string; quantity: number; unitPrice: number; amount: number; unit: string }> = [];
+        let subtotal = 0;
+
+        for (const [empId, empRecords] of Array.from(byEmployee.entries())) {
+          const emp = empMap.get(empId);
+          const rate = rateMap.get(empId);
+          const clientRate = rate?.clientRate || 0;
+
+          // Calculate total days (hours / 80 = days, since 80 = 8.0h = 1 day)
+          let totalHours = 0;
+          for (const rec of empRecords) {
+            totalHours += rec.hoursWorked;
+          }
+          // Convert to days * 10 (e.g., 200 = 20.0 days)
+          const totalDaysTimes10 = Math.round(totalHours / 8);
+
+          const amount = Math.round((totalDaysTimes10 / 10) * clientRate);
+          subtotal += amount;
+
+          items.push({
+            employeeId: empId,
+            description: `${emp?.nameKanji || `従業員${empId}`}`,
+            quantity: totalDaysTimes10,
+            unitPrice: clientRate,
+            amount,
+            unit: "日",
+          });
+        }
+
+        const taxAmount = Math.round(subtotal * input.taxRate / 100);
+        const totalAmount = subtotal + taxAmount;
+
+        // Generate invoice number
+        const yearMonth = input.periodStart.slice(0, 7);
+        const invoiceNumber = await db.getNextInvoiceNumber(yearMonth);
+
+        // Create invoice
+        const invoice = await db.createInvoice({
+          invoiceNumber,
+          clientId: input.clientId,
+          projectId: input.projectId,
+          periodStart: new Date(input.periodStart),
+          periodEnd: new Date(input.periodEnd),
+          issueDate: new Date(),
+          dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          subtotal,
+          taxAmount,
+          totalAmount,
+          taxRate: input.taxRate,
+          notes: input.notes || null,
+          createdBy: ctx.user.id,
+        });
+
+        // Create invoice items
+        for (const item of items) {
+          await db.createInvoiceItem({
+            invoiceId: invoice.id!,
+            employeeId: item.employeeId,
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            amount: item.amount,
+            unit: item.unit,
+          });
+        }
+
+        return { id: invoice.id, invoiceNumber, totalAmount };
+      }),
+
+    /** Generate PDF for an invoice */
+    generatePdf: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const invoice = await db.getInvoiceById(input.id);
+        if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+        const items = await db.getInvoiceItemsByInvoice(input.id);
+        const company = await db.getCompanyProfile();
+
+        // Get client name
+        let clientName = "取引先";
+        if (invoice.clientId) {
+          const client = await db.getClientById(invoice.clientId);
+          if (client) clientName = client.name;
+        }
+
+        const pdfBuffer = await generateInvoicePdf({ invoice, items, company, clientName });
+
+        const fileName = `invoice_${invoice.invoiceNumber}_${Date.now()}.pdf`;
+        const fileKey = `invoices/${fileName}`;
+        const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
+
+        // Update invoice with PDF URL
+        await db.updateInvoice(input.id, { pdfUrl: url });
+
+        return { url, fileName };
+      }),
+
+    /** Update invoice status */
+    updateStatus: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["draft", "sent", "paid", "overdue", "cancelled"]),
+      }))
+      .mutation(async ({ input }) => {
+        return db.updateInvoice(input.id, { status: input.status });
+      }),
+
+    /** Delete an invoice */
+    delete: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteInvoice(input.id);
         return { success: true };
       }),
   }),

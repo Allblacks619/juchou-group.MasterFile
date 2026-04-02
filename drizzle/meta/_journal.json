@@ -29,6 +29,20 @@
       "when": 1775102668876,
       "tag": "0003_flashy_shockwave",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1775104423037,
+      "tag": "0004_bizarre_frank_castle",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1775105264155,
+      "tag": "0005_gorgeous_sharon_carter",
+      "breakpoints": true
     }
   ]
 }
