@@ -9,6 +9,7 @@ import {
   X,
   KeyRound,
   UserCircle,
+  DollarSign,
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -20,6 +21,7 @@ const navItems = [
   { path: "/app/invitations", label: "招待管理", icon: UserPlus, adminOnly: true },
   { path: "/app/company", label: "会社設定", icon: Building2, adminOnly: true },
   { path: "/app/employees", label: "従業員管理", icon: Users },
+  { path: "/app/rates", label: "単価管理", icon: DollarSign, adminOnly: true },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {

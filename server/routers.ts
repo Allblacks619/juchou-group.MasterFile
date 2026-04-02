@@ -174,26 +174,7 @@ export const appRouter = router({
       }),
 
     getMyProfile: protectedProcedure.query(async ({ ctx }) => {
-      let profile = await db.getEmployeeByUserId(ctx.user.id);
-      if (!profile) {
-        // Auto-create employee record for users without one (e.g., created before auto-creation was implemented)
-        try {
-          const empResult = await db.createEmployee({
-            nameKanji: ctx.user.name || ctx.user.loginId || "",
-            nameRomaji: ctx.user.loginId || ctx.user.name || "",
-            userId: ctx.user.id,
-            email: ctx.user.email ?? undefined,
-          });
-          // Link employee to user
-          await db.upsertUser({
-            openId: ctx.user.openId,
-            employeeId: empResult.id as number,
-          });
-          profile = await db.getEmployeeByUserId(ctx.user.id);
-        } catch (err) {
-          console.error("[Employee] Auto-create failed:", err);
-        }
-      }
+      const profile = await db.getEmployeeByUserId(ctx.user.id);
       return profile ?? null;
     }),
 
@@ -571,6 +552,212 @@ export const appRouter = router({
       .input(z.object({ daysAhead: z.number().default(90) }))
       .query(async ({ input }) => {
         return db.getExpiringDocuments(input.daysAhead);
+      }),
+  }),
+
+  // ── Clients (取引先) ──
+  clientInfo: router({
+    list: leaderOrAdminProcedure.query(async () => {
+      return db.getAllClients();
+    }),
+
+    get: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const client = await db.getClientById(input.id);
+        if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "取引先が見つかりません" });
+        return client;
+      }),
+
+    create: leaderOrAdminProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        postalCode: z.string().optional(),
+        address: z.string().optional(),
+        phone: z.string().optional(),
+        email: z.string().optional(),
+        contactPerson: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return db.createClient(input);
+      }),
+
+    update: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        postalCode: z.string().optional(),
+        address: z.string().optional(),
+        phone: z.string().optional(),
+        email: z.string().optional(),
+        contactPerson: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        return db.updateClient(id, data);
+      }),
+
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteClient(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ── Projects (現場) ──
+  project: router({
+    list: leaderOrAdminProcedure.query(async () => {
+      const [projectList, clientList] = await Promise.all([
+        db.getAllProjects(),
+        db.getAllClients(),
+      ]);
+      const clientMap = new Map(clientList.map(c => [c.id, c]));
+      return projectList.map(p => ({
+        ...p,
+        client: p.clientId ? clientMap.get(p.clientId) ?? null : null,
+      }));
+    }),
+
+    get: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const project = await db.getProjectById(input.id);
+        if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+        const client = project.clientId ? await db.getClientById(project.clientId) : null;
+        return { ...project, client };
+      }),
+
+    create: leaderOrAdminProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        clientId: z.number().optional(),
+        address: z.string().optional(),
+        status: z.enum(["active", "completed", "cancelled"]).default("active"),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const data: any = { ...input };
+        if (input.startDate) data.startDate = new Date(input.startDate);
+        if (input.endDate) data.endDate = new Date(input.endDate);
+        return db.createProject(data);
+      }),
+
+    update: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        clientId: z.number().nullable().optional(),
+        address: z.string().optional(),
+        status: z.enum(["active", "completed", "cancelled"]).optional(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...updateData } = input;
+        const data: any = { ...updateData };
+        if (updateData.startDate) data.startDate = new Date(updateData.startDate);
+        if (updateData.endDate) data.endDate = new Date(updateData.endDate);
+        return db.updateProject(id, data);
+      }),
+
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteProject(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ── Employee Rates (単価管理) ──
+  rate: router({
+    listByProject: leaderOrAdminProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input }) => {
+        const [rates, empList] = await Promise.all([
+          db.getRatesByProject(input.projectId),
+          db.getAllEmployees(),
+        ]);
+        const empMap = new Map(empList.map(e => [e.id, e]));
+        return rates.map(r => ({
+          ...r,
+          employee: empMap.get(r.employeeId) ?? null,
+        }));
+      }),
+
+    listByEmployee: leaderOrAdminProcedure
+      .input(z.object({ employeeId: z.number() }))
+      .query(async ({ input }) => {
+        const [rates, projList] = await Promise.all([
+          db.getRatesByEmployee(input.employeeId),
+          db.getAllProjects(),
+        ]);
+        const projMap = new Map(projList.map(p => [p.id, p]));
+        return rates.map(r => ({
+          ...r,
+          project: projMap.get(r.projectId) ?? null,
+        }));
+      }),
+
+    listAll: leaderOrAdminProcedure.query(async () => {
+      const [rates, empList, projList] = await Promise.all([
+        db.getAllEmployeeRates(),
+        db.getAllEmployees(),
+        db.getAllProjects(),
+      ]);
+      const empMap = new Map(empList.map(e => [e.id, e]));
+      const projMap = new Map(projList.map(p => [p.id, p]));
+      return rates.map(r => ({
+        ...r,
+        employee: empMap.get(r.employeeId) ?? null,
+        project: projMap.get(r.projectId) ?? null,
+      }));
+    }),
+
+    create: leaderOrAdminProcedure
+      .input(z.object({
+        employeeId: z.number(),
+        projectId: z.number(),
+        clientRate: z.number().min(0),
+        workerRate: z.number().min(0),
+        effectiveFrom: z.string().optional(),
+        effectiveUntil: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const data: any = { ...input };
+        if (input.effectiveFrom) data.effectiveFrom = new Date(input.effectiveFrom);
+        if (input.effectiveUntil) data.effectiveUntil = new Date(input.effectiveUntil);
+        return db.createEmployeeRate(data);
+      }),
+
+    update: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        clientRate: z.number().min(0).optional(),
+        workerRate: z.number().min(0).optional(),
+        effectiveFrom: z.string().optional(),
+        effectiveUntil: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...updateData } = input;
+        const data: any = { ...updateData };
+        if (updateData.effectiveFrom) data.effectiveFrom = new Date(updateData.effectiveFrom);
+        if (updateData.effectiveUntil) data.effectiveUntil = new Date(updateData.effectiveUntil);
+        return db.updateEmployeeRate(id, data);
+      }),
+
+    delete: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteEmployeeRate(input.id);
+        return { success: true };
       }),
   }),
 });

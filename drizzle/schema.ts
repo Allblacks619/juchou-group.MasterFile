@@ -282,3 +282,82 @@ export const documents = mysqlTable("documents", {
 
 export type Document = typeof documents.$inferSelect;
 export type InsertDocument = typeof documents.$inferInsert;
+
+/**
+ * Clients (取引先) - companies that hire us
+ */
+export const clients = mysqlTable("clients", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Client company name */
+  name: varchar("name", { length: 256 }).notNull(),
+  /** Postal code */
+  postalCode: varchar("postalCode", { length: 16 }),
+  /** Address */
+  address: text("address"),
+  /** Phone number */
+  phone: varchar("phone", { length: 32 }),
+  /** Email */
+  email: varchar("email", { length: 320 }),
+  /** Contact person name */
+  contactPerson: varchar("contactPerson", { length: 128 }),
+  /** Notes */
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Client = typeof clients.$inferSelect;
+export type InsertClient = typeof clients.$inferInsert;
+
+/**
+ * Projects (現場) - work sites / construction projects
+ */
+export const projects = mysqlTable("projects", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Project name / site name */
+  name: varchar("name", { length: 256 }).notNull(),
+  /** Client ID */
+  clientId: int("clientId"),
+  /** Site address */
+  address: text("address"),
+  /** Project status */
+  status: mysqlEnum("projectStatus", ["active", "completed", "cancelled"]).default("active").notNull(),
+  /** Start date */
+  startDate: timestamp("startDate"),
+  /** End date */
+  endDate: timestamp("endDate"),
+  /** Notes */
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Project = typeof projects.$inferSelect;
+export type InsertProject = typeof projects.$inferInsert;
+
+/**
+ * Employee rates per project (単価管理)
+ * Tracks both the rate charged to the client (先方単価) and the rate paid to the worker (支払単価)
+ */
+export const employeeRates = mysqlTable("employee_rates", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Employee ID */
+  employeeId: int("employeeId").notNull(),
+  /** Project ID */
+  projectId: int("projectId").notNull(),
+  /** Rate charged to client per day (先方単価/日) in yen */
+  clientRate: int("clientRate").notNull(),
+  /** Rate paid to worker per day (支払単価/日) in yen */
+  workerRate: int("workerRate").notNull(),
+  /** Effective from date */
+  effectiveFrom: timestamp("effectiveFrom"),
+  /** Effective until date (null = still active) */
+  effectiveUntil: timestamp("effectiveUntil"),
+  /** Notes */
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type EmployeeRate = typeof employeeRates.$inferSelect;
+export type InsertEmployeeRate = typeof employeeRates.$inferInsert;

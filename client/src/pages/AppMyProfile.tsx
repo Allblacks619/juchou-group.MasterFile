@@ -31,6 +31,7 @@ import {
   Upload,
   Trash2,
   Globe,
+  Stamp,
 } from "lucide-react";
 
 /** Helper: format Date to YYYY-MM-DD string for input[type=date] */
@@ -295,46 +296,52 @@ export default function AppMyProfile() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full flex-wrap h-auto gap-1 bg-muted/50 p-1">
-          <TabsTrigger value="basic" className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <User className="h-3.5 w-3.5" />
-            基本情報
-            {missingSections["基本情報"] && <Badge variant="destructive" className="h-4 px-1 text-[10px]">{missingSections["基本情報"]}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="residence" className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <Globe className="h-3.5 w-3.5" />
-            在留情報
-          </TabsTrigger>
-          <TabsTrigger value="address" className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <MapPin className="h-3.5 w-3.5" />
-            住所・連絡先
-            {(missingSections["住所"] || missingSections["連絡先"]) && (
-              <Badge variant="destructive" className="h-4 px-1 text-[10px]">{(missingSections["住所"] || 0) + (missingSections["連絡先"] || 0)}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="insurance" className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <Shield className="h-3.5 w-3.5" />
-            保険・雇用
-          </TabsTrigger>
-          <TabsTrigger value="emergency" className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <Heart className="h-3.5 w-3.5" />
-            緊急連絡先
-            {missingSections["緊急連絡先"] && <Badge variant="destructive" className="h-4 px-1 text-[10px]">{missingSections["緊急連絡先"]}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="bank" className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <Banknote className="h-3.5 w-3.5" />
-            振込先
-            {missingSections["振込先"] && <Badge variant="destructive" className="h-4 px-1 text-[10px]">{missingSections["振込先"]}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="qualifications" className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <Award className="h-3.5 w-3.5" />
-            資格
-          </TabsTrigger>
-          <TabsTrigger value="documents" className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <FileText className="h-3.5 w-3.5" />
-            書類
-          </TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-1 px-1 pb-1">
+          <TabsList className="inline-flex w-max min-w-full h-auto gap-1 bg-muted/50 p-1">
+            <TabsTrigger value="basic" className="flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1.5 sm:gap-1.5 sm:text-sm sm:px-3 sm:py-2">
+              <User className="h-3.5 w-3.5 shrink-0" />
+              <span>基本</span>
+              {missingSections["基本情報"] && <Badge variant="destructive" className="h-4 px-1 text-[10px]">{missingSections["基本情報"]}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="residence" className="flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1.5 sm:gap-1.5 sm:text-sm sm:px-3 sm:py-2">
+              <Globe className="h-3.5 w-3.5 shrink-0" />
+              <span>在留</span>
+            </TabsTrigger>
+            <TabsTrigger value="address" className="flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1.5 sm:gap-1.5 sm:text-sm sm:px-3 sm:py-2">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              <span>住所</span>
+              {(missingSections["住所"] || missingSections["連絡先"]) && (
+                <Badge variant="destructive" className="h-4 px-1 text-[10px]">{(missingSections["住所"] || 0) + (missingSections["連絡先"] || 0)}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="insurance" className="flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1.5 sm:gap-1.5 sm:text-sm sm:px-3 sm:py-2">
+              <Shield className="h-3.5 w-3.5 shrink-0" />
+              <span>保険</span>
+            </TabsTrigger>
+            <TabsTrigger value="emergency" className="flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1.5 sm:gap-1.5 sm:text-sm sm:px-3 sm:py-2">
+              <Heart className="h-3.5 w-3.5 shrink-0" />
+              <span>緊急</span>
+              {missingSections["緊急連絡先"] && <Badge variant="destructive" className="h-4 px-1 text-[10px]">{missingSections["緊急連絡先"]}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="bank" className="flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1.5 sm:gap-1.5 sm:text-sm sm:px-3 sm:py-2">
+              <Banknote className="h-3.5 w-3.5 shrink-0" />
+              <span>振込</span>
+              {missingSections["振込先"] && <Badge variant="destructive" className="h-4 px-1 text-[10px]">{missingSections["振込先"]}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="qualifications" className="flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1.5 sm:gap-1.5 sm:text-sm sm:px-3 sm:py-2">
+              <Award className="h-3.5 w-3.5 shrink-0" />
+              <span>資格</span>
+            </TabsTrigger>
+            <TabsTrigger value="stamp" className="flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1.5 sm:gap-1.5 sm:text-sm sm:px-3 sm:py-2">
+              <Stamp className="h-3.5 w-3.5 shrink-0" />
+              <span>印鑑</span>
+            </TabsTrigger>
+            <TabsTrigger value="documents" className="flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1.5 sm:gap-1.5 sm:text-sm sm:px-3 sm:py-2">
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              <span>書類</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* ── 基本情報 ── */}
         <TabsContent value="basic">
@@ -729,6 +736,73 @@ export default function AppMyProfile() {
               ) : (
                 <p className="text-center text-muted-foreground py-6 text-sm">登録された資格はありません</p>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── 印鑑 ── */}
+        <TabsContent value="stamp">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">印鑑（印影）</CardTitle>
+              <CardDescription>請求書や書類に使用する印鑑の画像をアップロードしてください</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Current stamp preview */}
+              {profile?.stampUrl ? (
+                <div className="flex flex-col items-center gap-4">
+                  <div className="border border-border rounded-lg p-4 bg-white">
+                    <img
+                      src={profile.stampUrl}
+                      alt="印鑑"
+                      className="max-w-[150px] max-h-[150px] object-contain"
+                    />
+                  </div>
+                  <p className="text-sm text-muted-foreground">現在の印鑑画像</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 py-8 border border-dashed border-border rounded-lg">
+                  <Stamp className="h-12 w-12 text-muted-foreground/40" />
+                  <p className="text-sm text-muted-foreground">印鑑画像がアップロードされていません</p>
+                </div>
+              )}
+
+              {/* Upload button */}
+              <div className="flex flex-col items-center gap-2">
+                <label className="flex items-center gap-2 cursor-pointer bg-gold text-background hover:bg-gold/90 px-4 py-2 rounded-md text-sm font-medium">
+                  <Upload className="h-4 w-4" />
+                  {profile?.stampUrl ? "印鑑を変更" : "印鑑をアップロード"}
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !employeeId) return;
+                      if (file.size > 5 * 1024 * 1024) {
+                        toast.error("ファイルサイズは5MB以下にしてください");
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const base64 = (reader.result as string).split(",")[1];
+                        uploadFile.mutate({
+                          employeeId,
+                          type: "stamp",
+                          base64,
+                          mimeType: file.type,
+                          fileName: file.name,
+                        });
+                      };
+                      reader.readAsDataURL(file);
+                      e.target.value = "";
+                    }}
+                    disabled={uploadFile.isPending}
+                  />
+                </label>
+                {uploadFile.isPending && <Loader2 className="h-5 w-5 animate-spin text-gold" />}
+                <p className="text-xs text-muted-foreground mt-1">PNG/JPG形式、5MB以下。透過背景推奨。</p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

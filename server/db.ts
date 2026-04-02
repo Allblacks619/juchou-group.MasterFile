@@ -7,6 +7,9 @@ import {
   InsertEmployee, employees,
   InsertQualification, qualifications,
   InsertDocument, documents,
+  InsertClient, clients,
+  InsertProject, projects,
+  InsertEmployeeRate, employeeRates,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -322,4 +325,121 @@ export async function getExpiringDocuments(daysAhead: number) {
         eq(documents.docStatus, "valid")
       )
     );
+}
+
+// ── Clients ──
+
+export async function createClient(data: InsertClient) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(clients).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function getClientById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getAllClients() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(clients);
+}
+
+export async function updateClient(id: number, data: Partial<InsertClient>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(clients).set({ ...data, updatedAt: new Date() }).where(eq(clients.id, id));
+  return getClientById(id);
+}
+
+export async function deleteClient(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(clients).where(eq(clients.id, id));
+}
+
+// ── Projects ──
+
+export async function createProject(data: InsertProject) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(projects).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function getProjectById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getAllProjects() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(projects);
+}
+
+export async function updateProject(id: number, data: Partial<InsertProject>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(projects).set({ ...data, updatedAt: new Date() }).where(eq(projects.id, id));
+  return getProjectById(id);
+}
+
+export async function deleteProject(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(projects).where(eq(projects.id, id));
+}
+
+// ── Employee Rates ──
+
+export async function createEmployeeRate(data: InsertEmployeeRate) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(employeeRates).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function getEmployeeRateById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(employeeRates).where(eq(employeeRates.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getRatesByProject(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(employeeRates).where(eq(employeeRates.projectId, projectId));
+}
+
+export async function getRatesByEmployee(employeeId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(employeeRates).where(eq(employeeRates.employeeId, employeeId));
+}
+
+export async function getAllEmployeeRates() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(employeeRates);
+}
+
+export async function updateEmployeeRate(id: number, data: Partial<InsertEmployeeRate>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(employeeRates).set({ ...data, updatedAt: new Date() }).where(eq(employeeRates.id, id));
+  return getEmployeeRateById(id);
+}
+
+export async function deleteEmployeeRate(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(employeeRates).where(eq(employeeRates.id, id));
 }
