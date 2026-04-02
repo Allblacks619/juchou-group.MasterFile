@@ -30,7 +30,6 @@ async function ensureFont(): Promise<string> {
     const get = FONT_URL.startsWith("https") ? https.get : http.get;
     get(FONT_URL, (res) => {
       if (res.statusCode === 301 || res.statusCode === 302) {
-        // Follow redirect
         const loc = res.headers.location;
         if (!loc) return reject(new Error("Redirect without location"));
         const get2 = loc.startsWith("https") ? https.get : http.get;
@@ -79,6 +78,14 @@ function calcAge(dob: Date | string | null | undefined): string {
   return String(age);
 }
 
+function insuranceLabel(type: string | null | undefined): string {
+  if (!type) return "";
+  if (type === "national") return "国民健康保険";
+  if (type === "social") return "社会保険";
+  if (type === "construction") return "建設国保";
+  return type;
+}
+
 interface RosterData {
   employee: Employee;
   qualifications: Qualification[];
@@ -103,15 +110,13 @@ export async function generateRosterPdf(data: RosterData): Promise<Buffer> {
     },
   });
 
-  // Collect buffers
   const buffers: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => buffers.push(chunk));
 
-  // Register font
   doc.registerFont("JP", font);
   doc.font("JP");
 
-  const pageW = 595.28; // A4 width in points
+  const pageW = 595.28;
   const pageH = 841.89;
   const mL = 30;
   const mR = 30;
@@ -138,10 +143,8 @@ export async function generateRosterPdf(data: RosterData): Promise<Buffer> {
 
   // ── Helper: draw table row ──
   const drawRow = (label: string, value: string, x: number, yPos: number, labelW: number, valueW: number, h: number = 20) => {
-    // Label cell
     doc.rect(x, yPos, labelW, h).stroke();
     doc.fontSize(7).text(label, x + 3, yPos + 4, { width: labelW - 6 });
-    // Value cell
     doc.rect(x + labelW, yPos, valueW, h).stroke();
     doc.fontSize(8).text(value || "", x + labelW + 3, yPos + 4, { width: valueW - 6 });
     return yPos + h;
@@ -194,11 +197,12 @@ export async function generateRosterPdf(data: RosterData): Promise<Buffer> {
   y = drawRow2Col("住所", `〒${e.postalCode || ""} ${e.address || ""}`, "電話番号", e.phone || "", y);
   y = drawRow2Col("国籍", e.nationality || "", "在留資格", e.residenceStatus || "", y);
   y = drawRow2Col("在留カード番号", e.residenceCardNumber || "", "在留期限", toDateStr(e.residenceCardExpiry), y);
-  y = drawRow2Col("健康保険番号", e.healthInsuranceNumber || "", "保険種別", e.insuranceType === "national" ? "国民健康保険" : e.insuranceType === "social" ? "社会保険" : e.insuranceType === "construction" ? "建設国保" : "", y);
-  y = drawRow2Col("雇用形態", e.employmentType === "sole_proprietor" ? "個人事業主" : e.employmentType === "employee" ? "雇用" : e.employmentType || "", "経験年数", e.experienceYears ? `${e.experienceYears}年` : "", y);
-  y = drawRow2Col("健康診断日", toDateStr(e.healthCheckDate), "年金番号", e.pensionNumber || "", y);
-  y = drawRow2Col("キャリアアップ番号", e.careerUpNumber || "", "労災保険番号", e.workersCompNumber || "", y);
-  y = drawRow2Col("身長", e.height ? `${e.height}cm` : "", "体重", e.weight ? `${e.weight}kg` : "", y);
+  y = drawRow2Col("健康保険種別", insuranceLabel(e.insuranceType), "被保険者番号", e.insuredNumber || "", y);
+  y = drawRow2Col("健康保険番号", e.healthInsuranceNumber || "", "年金番号", e.pensionNumber || "", y);
+  y = drawRow2Col("雇用保険番号", e.employmentInsuranceNumber || "", "労災保険番号", e.workersCompNumber || "", y);
+  y = drawRow2Col("健康診断日", toDateStr(e.healthCheckDate), "血圧", e.bloodPressureHigh ? `${e.bloodPressureHigh}/${e.bloodPressureLow || ""}` : "", y);
+  y = drawRow2Col("経験年数", e.experienceYears ? `${e.experienceYears}年` : "", "雇用形態", e.employmentType === "sole_proprietor" ? "個人事業主" : e.employmentType === "employee" ? "雇用" : e.employmentType || "", y);
+  y = drawRow2Col("キャリアアップ番号", e.careerUpNumber || "", "身長/体重", `${e.height ? e.height + "cm" : ""} ${e.weight ? e.weight + "kg" : ""}`, y);
 
   // ── Emergency contact ──
   y += 8;
@@ -228,7 +232,6 @@ export async function generateRosterPdf(data: RosterData): Promise<Buffer> {
     doc.fontSize(9).text("保有資格", mL, y, { underline: true });
     y += 16;
 
-    // Header
     const qCols = [{ w: 200, label: "資格名" }, { w: 120, label: "取得日" }, { w: contentW - 320, label: "証書番号" }];
     let qx = mL;
     for (const col of qCols) {
@@ -280,7 +283,9 @@ export async function generateRosterPdf(data: RosterData): Promise<Buffer> {
 }
 
 /**
- * Generate a multi-worker roster list PDF
+ * Generate a multi-worker roster list PDF (横向きA4)
+ * Columns: No., 氏名, 生年月日, 年齢, 血液型, 国籍, 在留資格, 住所(全表示), 電話番号,
+ *          健康診断日, 血圧, 緊急連絡先, 保険種別, 被保険者番号, 年金番号, 労災保険番号, 保有資格
  */
 export async function generateRosterListPdf(
   workers: Array<{ employee: Employee; qualifications: Qualification[] }>,
@@ -292,7 +297,7 @@ export async function generateRosterListPdf(
   const doc = new PDFDocument({
     size: "A4",
     layout: "landscape",
-    margins: { top: 25, bottom: 25, left: 25, right: 25 },
+    margins: { top: 20, bottom: 20, left: 15, right: 15 },
     info: {
       Title: `作業員名簿一覧${projectName ? ` - ${projectName}` : ""}`,
       Author: company?.companyName || "充寵グループ",
@@ -307,64 +312,67 @@ export async function generateRosterListPdf(
 
   const pageW = 841.89; // A4 landscape
   const pageH = 595.28;
-  const mL = 25;
-  const mR = 25;
+  const mL = 15;
+  const mR = 15;
   const contentW = pageW - mL - mR;
 
   // Title
-  doc.fontSize(14).text("作業員名簿一覧", mL, 25, { align: "center", width: contentW });
-  doc.fontSize(8);
-  if (company?.companyName) doc.text(`事業者名: ${company.companyName}`, mL, 45);
-  if (projectName) doc.text(`現場名: ${projectName}`, mL, 57);
-  doc.text(`作成日: ${toDateStr(new Date())}`, pageW - mR - 150, 45, { width: 150, align: "right" });
+  doc.fontSize(12).text("作業員名簿一覧", mL, 20, { align: "center", width: contentW });
+  doc.fontSize(7);
+  if (company?.companyName) doc.text(`事業者名: ${company.companyName}`, mL, 38);
+  if (projectName) doc.text(`現場名: ${projectName}`, mL, 48);
+  doc.text(`作成日: ${toDateStr(new Date())}`, pageW - mR - 120, 38, { width: 120, align: "right" });
 
-  // Table header
+  // Table columns (no 雇用形態, added health/insurance fields, wider address)
   const cols = [
-    { w: 30, label: "No." },
-    { w: 90, label: "氏名" },
-    { w: 70, label: "生年月日" },
-    { w: 30, label: "年齢" },
-    { w: 40, label: "血液型" },
-    { w: 60, label: "国籍" },
-    { w: 80, label: "在留資格" },
-    { w: 80, label: "住所" },
-    { w: 60, label: "電話番号" },
-    { w: 60, label: "保険種別" },
-    { w: 60, label: "雇用形態" },
-    { w: contentW - 660, label: "保有資格" },
+    { w: 22, label: "No." },
+    { w: 60, label: "氏名" },
+    { w: 52, label: "生年月日" },
+    { w: 22, label: "年齢" },
+    { w: 26, label: "血液型" },
+    { w: 38, label: "国籍" },
+    { w: 48, label: "在留資格" },
+    { w: 110, label: "住所" },
+    { w: 56, label: "電話番号" },
+    { w: 44, label: "健康診断日" },
+    { w: 36, label: "血圧" },
+    { w: 56, label: "緊急連絡先" },
+    { w: 42, label: "保険種別" },
+    { w: 44, label: "被保険者番号" },
+    { w: 44, label: "年金番号" },
+    { w: 44, label: "労災保険番号" },
+    { w: contentW - 744, label: "保有資格" },
   ];
 
-  let y = 72;
-  const rowH = 22;
+  let y = 60;
+  const rowH = 20;
+  const fontSize = 5;
 
-  // Draw header
-  let x = mL;
-  for (const col of cols) {
-    doc.rect(x, y, col.w, rowH).fillAndStroke("#e8e0d0", "#333");
-    doc.fillColor("#333").fontSize(6).text(col.label, x + 2, y + 6, { width: col.w - 4 });
-    x += col.w;
-  }
-  y += rowH;
+  const drawHeader = (yPos: number) => {
+    let x = mL;
+    for (const col of cols) {
+      doc.rect(x, yPos, col.w, rowH).fillAndStroke("#e8e0d0", "#333");
+      doc.fillColor("#333").fontSize(fontSize).text(col.label, x + 1, yPos + 5, { width: col.w - 2 });
+      x += col.w;
+    }
+    return yPos + rowH;
+  };
+
+  y = drawHeader(y);
 
   // Draw rows
   for (let i = 0; i < workers.length; i++) {
-    if (y > pageH - 40) {
+    if (y > pageH - 30) {
       doc.addPage();
-      y = 25;
-      // Redraw header
-      x = mL;
-      for (const col of cols) {
-        doc.rect(x, y, col.w, rowH).fillAndStroke("#e8e0d0", "#333");
-        doc.fillColor("#333").fontSize(6).text(col.label, x + 2, y + 6, { width: col.w - 4 });
-        x += col.w;
-      }
-      y += rowH;
+      y = 20;
+      y = drawHeader(y);
     }
 
     const { employee: e, qualifications: quals } = workers[i];
-    const insuranceLabel = e.insuranceType === "national" ? "国保" : e.insuranceType === "social" ? "社保" : e.insuranceType === "construction" ? "建設国保" : "";
-    const empTypeLabel = e.employmentType === "sole_proprietor" ? "個人事業主" : e.employmentType === "employee" ? "雇用" : "";
     const qualNames = quals.map(q => q.name).join(", ");
+    const bp = e.bloodPressureHigh ? `${e.bloodPressureHigh}/${e.bloodPressureLow || ""}` : "";
+    const emergencyInfo = e.emergencyNameKanji ? `${e.emergencyNameKanji} ${e.emergencyPhone || ""}` : "";
+    const fullAddress = `${e.postalCode ? "〒" + e.postalCode + " " : ""}${e.address || ""}`;
 
     const values = [
       String(i + 1),
@@ -374,18 +382,23 @@ export async function generateRosterListPdf(
       e.bloodType || "",
       e.nationality || "",
       e.residenceStatus || "",
-      e.address ? (e.address.length > 15 ? e.address.slice(0, 15) + "…" : e.address) : "",
+      fullAddress,
       e.phone || "",
-      insuranceLabel,
-      empTypeLabel,
-      qualNames.length > 25 ? qualNames.slice(0, 25) + "…" : qualNames,
+      toDateStr(e.healthCheckDate),
+      bp,
+      emergencyInfo,
+      insuranceLabel(e.insuranceType),
+      e.insuredNumber || "",
+      e.pensionNumber || "",
+      e.workersCompNumber || "",
+      qualNames,
     ];
 
     const bgColor = i % 2 === 0 ? "#ffffff" : "#fafaf5";
-    x = mL;
+    let x = mL;
     for (let j = 0; j < cols.length; j++) {
       doc.rect(x, y, cols[j].w, rowH).fillAndStroke(bgColor, "#ccc");
-      doc.fillColor("#333").fontSize(6).text(values[j], x + 2, y + 6, { width: cols[j].w - 4 });
+      doc.fillColor("#333").fontSize(fontSize).text(values[j], x + 1, y + 4, { width: cols[j].w - 2 });
       x += cols[j].w;
     }
     y += rowH;
@@ -397,5 +410,197 @@ export async function generateRosterListPdf(
     doc.on("end", () => {
       resolve(Buffer.concat(buffers));
     });
+  });
+}
+
+/**
+ * Generate multiple individual roster PDFs combined into one document
+ * Each worker gets their own page(s)
+ */
+export async function generateMultiRosterPdf(
+  workers: Array<{ employee: Employee; qualifications: Qualification[] }>,
+  company?: CompanyProfile | null,
+  projectName?: string,
+): Promise<Buffer> {
+  // Generate individual PDFs and combine them
+  // For simplicity, we generate each one separately and concatenate
+  const allBuffers: Buffer[] = [];
+  
+  for (let i = 0; i < workers.length; i++) {
+    const buf = await generateRosterPdf({
+      employee: workers[i].employee,
+      qualifications: workers[i].qualifications,
+      company,
+      projectName,
+    });
+    allBuffers.push(buf);
+  }
+
+  // If only one worker, return directly
+  if (allBuffers.length === 1) return allBuffers[0];
+
+  // For multiple workers, we need to combine PDFs
+  // PDFKit doesn't support merging, so we'll generate a single multi-page document
+  return generateMultiPageRosterPdf(workers, company, projectName);
+}
+
+/** Internal: Generate a single PDF with multiple workers, each starting on a new page */
+async function generateMultiPageRosterPdf(
+  workers: Array<{ employee: Employee; qualifications: Qualification[] }>,
+  company?: CompanyProfile | null,
+  projectName?: string,
+): Promise<Buffer> {
+  const font = await ensureFont();
+
+  const doc = new PDFDocument({
+    size: "A4",
+    margins: { top: 30, bottom: 30, left: 30, right: 30 },
+    info: {
+      Title: `作業員名簿（${workers.length}名）`,
+      Author: company?.companyName || "充寵グループ",
+    },
+  });
+
+  const buffers: Buffer[] = [];
+  doc.on("data", (chunk: Buffer) => buffers.push(chunk));
+  doc.registerFont("JP", font);
+  doc.font("JP");
+
+  const pageW = 595.28;
+  const pageH = 841.89;
+  const mL = 30;
+  const mR = 30;
+  const contentW = pageW - mL - mR;
+
+  const drawRow = (label: string, value: string, x: number, yPos: number, labelW: number, valueW: number, h: number = 20) => {
+    doc.rect(x, yPos, labelW, h).stroke();
+    doc.fontSize(7).text(label, x + 3, yPos + 4, { width: labelW - 6 });
+    doc.rect(x + labelW, yPos, valueW, h).stroke();
+    doc.fontSize(8).text(value || "", x + labelW + 3, yPos + 4, { width: valueW - 6 });
+    return yPos + h;
+  };
+
+  const drawRow2Col = (l1: string, v1: string, l2: string, v2: string, yPos: number, h: number = 20) => {
+    const halfW = contentW / 2;
+    const lw2 = 80;
+    const vw2 = halfW - lw2;
+    drawRow(l1, v1, mL, yPos, lw2, vw2, h);
+    drawRow(l2, v2, mL + halfW, yPos, lw2, vw2, h);
+    return yPos + h;
+  };
+
+  for (let wi = 0; wi < workers.length; wi++) {
+    if (wi > 0) doc.addPage();
+
+    const { employee: e, qualifications: quals } = workers[wi];
+
+    // Title
+    doc.fontSize(16).fillColor("#333").text("作業員名簿", mL, 30, { align: "center", width: contentW });
+
+    let y = 60;
+    doc.fontSize(8);
+    if (company?.companyName) { doc.text(`事業者名: ${company.companyName}`, mL, y); y += 14; }
+    if (projectName) { doc.text(`現場名: ${projectName}`, mL, y); y += 14; }
+    doc.text(`作成日: ${toDateStr(new Date())}`, pageW - mR - 150, 60, { width: 150, align: "right" });
+    y += 6;
+
+    doc.fontSize(9).fillColor("#333");
+
+    // Photo
+    const photoX = pageW - mR - 80;
+    const photoY = y;
+    const photoW = 75;
+    const photoH = 95;
+    doc.rect(photoX, photoY, photoW, photoH).stroke();
+    if (e.photoUrl) {
+      const imgPath = await downloadImage(e.photoUrl);
+      if (imgPath) {
+        try { doc.image(imgPath, photoX + 2, photoY + 2, { width: photoW - 4, height: photoH - 4, fit: [photoW - 4, photoH - 4] }); } catch {}
+        fs.unlinkSync(imgPath);
+      }
+    } else {
+      doc.fontSize(7).text("写真", photoX + 25, photoY + 40);
+    }
+
+    const tableW = contentW - photoW - 10;
+    const lw = 80;
+    const vw = tableW - lw;
+
+    y = drawRow("ふりがな", e.nameKana || "", mL, y, lw, vw);
+    y = drawRow("氏名", e.nameKanji || "", mL, y, lw, vw, 24);
+    y = drawRow("生年月日", `${toDateStr(e.dateOfBirth)}  (${calcAge(e.dateOfBirth)}歳)`, mL, y, lw, vw);
+    y = drawRow("血液型", e.bloodType || "", mL, y, lw, vw);
+    y = Math.max(y, photoY + photoH + 5);
+
+    y = drawRow2Col("住所", `〒${e.postalCode || ""} ${e.address || ""}`, "電話番号", e.phone || "", y);
+    y = drawRow2Col("国籍", e.nationality || "", "在留資格", e.residenceStatus || "", y);
+    y = drawRow2Col("在留カード番号", e.residenceCardNumber || "", "在留期限", toDateStr(e.residenceCardExpiry), y);
+    y = drawRow2Col("健康保険種別", insuranceLabel(e.insuranceType), "被保険者番号", e.insuredNumber || "", y);
+    y = drawRow2Col("健康保険番号", e.healthInsuranceNumber || "", "年金番号", e.pensionNumber || "", y);
+    y = drawRow2Col("雇用保険番号", e.employmentInsuranceNumber || "", "労災保険番号", e.workersCompNumber || "", y);
+    y = drawRow2Col("健康診断日", toDateStr(e.healthCheckDate), "血圧", e.bloodPressureHigh ? `${e.bloodPressureHigh}/${e.bloodPressureLow || ""}` : "", y);
+    y = drawRow2Col("経験年数", e.experienceYears ? `${e.experienceYears}年` : "", "雇用形態", e.employmentType === "sole_proprietor" ? "個人事業主" : e.employmentType === "employee" ? "雇用" : e.employmentType || "", y);
+    y = drawRow2Col("キャリアアップ番号", e.careerUpNumber || "", "身長/体重", `${e.height ? e.height + "cm" : ""} ${e.weight ? e.weight + "kg" : ""}`, y);
+
+    // Emergency contact
+    y += 6;
+    doc.fontSize(9).text("緊急連絡先", mL, y, { underline: true }); y += 14;
+    y = drawRow2Col("氏名（かな）", e.emergencyNameKana || "", "氏名（漢字）", e.emergencyNameKanji || "", y);
+    y = drawRow2Col("続柄", e.emergencyRelationship || "", "電話番号", e.emergencyPhone || "", y);
+    y = drawRow("住所", `〒${e.emergencyPostalCode || ""} ${e.emergencyAddress || ""}`, mL, y, lw, contentW - lw);
+
+    // Bank info
+    y += 6;
+    doc.fontSize(9).text("振込先情報", mL, y, { underline: true }); y += 14;
+    y = drawRow2Col("銀行名", e.bankName || "", "支店名", e.branchName || "", y);
+    y = drawRow2Col("口座種別", e.accountType === "ordinary" ? "普通" : e.accountType === "checking" ? "当座" : "", "口座番号", e.accountNumber || "", y);
+    y = drawRow("口座名義", e.accountHolder || "", mL, y, lw, contentW - lw);
+
+    // Invoice info
+    y += 6;
+    doc.fontSize(9).text("インボイス情報", mL, y, { underline: true }); y += 14;
+    y = drawRow2Col("適格請求書発行事業者", e.isInvoiceIssuer ? "対応" : "非対応", "登録番号", e.invoiceIssuerNumber || "", y);
+
+    // Qualifications
+    if (quals.length > 0) {
+      y += 6;
+      doc.fontSize(9).text("保有資格", mL, y, { underline: true }); y += 14;
+      const qCols = [{ w: 200, label: "資格名" }, { w: 120, label: "取得日" }, { w: contentW - 320, label: "証書番号" }];
+      let qx = mL;
+      for (const col of qCols) {
+        doc.rect(qx, y, col.w, 18).fillAndStroke("#f0f0f0", "#333");
+        doc.fillColor("#333").fontSize(7).text(col.label, qx + 3, y + 4, { width: col.w - 6 });
+        qx += col.w;
+      }
+      y += 18;
+      for (const q of quals) {
+        if (y > pageH - 60) { doc.addPage(); y = 30; }
+        qx = mL;
+        const vals = [q.name || "", toDateStr(q.obtainedDate), q.certificateNumber || ""];
+        for (let ci = 0; ci < qCols.length; ci++) {
+          doc.rect(qx, y, qCols[ci].w, 18).stroke();
+          doc.fillColor("#333").fontSize(7).text(vals[ci], qx + 3, y + 4, { width: qCols[ci].w - 6 });
+          qx += qCols[ci].w;
+        }
+        y += 18;
+      }
+    }
+
+    // Stamp
+    if (e.stampUrl) {
+      if (y > pageH - 100) { doc.addPage(); y = 30; }
+      y += 8;
+      const stampImg = await downloadImage(e.stampUrl);
+      if (stampImg) {
+        try { doc.image(stampImg, pageW - mR - 60, y, { width: 50, height: 50, fit: [50, 50] }); } catch {}
+        fs.unlinkSync(stampImg);
+      }
+    }
+  }
+
+  doc.end();
+
+  return new Promise((resolve) => {
+    doc.on("end", () => resolve(Buffer.concat(buffers)));
   });
 }

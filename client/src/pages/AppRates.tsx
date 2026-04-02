@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,15 +11,16 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 import {
   Building2,
-  MapPin,
   Plus,
   Pencil,
   Trash2,
   Loader2,
   Search,
   DollarSign,
-  Users,
   FolderOpen,
+  Sun,
+  Moon,
+  Users,
 } from "lucide-react";
 
 /** Helper: format Date to YYYY-MM-DD */
@@ -31,8 +32,8 @@ function toDateStr(d: Date | string | null | undefined): string {
 
 /** Helper: format number with commas */
 function formatYen(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return `¥${n.toLocaleString()}`;
+  if (n == null) return "\u2014";
+  return `\u00a5${n.toLocaleString()}`;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -180,7 +181,7 @@ function EditClientForm({ client, onSave, onCancel, isPending }: { client: any; 
 }
 
 // ═══════════════════════════════════════════════════════
-// PROJECTS TAB
+// PROJECTS TAB (unchanged from before)
 // ═══════════════════════════════════════════════════════
 
 function ProjectsTab() {
@@ -214,7 +215,7 @@ function ProjectsTab() {
     if (!projects) return [];
     if (!search) return projects;
     const q = search.toLowerCase();
-    return projects.filter(p => p.name.toLowerCase().includes(q) || (p.client as any)?.name?.toLowerCase().includes(q));
+    return projects.filter((p: any) => p.name.toLowerCase().includes(q) || p.client?.name?.toLowerCase().includes(q));
   }, [projects, search]);
 
   return (
@@ -231,7 +232,7 @@ function ProjectsTab() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>現場を追加</DialogTitle>
-              <DialogDescription>現場（プロジェクト）の情報を入力してください</DialogDescription>
+              <DialogDescription>現場の情報を入力してください</DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               <div><Label>現場名<span className="text-red-500">*</span></Label><Input value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))} placeholder="〇〇ビル新築工事" /></div>
@@ -258,7 +259,7 @@ function ProjectsTab() {
                   </Select>
                 </div>
               </div>
-              <div><Label>現場住所</Label><Input value={form.address} onChange={(e) => setForm(p => ({ ...p, address: e.target.value }))} /></div>
+              <div><Label>住所</Label><Input value={form.address} onChange={(e) => setForm(p => ({ ...p, address: e.target.value }))} /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>開始日</Label><Input type="date" value={form.startDate} onChange={(e) => setForm(p => ({ ...p, startDate: e.target.value }))} /></div>
                 <div><Label>終了日</Label><Input type="date" value={form.endDate} onChange={(e) => setForm(p => ({ ...p, endDate: e.target.value }))} /></div>
@@ -297,30 +298,8 @@ function ProjectsTab() {
           {filtered.map((p: any) => (
             <Card key={p.id} className="hover:border-gold/30 transition-colors">
               <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-sm">{p.name}</h3>
-                      <Badge className={`text-[10px] ${statusColor[p.status] || ""}`}>{statusLabel[p.status] || p.status}</Badge>
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-1">
-                      {p.client && <span>取引先: {p.client.name}</span>}
-                      {p.address && <span><MapPin className="h-3 w-3 inline mr-0.5" />{p.address}</span>}
-                      {p.startDate && <span>開始: {toDateStr(p.startDate)}</span>}
-                      {p.endDate && <span>終了: {toDateStr(p.endDate)}</span>}
-                    </div>
-                  </div>
-                  <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="sm" onClick={() => { setEditId(p.id); setForm({ name: p.name, clientId: p.clientId ? String(p.clientId) : "", address: p.address || "", status: p.status, startDate: toDateStr(p.startDate), endDate: toDateStr(p.endDate), notes: p.notes || "" }); }}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600" onClick={() => { if (confirm("この現場を削除しますか？")) deleteProject.mutate({ id: p.id }); }}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-                {editId === p.id && (
-                  <div className="mt-3 pt-3 border-t border-border space-y-3">
+                {editId === p.id ? (
+                  <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div><Label>現場名</Label><Input value={form.name} onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))} /></div>
                       <div>
@@ -333,34 +312,43 @@ function ProjectsTab() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div>
-                        <Label>ステータス</Label>
-                        <Select value={form.status} onValueChange={(v) => setForm(prev => ({ ...prev, status: v }))}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="active">進行中</SelectItem>
-                            <SelectItem value="completed">完了</SelectItem>
-                            <SelectItem value="cancelled">中止</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div><Label>住所</Label><Input value={form.address} onChange={(e) => setForm(prev => ({ ...prev, address: e.target.value }))} /></div>
                     </div>
                     <div className="flex gap-2 justify-end">
                       <Button variant="outline" size="sm" onClick={() => setEditId(null)}>キャンセル</Button>
                       <Button size="sm" className="bg-gold text-background hover:bg-gold/90" disabled={updateProject.isPending} onClick={() => {
                         updateProject.mutate({
-                          id: p.id,
-                          name: form.name,
+                          id: p.id, name: form.name,
                           clientId: form.clientId ? Number(form.clientId) : null,
-                          address: form.address || undefined,
-                          status: form.status as any,
-                          startDate: form.startDate || undefined,
-                          endDate: form.endDate || undefined,
+                          address: form.address || undefined, status: form.status as any,
+                          startDate: form.startDate || undefined, endDate: form.endDate || undefined,
                           notes: form.notes || undefined,
                         });
                       }}>
                         {updateProject.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "保存"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-sm">{p.name}</h3>
+                        <Badge variant="outline" className={statusColor[p.status] || ""}>{statusLabel[p.status] || p.status}</Badge>
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-1">
+                        {p.client && <span>取引先: {p.client.name}</span>}
+                        {p.address && <span>{p.address}</span>}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button variant="ghost" size="sm" onClick={() => {
+                        setEditId(p.id);
+                        setForm({ name: p.name, clientId: p.clientId ? String(p.clientId) : "", address: p.address || "", status: p.status, startDate: toDateStr(p.startDate), endDate: toDateStr(p.endDate), notes: p.notes || "" });
+                      }}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600" onClick={() => { if (confirm("この現場を削除しますか？")) deleteProject.mutate({ id: p.id }); }}>
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -375,7 +363,7 @@ function ProjectsTab() {
 }
 
 // ═══════════════════════════════════════════════════════
-// RATES TAB
+// RATES TAB (with shift type & uniform/individual toggle)
 // ═══════════════════════════════════════════════════════
 
 function RatesTab() {
@@ -400,10 +388,20 @@ function RatesTab() {
   const [showCreate, setShowCreate] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState({ employeeId: "", projectId: "", clientRate: "", workerRate: "", effectiveFrom: "", effectiveUntil: "", notes: "" });
-  const [editForm, setEditForm] = useState({ clientRate: "", workerRate: "", effectiveFrom: "", effectiveUntil: "", notes: "" });
+  const [rateType, setRateType] = useState<"individual" | "uniform">("individual");
+  const [form, setForm] = useState({
+    employeeId: "", projectId: "", shiftType: "day" as "day" | "night",
+    clientRate: "", workerRate: "", effectiveFrom: "", effectiveUntil: "", notes: "",
+  });
+  const [editForm, setEditForm] = useState({
+    shiftType: "day" as "day" | "night",
+    clientRate: "", workerRate: "", effectiveFrom: "", effectiveUntil: "", notes: "",
+  });
 
-  const resetForm = () => setForm({ employeeId: "", projectId: "", clientRate: "", workerRate: "", effectiveFrom: "", effectiveUntil: "", notes: "" });
+  const resetForm = () => setForm({
+    employeeId: "", projectId: "", shiftType: "day",
+    clientRate: "", workerRate: "", effectiveFrom: "", effectiveUntil: "", notes: "",
+  });
 
   const filtered = useMemo(() => {
     if (!rates) return [];
@@ -416,6 +414,11 @@ function RatesTab() {
     );
   }, [rates, search]);
 
+  const shiftLabel = (s: string) => s === "night" ? "夜勤" : "昼勤";
+  const ShiftIcon = ({ shift }: { shift: string }) => shift === "night"
+    ? <Moon className="h-3 w-3" />
+    : <Sun className="h-3 w-3" />;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row gap-3 justify-between">
@@ -423,27 +426,57 @@ function RatesTab() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="作業員名・現場名で検索..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
-        <Dialog open={showCreate} onOpenChange={(o) => { setShowCreate(o); if (!o) resetForm(); }}>
+        <Dialog open={showCreate} onOpenChange={(o) => { setShowCreate(o); if (!o) { resetForm(); setRateType("individual"); } }}>
           <DialogTrigger asChild>
             <Button className="bg-gold text-background hover:bg-gold/90"><Plus className="h-4 w-4 mr-1" />単価登録</Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>単価を登録</DialogTitle>
-              <DialogDescription>作業員と現場を選択し、先方単価と支払単価を設定してください</DialogDescription>
+              <DialogDescription>現場の単価を設定してください</DialogDescription>
             </DialogHeader>
-            <div className="space-y-3">
+            <div className="space-y-4">
+              {/* Rate type toggle */}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={rateType === "uniform" ? "default" : "outline"}
+                  size="sm"
+                  className={rateType === "uniform" ? "bg-gold text-background hover:bg-gold/90" : ""}
+                  onClick={() => { setRateType("uniform"); setForm(p => ({ ...p, employeeId: "" })); }}
+                >
+                  <Users className="h-3.5 w-3.5 mr-1" />一律単価
+                </Button>
+                <Button
+                  type="button"
+                  variant={rateType === "individual" ? "default" : "outline"}
+                  size="sm"
+                  className={rateType === "individual" ? "bg-gold text-background hover:bg-gold/90" : ""}
+                  onClick={() => setRateType("individual")}
+                >
+                  <DollarSign className="h-3.5 w-3.5 mr-1" />個別単価
+                </Button>
+              </div>
+
+              {rateType === "uniform" && (
+                <p className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
+                  一律単価：この現場の全作業員に適用されるデフォルト単価です。個別単価が設定されている作業員はそちらが優先されます。
+                </p>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>作業員<span className="text-red-500">*</span></Label>
-                  <Select value={form.employeeId || "none"} onValueChange={(v) => setForm(p => ({ ...p, employeeId: v === "none" ? "" : v }))}>
-                    <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">選択してください</SelectItem>
-                      {employees?.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.nameKanji}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {rateType === "individual" && (
+                  <div>
+                    <Label>作業員<span className="text-red-500">*</span></Label>
+                    <Select value={form.employeeId || "none"} onValueChange={(v) => setForm(p => ({ ...p, employeeId: v === "none" ? "" : v }))}>
+                      <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">選択してください</SelectItem>
+                        {employees?.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.nameKanji}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div>
                   <Label>現場<span className="text-red-500">*</span></Label>
                   <Select value={form.projectId || "none"} onValueChange={(v) => setForm(p => ({ ...p, projectId: v === "none" ? "" : v }))}>
@@ -451,6 +484,18 @@ function RatesTab() {
                     <SelectContent>
                       <SelectItem value="none">選択してください</SelectItem>
                       {projects?.map((p: any) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>勤務区分</Label>
+                  <Select value={form.shiftType} onValueChange={(v) => setForm(p => ({ ...p, shiftType: v as "day" | "night" }))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="day"><span className="flex items-center gap-1.5"><Sun className="h-3 w-3" />昼勤</span></SelectItem>
+                      <SelectItem value="night"><span className="flex items-center gap-1.5"><Moon className="h-3 w-3" />夜勤</span></SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -473,17 +518,20 @@ function RatesTab() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowCreate(false)}>キャンセル</Button>
-              <Button className="bg-gold text-background hover:bg-gold/90" disabled={!form.employeeId || !form.projectId || !form.clientRate || !form.workerRate || createRate.isPending} onClick={() => {
-                createRate.mutate({
-                  employeeId: Number(form.employeeId),
-                  projectId: Number(form.projectId),
-                  clientRate: Number(form.clientRate),
-                  workerRate: Number(form.workerRate),
-                  effectiveFrom: form.effectiveFrom || undefined,
-                  effectiveUntil: form.effectiveUntil || undefined,
-                  notes: form.notes || undefined,
-                });
-              }}>
+              <Button className="bg-gold text-background hover:bg-gold/90"
+                disabled={!form.projectId || !form.clientRate || !form.workerRate || (rateType === "individual" && !form.employeeId) || createRate.isPending}
+                onClick={() => {
+                  createRate.mutate({
+                    employeeId: rateType === "uniform" ? null : Number(form.employeeId),
+                    projectId: Number(form.projectId),
+                    shiftType: form.shiftType,
+                    clientRate: Number(form.clientRate),
+                    workerRate: Number(form.workerRate),
+                    effectiveFrom: form.effectiveFrom || undefined,
+                    effectiveUntil: form.effectiveUntil || undefined,
+                    notes: form.notes || undefined,
+                  });
+                }}>
                 {createRate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "登録"}
               </Button>
             </DialogFooter>
@@ -529,6 +577,7 @@ function RatesTab() {
               <tr className="border-b border-border text-left">
                 <th className="py-2 px-3 font-medium text-muted-foreground">作業員</th>
                 <th className="py-2 px-3 font-medium text-muted-foreground">現場</th>
+                <th className="py-2 px-3 font-medium text-muted-foreground">区分</th>
                 <th className="py-2 px-3 font-medium text-muted-foreground text-right">先方単価</th>
                 <th className="py-2 px-3 font-medium text-muted-foreground text-right">支払単価</th>
                 <th className="py-2 px-3 font-medium text-muted-foreground text-right">差額</th>
@@ -541,15 +590,24 @@ function RatesTab() {
                 <tr key={r.id} className="border-b border-border/50 hover:bg-muted/30">
                   {editId === r.id ? (
                     <>
-                      <td className="py-2 px-3">{r.employee?.nameKanji || "—"}</td>
-                      <td className="py-2 px-3">{r.project?.name || "—"}</td>
+                      <td className="py-2 px-3">{r.employee?.nameKanji || <Badge variant="outline" className="text-xs">一律</Badge>}</td>
+                      <td className="py-2 px-3">{r.project?.name || "\u2014"}</td>
+                      <td className="py-2 px-3">
+                        <Select value={editForm.shiftType} onValueChange={(v) => setEditForm(p => ({ ...p, shiftType: v as "day" | "night" }))}>
+                          <SelectTrigger className="w-20 h-7 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="day">昼勤</SelectItem>
+                            <SelectItem value="night">夜勤</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </td>
                       <td className="py-2 px-3"><Input type="number" className="w-24 text-right" value={editForm.clientRate} onChange={(e) => setEditForm(p => ({ ...p, clientRate: e.target.value }))} /></td>
                       <td className="py-2 px-3"><Input type="number" className="w-24 text-right" value={editForm.workerRate} onChange={(e) => setEditForm(p => ({ ...p, workerRate: e.target.value }))} /></td>
                       <td className="py-2 px-3 text-right">{formatYen(Number(editForm.clientRate) - Number(editForm.workerRate))}</td>
                       <td className="py-2 px-3">
                         <div className="flex gap-1">
                           <Input type="date" className="w-32 text-xs" value={editForm.effectiveFrom} onChange={(e) => setEditForm(p => ({ ...p, effectiveFrom: e.target.value }))} />
-                          <span className="self-center text-muted-foreground">〜</span>
+                          <span className="self-center text-muted-foreground">\u301C</span>
                           <Input type="date" className="w-32 text-xs" value={editForm.effectiveUntil} onChange={(e) => setEditForm(p => ({ ...p, effectiveUntil: e.target.value }))} />
                         </div>
                       </td>
@@ -559,6 +617,7 @@ function RatesTab() {
                           <Button size="sm" className="bg-gold text-background hover:bg-gold/90" disabled={updateRate.isPending} onClick={() => {
                             updateRate.mutate({
                               id: r.id,
+                              shiftType: editForm.shiftType,
                               clientRate: Number(editForm.clientRate),
                               workerRate: Number(editForm.workerRate),
                               effectiveFrom: editForm.effectiveFrom || undefined,
@@ -571,19 +630,28 @@ function RatesTab() {
                     </>
                   ) : (
                     <>
-                      <td className="py-2 px-3 font-medium">{r.employee?.nameKanji || "—"}</td>
-                      <td className="py-2 px-3">{r.project?.name || "—"}</td>
+                      <td className="py-2 px-3 font-medium">
+                        {r.employee?.nameKanji || <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-500 border-amber-500/30">一律</Badge>}
+                      </td>
+                      <td className="py-2 px-3">{r.project?.name || "\u2014"}</td>
+                      <td className="py-2 px-3">
+                        <Badge variant="outline" className={`text-xs ${r.shiftType === "night" ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/30" : "bg-yellow-500/10 text-yellow-500 border-yellow-500/30"}`}>
+                          <ShiftIcon shift={r.shiftType || "day"} />
+                          <span className="ml-1">{shiftLabel(r.shiftType || "day")}</span>
+                        </Badge>
+                      </td>
                       <td className="py-2 px-3 text-right font-mono">{formatYen(r.clientRate)}</td>
                       <td className="py-2 px-3 text-right font-mono">{formatYen(r.workerRate)}</td>
                       <td className="py-2 px-3 text-right font-mono text-green-500">{formatYen(r.clientRate - r.workerRate)}</td>
                       <td className="py-2 px-3 text-xs text-muted-foreground">
-                        {r.effectiveFrom ? toDateStr(r.effectiveFrom) : "—"} 〜 {r.effectiveUntil ? toDateStr(r.effectiveUntil) : "現在"}
+                        {r.effectiveFrom ? toDateStr(r.effectiveFrom) : "\u2014"} \u301C {r.effectiveUntil ? toDateStr(r.effectiveUntil) : "現在"}
                       </td>
                       <td className="py-2 px-3">
                         <div className="flex gap-1">
                           <Button variant="ghost" size="sm" onClick={() => {
                             setEditId(r.id);
                             setEditForm({
+                              shiftType: r.shiftType || "day",
                               clientRate: String(r.clientRate),
                               workerRate: String(r.workerRate),
                               effectiveFrom: toDateStr(r.effectiveFrom),

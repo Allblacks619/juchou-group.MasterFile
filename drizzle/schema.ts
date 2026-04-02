@@ -208,6 +208,16 @@ export const employees = mysqlTable("employees", {
   /** Personal stamp image URL (S3) */
   stampUrl: text("stampUrl"),
 
+  // ── Health check ──
+  /** Blood pressure (systolic) */
+  bloodPressureHigh: int("bloodPressureHigh"),
+  /** Blood pressure (diastolic) */
+  bloodPressureLow: int("bloodPressureLow"),
+  /** Health insurance insured number (被保険者番号) */
+  insuredNumber: varchar("insuredNumber", { length: 64 }),
+  /** Employment insurance number (雇用保険番号) */
+  employmentInsuranceNumber: varchar("employmentInsuranceNumber", { length: 64 }),
+
   // ── Height / Weight (for worker roster) ──
   height: int("height"),
   weight: int("weight"),
@@ -341,10 +351,12 @@ export type InsertProject = typeof projects.$inferInsert;
  */
 export const employeeRates = mysqlTable("employee_rates", {
   id: int("id").autoincrement().primaryKey(),
-  /** Employee ID */
-  employeeId: int("employeeId").notNull(),
+  /** Employee ID (null = project-wide default rate) */
+  employeeId: int("employeeId"),
   /** Project ID */
   projectId: int("projectId").notNull(),
+  /** Shift type: day or night */
+  shiftType: mysqlEnum("shiftType", ["day", "night"]).default("day").notNull(),
   /** Rate charged to client per day (先方単価/日) in yen */
   clientRate: int("clientRate").notNull(),
   /** Rate paid to worker per day (支払単価/日) in yen */
@@ -368,8 +380,10 @@ export type InsertEmployeeRate = typeof employeeRates.$inferInsert;
  */
 export const attendance = mysqlTable("attendance", {
   id: int("id").autoincrement().primaryKey(),
-  /** Employee ID */
-  employeeId: int("employeeId").notNull(),
+  /** Employee ID (null for guest workers) */
+  employeeId: int("employeeId"),
+  /** Guest worker name (when employeeId is null) */
+  guestName: varchar("guestName", { length: 128 }),
   /** Project ID */
   projectId: int("projectId").notNull(),
   /** Work date (stored as timestamp, use date part only) */
@@ -380,6 +394,8 @@ export const attendance = mysqlTable("attendance", {
   overtimeHours: int("overtimeHours").default(0).notNull(),
   /** Work type: normal, half_day, overtime, holiday, absence */
   workType: mysqlEnum("workType", ["normal", "half_day", "overtime", "holiday", "absence"]).default("normal").notNull(),
+  /** Shift type: day or night */
+  shiftType: mysqlEnum("attendanceShiftType", ["day", "night"]).default("day").notNull(),
   /** Notes */
   notes: text("notes"),
   /** Entered by user ID */

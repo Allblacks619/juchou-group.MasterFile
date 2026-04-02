@@ -7,7 +7,7 @@ import { nanoid } from "nanoid";
 import * as db from "./db";
 import { storagePut } from "./storage";
 import { TRPCError } from "@trpc/server";
-import { generateRosterPdf, generateRosterListPdf } from "./pdfRoster";
+import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from "./pdfRoster";
 import { generateInvoicePdf } from "./pdfInvoice";
 
 // ── Helper: check admin or leader role ──
@@ -316,6 +316,10 @@ export const appRouter = router({
         invoiceIssuerNumber: z.string().optional(),
         height: z.number().optional(),
         weight: z.number().optional(),
+        bloodPressureHigh: z.number().optional(),
+        bloodPressureLow: z.number().optional(),
+        insuredNumber: z.string().optional(),
+        employmentInsuranceNumber: z.string().optional(),
         userId: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
@@ -370,6 +374,10 @@ export const appRouter = router({
         invoiceIssuerNumber: z.string().optional(),
         height: z.number().optional(),
         weight: z.number().optional(),
+        bloodPressureHigh: z.number().optional(),
+        bloodPressureLow: z.number().optional(),
+        insuredNumber: z.string().optional(),
+        employmentInsuranceNumber: z.string().optional(),
         photoUrl: z.string().optional(),
         stampUrl: z.string().optional(),
       }))
@@ -688,7 +696,7 @@ export const appRouter = router({
         const empMap = new Map(empList.map(e => [e.id, e]));
         return rates.map(r => ({
           ...r,
-          employee: empMap.get(r.employeeId) ?? null,
+          employee: r.employeeId ? empMap.get(r.employeeId) ?? null : null,
         }));
       }),
 
@@ -716,15 +724,16 @@ export const appRouter = router({
       const projMap = new Map(projList.map(p => [p.id, p]));
       return rates.map(r => ({
         ...r,
-        employee: empMap.get(r.employeeId) ?? null,
+        employee: r.employeeId ? empMap.get(r.employeeId) ?? null : null,
         project: projMap.get(r.projectId) ?? null,
       }));
     }),
 
     create: leaderOrAdminProcedure
       .input(z.object({
-        employeeId: z.number(),
+        employeeId: z.number().nullable().optional(),
         projectId: z.number(),
+        shiftType: z.enum(["day", "night"]).default("day"),
         clientRate: z.number().min(0),
         workerRate: z.number().min(0),
         effectiveFrom: z.string().optional(),
@@ -741,6 +750,7 @@ export const appRouter = router({
     update: leaderOrAdminProcedure
       .input(z.object({
         id: z.number(),
+        shiftType: z.enum(["day", "night"]).optional(),
         clientRate: z.number().min(0).optional(),
         workerRate: z.number().min(0).optional(),
         effectiveFrom: z.string().optional(),
@@ -792,7 +802,7 @@ export const appRouter = router({
         return { url, fileName };
       }),
 
-    /** Generate multi-worker roster list PDF */
+    /** Generate multi-worker roster list PDF (table format) */
     rosterList: leaderOrAdminProcedure
       .input(z.object({
         employeeIds: z.array(z.number()),
@@ -815,6 +825,32 @@ export const appRouter = router({
         const pdfBuffer = await generateRosterListPdf(workers, company, input.projectName);
 
         const fileName = `roster_list_${Date.now()}.pdf`;
+        const fileKey = `rosters/${fileName}`;
+        const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
+
+        return { url, fileName };
+      }),
+
+    /** Generate multiple individual roster PDFs (one page per worker) */
+    rosterMulti: leaderOrAdminProcedure
+      .input(z.object({
+        employeeIds: z.array(z.number()).min(1),
+        projectName: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const workers = await Promise.all(
+          input.employeeIds.map(async (id) => {
+            const emp = await db.getEmployeeById(id);
+            if (!emp) throw new TRPCError({ code: "NOT_FOUND", message: `従業員ID ${id} が見つかりません` });
+            const quals = await db.getQualificationsByEmployee(id);
+            return { employee: emp, qualifications: quals };
+          })
+        );
+
+        const company = await db.getCompanyProfile();
+        const pdfBuffer = await generateMultiRosterPdf(workers, company, input.projectName);
+
+        const fileName = `roster_multi_${workers.length}名_${Date.now()}.pdf`;
         const fileKey = `rosters/${fileName}`;
         const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
 
@@ -854,40 +890,46 @@ export const appRouter = router({
         );
       }),
 
-    /** Upsert a single attendance record */
-    upsert: leaderOrAdminProcedure
+    /** Upsert a single attendance record (admin/leader or project member) */
+    upsert: protectedProcedure
       .input(z.object({
-        employeeId: z.number(),
+        employeeId: z.number().nullable().optional(),
+        guestName: z.string().optional(),
         projectId: z.number(),
         workDate: z.string(),
         hoursWorked: z.number().default(80),
         overtimeHours: z.number().default(0),
         workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence"]).default("normal"),
+        shiftType: z.enum(["day", "night"]).default("day"),
         notes: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         return db.upsertAttendance({
-          employeeId: input.employeeId,
+          employeeId: input.employeeId ?? null,
+          guestName: input.guestName || null,
           projectId: input.projectId,
           workDate: new Date(input.workDate),
           hoursWorked: input.hoursWorked,
           overtimeHours: input.overtimeHours,
           workType: input.workType,
+          shiftType: input.shiftType,
           notes: input.notes || null,
           enteredBy: ctx.user.id,
         });
       }),
 
     /** Batch upsert attendance records (for grid entry) */
-    batchUpsert: leaderOrAdminProcedure
+    batchUpsert: protectedProcedure
       .input(z.object({
         records: z.array(z.object({
-          employeeId: z.number(),
+          employeeId: z.number().nullable().optional(),
+          guestName: z.string().optional(),
           projectId: z.number(),
           workDate: z.string(),
           hoursWorked: z.number().default(80),
           overtimeHours: z.number().default(0),
           workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence"]).default("normal"),
+          shiftType: z.enum(["day", "night"]).default("day"),
           notes: z.string().optional(),
         })),
       }))
@@ -895,12 +937,14 @@ export const appRouter = router({
         const results = [];
         for (const rec of input.records) {
           const result = await db.upsertAttendance({
-            employeeId: rec.employeeId,
+            employeeId: rec.employeeId ?? null,
+            guestName: rec.guestName || null,
             projectId: rec.projectId,
             workDate: new Date(rec.workDate),
             hoursWorked: rec.hoursWorked,
             overtimeHours: rec.overtimeHours,
             workType: rec.workType,
+            shiftType: rec.shiftType,
             notes: rec.notes || null,
             enteredBy: ctx.user.id,
           });
@@ -915,6 +959,97 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         await db.deleteAttendance(input.id);
         return { success: true };
+      }),
+
+    /** Get my attendance records (for employee self-service) */
+    myAttendance: protectedProcedure
+      .input(z.object({
+        startDate: z.string(),
+        endDate: z.string(),
+        projectId: z.number().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        // Get employee linked to this user
+        const employee = await db.getEmployeeByUserId(ctx.user.id);
+        if (!employee) return [];
+        const records = await db.getAttendanceByEmployee(
+          employee.id,
+          new Date(input.startDate),
+          new Date(input.endDate),
+        );
+        if (input.projectId) {
+          return records.filter(r => r.projectId === input.projectId);
+        }
+        return records;
+      }),
+
+    /** Get projects where the current employee has attendance records or is assigned */
+    myProjects: protectedProcedure.query(async ({ ctx }) => {
+      const employee = await db.getEmployeeByUserId(ctx.user.id);
+      if (!employee) return [];
+      // Get all projects and filter to those where this employee has records
+      const allProjects = await db.getAllProjects();
+      const allRecords = await db.getAttendanceByEmployee(employee.id);
+      const projectIds = new Set(allRecords.map(r => r.projectId));
+      // Return all active projects (employees can input for any active project)
+      return allProjects.filter(p => p.status === "active");
+    }),
+
+    /** Generate attendance PDF */
+    generatePdf: protectedProcedure
+      .input(z.object({
+        year: z.number(),
+        month: z.number().min(1).max(12),
+        projectId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const startDate = new Date(input.year, input.month - 1, 1);
+        const endDate = new Date(input.year, input.month, 0);
+        const records = await db.getAttendanceByDateRange(startDate, endDate, input.projectId);
+        const allEmployees = await db.getAllEmployees();
+        const projects = await db.getAllProjects();
+        const project = projects.find(p => p.id === input.projectId);
+
+        // Collect unique employee IDs and guest names from records
+        const empIds = new Set<number>();
+        const guestNameSet = new Set<string>();
+        for (const rec of records) {
+          if (rec.employeeId) empIds.add(rec.employeeId);
+          if (rec.guestName) guestNameSet.add(rec.guestName);
+        }
+
+        const employees = allEmployees
+          .filter(e => empIds.has(e.id))
+          .map(e => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}` }));
+
+        const { generateAttendancePdf } = await import("./pdfAttendance");
+        const pdfBuffer = await generateAttendancePdf({
+          year: input.year,
+          month: input.month,
+          projectName: project?.name || `Project #${input.projectId}`,
+          companyName: "充寵グループ",
+          employees,
+          guestNames: Array.from(guestNameSet),
+          records: records.map(r => ({
+            employeeId: r.employeeId,
+            guestName: r.guestName,
+            workDate: r.workDate,
+            hoursWorked: r.hoursWorked,
+            overtimeHours: r.overtimeHours,
+            workType: r.workType,
+            shiftType: r.shiftType || "day",
+            notes: r.notes,
+          })),
+        });
+
+        const { storagePut } = await import("./storage");
+        const fileName = `attendance-${input.year}-${String(input.month).padStart(2, "0")}-${input.projectId}.pdf`;
+        const { url } = await storagePut(
+          `attendance/${fileName}`,
+          pdfBuffer,
+          "application/pdf"
+        );
+        return { url, fileName };
       }),
   }),
 
@@ -965,6 +1100,7 @@ export const appRouter = router({
         // Group attendance by employee
         const byEmployee = new Map<number, typeof records>();
         for (const rec of records) {
+          if (!rec.employeeId) continue; // skip guest records for invoice
           const arr = byEmployee.get(rec.employeeId) || [];
           arr.push(rec);
           byEmployee.set(rec.employeeId, arr);

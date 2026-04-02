@@ -505,24 +505,32 @@ export async function deleteAttendance(id: number) {
   await db.delete(attendance).where(eq(attendance.id, id));
 }
 
-/** Upsert attendance: if same employee+project+date exists, update; else insert */
+/** Upsert attendance: if same employee+project+date+shift exists, update; else insert */
 export async function upsertAttendance(data: InsertAttendance) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  // Check if record exists for same employee, project, date
+  // Check if record exists for same employee/guest, project, date, shift
   const workDateStart = new Date(data.workDate);
   workDateStart.setHours(0, 0, 0, 0);
   const workDateEnd = new Date(data.workDate);
   workDateEnd.setHours(23, 59, 59, 999);
   
+  const conditions = [
+    eq(attendance.projectId, data.projectId),
+    gte(attendance.workDate, workDateStart),
+    lte(attendance.workDate, workDateEnd),
+    eq(attendance.shiftType, data.shiftType ?? "day"),
+  ];
+  
+  if (data.employeeId) {
+    conditions.push(eq(attendance.employeeId, data.employeeId));
+  } else if (data.guestName) {
+    conditions.push(eq(attendance.guestName, data.guestName));
+  }
+  
   const existing = await db.select().from(attendance).where(
-    and(
-      eq(attendance.employeeId, data.employeeId),
-      eq(attendance.projectId, data.projectId),
-      gte(attendance.workDate, workDateStart),
-      lte(attendance.workDate, workDateEnd),
-    )
+    and(...conditions)
   ).limit(1);
   
   if (existing.length > 0) {
@@ -530,7 +538,9 @@ export async function upsertAttendance(data: InsertAttendance) {
       hoursWorked: data.hoursWorked,
       overtimeHours: data.overtimeHours,
       workType: data.workType,
+      shiftType: data.shiftType,
       notes: data.notes,
+      guestName: data.guestName,
       updatedAt: new Date(),
     }).where(eq(attendance.id, existing[0].id));
     return { ...existing[0], ...data };

@@ -28,7 +28,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Upload, Plus, Trash2, User, Shield, Heart, Banknote, Award, FileText, FileDown, Loader2 } from "lucide-react";
+import { ArrowLeft, Upload, Plus, Trash2, User, Shield, Heart, Banknote, Award, FileText, FileDown, Loader2, DollarSign } from "lucide-react";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation, useParams } from "wouter";
 import { format } from "date-fns";
 
@@ -59,8 +60,14 @@ function RosterPdfButton({ employeeId }: { employeeId: number }) {
 export default function AppEmployeeDetail() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
+  const { user: authUser } = useAuth();
+  const isAdmin = (authUser as any)?.appRole === "admin" || (authUser as any)?.appRole === "leader";
   const isNew = params.id === "new";
   const employeeId = isNew ? undefined : parseInt(params.id!);
+
+  // Rates for this employee (admin/leader only)
+  const ratesQuery = trpc.rate.listAll.useQuery(undefined, { enabled: isAdmin && !!employeeId });
+  const employeeRates = (ratesQuery.data ?? []).filter((r: any) => r.employeeId === employeeId);
 
   const employeeQuery = trpc.employee.get.useQuery(
     { id: employeeId! },
@@ -141,6 +148,10 @@ export default function AppEmployeeDetail() {
     invoiceIssuerNumber: "",
     height: 0,
     weight: 0,
+    bloodPressureHigh: 0,
+    bloodPressureLow: 0,
+    insuredNumber: "",
+    employmentInsuranceNumber: "",
   });
 
   const [initialized, setInitialized] = useState(false);
@@ -188,6 +199,10 @@ export default function AppEmployeeDetail() {
         invoiceIssuerNumber: emp.invoiceIssuerNumber || "",
         height: emp.height || 0,
         weight: emp.weight || 0,
+        bloodPressureHigh: (emp as any).bloodPressureHigh || 0,
+        bloodPressureLow: (emp as any).bloodPressureLow || 0,
+        insuredNumber: (emp as any).insuredNumber || "",
+        employmentInsuranceNumber: (emp as any).employmentInsuranceNumber || "",
       });
       setInitialized(true);
     }
@@ -210,6 +225,8 @@ export default function AppEmployeeDetail() {
     });
     if (data.experienceYears === 0) data.experienceYears = undefined;
     if (data.height === 0) data.height = undefined;
+    if (data.bloodPressureHigh === 0) data.bloodPressureHigh = undefined;
+    if (data.bloodPressureLow === 0) data.bloodPressureLow = undefined;
     if (data.weight === 0) data.weight = undefined;
 
     if (isNew) {
@@ -307,6 +324,7 @@ export default function AppEmployeeDetail() {
           <TabsTrigger value="bank"><Banknote className="h-4 w-4 mr-1" />振込先</TabsTrigger>
           {!isNew && <TabsTrigger value="qualifications"><Award className="h-4 w-4 mr-1" />資格</TabsTrigger>}
           {!isNew && <TabsTrigger value="documents"><FileText className="h-4 w-4 mr-1" />書類</TabsTrigger>}
+          {!isNew && isAdmin && <TabsTrigger value="rates"><DollarSign className="h-4 w-4 mr-1" />単価</TabsTrigger>}
         </TabsList>
 
         {/* Basic Info */}
@@ -535,6 +553,25 @@ export default function AppEmployeeDetail() {
                 <div className="space-y-2">
                   <Label>建設キャリアアップ番号</Label>
                   <Input value={form.careerUpNumber} onChange={(e) => updateField("careerUpNumber", e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>被保険者番号</Label>
+                  <Input value={form.insuredNumber} onChange={(e) => updateField("insuredNumber", e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>雇用保険番号</Label>
+                  <Input value={form.employmentInsuranceNumber} onChange={(e) => updateField("employmentInsuranceNumber", e.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>血圧（上）</Label>
+                  <Input type="number" value={form.bloodPressureHigh || ""} onChange={(e) => updateField("bloodPressureHigh", e.target.value ? Number(e.target.value) : 0)} placeholder="120" />
+                </div>
+                <div className="space-y-2">
+                  <Label>血圧（下）</Label>
+                  <Input type="number" value={form.bloodPressureLow || ""} onChange={(e) => updateField("bloodPressureLow", e.target.value ? Number(e.target.value) : 0)} placeholder="80" />
                 </div>
               </div>
 
@@ -782,6 +819,50 @@ export default function AppEmployeeDetail() {
                           <TableCell>{doc.documentType}</TableCell>
                           <TableCell>{doc.expiryDate ? format(new Date(doc.expiryDate), "yyyy/MM/dd") : "-"}</TableCell>
                           <TableCell>{format(new Date(doc.createdAt), "yyyy/MM/dd")}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* Rates Tab (admin/leader only) */}
+        {!isNew && isAdmin && (
+          <TabsContent value="rates">
+            <Card>
+              <CardHeader>
+                <CardTitle>単価情報</CardTitle>
+                <CardDescription>この作業員に登録されている単価情報です</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {employeeRates.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">単価が登録されていません。単価管理ページから登録してください。</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>現場</TableHead>
+                        <TableHead>勤務区分</TableHead>
+                        <TableHead>先方単価</TableHead>
+                        <TableHead>支払単価</TableHead>
+                        <TableHead>備考</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {employeeRates.map((rate: any) => (
+                        <TableRow key={rate.id}>
+                          <TableCell className="font-medium">{rate.project?.name || "-"}</TableCell>
+                          <TableCell>
+                            <span className={`px-2 py-0.5 rounded text-xs ${rate.shiftType === 'night' ? 'bg-blue-900/30 text-blue-300' : 'bg-yellow-900/30 text-yellow-300'}`}>
+                              {rate.shiftType === 'night' ? '夜勤' : '昼勤'}
+                            </span>
+                          </TableCell>
+                          <TableCell>¥{Number(rate.clientRate).toLocaleString()}</TableCell>
+                          <TableCell>¥{Number(rate.payRate).toLocaleString()}</TableCell>
+                          <TableCell className="text-muted-foreground text-xs">{rate.notes || "-"}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

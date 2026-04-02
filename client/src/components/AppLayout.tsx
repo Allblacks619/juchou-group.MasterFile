@@ -24,7 +24,8 @@ const navItems = [
   { path: "/app/company", label: "会社設定", icon: Building2, adminOnly: true },
   { path: "/app/employees", label: "従業員管理", icon: Users },
   { path: "/app/rates", label: "単価管理", icon: DollarSign, adminOnly: true },
-  { path: "/app/attendance", label: "出面表", icon: CalendarDays, adminOnly: true },
+  { path: "/app/my-attendance", label: "マイ出面表", icon: CalendarDays },
+  { path: "/app/attendance", label: "出面表管理", icon: CalendarDays, adminOnly: true },
   { path: "/app/invoices", label: "請求書", icon: FileText, adminOnly: true },
 ];
 
