@@ -1324,106 +1324,119 @@ export const appRouter = router({
     createFromAttendance: leaderOrAdminProcedure
       .input(z.object({
         clientId: z.number(),
-        projectId: z.number(),
+        projectIds: z.array(z.number()).min(1),
         periodStart: z.string(),
         periodEnd: z.string(),
         taxRate: z.number().default(10),
         notes: z.string().optional(),
         dueDate: z.string().optional(),
         subject: z.string().optional(),
+        withholding: z.boolean().default(false),
       }))
       .mutation(async ({ ctx, input }) => {
-        // Get attendance records for the period
-        const records = await db.getAttendanceByDateRange(
-          new Date(input.periodStart),
-          new Date(input.periodEnd),
-          input.projectId,
-        );
-
-        // Get rates for this project
-        const rates = await db.getRatesByProject(input.projectId);
-        // Separate individual rates (employeeId != null) and default rate (employeeId = null)
-        const individualRateMap = new Map<number, typeof rates[0]>();
-        let defaultRate: typeof rates[0] | null = null;
-        for (const r of rates) {
-          if (r.employeeId) {
-            individualRateMap.set(r.employeeId, r);
-          } else {
-            defaultRate = r; // project-wide default rate
-          }
-        }
-
         // Get all employees for names
         const allEmployees = await db.getAllEmployees();
         const empMap = new Map(allEmployees.map(e => [e.id, e]));
 
-        // Group attendance by employee
-        const byEmployee = new Map<number, typeof records>();
-        for (const rec of records) {
-          if (!rec.employeeId) continue; // skip guest records for invoice
-          const arr = byEmployee.get(rec.employeeId) || [];
-          arr.push(rec);
-          byEmployee.set(rec.employeeId, arr);
-        }
-
-        // Build invoice items
+        // Build invoice items across all projects
         const items: Array<{ employeeId: number; description: string; quantity: number; unitPrice: number; amount: number; unit: string; transactionDate: Date | null }> = [];
         let subtotal = 0;
+        const projectNames: string[] = [];
 
-        for (const [empId, empRecords] of Array.from(byEmployee.entries())) {
-          const emp = empMap.get(empId);
-          // Priority: individual rate > project default rate > 0
-          const rate = individualRateMap.get(empId) || defaultRate;
-          const clientRate = rate?.clientRate || 0;
+        for (const projectId of input.projectIds) {
+          // Get attendance records for the period for this project
+          const records = await db.getAttendanceByDateRange(
+            new Date(input.periodStart),
+            new Date(input.periodEnd),
+            projectId,
+          );
 
-          // Calculate total days: hoursWorked is stored as int * 10 (80 = 8.0h = 1 day)
-          let totalHoursTimes10 = 0;
-          let totalOvertimeTimes10 = 0;
-          for (const rec of empRecords) {
-            totalHoursTimes10 += rec.hoursWorked;
-            totalOvertimeTimes10 += rec.overtimeHours || 0;
+          // Get rates for this project
+          const rates = await db.getRatesByProject(projectId);
+          const individualRateMap = new Map<number, typeof rates[0]>();
+          let defaultRate: typeof rates[0] | null = null;
+          for (const r of rates) {
+            if (r.employeeId) {
+              individualRateMap.set(r.employeeId, r);
+            } else {
+              defaultRate = r;
+            }
           }
-          // Convert to days: 80 hours*10 = 8.0h = 1.0 day
-          // quantity is stored as days * 10 (e.g., 10 = 1.0 day, 15 = 1.5 days)
-          const totalDaysTimes10 = Math.round(totalHoursTimes10 / 8);
 
-          const amount = Math.round((totalDaysTimes10 / 10) * clientRate);
-          subtotal += amount;
+          const project = await db.getProjectById(projectId);
+          const projName = project?.name || `現場${projectId}`;
+          projectNames.push(projName);
 
-          // Find the first work date for this employee to use as transaction date
-          const sortedDates = empRecords
-            .map(r => new Date(r.workDate))
-            .sort((a, b) => a.getTime() - b.getTime());
-          const firstWorkDate = sortedDates.length > 0 ? sortedDates[0] : null;
-          items.push({
-            employeeId: empId,
-            description: `${emp?.nameKanji || `従業員${empId}`}`,
-            quantity: totalDaysTimes10,
-            unitPrice: clientRate,
-            amount,
-            unit: "日",
-            transactionDate: firstWorkDate,
-          });
+          // Group attendance by employee for this project
+          const byEmployee = new Map<number, typeof records>();
+          for (const rec of records) {
+            if (!rec.employeeId) continue;
+            const arr = byEmployee.get(rec.employeeId) || [];
+            arr.push(rec);
+            byEmployee.set(rec.employeeId, arr);
+          }
+
+          for (const [empId, empRecords] of Array.from(byEmployee.entries())) {
+            const emp = empMap.get(empId);
+            const rate = individualRateMap.get(empId) || defaultRate;
+            const clientRate = rate?.clientRate || 0;
+
+            let totalHoursTimes10 = 0;
+            let totalOvertimeTimes10 = 0;
+            for (const rec of empRecords) {
+              totalHoursTimes10 += rec.hoursWorked;
+              totalOvertimeTimes10 += rec.overtimeHours || 0;
+            }
+            const totalDaysTimes10 = Math.round(totalHoursTimes10 / 8);
+            const amount = Math.round((totalDaysTimes10 / 10) * clientRate);
+            subtotal += amount;
+
+            const sortedDates = empRecords
+              .map(r => new Date(r.workDate))
+              .sort((a, b) => a.getTime() - b.getTime());
+            const firstWorkDate = sortedDates.length > 0 ? sortedDates[0] : null;
+
+            // Include project name in description when multiple projects
+            const descPrefix = input.projectIds.length > 1 ? `[${projName}] ` : '';
+            items.push({
+              employeeId: empId,
+              description: `${descPrefix}${emp?.nameKanji || `従業員${empId}`}`,
+              quantity: totalDaysTimes10,
+              unitPrice: clientRate,
+              amount,
+              unit: "日",
+              transactionDate: firstWorkDate,
+            });
+          }
+        }
+
+        // Calculate withholding tax if enabled
+        let withholdingAmount = 0;
+        if (input.withholding) {
+          withholdingAmount = Math.floor(subtotal * 0.1021);
         }
 
         const taxAmount = Math.round(subtotal * input.taxRate / 100);
-        const totalAmount = subtotal + taxAmount;
+        const totalAmount = subtotal + taxAmount - withholdingAmount;
 
         // Generate invoice number
         const yearMonth = input.periodStart.slice(0, 7);
         const invoiceNumber = await db.getNextInvoiceNumber(yearMonth);
 
-        // Auto-generate subject: "X月分請求書 プロジェクト名"
+        // Auto-generate subject
         const periodDate = new Date(input.periodStart);
-        const project = await db.getProjectById(input.projectId);
         const monthStr = `${periodDate.getMonth() + 1}`;
-        const autoSubject = `${monthStr}月分請求書 ${project?.name || ''}`;
+        const projLabel = projectNames.join('・');
+        const autoSubject = `${monthStr}月分請求書 ${projLabel}`;
+
+        // Use the first project as the primary project
+        const primaryProjectId = input.projectIds[0];
 
         // Create invoice
         const invoice = await db.createInvoice({
           invoiceNumber,
           clientId: input.clientId,
-          projectId: input.projectId,
+          projectId: primaryProjectId,
           periodStart: new Date(input.periodStart),
           periodEnd: new Date(input.periodEnd),
           issueDate: new Date(),
@@ -1435,6 +1448,7 @@ export const appRouter = router({
           notes: input.notes || null,
           createdBy: ctx.user.id,
           subject: input.subject || autoSubject,
+          withholdingAmount,
         });
 
         // Create invoice items

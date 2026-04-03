@@ -45,6 +45,7 @@ import {
   Clock,
   X,
   Users,
+  FileText,
 } from "lucide-react";
 import {
   format,
@@ -56,6 +57,7 @@ import {
   getDay,
 } from "date-fns";
 import { ja } from "date-fns/locale";
+import { useLocation } from "wouter";
 
 type WorkType = "normal" | "half_day" | "overtime" | "holiday" | "absence";
 type ShiftType = "day" | "night";
@@ -188,6 +190,7 @@ function CellEditPopover({ cell, onUpdate, onClear }: CellEditPopoverProps) {
 }
 
 export default function AppAttendance() {
+  const [, setLocation] = useLocation();
   const { user } = useAuth();
   const appRole = (user as any)?.appRole || "worker";
   const isAdminOrLeader = appRole === "admin" || appRole === "leader";
@@ -618,6 +621,19 @@ export default function AppAttendance() {
             )}
             Excel出力
           </Button>
+          {isAdminOrLeader && selectedProjectId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const month = format(currentMonth, "yyyy-MM");
+                setLocation(`/app/invoices?fromAttendance=1&projectId=${selectedProjectId}&month=${month}`);
+              }}
+            >
+              <FileText className="h-4 w-4 mr-1" />
+              請求書作成
+            </Button>
+          )}
           <Button
             onClick={handleSave}
             disabled={dirtyCount === 0 || batchUpsertMutation.isPending}

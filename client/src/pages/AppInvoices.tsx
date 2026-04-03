@@ -1039,12 +1039,13 @@ export default function AppInvoices() {
 
   // Auto-create state
   const [autoClientId, setAutoClientId] = useState<string>("");
-  const [autoProjectId, setAutoProjectId] = useState<string>("");
+  const [autoProjectIds, setAutoProjectIds] = useState<number[]>([]);
   const [autoPeriodMonth, setAutoPeriodMonth] = useState(() => format(new Date(), "yyyy-MM"));
   const [autoTaxRate, setAutoTaxRate] = useState(10);
   const [autoNotes, setAutoNotes] = useState("");
   const [autoDueDate, setAutoDueDate] = useState("");
   const [autoSubject, setAutoSubject] = useState("");
+  const [autoWithholding, setAutoWithholding] = useState(false);
 
   const invoicesQuery = trpc.invoice.list.useQuery();
   const projectsQuery = trpc.project.list.useQuery();
@@ -1085,7 +1086,7 @@ export default function AppInvoices() {
   });
 
   const handleAutoCreate = () => {
-    if (!autoClientId || !autoProjectId) {
+    if (!autoClientId || autoProjectIds.length === 0) {
       toast.error("取引先と現場を選択してください");
       return;
     }
@@ -1095,12 +1096,14 @@ export default function AppInvoices() {
 
     createFromAttendanceMutation.mutate({
       clientId: Number(autoClientId),
-      projectId: Number(autoProjectId),
+      projectIds: autoProjectIds,
       periodStart,
       periodEnd,
       taxRate: autoTaxRate,
       notes: autoNotes || undefined,
       dueDate: autoDueDate || undefined,
+      subject: autoSubject || undefined,
+      withholding: autoWithholding,
     });
   };
 
@@ -1179,19 +1182,29 @@ export default function AppInvoices() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>現場 *</Label>
-              <Select value={autoProjectId} onValueChange={setAutoProjectId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="現場を選択" />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((p: any) => (
-                    <SelectItem key={p.id} value={p.id.toString()}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>現場 * （複数選択可）</Label>
+              <div className="border border-border rounded-md p-2 max-h-[160px] overflow-y-auto space-y-1">
+                {projects.map((p: any) => (
+                  <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/30 cursor-pointer text-sm">
+                    <input
+                      type="checkbox"
+                      checked={autoProjectIds.includes(p.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setAutoProjectIds([...autoProjectIds, p.id]);
+                        } else {
+                          setAutoProjectIds(autoProjectIds.filter((id: number) => id !== p.id));
+                        }
+                      }}
+                      className="rounded border-border"
+                    />
+                    {p.name}
+                  </label>
+                ))}
+              </div>
+              {autoProjectIds.length > 0 && (
+                <p className="text-xs text-muted-foreground">{autoProjectIds.length}件の現場を選択中</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>件名</Label>
@@ -1227,6 +1240,16 @@ export default function AppInvoices() {
             <div className="space-y-2">
               <Label>備考</Label>
               <Textarea value={autoNotes} onChange={(e) => setAutoNotes(e.target.value)} placeholder="備考を入力..." rows={2} />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="auto-withholding"
+                checked={autoWithholding}
+                onChange={(e) => setAutoWithholding(e.target.checked)}
+                className="rounded border-border"
+              />
+              <Label htmlFor="auto-withholding" className="cursor-pointer text-sm">源泉徴収あり（10.21%）</Label>
             </div>
           </div>
           <DialogFooter>

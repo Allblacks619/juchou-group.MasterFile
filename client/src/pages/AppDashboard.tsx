@@ -527,63 +527,163 @@ function AttendanceCalendar() {
                   {t("dashboard_teamMembers")}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {members
-                    .filter((m) => !(m.type === "employee" && m.id === myEmployeeId))
-                    .map((member) => {
-                      const isGuest = member.type === "guest";
-                      const mKey = isGuest ? `guest-${member.nameKanji}` : `emp-${member.id}`;
-                      let days = 0, hours = 0, ot = 0;
-                      for (const day of daysInMonth) {
-                        const dateStr = format(day, "yyyy-MM-dd");
-                        const rec = attendanceMap[`${mKey}-${dateStr}`];
-                        if (rec && rec.hoursWorked > 0) {
-                          days++;
-                          hours += rec.hoursWorked;
-                          ot += rec.overtimeHours;
-                        }
-                      }
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-muted/30">
+                        <th className="sticky left-0 z-10 bg-card border-b border-r border-border px-3 py-2 text-left font-medium min-w-[120px]">
+                          {lang === "pt" ? "Nome" : "氏名"}
+                        </th>
+                        {daysInMonth.map((day) => {
+                          const dow = getDay(day);
+                          const isSun = dow === 0;
+                          const isSat = dow === 6;
+                          const today = isToday(day);
+                          return (
+                            <th
+                              key={format(day, "yyyy-MM-dd")}
+                              className={`border-b border-border px-1 py-2 text-center font-medium min-w-[36px] ${
+                                today ? "bg-gold/10" : isSun ? "bg-red-500/5" : isSat ? "bg-blue-500/5" : ""
+                              }`}
+                            >
+                              <div className={`${isSun ? "text-red-400" : isSat ? "text-blue-400" : "text-muted-foreground"}`}>
+                                <div className="text-[10px]">{dayLabels(lang)[dow]}</div>
+                                <div className={`text-xs ${today ? "font-bold text-gold" : ""}`}>{format(day, "d")}</div>
+                              </div>
+                            </th>
+                          );
+                        })}
+                        <th className="border-b border-l border-border px-2 py-2 text-center font-medium min-w-[50px]">
+                          {lang === "pt" ? "Dias" : "日数"}
+                        </th>
+                        <th className="border-b border-border px-2 py-2 text-center font-medium min-w-[50px]">
+                          {lang === "pt" ? "Horas" : "時間"}
+                        </th>
+                        <th className="border-b border-border px-2 py-2 text-center font-medium min-w-[50px]">
+                          {lang === "pt" ? "HE" : "残業"}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {members
+                        .filter((m) => !(m.type === "employee" && m.id === myEmployeeId))
+                        .map((member) => {
+                          const isGuest = member.type === "guest";
+                          const mKey = isGuest ? `guest-${member.nameKanji}` : `emp-${member.id}`;
+                          let totalDays = 0, totalHours = 0, totalOt = 0;
 
-                      return (
-                        <div key={mKey} className="border border-border rounded-lg p-3">
-                          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-sm">{member.nameKanji}</span>
-                              {isGuest && (
-                                <Badge variant="outline" className="text-xs">
-                                  {lang === "pt" ? "Convidado" : "ゲスト"}
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="flex gap-3 text-xs text-muted-foreground">
-                              <span>{days}{t("attendance_days")}</span>
-                              <span>{hours / 10}h</span>
-                              {ot > 0 && <span className="text-blue-400">{lang === "pt" ? "HE" : "残"}{ot / 10}h</span>}
-                            </div>
-                          </div>
-                          <CalendarGrid
-                            days={daysInMonth}
-                            memberId={isGuest ? null : member.id}
-                            memberName={isGuest ? member.nameKanji : null}
-                            attendanceMap={attendanceMap}
-                            compact
-                            lang={lang}
-                            onQuickToggle={(dateStr) =>
-                              quickToggle(isGuest ? null : member.id, isGuest ? member.nameKanji : null, dateStr)
-                            }
-                            onSave={(dateStr, data) =>
-                              autoSave({
-                                employeeId: isGuest ? null : member.id,
-                                guestName: isGuest ? member.nameKanji : null,
-                                workDate: dateStr,
-                                ...data,
-                              })
-                            }
-                          />
-                        </div>
-                      );
-                    })}
+                          return (
+                            <tr key={mKey} className="hover:bg-muted/10 transition-colors">
+                              <td className="sticky left-0 z-10 bg-card border-b border-r border-border px-3 py-1.5 font-medium whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{member.nameKanji}</span>
+                                  {isGuest && (
+                                    <Badge variant="outline" className="text-[9px] px-1 py-0">
+                                      {lang === "pt" ? "G" : "ゲ"}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </td>
+                              {daysInMonth.map((day) => {
+                                const dateStr = format(day, "yyyy-MM-dd");
+                                const rec = attendanceMap[`${mKey}-${dateStr}`];
+                                const hasValue = rec && rec.hoursWorked > 0;
+                                const dow = getDay(day);
+                                const isSun = dow === 0;
+                                const isSat = dow === 6;
+                                const today = isToday(day);
+
+                                if (hasValue) {
+                                  totalDays++;
+                                  totalHours += rec.hoursWorked;
+                                  totalOt += rec.overtimeHours;
+                                }
+
+                                const WT_SHORT = workTypeShort(lang);
+
+                                return (
+                                  <td
+                                    key={dateStr}
+                                    className={`border-b border-border text-center py-1 cursor-pointer transition-colors ${
+                                      today ? "bg-gold/5" : isSun ? "bg-red-500/5" : isSat ? "bg-blue-500/5" : ""
+                                    }`}
+                                  >
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <button
+                                          className={`w-full h-full min-h-[28px] flex flex-col items-center justify-center rounded-sm transition-colors ${
+                                            hasValue
+                                              ? WORK_TYPE_COLORS[rec.workType as WorkType]
+                                              : "hover:bg-muted/30"
+                                          }`}
+                                          onClick={(e) => {
+                                            if (!hasValue) {
+                                              e.preventDefault();
+                                              quickToggle(isGuest ? null : member.id, isGuest ? member.nameKanji : null, dateStr);
+                                            }
+                                          }}
+                                        >
+                                          {hasValue && (
+                                            <>
+                                              <span className="text-[9px] font-bold leading-none">
+                                                {WT_SHORT[rec.workType as WorkType]}
+                                                {rec.shiftType === "night" ? (lang === "pt" ? "N" : "夜") : ""}
+                                              </span>
+                                              {rec.overtimeHours > 0 && (
+                                                <span className="text-[7px] text-blue-400 leading-none">+{rec.overtimeHours / 10}h</span>
+                                              )}
+                                            </>
+                                          )}
+                                        </button>
+                                      </PopoverTrigger>
+                                      {hasValue && (
+                                        <PopoverContent className="w-60" side="bottom">
+                                          <CellEditor
+                                            dateStr={dateStr}
+                                            day={day}
+                                            existing={rec}
+                                            lang={lang}
+                                            onSave={(d, data) =>
+                                              autoSave({
+                                                employeeId: isGuest ? null : member.id,
+                                                guestName: isGuest ? member.nameKanji : null,
+                                                workDate: d,
+                                                ...data,
+                                              })
+                                            }
+                                            onClear={() =>
+                                              autoSave({
+                                                employeeId: isGuest ? null : member.id,
+                                                guestName: isGuest ? member.nameKanji : null,
+                                                workDate: dateStr,
+                                                hoursWorked: 0,
+                                                overtimeHours: 0,
+                                                workType: "absence",
+                                                shiftType: "day",
+                                              })
+                                            }
+                                          />
+                                        </PopoverContent>
+                                      )}
+                                    </Popover>
+                                  </td>
+                                );
+                              })}
+                              <td className="border-b border-l border-border px-2 py-1.5 text-center font-medium">
+                                {totalDays}{lang === "pt" ? "d" : "日"}
+                              </td>
+                              <td className="border-b border-border px-2 py-1.5 text-center">
+                                {totalHours / 10}h
+                              </td>
+                              <td className="border-b border-border px-2 py-1.5 text-center">
+                                {totalOt > 0 ? <span className="text-blue-400">{totalOt / 10}h</span> : "-"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
                 </div>
               </CardContent>
             </Card>
