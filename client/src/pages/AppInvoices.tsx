@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import InvoicePreview from "@/components/InvoicePreview";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -148,6 +149,7 @@ function InvoiceDetailDialog({
 
   const [newItem, setNewItem] = useState<InvoiceLineItem>(emptyNormalItem(0));
   const [showAddForm, setShowAddForm] = useState(false);
+  const [activeTab, setActiveTab] = useState<"detail" | "preview">("detail");
 
   if (detailQuery.isLoading) {
     return (
@@ -157,7 +159,7 @@ function InvoiceDetailDialog({
     );
   }
 
-  const { invoice, items } = detailQuery.data || { invoice: null, items: [] };
+  const { invoice, items, client, company } = detailQuery.data || { invoice: null, items: [], client: null, company: null };
   if (!invoice) return <p className="text-muted-foreground">請求書が見つかりません</p>;
 
   const handleAddItem = () => {
@@ -184,6 +186,36 @@ function InvoiceDetailDialog({
 
   return (
     <div className="space-y-4">
+      {/* Tab switcher */}
+      <div className="flex gap-1 border-b border-border">
+        <button
+          onClick={() => setActiveTab("detail")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "detail"
+              ? "border-gold text-gold"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          明細編集
+        </button>
+        <button
+          onClick={() => setActiveTab("preview")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "preview"
+              ? "border-gold text-gold"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          プレビュー
+        </button>
+      </div>
+
+      {activeTab === "preview" ? (
+        <div className="max-h-[70vh] overflow-y-auto border rounded-md">
+          <InvoicePreview invoice={invoice} items={items} client={client} company={company} />
+        </div>
+      ) : (
+      <>
       {/* Invoice header info */}
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
@@ -470,6 +502,8 @@ function InvoiceDetailDialog({
           </Button>
         </div>
       )}
+      </>
+      )}
     </div>
   );
 }
@@ -494,7 +528,29 @@ function ManualCreateDialog({
   const [notes, setNotes] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [subject, setSubject] = useState("");
+  const [honorific, setHonorific] = useState("御中");
+  const [paymentMethod, setPaymentMethod] = useState("口座振込");
+  const [clientSearch, setClientSearch] = useState("");
+  const [showNewClient, setShowNewClient] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientPostalCode, setNewClientPostalCode] = useState("");
+  const [newClientAddress, setNewClientAddress] = useState("");
+  const [newClientContactPerson, setNewClientContactPerson] = useState("");
   const [items, setItems] = useState<InvoiceLineItem[]>([emptyNormalItem(0)]);
+
+  const createClientMutation = trpc.clientInfo.create.useMutation({
+    onSuccess: (data: any) => {
+      toast.success("取引先を追加しました");
+      clientsQuery.refetch();
+      setSelectedClientId(String(data.id));
+      setShowNewClient(false);
+      setNewClientName("");
+      setNewClientPostalCode("");
+      setNewClientAddress("");
+      setNewClientContactPerson("");
+    },
+    onError: (e: any) => toast.error(`取引先追加エラー: ${e.message}`),
+  });
 
   const createMutation = trpc.invoice.createManual.useMutation({
     onSuccess: (data: any) => {
@@ -574,6 +630,8 @@ function ManualCreateDialog({
       notes: notes || undefined,
       dueDate: dueDate || undefined,
       subject: subject || undefined,
+      honorific: honorific || undefined,
+      paymentMethod: paymentMethod || undefined,
       items: items
         .filter((i) => i.description.trim())
         .map((item, idx) => ({
@@ -593,21 +651,109 @@ function ManualCreateDialog({
         <div className="space-y-4 py-2">
           {/* Basic info */}
           <div className="grid grid-cols-2 gap-3">
+            {/* Client selection with search */}
             <div className="space-y-1.5">
-              <Label className="text-xs">取引先 *</Label>
-              <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">取引先 *</Label>
+                <button
+                  type="button"
+                  onClick={() => setShowNewClient(!showNewClient)}
+                  className="text-xs text-gold hover:text-gold-dim transition-colors"
+                >
+                  {showNewClient ? "選択に戻る" : "+ 新規追加"}
+                </button>
+              </div>
+              {showNewClient ? (
+                <div className="space-y-2 border border-gold/20 rounded-md p-3 bg-dark-surface/30">
+                  <Input
+                    value={newClientName}
+                    onChange={(e) => setNewClientName(e.target.value)}
+                    placeholder="会社名 *"
+                    className="text-sm"
+                  />
+                  <Input
+                    value={newClientPostalCode}
+                    onChange={(e) => setNewClientPostalCode(e.target.value)}
+                    placeholder="郵便番号"
+                    className="text-sm"
+                  />
+                  <Input
+                    value={newClientAddress}
+                    onChange={(e) => setNewClientAddress(e.target.value)}
+                    placeholder="住所"
+                    className="text-sm"
+                  />
+                  <Input
+                    value={newClientContactPerson}
+                    onChange={(e) => setNewClientContactPerson(e.target.value)}
+                    placeholder="担当者名"
+                    className="text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      if (!newClientName.trim()) {
+                        toast.error("会社名を入力してください");
+                        return;
+                      }
+                      createClientMutation.mutate({
+                        name: newClientName.trim(),
+                        postalCode: newClientPostalCode || undefined,
+                        address: newClientAddress || undefined,
+                        contactPerson: newClientContactPerson || undefined,
+                      });
+                    }}
+                    disabled={createClientMutation.isPending}
+                    className="w-full bg-gold text-background hover:bg-gold-dim"
+                  >
+                    {createClientMutation.isPending ? "追加中..." : "取引先を追加"}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    value={clientSearch}
+                    onChange={(e) => setClientSearch(e.target.value)}
+                    placeholder="取引先を検索..."
+                    className="text-sm mb-1"
+                  />
+                  <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="取引先を選択" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients
+                        .filter((c: any) =>
+                          !clientSearch || c.name.toLowerCase().includes(clientSearch.toLowerCase())
+                        )
+                        .map((c: any) => (
+                          <SelectItem key={c.id} value={c.id.toString()}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
+            </div>
+
+            {/* Honorific */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">敬称</Label>
+              <Select value={honorific} onValueChange={setHonorific}>
                 <SelectTrigger>
-                  <SelectValue placeholder="取引先を選択" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {clients.map((c: any) => (
-                    <SelectItem key={c.id} value={c.id.toString()}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="御中">御中</SelectItem>
+                  <SelectItem value="様">様</SelectItem>
+                  <SelectItem value="殿">殿</SelectItem>
+                  <SelectItem value="なし">なし</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Project */}
             <div className="space-y-1.5">
               <Label className="text-xs">現場（任意）</Label>
               <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
@@ -623,6 +769,23 @@ function ManualCreateDialog({
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Payment method */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">支払方法</Label>
+              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="口座振込">口座振込</SelectItem>
+                  <SelectItem value="現金">現金</SelectItem>
+                  <SelectItem value="小切手">小切手</SelectItem>
+                  <SelectItem value="その他">その他</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-1.5 col-span-2">
               <Label className="text-xs">件名</Label>
               <Input

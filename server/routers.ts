@@ -1228,6 +1228,62 @@ export const appRouter = router({
         );
         return { url, fileName };
       }),
+
+    /** Generate Excel for attendance */
+    generateExcel: protectedProcedure
+      .input(z.object({
+        year: z.number(),
+        month: z.number().min(1).max(12),
+        projectId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const startDate = new Date(input.year, input.month - 1, 1);
+        const endDate = new Date(input.year, input.month, 0);
+        const records = await db.getAttendanceByDateRange(startDate, endDate, input.projectId);
+        const allEmployees = await db.getAllEmployees();
+        const projects = await db.getAllProjects();
+        const project = projects.find(p => p.id === input.projectId);
+
+        const empIds = new Set<number>();
+        const guestNameSet = new Set<string>();
+        for (const rec of records) {
+          if (rec.employeeId) empIds.add(rec.employeeId);
+          if (rec.guestName) guestNameSet.add(rec.guestName);
+        }
+
+        const employees = allEmployees
+          .filter(e => empIds.has(e.id))
+          .map(e => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}` }));
+
+        const { generateAttendanceExcel } = await import("./excelAttendance");
+        const excelBuffer = await generateAttendanceExcel({
+          year: input.year,
+          month: input.month,
+          projectName: project?.name || `Project #${input.projectId}`,
+          companyName: "充寵グループ",
+          employees,
+          guestNames: Array.from(guestNameSet),
+          records: records.map(r => ({
+            employeeId: r.employeeId,
+            guestName: r.guestName,
+            workDate: r.workDate,
+            hoursWorked: r.hoursWorked,
+            overtimeHours: r.overtimeHours,
+            workType: r.workType,
+            shiftType: r.shiftType || "day",
+            notes: r.notes,
+          })),
+        });
+
+        const { storagePut } = await import("./storage");
+        const fileName = `attendance-${input.year}-${String(input.month).padStart(2, "0")}-${input.projectId}.xlsx`;
+        const { url } = await storagePut(
+          `attendance/${fileName}`,
+          excelBuffer,
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        return { url, fileName };
+      }),
   }),
 
   // ── Invoices (請求書) ──
@@ -1244,7 +1300,13 @@ export const appRouter = router({
         const invoice = await db.getInvoiceById(input.id);
         if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
         const items = await db.getInvoiceItemsByInvoice(input.id);
-        return { invoice, items };
+        // Get client and company info for preview
+        let client = null;
+        if (invoice.clientId) {
+          client = await db.getClientById(invoice.clientId);
+        }
+        const company = await db.getCompanyProfile();
+        return { invoice, items, client, company };
       }),
 
     /** Create invoice from attendance data */
@@ -1415,6 +1477,8 @@ export const appRouter = router({
         notes: z.string().optional(),
         dueDate: z.string().optional(),
         subject: z.string().optional(),
+        honorific: z.string().optional(),
+        paymentMethod: z.string().optional(),
         items: z.array(z.object({
           itemType: z.enum(["normal", "text"]).default("normal"),
           description: z.string(),
@@ -1465,6 +1529,8 @@ export const appRouter = router({
           taxRate: input.taxRate,
           notes: input.notes || null,
           subject: input.subject || null,
+          honorific: input.honorific || "御中",
+          paymentMethod: input.paymentMethod || "口座振込",
           createdBy: ctx.user.id,
         });
 

@@ -240,6 +240,14 @@ export default function AppAttendance() {
     onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
   });
 
+  const generateExcelMutation = trpc.attendance.generateExcel.useMutation({
+    onSuccess: (data) => {
+      toast.success("Excel生成完了");
+      window.open(data.url, "_blank");
+    },
+    onError: (e) => toast.error(`Excel生成エラー: ${e.message}`),
+  });
+
   const addMemberMutation = trpc.project.addMember.useMutation({
     onSuccess: () => {
       toast.success("作業員を現場に追加しました");
@@ -454,6 +462,17 @@ export default function AppAttendance() {
     generatePdfMutation.mutate({ year, month, projectId: selectedProjectId });
   };
 
+  // Excel export
+  const handleExportExcel = () => {
+    if (!selectedProjectId) {
+      toast.error("現場を選択してください");
+      return;
+    }
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth() + 1;
+    generateExcelMutation.mutate({ year, month, projectId: selectedProjectId });
+  };
+
   // Add guest
   const handleAddGuest = () => {
     const name = newGuestName.trim();
@@ -585,6 +604,19 @@ export default function AppAttendance() {
               <FileDown className="h-4 w-4 mr-1" />
             )}
             PDF出力
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportExcel}
+            disabled={!selectedProjectId || generateExcelMutation.isPending}
+          >
+            {generateExcelMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-1" />
+            ) : (
+              <FileDown className="h-4 w-4 mr-1" />
+            )}
+            Excel出力
           </Button>
           <Button
             onClick={handleSave}
