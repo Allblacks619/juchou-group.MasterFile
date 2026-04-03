@@ -195,6 +195,25 @@ export async function getAllInvitations() {
   return db.select().from(invitations);
 }
 
+export async function deleteExpiredInvitations() {
+  const db = await getDb();
+  if (!db) return 0;
+  const now = new Date();
+  const result = await db.delete(invitations).where(
+    and(
+      sql`${invitations.expiresAt} < ${now}`,
+      eq(invitations.status, "pending")
+    )
+  );
+  return result[0].affectedRows ?? 0;
+}
+
+export async function deleteInvitation(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(invitations).where(eq(invitations.id, id));
+}
+
 // ── Company Profile ──
 
 export async function getCompanyProfile() {

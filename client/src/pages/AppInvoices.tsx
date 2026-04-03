@@ -530,6 +530,7 @@ function ManualCreateDialog({
   const [subject, setSubject] = useState("");
   const [honorific, setHonorific] = useState("御中");
   const [paymentMethod, setPaymentMethod] = useState("口座振込");
+  const [withholding, setWithholding] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
   const [showNewClient, setShowNewClient] = useState(false);
   const [newClientName, setNewClientName] = useState("");
@@ -605,7 +606,9 @@ function ManualCreateDialog({
   for (const [rate, base] of Array.from(taxByRate.entries())) {
     totalTax += Math.round((base * rate) / 100);
   }
-  const totalAmount = subtotal + totalTax;
+  // Withholding tax calculation (10.21% of subtotal)
+  const withholdingAmount = withholding ? Math.round(subtotal * 0.1021) : 0;
+  const totalAmount = subtotal + totalTax - withholdingAmount;
 
   const handleCreate = () => {
     if (!selectedClientId) {
@@ -632,6 +635,8 @@ function ManualCreateDialog({
       subject: subject || undefined,
       honorific: honorific || undefined,
       paymentMethod: paymentMethod || undefined,
+      withholding,
+      withholdingAmount,
       items: items
         .filter((i) => i.description.trim())
         .map((item, idx) => ({
@@ -959,6 +964,12 @@ function ManualCreateDialog({
                 </div>
               );
             })}
+            {withholding && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">源泉徴収税額 (10.21%)</span>
+                <span className="text-destructive">-{formatYen(withholdingAmount)}</span>
+              </div>
+            )}
             <div className="flex justify-between font-bold text-base border-t pt-1">
               <span>合計金額</span>
               <span className="text-gold">{formatYen(totalAmount)}</span>
@@ -970,6 +981,26 @@ function ManualCreateDialog({
             <p className="text-xs text-muted-foreground">※印は軽減税率対象です。</p>
           )}
 
+          {/* Withholding tax toggle */}
+          <div className="flex items-center justify-between py-2 border-t">
+            <div>
+              <Label className="text-xs font-medium">源泉徴収</Label>
+              <p className="text-xs text-muted-foreground">源泉徴収税 (10.21%) を差し引きます</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWithholding(!withholding)}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                withholding ? "bg-gold" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                  withholding ? "translate-x-4.5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
           {/* Notes */}
           <div className="space-y-1.5">
             <Label className="text-xs">備考</Label>

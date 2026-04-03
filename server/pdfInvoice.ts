@@ -268,31 +268,41 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   }
 
   // ── Summary box: subtotal / tax / total ──
-  const summaryBoxW = 280;
+  const hasWithholding = invoice.withholding && invoice.withholdingAmount > 0;
+  const summaryBoxW = hasWithholding ? 370 : 280;
   const summaryBoxH = 36;
   doc.rect(mL, y, summaryBoxW, summaryBoxH).lineWidth(0.5).strokeColor("#999").stroke();
-
   // Inner columns
-  const col1W = 90;
-  const col2W = 90;
-  const col3W = 100;
+  const numCols = hasWithholding ? 4 : 3;
+  const col1W = hasWithholding ? 80 : 90;
+  const col2W = hasWithholding ? 80 : 90;
+  const colWHW = hasWithholding ? 90 : 0;
+  const col3W = hasWithholding ? 120 : 100;
   doc.moveTo(mL + col1W, y).lineTo(mL + col1W, y + summaryBoxH).stroke();
   doc.moveTo(mL + col1W + col2W, y).lineTo(mL + col1W + col2W, y + summaryBoxH).stroke();
-
+  if (hasWithholding) {
+    doc.moveTo(mL + col1W + col2W + colWHW, y).lineTo(mL + col1W + col2W + colWHW, y + summaryBoxH).stroke();
+  }
   // Header row
   doc.rect(mL, y, summaryBoxW, 14).fillAndStroke("#f0ebe0", "#999");
   doc.font("JP").fontSize(7).fillColor("#333");
   doc.text("小計", mL + 4, y + 3, { width: col1W - 8, align: "center" });
   doc.text("消費税", mL + col1W + 4, y + 3, { width: col2W - 8, align: "center" });
-  doc.text("請求金額", mL + col1W + col2W + 4, y + 3, { width: col3W - 8, align: "center" });
-
+  if (hasWithholding) {
+    doc.text("源泉徴収", mL + col1W + col2W + 4, y + 3, { width: colWHW - 8, align: "center" });
+  }
+  doc.text("請求金額", mL + col1W + col2W + colWHW + 4, y + 3, { width: col3W - 8, align: "center" });
   // Value row
   doc.font("JP").fontSize(8).fillColor("#333");
   doc.text(`${formatYen(invoice.subtotal)}円`, mL + 4, y + 18, { width: col1W - 8, align: "center" });
   doc.text(`${formatYen(invoice.taxAmount)}円`, mL + col1W + 4, y + 18, { width: col2W - 8, align: "center" });
+  if (hasWithholding) {
+    doc.fillColor("#c00");
+    doc.text(`-${formatYen(invoice.withholdingAmount)}円`, mL + col1W + col2W + 4, y + 18, { width: colWHW - 8, align: "center" });
+    doc.fillColor("#333");
+  }
   doc.font("JP-Bold").fontSize(11).fillColor("#333");
-  doc.text(`${formatYen(invoice.totalAmount)}円`, mL + col1W + col2W + 4, y + 16, { width: col3W - 8, align: "center" });
-
+  doc.text(`${formatYen(invoice.totalAmount)}円`, mL + col1W + col2W + colWHW + 4, y + 16, { width: col3W - 8, align: "center" });
   y += summaryBoxH + 10;
 
   // ── Payment info box ──

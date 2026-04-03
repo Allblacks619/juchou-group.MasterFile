@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Copy, Plus, Check, X, Clock } from "lucide-react";
+import { Copy, Plus, Check, X, Clock, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { useAppLang } from "@/contexts/AppLanguageContext";
 
@@ -61,6 +61,30 @@ export default function AppInvitations() {
       setTempPassword("");
       setAssignedRole("worker");
       setRecipientEmail("");
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const deleteExpiredMutation = trpc.invitation.deleteExpired.useMutation({
+    onSuccess: (data) => {
+      toast.success(
+        lang === "pt"
+          ? `${data.deleted} convite(s) expirado(s) removido(s)`
+          : `${data.deleted}件の期限切れ招待を削除しました`
+      );
+      invitationsQuery.refetch();
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const deleteMutation = trpc.invitation.delete.useMutation({
+    onSuccess: () => {
+      toast.success(lang === "pt" ? "Convite removido" : "招待を削除しました");
+      invitationsQuery.refetch();
     },
     onError: (error) => {
       toast.error(error.message);
@@ -112,6 +136,16 @@ export default function AppInvitations() {
     return <Badge variant="outline" className={colors[role]}>{roleLabels[role]}</Badge>;
   };
 
+  // Count expired invitations
+  const expiredCount = invitationsQuery.data?.filter(
+    (inv) => inv.status === "pending" && new Date() > new Date(inv.expiresAt)
+  ).length ?? 0;
+
+  // Check if an invitation can be deleted (expired or used)
+  const canDelete = (inv: { status: string; expiresAt: Date }) => {
+    return inv.status === "used" || (inv.status === "pending" && new Date() > new Date(inv.expiresAt));
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -121,68 +155,84 @@ export default function AppInvitations() {
             {lang === "pt" ? "Convide novos usuários para criar contas" : "新しいユーザーを招待してアカウントを作成します"}
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-gold text-background hover:bg-gold-dim">
-              <Plus className="h-4 w-4 mr-2" />
-              {t("invitations_create")}
+        <div className="flex gap-2">
+          {expiredCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive border-destructive/30 hover:bg-destructive/10"
+              onClick={() => deleteExpiredMutation.mutate()}
+              disabled={deleteExpiredMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {lang === "pt"
+                ? `Remover expirados (${expiredCount})`
+                : `期限切れを削除 (${expiredCount})`}
             </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t("invitations_createNew")}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-4">
-              <div className="space-y-2">
-                <Label>{lang === "pt" ? "ID de login (nome em romaji)" : "ログインID（ローマ字氏名）"}</Label>
-                <Input
-                  value={loginId}
-                  onChange={(e) => setLoginId(e.target.value)}
-                  placeholder={lang === "pt" ? "Ex: yamada.taro" : "例: yamada.taro"}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{lang === "pt" ? "Senha temporária (mín. 6 caracteres)" : "仮パスワード（6文字以上）"}</Label>
-                <Input
-                  value={tempPassword}
-                  onChange={(e) => setTempPassword(e.target.value)}
-                  placeholder={lang === "pt" ? "Deve ser alterada no primeiro login" : "初回ログイン後に変更必須"}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("invitations_role")}</Label>
-                <Select value={assignedRole} onValueChange={(v) => setAssignedRole(v as any)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="worker">{roleLabels.worker}</SelectItem>
-                    <SelectItem value="leader">{roleLabels.leader}</SelectItem>
-                    <SelectItem value="admin">{roleLabels.admin}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>{lang === "pt" ? "E-mail (opcional)" : "メールアドレス（任意）"}</Label>
-                <Input
-                  type="email"
-                  value={recipientEmail}
-                  onChange={(e) => setRecipientEmail(e.target.value)}
-                  placeholder={lang === "pt" ? "Enviar convite por e-mail" : "招待メール送信先"}
-                />
-              </div>
-              <Button
-                onClick={handleCreate}
-                disabled={createMutation.isPending}
-                className="w-full bg-gold text-background hover:bg-gold-dim"
-              >
-                {createMutation.isPending
-                  ? (lang === "pt" ? "Criando..." : "作成中...")
-                  : (lang === "pt" ? "Gerar link de convite" : "招待リンクを生成")}
+          )}
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-gold text-background hover:bg-gold-dim">
+                <Plus className="h-4 w-4 mr-2" />
+                {t("invitations_create")}
               </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{t("invitations_createNew")}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <Label>{lang === "pt" ? "ID de login (nome em romaji)" : "ログインID（ローマ字氏名）"}</Label>
+                  <Input
+                    value={loginId}
+                    onChange={(e) => setLoginId(e.target.value)}
+                    placeholder={lang === "pt" ? "Ex: yamada.taro" : "例: yamada.taro"}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{lang === "pt" ? "Senha temporária (mín. 6 caracteres)" : "仮パスワード（6文字以上）"}</Label>
+                  <Input
+                    value={tempPassword}
+                    onChange={(e) => setTempPassword(e.target.value)}
+                    placeholder={lang === "pt" ? "Deve ser alterada no primeiro login" : "初回ログイン後に変更必須"}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("invitations_role")}</Label>
+                  <Select value={assignedRole} onValueChange={(v) => setAssignedRole(v as any)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="worker">{roleLabels.worker}</SelectItem>
+                      <SelectItem value="leader">{roleLabels.leader}</SelectItem>
+                      <SelectItem value="admin">{roleLabels.admin}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>{lang === "pt" ? "E-mail (opcional)" : "メールアドレス（任意）"}</Label>
+                  <Input
+                    type="email"
+                    value={recipientEmail}
+                    onChange={(e) => setRecipientEmail(e.target.value)}
+                    placeholder={lang === "pt" ? "Enviar convite por e-mail" : "招待メール送信先"}
+                  />
+                </div>
+                <Button
+                  onClick={handleCreate}
+                  disabled={createMutation.isPending}
+                  className="w-full bg-gold text-background hover:bg-gold-dim"
+                >
+                  {createMutation.isPending
+                    ? (lang === "pt" ? "Criando..." : "作成中...")
+                    : (lang === "pt" ? "Gerar link de convite" : "招待リンクを生成")}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Invite Result Dialog */}
@@ -282,6 +332,7 @@ export default function AppInvitations() {
                   <TableHead>{t("invitations_status")}</TableHead>
                   <TableHead>{t("invitations_createdAt")}</TableHead>
                   <TableHead>{t("invitations_expiry")}</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -295,6 +346,23 @@ export default function AppInvitations() {
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {format(new Date(inv.expiresAt), "yyyy/MM/dd HH:mm")}
+                    </TableCell>
+                    <TableCell>
+                      {canDelete(inv) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                          onClick={() => {
+                            if (confirm(lang === "pt" ? "Remover este convite?" : "この招待を削除しますか？")) {
+                              deleteMutation.mutate({ id: inv.id });
+                            }
+                          }}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

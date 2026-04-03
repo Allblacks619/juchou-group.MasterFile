@@ -300,7 +300,17 @@ function AttendanceCalendar() {
     return map;
   }, [teamDataQuery.data]);
 
-  const members = teamDataQuery.data?.members || [];
+  // Deduplicate members by type+id/name
+  const members = (() => {
+    const raw = teamDataQuery.data?.members || [];
+    const seen = new Set<string>();
+    return raw.filter((m) => {
+      const key = m.type === "guest" ? `guest-${m.nameKanji}` : `emp-${m.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })();
   const myEmployeeId = myInfoQuery.data?.id;
   const projects = projectsQuery.data || [];
 

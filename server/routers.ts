@@ -101,6 +101,17 @@ export const appRouter = router({
       return db.getInvitationsByCreator(ctx.user.id);
     }),
 
+    deleteExpired: leaderOrAdminProcedure
+      .mutation(async () => {
+        const count = await db.deleteExpiredInvitations();
+        return { deleted: count };
+      }),
+    delete: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteInvitation(input.id);
+        return { success: true };
+      }),
     verify: publicProcedure
       .input(z.object({ token: z.string() }))
       .query(async ({ input }) => {
@@ -1356,7 +1367,7 @@ export const appRouter = router({
         }
 
         // Build invoice items
-        const items: Array<{ employeeId: number; description: string; quantity: number; unitPrice: number; amount: number; unit: string }> = [];
+        const items: Array<{ employeeId: number; description: string; quantity: number; unitPrice: number; amount: number; unit: string; transactionDate: Date | null }> = [];
         let subtotal = 0;
 
         for (const [empId, empRecords] of Array.from(byEmployee.entries())) {
@@ -1379,6 +1390,11 @@ export const appRouter = router({
           const amount = Math.round((totalDaysTimes10 / 10) * clientRate);
           subtotal += amount;
 
+          // Find the first work date for this employee to use as transaction date
+          const sortedDates = empRecords
+            .map(r => new Date(r.workDate))
+            .sort((a, b) => a.getTime() - b.getTime());
+          const firstWorkDate = sortedDates.length > 0 ? sortedDates[0] : null;
           items.push({
             employeeId: empId,
             description: `${emp?.nameKanji || `従業員${empId}`}`,
@@ -1386,6 +1402,7 @@ export const appRouter = router({
             unitPrice: clientRate,
             amount,
             unit: "日",
+            transactionDate: firstWorkDate,
           });
         }
 
@@ -1430,6 +1447,7 @@ export const appRouter = router({
             unitPrice: item.unitPrice,
             amount: item.amount,
             unit: item.unit,
+            transactionDate: item.transactionDate,
           });
         }
 
@@ -1500,6 +1518,8 @@ export const appRouter = router({
         subject: z.string().optional(),
         honorific: z.string().optional(),
         paymentMethod: z.string().optional(),
+        withholding: z.boolean().default(false),
+        withholdingAmount: z.number().default(0),
         items: z.array(z.object({
           itemType: z.enum(["normal", "text"]).default("normal"),
           description: z.string(),
@@ -1536,6 +1556,7 @@ export const appRouter = router({
         const yearMonth = input.periodStart.slice(0, 7);
         const invoiceNumber = await db.getNextInvoiceNumber(yearMonth);
 
+        const finalTotal = totalAmount - (input.withholdingAmount || 0);
         const invoice = await db.createInvoice({
           invoiceNumber,
           clientId: input.clientId,
@@ -1546,12 +1567,14 @@ export const appRouter = router({
           dueDate: input.dueDate ? new Date(input.dueDate) : null,
           subtotal,
           taxAmount: totalTax,
-          totalAmount,
+          totalAmount: finalTotal,
           taxRate: input.taxRate,
           notes: input.notes || null,
           subject: input.subject || null,
           honorific: input.honorific || "御中",
           paymentMethod: input.paymentMethod || "口座振込",
+          withholding: input.withholding || false,
+          withholdingAmount: input.withholdingAmount || 0,
           createdBy: ctx.user.id,
         });
 
