@@ -13,6 +13,7 @@ import {
   InsertAttendance, attendance,
   InsertInvoice, invoices,
   InsertInvoiceItem, invoiceItems,
+  projectMembers, InsertProjectMember,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -626,4 +627,72 @@ export async function getNextInvoiceNumber(yearMonth: string): Promise<string> {
     return isNaN(num) ? max : Math.max(max, num);
   }, 0);
   return `${prefix}${String(maxNum + 1).padStart(3, "0")}`;
+}
+
+// ── Project Members ──
+
+export async function getProjectMembers(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(projectMembers).where(eq(projectMembers.projectId, projectId));
+}
+
+export async function getProjectsByEmployee(employeeId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(projectMembers).where(
+    and(eq(projectMembers.employeeId, employeeId), eq(projectMembers.isActive, true))
+  );
+}
+
+export async function addProjectMember(data: InsertProjectMember) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Check if already exists
+  const existing = await db.select().from(projectMembers).where(
+    and(eq(projectMembers.projectId, data.projectId), eq(projectMembers.employeeId, data.employeeId))
+  ).limit(1);
+  if (existing.length > 0) {
+    // Reactivate if deactivated
+    await db.update(projectMembers).set({ isActive: true, updatedAt: new Date() }).where(eq(projectMembers.id, existing[0].id));
+    return existing[0];
+  }
+  const result = await db.insert(projectMembers).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function removeProjectMember(projectId: number, employeeId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(projectMembers).set({ isActive: false, updatedAt: new Date() }).where(
+    and(eq(projectMembers.projectId, projectId), eq(projectMembers.employeeId, employeeId))
+  );
+}
+
+export async function deleteProjectMember(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(projectMembers).where(eq(projectMembers.id, id));
+}
+
+// ── Invoice Item CRUD (additional) ──
+
+export async function getInvoiceItemById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(invoiceItems).where(eq(invoiceItems.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function updateInvoiceItem(id: number, data: Partial<InsertInvoiceItem>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(invoiceItems).set(data).where(eq(invoiceItems.id, id));
+  return getInvoiceItemById(id);
+}
+
+export async function deleteInvoiceItem(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(invoiceItems).where(eq(invoiceItems.id, id));
 }

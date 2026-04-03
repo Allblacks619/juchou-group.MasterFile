@@ -6,6 +6,8 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import * as db from "./db";
 import { storagePut } from "./storage";
+import * as schema from "../drizzle/schema";
+import { eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from "./pdfRoster";
 import { generateInvoicePdf } from "./pdfInvoice";
@@ -17,6 +19,29 @@ const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
   }
   return next({ ctx });
 });
+
+/** Recalculate invoice totals from items */
+async function recalcInvoiceTotals(invoiceId: number) {
+  const items = await db.getInvoiceItemsByInvoice(invoiceId);
+  let subtotal = 0;
+  const taxByRate = new Map<number, number>();
+  for (const item of items) {
+    if (item.itemType === "text") continue;
+    subtotal += item.amount;
+    const rate = item.itemTaxRate;
+    const existing = taxByRate.get(rate) || 0;
+    taxByRate.set(rate, existing + item.amount);
+  }
+  let totalTax = 0;
+  for (const [rate, base] of Array.from(taxByRate.entries())) {
+    totalTax += Math.round(base * rate / 100);
+  }
+  await db.updateInvoice(invoiceId, {
+    subtotal,
+    taxAmount: totalTax,
+    totalAmount: subtotal + totalTax,
+  });
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -113,7 +138,6 @@ export const appRouter = router({
         email: z.string().email().optional(),
         registrationNumber: z.string().optional(),
         invoiceIssuerNumber: z.string().optional(),
-        representativeName: z.string().optional(),
         bankName: z.string().optional(),
         branchName: z.string().optional(),
         accountType: z.enum(["ordinary", "checking"]).optional(),
@@ -176,7 +200,21 @@ export const appRouter = router({
       }),
 
     getMyProfile: protectedProcedure.query(async ({ ctx }) => {
-      const profile = await db.getEmployeeByUserId(ctx.user.id);
+      let profile = await db.getEmployeeByUserId(ctx.user.id);
+      if (!profile) {
+        // Auto-create employee record for users who don't have one yet
+        const userName = ctx.user.name || ctx.user.loginId || "未設定";
+        const created = await db.createEmployee({
+          nameKanji: userName,
+          userId: ctx.user.id,
+        });
+        // Link employee to user
+        const dbInstance = await db.getDb();
+        if (dbInstance && created.id) {
+          await dbInstance.update(schema.users).set({ employeeId: created.id }).where(eq(schema.users.id, ctx.user.id));
+        }
+        profile = await db.getEmployeeByUserId(ctx.user.id);
+      }
       return profile ?? null;
     }),
 
@@ -202,10 +240,12 @@ export const appRouter = router({
         healthCheckDate: z.string().optional(),
         healthInsuranceNumber: z.string().optional(),
         insuranceType: z.enum(["national", "social", "construction"]).nullable().optional(),
+        insuranceNumberType: z.enum(["workers_comp", "employment"]).nullable().optional(),
         workersCompNumber: z.string().optional(),
         pensionNumber: z.string().optional(),
         careerUpNumber: z.string().optional(),
         employmentType: z.enum(["sole_proprietor", "employee", "other"]).nullable().optional(),
+        employmentInsuranceNumber: z.string().optional(),
         emergencyNameKana: z.string().optional(),
         emergencyNameKanji: z.string().optional(),
         emergencyRelationship: z.string().optional(),
@@ -297,10 +337,12 @@ export const appRouter = router({
         healthCheckDate: z.string().optional(),
         healthInsuranceNumber: z.string().optional(),
         insuranceType: z.enum(["national", "social", "construction"]).optional(),
+        insuranceNumberType: z.enum(["workers_comp", "employment"]).optional(),
         workersCompNumber: z.string().optional(),
         pensionNumber: z.string().optional(),
         careerUpNumber: z.string().optional(),
         employmentType: z.enum(["sole_proprietor", "employee", "other"]).optional(),
+        employmentInsuranceNumber: z.string().optional(),
         emergencyNameKana: z.string().optional(),
         emergencyNameKanji: z.string().optional(),
         emergencyRelationship: z.string().optional(),
@@ -319,7 +361,6 @@ export const appRouter = router({
         bloodPressureHigh: z.number().optional(),
         bloodPressureLow: z.number().optional(),
         insuredNumber: z.string().optional(),
-        employmentInsuranceNumber: z.string().optional(),
         userId: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
@@ -355,10 +396,12 @@ export const appRouter = router({
         healthCheckDate: z.string().optional(),
         healthInsuranceNumber: z.string().optional(),
         insuranceType: z.enum(["national", "social", "construction"]).optional(),
+        insuranceNumberType: z.enum(["workers_comp", "employment"]).optional(),
         workersCompNumber: z.string().optional(),
         pensionNumber: z.string().optional(),
         careerUpNumber: z.string().optional(),
         employmentType: z.enum(["sole_proprietor", "employee", "other"]).optional(),
+        employmentInsuranceNumber: z.string().optional(),
         emergencyNameKana: z.string().optional(),
         emergencyNameKanji: z.string().optional(),
         emergencyRelationship: z.string().optional(),
@@ -377,7 +420,6 @@ export const appRouter = router({
         bloodPressureHigh: z.number().optional(),
         bloodPressureLow: z.number().optional(),
         insuredNumber: z.string().optional(),
-        employmentInsuranceNumber: z.string().optional(),
         photoUrl: z.string().optional(),
         stampUrl: z.string().optional(),
       }))
@@ -409,7 +451,7 @@ export const appRouter = router({
     uploadFile: protectedProcedure
       .input(z.object({
         employeeId: z.number(),
-        type: z.enum(["photo", "stamp", "residence_card", "passport", "health_check", "qualification_cert", "id_document", "receipt", "invoice", "other"]),
+        type: z.enum(["photo", "stamp", "residence_card", "passport", "health_check", "qualification_cert", "id_document", "receipt", "invoice", "other", "residence_card_front", "residence_card_back", "drivers_license_front", "drivers_license_back", "insurance_card", "pension_book", "ccus_card", "drivers_license"]),
         base64: z.string(),
         mimeType: z.string(),
         fileName: z.string(),
@@ -488,6 +530,9 @@ export const appRouter = router({
         name: z.string().min(1),
         obtainedDate: z.string().optional(),
         certificateNumber: z.string().optional(),
+        certificateBase64: z.string().optional(),
+        certificateMimeType: z.string().optional(),
+        certificateFileName: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const employee = await db.getEmployeeById(input.employeeId);
@@ -497,11 +542,23 @@ export const appRouter = router({
         if (ctx.user.appRole === "worker" && employee.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
+        let certificateFileUrl: string | undefined;
+        let certificateFileKey: string | undefined;
+        if (input.certificateBase64 && input.certificateFileName) {
+          const buffer = Buffer.from(input.certificateBase64, "base64");
+          const suffix = nanoid(8);
+          const key = `employees/${input.employeeId}/qualifications/${suffix}-${input.certificateFileName}`;
+          const { url } = await storagePut(key, buffer, input.certificateMimeType || "application/octet-stream");
+          certificateFileUrl = url;
+          certificateFileKey = key;
+        }
         return db.createQualification({
           employeeId: input.employeeId,
           name: input.name,
           obtainedDate: input.obtainedDate ? new Date(input.obtainedDate) : undefined,
           certificateNumber: input.certificateNumber,
+          certificateFileUrl,
+          certificateFileKey,
         });
       }),
 
@@ -511,11 +568,22 @@ export const appRouter = router({
         name: z.string().optional(),
         obtainedDate: z.string().optional(),
         certificateNumber: z.string().optional(),
+        certificateBase64: z.string().optional(),
+        certificateMimeType: z.string().optional(),
+        certificateFileName: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const { id, ...data } = input;
+      .mutation(async ({ ctx, input }) => {
+        const { id, certificateBase64, certificateMimeType, certificateFileName, ...data } = input;
         const updateData: any = { ...data };
         if (data.obtainedDate) updateData.obtainedDate = new Date(data.obtainedDate);
+        if (certificateBase64 && certificateFileName) {
+          const buffer = Buffer.from(certificateBase64, "base64");
+          const suffix = nanoid(8);
+          const key = `qualifications/${id}/${suffix}-${certificateFileName}`;
+          const { url } = await storagePut(key, buffer, certificateMimeType || "application/octet-stream");
+          updateData.certificateFileUrl = url;
+          updateData.certificateFileKey = key;
+        }
         return db.updateQualification(id, updateData);
       }),
 
@@ -680,6 +748,46 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteProject(input.id);
+        return { success: true };
+      }),
+
+    /** List project members */
+    members: leaderOrAdminProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input }) => {
+        const members = await db.getProjectMembers(input.projectId);
+        const allEmployees = await db.getAllEmployees();
+        const empMap = new Map(allEmployees.map(e => [e.id, e]));
+        return members.map(m => ({
+          ...m,
+          employee: empMap.get(m.employeeId) || null,
+        }));
+      }),
+
+    /** Add member to project */
+    addMember: leaderOrAdminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        employeeId: z.number(),
+        projectRole: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.addProjectMember({
+          projectId: input.projectId,
+          employeeId: input.employeeId,
+          projectRole: input.projectRole || null,
+          addedBy: ctx.user.id,
+        });
+      }),
+
+    /** Remove member from project */
+    removeMember: leaderOrAdminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        employeeId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.removeProjectMember(input.projectId, input.employeeId);
         return { success: true };
       }),
   }),
@@ -1281,6 +1389,178 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         return db.updateInvoice(input.id, { status: input.status });
+      }),
+
+    /** Create manual invoice (手動請求書作成) */
+    createManual: leaderOrAdminProcedure
+      .input(z.object({
+        clientId: z.number(),
+        projectId: z.number().optional(),
+        periodStart: z.string(),
+        periodEnd: z.string(),
+        taxRate: z.number().default(10),
+        notes: z.string().optional(),
+        dueDate: z.string().optional(),
+        items: z.array(z.object({
+          itemType: z.enum(["normal", "text"]).default("normal"),
+          description: z.string(),
+          quantity: z.number().default(0),
+          unit: z.string().default("日"),
+          unitPrice: z.number().default(0),
+          amount: z.number().default(0),
+          itemTaxRate: z.number().default(10),
+          notes: z.string().optional(),
+          sortOrder: z.number().default(0),
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        let subtotal = 0;
+        for (const item of input.items) {
+          if (item.itemType === "normal") subtotal += item.amount;
+        }
+
+        // Calculate tax per rate group
+        const taxByRate = new Map<number, number>();
+        for (const item of input.items) {
+          if (item.itemType === "text") continue;
+          const rate = item.itemTaxRate;
+          const existing = taxByRate.get(rate) || 0;
+          taxByRate.set(rate, existing + item.amount);
+        }
+        let totalTax = 0;
+        for (const [rate, base] of Array.from(taxByRate.entries())) {
+          totalTax += Math.round(base * rate / 100);
+        }
+
+        const totalAmount = subtotal + totalTax;
+        const yearMonth = input.periodStart.slice(0, 7);
+        const invoiceNumber = await db.getNextInvoiceNumber(yearMonth);
+
+        const invoice = await db.createInvoice({
+          invoiceNumber,
+          clientId: input.clientId,
+          projectId: input.projectId || null,
+          periodStart: new Date(input.periodStart),
+          periodEnd: new Date(input.periodEnd),
+          issueDate: new Date(),
+          dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          subtotal,
+          taxAmount: totalTax,
+          totalAmount,
+          taxRate: input.taxRate,
+          notes: input.notes || null,
+          createdBy: ctx.user.id,
+        });
+
+        for (let i = 0; i < input.items.length; i++) {
+          const item = input.items[i];
+          await db.createInvoiceItem({
+            invoiceId: invoice.id!,
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            amount: item.amount,
+            unit: item.unit,
+            itemType: item.itemType,
+            itemTaxRate: item.itemTaxRate,
+            sortOrder: item.sortOrder || i,
+            notes: item.notes || null,
+          });
+        }
+
+        return { id: invoice.id, invoiceNumber, totalAmount };
+      }),
+
+    /** Add item to existing invoice */
+    addItem: leaderOrAdminProcedure
+      .input(z.object({
+        invoiceId: z.number(),
+        itemType: z.enum(["normal", "text"]).default("normal"),
+        description: z.string(),
+        quantity: z.number().default(0),
+        unit: z.string().default("日"),
+        unitPrice: z.number().default(0),
+        amount: z.number().default(0),
+        itemTaxRate: z.number().default(10),
+        notes: z.string().optional(),
+        sortOrder: z.number().default(0),
+      }))
+      .mutation(async ({ input }) => {
+        const invoice = await db.getInvoiceById(input.invoiceId);
+        if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const newItem = await db.createInvoiceItem({
+          invoiceId: input.invoiceId,
+          itemType: input.itemType,
+          description: input.description,
+          quantity: input.quantity,
+          unit: input.unit,
+          unitPrice: input.unitPrice,
+          amount: input.amount,
+          itemTaxRate: input.itemTaxRate,
+          sortOrder: input.sortOrder,
+          notes: input.notes || null,
+        });
+
+        // Recalculate invoice totals
+        await recalcInvoiceTotals(input.invoiceId);
+
+        return newItem;
+      }),
+
+    /** Update an invoice item */
+    updateItem: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        description: z.string().optional(),
+        quantity: z.number().optional(),
+        unit: z.string().optional(),
+        unitPrice: z.number().optional(),
+        amount: z.number().optional(),
+        itemTaxRate: z.number().optional(),
+        notes: z.string().optional(),
+        sortOrder: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updateInvoiceItem(id, data);
+
+        // Get the item to find its invoiceId
+        const item = await db.getInvoiceItemById(id);
+        if (item) await recalcInvoiceTotals(item.invoiceId);
+
+        return { success: true };
+      }),
+
+    /** Delete an invoice item */
+    deleteItem: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const item = await db.getInvoiceItemById(input.id);
+        if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+
+        await db.deleteInvoiceItem(input.id);
+        await recalcInvoiceTotals(item.invoiceId);
+
+        return { success: true };
+      }),
+
+    /** Update invoice details */
+    update: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        notes: z.string().optional(),
+        dueDate: z.string().optional(),
+        honorific: z.string().optional(),
+        paymentMethod: z.string().optional(),
+        showSeal: z.boolean().optional(),
+        showLogo: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        const updateData: any = { ...data };
+        if (data.dueDate) updateData.dueDate = new Date(data.dueDate);
+        return db.updateInvoice(id, updateData);
       }),
 
     /** Delete an invoice */

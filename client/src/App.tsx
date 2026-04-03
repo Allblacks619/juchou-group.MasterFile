@@ -21,6 +21,7 @@ const AppCompany = lazy(() => import("./pages/AppCompany"));
 const AppEmployees = lazy(() => import("./pages/AppEmployees"));
 const AppEmployeeDetail = lazy(() => import("./pages/AppEmployeeDetail"));
 const AppMyProfile = lazy(() => import("./pages/AppMyProfile"));
+const AppProjects = lazy(() => import("./pages/AppProjects"));
 const AppRates = lazy(() => import("./pages/AppRates"));
 const AppAttendance = lazy(() => import("./pages/AppAttendance"));
 const AppMyAttendance = lazy(() => import("./pages/AppMyAttendance"));
@@ -54,6 +55,7 @@ function AppRoutes() {
           <Route path="/app/employees" component={AppEmployees} />
           <Route path="/app/employees/:id" component={AppEmployeeDetail} />
           <Route path="/app/my-profile" component={AppMyProfile} />
+          <Route path="/app/projects" component={AppProjects} />
           <Route path="/app/rates" component={AppRates} />
           <Route path="/app/attendance" component={AppAttendance} />
           <Route path="/app/my-attendance" component={AppMyAttendance} />

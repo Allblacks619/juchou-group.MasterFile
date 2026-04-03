@@ -1,5 +1,4 @@
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json } from "drizzle-orm/mysql-core";
-
 /**
  * Core user table backing auth flow.
  * Extended with role hierarchy: admin (統合管理者), leader (責任者), worker (作業員)
@@ -48,13 +47,13 @@ export const invitations = mysqlTable("invitations", {
   status: mysqlEnum("status", ["pending", "used", "expired"]).default("pending").notNull(),
   /** Whether invitation email was sent */
   emailSent: boolean("emailSent").default(false).notNull(),
-  /** Who created this invitation */
-  createdBy: int("createdBy").notNull(),
-  /** When the invitation expires (1 hour from creation) */
+  /** Created by user ID */
+  createdBy: int("createdBy"),
+  /** Expiry timestamp */
   expiresAt: timestamp("expiresAt").notNull(),
-  /** When the invitation was used */
+  /** Used at timestamp */
   usedAt: timestamp("usedAt"),
-  /** User ID of the person who used the invitation */
+  /** Used by user ID */
   usedBy: int("usedBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
@@ -63,7 +62,7 @@ export type Invitation = typeof invitations.$inferSelect;
 export type InsertInvitation = typeof invitations.$inferInsert;
 
 /**
- * Company profile - single row for company settings
+ * Company profile (会社情報)
  */
 export const companyProfile = mysqlTable("company_profile", {
   id: int("id").autoincrement().primaryKey(),
@@ -79,25 +78,23 @@ export const companyProfile = mysqlTable("company_profile", {
   email: varchar("email", { length: 320 }),
   /** Registration number */
   registrationNumber: varchar("registrationNumber", { length: 64 }),
-  /** Qualified invoice issuer number (T + 13 digits) */
-  invoiceIssuerNumber: varchar("invoiceIssuerNumber", { length: 32 }),
-  /** Representative name */
-  representativeName: varchar("representativeName", { length: 128 }),
+  /** Qualified invoice issuer number (適格請求事業者番号) */
+  invoiceIssuerNumber: varchar("invoiceIssuerNumber", { length: 64 }),
   /** Bank name */
   bankName: varchar("bankName", { length: 128 }),
   /** Branch name */
   branchName: varchar("branchName", { length: 128 }),
-  /** Account type: 普通/当座 */
+  /** Account type */
   accountType: mysqlEnum("accountType", ["ordinary", "checking"]).default("ordinary"),
   /** Account number */
   accountNumber: varchar("accountNumber", { length: 32 }),
   /** Account holder name */
   accountHolder: varchar("accountHolder", { length: 128 }),
-  /** Logo image URL (S3) */
+  /** Logo URL (S3) */
   logoUrl: text("logoUrl"),
-  /** Company seal image URL (S3) */
+  /** Seal URL (S3) */
   sealUrl: text("sealUrl"),
-  /** Watermark image URL (S3) */
+  /** Watermark URL (S3) */
   watermarkUrl: text("watermarkUrl"),
   /** Seal position/size settings as JSON */
   sealSettings: json("sealSettings"),
@@ -133,6 +130,8 @@ export const employees = mysqlTable("employees", {
   gender: mysqlEnum("gender", ["male", "female"]),
   /** Profile photo URL (S3) */
   photoUrl: text("photoUrl"),
+  /** 建設キャリアアップCCUS番号 (moved to basic info) */
+  careerUpNumber: varchar("careerUpNumber", { length: 64 }),
 
   // ── Nationality & Residence ──
   /** Nationality */
@@ -165,14 +164,16 @@ export const employees = mysqlTable("employees", {
   healthInsuranceNumber: varchar("healthInsuranceNumber", { length: 64 }),
   /** Insurance type */
   insuranceType: mysqlEnum("insuranceType", ["national", "social", "construction"]),
-  /** Workers' compensation insurance number */
+  /** Insurance number type: workers_comp (労災保険) or employment (雇用保険) - selectable */
+  insuranceNumberType: mysqlEnum("insuranceNumberType", ["workers_comp", "employment"]),
+  /** Workers' compensation insurance number (労災保険番号) */
   workersCompNumber: varchar("workersCompNumber", { length: 64 }),
   /** Basic pension number */
   pensionNumber: varchar("pensionNumber", { length: 64 }),
-  /** Career-up number */
-  careerUpNumber: varchar("careerUpNumber", { length: 64 }),
   /** Employment type */
   employmentType: mysqlEnum("employmentType", ["sole_proprietor", "employee", "other"]),
+  /** Employment insurance number (雇用保険番号) */
+  employmentInsuranceNumber: varchar("employmentInsuranceNumber", { length: 64 }),
 
   // ── Emergency contact ──
   /** Emergency contact name (kana) */
@@ -213,12 +214,10 @@ export const employees = mysqlTable("employees", {
   bloodPressureHigh: int("bloodPressureHigh"),
   /** Blood pressure (diastolic) */
   bloodPressureLow: int("bloodPressureLow"),
-  /** Health insurance insured number (被保険者番号) */
+  /** Health insurance insured number (被保険者番号) - kept for backward compat but hidden in UI */
   insuredNumber: varchar("insuredNumber", { length: 64 }),
-  /** Employment insurance number (雇用保険番号) */
-  employmentInsuranceNumber: varchar("employmentInsuranceNumber", { length: 64 }),
 
-  // ── Height / Weight (for worker roster) ──
+  // ── Height / Weight (kept for backward compat but hidden in UI) ──
   height: int("height"),
   weight: int("weight"),
 
@@ -242,6 +241,10 @@ export const qualifications = mysqlTable("qualifications", {
   obtainedDate: timestamp("obtainedDate"),
   /** Certificate number */
   certificateNumber: varchar("certificateNumber", { length: 128 }),
+  /** Certificate file URL (S3) - uploaded when adding qualification */
+  certificateFileUrl: text("certificateFileUrl"),
+  /** Certificate file key (S3) */
+  certificateFileKey: varchar("certificateFileKey", { length: 512 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -251,13 +254,15 @@ export type InsertQualification = typeof qualifications.$inferInsert;
 
 /**
  * Documents uploaded by/for employees
+ * Extended with more document types for front/back uploads
  */
 export const documents = mysqlTable("documents", {
   id: int("id").autoincrement().primaryKey(),
   /** Employee ID */
   employeeId: int("employeeId").notNull(),
-  /** Document type */
+  /** Document type - extended with front/back variants and new types */
   documentType: mysqlEnum("documentType", [
+    "drivers_license",
     "residence_card",
     "passport",
     "health_check",
@@ -267,6 +272,15 @@ export const documents = mysqlTable("documents", {
     "invoice",
     "receipt",
     "other",
+    // New types for front/back uploads
+    "residence_card_front",
+    "residence_card_back",
+    "drivers_license_front",
+    "drivers_license_back",
+    // New types for insurance/pension/CCUS
+    "insurance_card",
+    "pension_book",
+    "ccus_card",
   ]).notNull(),
   /** Original filename */
   fileName: varchar("fileName", { length: 512 }).notNull(),
@@ -344,6 +358,29 @@ export const projects = mysqlTable("projects", {
 
 export type Project = typeof projects.$inferSelect;
 export type InsertProject = typeof projects.$inferInsert;
+
+/**
+ * Project members (現場作業員割り当て)
+ * Links employees to projects for attendance management
+ */
+export const projectMembers = mysqlTable("project_members", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Project ID */
+  projectId: int("projectId").notNull(),
+  /** Employee ID */
+  employeeId: int("employeeId").notNull(),
+  /** Role in project */
+  projectRole: varchar("projectRole", { length: 64 }),
+  /** Active flag */
+  isActive: boolean("isActive").default(true).notNull(),
+  /** Added by user ID */
+  addedBy: int("addedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ProjectMember = typeof projectMembers.$inferSelect;
+export type InsertProjectMember = typeof projectMembers.$inferInsert;
 
 /**
  * Employee rates per project (単価管理)
@@ -433,16 +470,32 @@ export const invoices = mysqlTable("invoices", {
   taxAmount: int("taxAmount").default(0).notNull(),
   /** Total amount */
   totalAmount: int("totalAmount").default(0).notNull(),
-  /** Tax rate (e.g. 10 for 10%) */
+  /** Tax rate (e.g. 10 for 10%) - default/fallback rate */
   taxRate: int("taxRate").default(10).notNull(),
   /** Status */
   status: mysqlEnum("status", ["draft", "sent", "paid", "overdue", "cancelled"]).default("draft").notNull(),
-  /** Notes */
+  /** Notes / 備考 */
   notes: text("notes"),
+  /** Internal memo / 社内メモ */
+  internalMemo: text("internalMemo"),
   /** PDF URL (generated) */
   pdfUrl: text("pdfUrl"),
   /** Created by user ID */
   createdBy: int("createdBy"),
+  /** Honorific for client name (御中, 様, etc.) */
+  honorific: varchar("honorific", { length: 16 }).default("御中"),
+  /** Sub-number / 枝番 */
+  subNumber: varchar("subNumber", { length: 32 }),
+  /** Payment method */
+  paymentMethod: varchar("paymentMethod", { length: 64 }).default("口座振込"),
+  /** Show company seal on PDF */
+  showSeal: boolean("showSeal").default(true).notNull(),
+  /** Show company logo on PDF */
+  showLogo: boolean("showLogo").default(true).notNull(),
+  /** Withholding tax ON/OFF */
+  withholding: boolean("withholding").default(false).notNull(),
+  /** Withholding tax amount */
+  withholdingAmount: int("withholdingAmount").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -452,14 +505,17 @@ export type InsertInvoice = typeof invoices.$inferInsert;
 
 /**
  * Invoice line items (請求書明細)
+ * Enhanced with per-item tax rate, description rows, and sort order
  */
 export const invoiceItems = mysqlTable("invoice_items", {
   id: int("id").autoincrement().primaryKey(),
   /** Invoice ID */
   invoiceId: int("invoiceId").notNull(),
-  /** Employee ID */
+  /** Employee ID (optional, for auto-generated items) */
   employeeId: int("employeeId"),
-  /** Description (e.g. worker name + project) */
+  /** Item type: normal = 通常行, text = テキスト行(説明のみ) */
+  itemType: mysqlEnum("itemType", ["normal", "text"]).default("normal").notNull(),
+  /** Description (e.g. worker name + project, or free text) */
   description: text("description").notNull(),
   /** Quantity (e.g. number of days * 10, so 200 = 20.0 days) */
   quantity: int("quantity").default(0).notNull(),
@@ -469,7 +525,11 @@ export const invoiceItems = mysqlTable("invoice_items", {
   unitPrice: int("unitPrice").default(0).notNull(),
   /** Amount (quantity/10 * unitPrice) */
   amount: int("amount").default(0).notNull(),
-  /** Notes */
+  /** Tax rate for this item (10, 8, 0) - percentage */
+  itemTaxRate: int("itemTaxRate").default(10).notNull(),
+  /** Sort order within the invoice */
+  sortOrder: int("sortOrder").default(0).notNull(),
+  /** Notes / 備考 */
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });

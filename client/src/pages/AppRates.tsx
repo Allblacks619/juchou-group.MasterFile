@@ -689,7 +689,7 @@ export default function AppRates() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">単価管理</h1>
-        <p className="text-muted-foreground text-sm mt-1">取引先・現場・作業員単価の管理</p>
+        <p className="text-muted-foreground text-sm mt-1">取引先・作業員単価の管理</p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -698,10 +698,6 @@ export default function AppRates() {
             <DollarSign className="h-3.5 w-3.5" />
             単価一覧
           </TabsTrigger>
-          <TabsTrigger value="projects" className="flex items-center gap-1.5">
-            <FolderOpen className="h-3.5 w-3.5" />
-            現場
-          </TabsTrigger>
           <TabsTrigger value="clients" className="flex items-center gap-1.5">
             <Building2 className="h-3.5 w-3.5" />
             取引先
@@ -709,7 +705,6 @@ export default function AppRates() {
         </TabsList>
 
         <TabsContent value="rates"><RatesTab /></TabsContent>
-        <TabsContent value="projects"><ProjectsTab /></TabsContent>
         <TabsContent value="clients"><ClientsTab /></TabsContent>
       </Tabs>
     </div>

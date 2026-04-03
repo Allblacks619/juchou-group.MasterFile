@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -76,7 +76,8 @@ export default function AppMyProfile() {
         gender: profile.gender || "",
         nationality: profile.nationality || "日本",
         experienceYears: profile.experienceYears ?? "",
-
+        // CCUS moved to basic
+        careerUpNumber: profile.careerUpNumber || "",
         // Residence
         residenceStatus: profile.residenceStatus || "",
         residenceCardNumber: profile.residenceCardNumber || "",
@@ -92,9 +93,10 @@ export default function AppMyProfile() {
         healthCheckDate: toDateStr(profile.healthCheckDate),
         healthInsuranceNumber: profile.healthInsuranceNumber || "",
         insuranceType: profile.insuranceType || "",
+        insuranceNumberType: (profile as any).insuranceNumberType || "",
         workersCompNumber: profile.workersCompNumber || "",
+        employmentInsuranceNumber: (profile as any).employmentInsuranceNumber || "",
         pensionNumber: profile.pensionNumber || "",
-        careerUpNumber: profile.careerUpNumber || "",
         employmentType: profile.employmentType || "",
         // Emergency
         emergencyNameKana: profile.emergencyNameKana || "",
@@ -120,20 +122,16 @@ export default function AppMyProfile() {
 
   const handleSave = () => {
     const data: any = { ...form };
-    // Convert empty strings to undefined for optional fields
     for (const key of Object.keys(data)) {
       if (data[key] === "") data[key] = undefined;
     }
-    // Convert numeric fields
     if (data.experienceYears !== undefined) data.experienceYears = data.experienceYears ? Number(data.experienceYears) : undefined;
-
-    // Handle nullable enums
     if (data.bloodType === undefined) data.bloodType = null;
     if (data.gender === undefined) data.gender = null;
     if (data.insuranceType === undefined) data.insuranceType = null;
     if (data.employmentType === undefined) data.employmentType = null;
     if (data.accountType === undefined) data.accountType = null;
-
+    if (data.insuranceNumberType === undefined) data.insuranceNumberType = null;
     updateProfile.mutate(data);
   };
 
@@ -159,6 +157,7 @@ export default function AppMyProfile() {
   });
 
   const [newQual, setNewQual] = useState({ name: "", obtainedDate: "", certificateNumber: "" });
+  const [qualCertFile, setQualCertFile] = useState<{ base64: string; mimeType: string; fileName: string } | null>(null);
 
   // ── Documents ──
   const { data: documents, isLoading: docsLoading } = trpc.document.list.useQuery(
@@ -170,13 +169,6 @@ export default function AppMyProfile() {
       toast.success("ファイルをアップロードしました");
       utils.document.list.invalidate();
       utils.employee.getMyProfile.invalidate();
-    },
-    onError: (err) => toast.error(err.message),
-  });
-  const deleteDoc = trpc.document.delete.useMutation({
-    onSuccess: () => {
-      toast.success("書類を削除しました");
-      utils.document.list.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -402,7 +394,10 @@ export default function AppMyProfile() {
                   <Label htmlFor="experienceYears">経験年数</Label>
                   <Input id="experienceYears" type="number" value={form.experienceYears ?? ""} onChange={(e) => set("experienceYears", e.target.value)} placeholder="5" />
                 </div>
-
+                <div>
+                  <Label htmlFor="careerUpNumber">建設キャリアアップCCUS番号</Label>
+                  <Input id="careerUpNumber" value={form.careerUpNumber || ""} onChange={(e) => set("careerUpNumber", e.target.value)} placeholder="CCUS番号" />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -483,7 +478,7 @@ export default function AppMyProfile() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">保険・雇用情報</CardTitle>
-              <CardDescription>健康保険、年金、雇用形態などの情報</CardDescription>
+              <CardDescription>健康保険、労災/雇用保険、年金などの情報</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -510,20 +505,6 @@ export default function AppMyProfile() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="workersCompNumber">労災保険番号</Label>
-                  <Input id="workersCompNumber" value={form.workersCompNumber || ""} onChange={(e) => set("workersCompNumber", e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="pensionNumber">基礎年金番号</Label>
-                  <Input id="pensionNumber" value={form.pensionNumber || ""} onChange={(e) => set("pensionNumber", e.target.value)} />
-                </div>
-                <div>
-                  <Label htmlFor="careerUpNumber">建設キャリアアップ番号</Label>
-                  <Input id="careerUpNumber" value={form.careerUpNumber || ""} onChange={(e) => set("careerUpNumber", e.target.value)} />
-                </div>
-                <div>
                   <Label>雇用形態</Label>
                   <Select value={form.employmentType || "none"} onValueChange={(v) => set("employmentType", v === "none" ? "" : v)}>
                     <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
@@ -536,6 +517,50 @@ export default function AppMyProfile() {
                   </Select>
                 </div>
               </div>
+
+              {/* 労災保険 or 雇用保険 - 選択式 */}
+              <div className="border border-border rounded-lg p-4 bg-muted/20">
+                <h3 className="text-sm font-medium mb-3">労災保険 / 雇用保険</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label>保険番号種別</Label>
+                    <Select value={form.insuranceNumberType || "none"} onValueChange={(v) => set("insuranceNumberType", v === "none" ? "" : v)}>
+                      <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">未選択</SelectItem>
+                        <SelectItem value="workers_comp">労災保険</SelectItem>
+                        <SelectItem value="employment">雇用保険</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    {form.insuranceNumberType === "workers_comp" && (
+                      <>
+                        <Label htmlFor="workersCompNumber">労災保険番号</Label>
+                        <Input id="workersCompNumber" value={form.workersCompNumber || ""} onChange={(e) => set("workersCompNumber", e.target.value)} />
+                      </>
+                    )}
+                    {form.insuranceNumberType === "employment" && (
+                      <>
+                        <Label htmlFor="employmentInsuranceNumber">雇用保険番号</Label>
+                        <Input id="employmentInsuranceNumber" value={form.employmentInsuranceNumber || ""} onChange={(e) => set("employmentInsuranceNumber", e.target.value)} />
+                      </>
+                    )}
+                    {!form.insuranceNumberType && (
+                      <p className="text-xs text-muted-foreground mt-6">保険番号種別を選択してください</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="pensionNumber">基礎年金番号</Label>
+                  <Input id="pensionNumber" value={form.pensionNumber || ""} onChange={(e) => set("pensionNumber", e.target.value)} />
+                </div>
+              </div>
+
+              {/* インボイス */}
               <div className="border-t border-border pt-4 mt-4">
                 <h3 className="text-sm font-medium mb-3">適格請求書発行事業者</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -650,30 +675,62 @@ export default function AppMyProfile() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">保有資格</CardTitle>
-              <CardDescription>保有する資格を登録してください</CardDescription>
+              <CardDescription>保有する資格を登録してください。資格証明書も同時にアップロードできます。</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Add qualification form */}
               <div className="border border-border rounded-lg p-4 bg-muted/20">
                 <h3 className="text-sm font-medium mb-3">資格を追加</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <Input
-                    placeholder="資格名"
-                    value={newQual.name}
-                    onChange={(e) => setNewQual((p) => ({ ...p, name: e.target.value }))}
-                  />
-                  <Input
-                    type="date"
-                    placeholder="取得日"
-                    value={newQual.obtainedDate}
-                    onChange={(e) => setNewQual((p) => ({ ...p, obtainedDate: e.target.value }))}
-                  />
-                  <div className="flex gap-2">
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <Input
+                      placeholder="資格名"
+                      value={newQual.name}
+                      onChange={(e) => setNewQual((p) => ({ ...p, name: e.target.value }))}
+                    />
+                    <Input
+                      type="date"
+                      placeholder="取得日"
+                      value={newQual.obtainedDate}
+                      onChange={(e) => setNewQual((p) => ({ ...p, obtainedDate: e.target.value }))}
+                    />
                     <Input
                       placeholder="証明書番号"
                       value={newQual.certificateNumber}
                       onChange={(e) => setNewQual((p) => ({ ...p, certificateNumber: e.target.value }))}
                     />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer border border-border rounded-md px-3 py-2 text-sm hover:bg-muted/50 transition-colors">
+                      <Upload className="h-4 w-4 text-muted-foreground" />
+                      {qualCertFile ? qualCertFile.fileName : "資格証明書をアップロード"}
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="image/*,.pdf"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (file.size > 16 * 1024 * 1024) {
+                            toast.error("ファイルサイズは16MB以下にしてください");
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const base64 = (reader.result as string).split(",")[1];
+                            setQualCertFile({ base64, mimeType: file.type, fileName: file.name });
+                          };
+                          reader.readAsDataURL(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    {qualCertFile && (
+                      <Button variant="ghost" size="sm" onClick={() => setQualCertFile(null)} className="text-red-500">
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
+                    <div className="flex-1" />
                     <Button
                       size="sm"
                       disabled={!newQual.name || createQual.isPending}
@@ -684,12 +741,16 @@ export default function AppMyProfile() {
                           name: newQual.name,
                           obtainedDate: newQual.obtainedDate || undefined,
                           certificateNumber: newQual.certificateNumber || undefined,
+                          certificateBase64: qualCertFile?.base64,
+                          certificateMimeType: qualCertFile?.mimeType,
+                          certificateFileName: qualCertFile?.fileName,
                         });
                         setNewQual({ name: "", obtainedDate: "", certificateNumber: "" });
+                        setQualCertFile(null);
                       }}
-                      className="bg-gold text-background hover:bg-gold/90 shrink-0"
+                      className="bg-gold text-background hover:bg-gold/90"
                     >
-                      追加
+                      {createQual.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "追加"}
                     </Button>
                   </div>
                 </div>
@@ -709,6 +770,11 @@ export default function AppMyProfile() {
                         <div className="flex gap-3 text-xs text-muted-foreground mt-1">
                           {q.obtainedDate && <span>取得日: {toDateStr(q.obtainedDate)}</span>}
                           {q.certificateNumber && <span>番号: {q.certificateNumber}</span>}
+                          {(q as any).certificateUrl && (
+                            <a href={(q as any).certificateUrl} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">
+                              証明書を表示
+                            </a>
+                          )}
                         </div>
                       </div>
                       <Button
@@ -737,7 +803,6 @@ export default function AppMyProfile() {
               <CardDescription>請求書や書類に使用する印鑑の画像をアップロードしてください</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Current stamp preview */}
               {profile?.stampUrl ? (
                 <div className="flex flex-col items-center gap-4">
                   <div className="border border-border rounded-lg p-4 bg-white">
@@ -755,8 +820,6 @@ export default function AppMyProfile() {
                   <p className="text-sm text-muted-foreground">印鑑画像がアップロードされていません</p>
                 </div>
               )}
-
-              {/* Upload button */}
               <div className="flex flex-col items-center gap-2">
                 <label className="flex items-center gap-2 cursor-pointer bg-gold text-background hover:bg-gold/90 px-4 py-2 rounded-md text-sm font-medium">
                   <Upload className="h-4 w-4" />
@@ -801,7 +864,7 @@ export default function AppMyProfile() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">書類管理</CardTitle>
-              <CardDescription>在留カード、パスポート、健康診断書などの書類をアップロード</CardDescription>
+              <CardDescription>在留カード、運転免許証、パスポート、保険証、年金手帳、CCUSカードなどの書類をアップロード</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Upload form */}
@@ -809,13 +872,19 @@ export default function AppMyProfile() {
                 <h3 className="text-sm font-medium mb-3">書類をアップロード</h3>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <Select value={uploadType} onValueChange={setUploadType}>
-                    <SelectTrigger className="w-full sm:w-48">
+                    <SelectTrigger className="w-full sm:w-56">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="residence_card">在留カード</SelectItem>
+                      <SelectItem value="residence_card_front">在留カード（表）</SelectItem>
+                      <SelectItem value="residence_card_back">在留カード（裏）</SelectItem>
+                      <SelectItem value="drivers_license_front">運転免許証（表）</SelectItem>
+                      <SelectItem value="drivers_license_back">運転免許証（裏）</SelectItem>
                       <SelectItem value="passport">パスポート</SelectItem>
                       <SelectItem value="health_check">健康診断書</SelectItem>
+                      <SelectItem value="health_insurance_card">保険証</SelectItem>
+                      <SelectItem value="pension_book">年金手帳</SelectItem>
+                      <SelectItem value="ccus_card">建設キャリアアップCCUSカード</SelectItem>
                       <SelectItem value="qualification_cert">資格証明書</SelectItem>
                       <SelectItem value="id_document">身分証明書</SelectItem>
                       <SelectItem value="other">その他</SelectItem>
@@ -828,6 +897,9 @@ export default function AppMyProfile() {
                   </label>
                   {uploadFile.isPending && <Loader2 className="h-5 w-5 animate-spin text-gold self-center" />}
                 </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  在留カードと運転免許証は表と裏の両方をアップロードしてください。
+                </p>
               </div>
 
               {/* Document list */}
@@ -872,8 +944,15 @@ export default function AppMyProfile() {
 function docTypeLabel(type: string): string {
   const map: Record<string, string> = {
     residence_card: "在留カード",
+    residence_card_front: "在留カード（表）",
+    residence_card_back: "在留カード（裏）",
+    drivers_license_front: "運転免許証（表）",
+    drivers_license_back: "運転免許証（裏）",
     passport: "パスポート",
     health_check: "健康診断書",
+    health_insurance_card: "保険証",
+    pension_book: "年金手帳",
+    ccus_card: "CCUSカード",
     qualification_cert: "資格証明書",
     id_document: "身分証明書",
     stamp: "印鑑",

@@ -57,6 +57,13 @@
       "when": 1775125886628,
       "tag": "0007_lucky_phil_sheldon",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1775146272138,
+      "tag": "0008_dazzling_namora",
+      "breakpoints": true
     }
   ]
 }

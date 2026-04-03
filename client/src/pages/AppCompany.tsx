@@ -42,7 +42,6 @@ export default function AppCompany() {
   const [email, setEmail] = useState("");
   const [registrationNumber, setRegistrationNumber] = useState("");
   const [invoiceIssuerNumber, setInvoiceIssuerNumber] = useState("");
-  const [representativeName, setRepresentativeName] = useState("");
   const [bankName, setBankName] = useState("");
   const [branchName, setBranchName] = useState("");
   const [accountType, setAccountType] = useState<"ordinary" | "checking">("ordinary");
@@ -59,7 +58,6 @@ export default function AppCompany() {
     setEmail(company.email || "");
     setRegistrationNumber(company.registrationNumber || "");
     setInvoiceIssuerNumber(company.invoiceIssuerNumber || "");
-    setRepresentativeName(company.representativeName || "");
     setBankName(company.bankName || "");
     setBranchName(company.branchName || "");
     setAccountType((company.accountType as any) || "ordinary");
@@ -77,7 +75,6 @@ export default function AppCompany() {
       email: email || undefined,
       registrationNumber: registrationNumber || undefined,
       invoiceIssuerNumber: invoiceIssuerNumber || undefined,
-      representativeName: representativeName || undefined,
       bankName: bankName || undefined,
       branchName: branchName || undefined,
       accountType: accountType || undefined,
@@ -156,10 +153,6 @@ export default function AppCompany() {
                 <div className="space-y-2">
                   <Label>会社名 *</Label>
                   <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>代表者名</Label>
-                  <Input value={representativeName} onChange={(e) => setRepresentativeName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label>郵便番号</Label>

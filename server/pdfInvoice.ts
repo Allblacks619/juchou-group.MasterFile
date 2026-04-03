@@ -1,6 +1,7 @@
 /**
  * Invoice PDF Generator (請求書PDF)
  * Generates A4 portrait PDF with Japanese text support using PDFKit.
+ * Supports per-item tax rates, text-only rows, and tax breakdown by rate group.
  */
 import PDFDocument from "pdfkit";
 import { Invoice, InvoiceItem, CompanyProfile } from "../drizzle/schema";
@@ -104,8 +105,9 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
 
   // ── Client info (left side) ──
   const clientY = 80;
-  doc.fontSize(14).fillColor("#333").text(`${clientName || "取引先"} 御中`, mL, clientY);
-  doc.moveTo(mL, clientY + 22).lineTo(mL + 200, clientY + 22).lineWidth(1).strokeColor("#c8a96e").stroke();
+  const honorific = invoice.honorific || "御中";
+  doc.fontSize(14).fillColor("#333").text(`${clientName || "取引先"} ${honorific}`, mL, clientY);
+  doc.moveTo(mL, clientY + 22).lineTo(mL + 250, clientY + 22).lineWidth(1).strokeColor("#c8a96e").stroke();
 
   // ── Company info (right side, below dates) ──
   y = Math.max(y + 20, 160);
@@ -140,11 +142,13 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   y += boxH + 15;
 
   // ── Items table ──
+  const descW = contentW - 40 - 80 - 80 - 60 - 80;
   const cols = [
     { w: 40, label: "No." },
-    { w: contentW - 40 - 80 - 80 - 80 - 80, label: "摘要" },
+    { w: descW, label: "摘要" },
     { w: 80, label: "数量" },
     { w: 80, label: "単価" },
+    { w: 60, label: "税率" },
     { w: 80, label: "金額" },
   ];
 
@@ -158,47 +162,93 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   y += 22;
 
   // Rows
+  let normalIdx = 0;
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (y > 750) {
       doc.addPage();
       y = 40;
     }
-    const bgColor = i % 2 === 0 ? "#ffffff" : "#fafaf5";
-    const quantityStr = item.unit === "日" ? `${(item.quantity / 10).toFixed(1)}日` : `${item.quantity}${item.unit || ""}`;
 
-    const values = [
-      String(i + 1),
-      item.description || "",
-      quantityStr,
-      formatYen(item.unitPrice),
-      formatYen(item.amount),
-    ];
+    const isText = item.itemType === "text";
+    const bgColor = isText ? "#f5f5f0" : (normalIdx % 2 === 0 ? "#ffffff" : "#fafaf5");
 
-    x = mL;
-    for (let j = 0; j < cols.length; j++) {
-      doc.rect(x, y, cols[j].w, 20).fillAndStroke(bgColor, "#ddd");
-      const align = j >= 2 ? "right" : "left";
-      doc.fillColor("#333").fontSize(7).text(values[j], x + 4, y + 5, { width: cols[j].w - 8, align });
-      x += cols[j].w;
+    if (isText) {
+      // Text row spans the full width
+      doc.rect(mL, y, contentW, 18).fillAndStroke(bgColor, "#ddd");
+      doc.fillColor("#666").fontSize(7).text(item.description || "", mL + 44, y + 4, { width: contentW - 48 });
+      y += 18;
+    } else {
+      normalIdx++;
+      const quantityStr = item.unit === "日"
+        ? `${(item.quantity / 10).toFixed(1)}日`
+        : `${item.quantity}${item.unit || ""}`;
+
+      const taxRateStr = `${item.itemTaxRate || 10}%`;
+
+      const values = [
+        String(normalIdx),
+        item.description || "",
+        quantityStr,
+        formatYen(item.unitPrice),
+        taxRateStr,
+        formatYen(item.amount),
+      ];
+
+      x = mL;
+      for (let j = 0; j < cols.length; j++) {
+        doc.rect(x, y, cols[j].w, 20).fillAndStroke(bgColor, "#ddd");
+        const align = j >= 2 ? "right" : "left";
+        doc.fillColor("#333").fontSize(7).text(values[j], x + 4, y + 5, { width: cols[j].w - 8, align });
+        x += cols[j].w;
+      }
+
+      // If item has notes, add a sub-row
+      if (item.notes) {
+        y += 20;
+        if (y > 750) {
+          doc.addPage();
+          y = 40;
+        }
+        doc.rect(mL, y, contentW, 14).fillAndStroke("#fafaf5", "#eee");
+        doc.fillColor("#888").fontSize(6).text(`  ${item.notes}`, mL + 44, y + 3, { width: contentW - 48 });
+        y += 14;
+      } else {
+        y += 20;
+      }
     }
-    y += 20;
   }
 
-  // ── Subtotal / Tax / Total ──
-  y += 8;
-  const summaryX = mL + contentW - 200;
-  const summaryW = 200;
+  // ── Tax breakdown by rate group ──
+  y += 10;
+  const summaryX = mL + contentW - 220;
+  const summaryW = 220;
 
   const drawSummaryRow = (label: string, value: string, bold: boolean = false) => {
     doc.fontSize(bold ? 10 : 9).fillColor("#333");
-    doc.text(label, summaryX, y, { width: 100 });
-    doc.text(value, summaryX + 100, y, { width: 100, align: "right" });
+    doc.text(label, summaryX, y, { width: 120 });
+    doc.text(value, summaryX + 120, y, { width: 100, align: "right" });
     y += 18;
   };
 
   drawSummaryRow("小計", formatYen(invoice.subtotal));
-  drawSummaryRow(`消費税 (${invoice.taxRate}%)`, formatYen(invoice.taxAmount));
+
+  // Group tax by rate
+  const taxByRate = new Map<number, number>();
+  for (const item of items) {
+    if (item.itemType === "text") continue;
+    const rate = item.itemTaxRate || 10;
+    const existing = taxByRate.get(rate) || 0;
+    taxByRate.set(rate, existing + item.amount);
+  }
+
+  for (const [rate, base] of Array.from(taxByRate.entries()).sort((a, b) => b[0] - a[0])) {
+    if (rate === 0) continue;
+    const taxAmt = Math.round(base * rate / 100);
+    const rateLabel = rate === 8 ? `消費税 ${rate}%（軽減税率）` : `消費税 ${rate}%`;
+    drawSummaryRow(rateLabel, formatYen(taxAmt));
+  }
+
   doc.moveTo(summaryX, y - 2).lineTo(summaryX + summaryW, y - 2).lineWidth(0.5).strokeColor("#999").stroke();
   drawSummaryRow("合計金額", formatYen(invoice.totalAmount), true);
 
