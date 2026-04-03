@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Lock, AlertCircle, CheckCircle, Eye, EyeOff } from "lucide-react";
+import { Lock, AlertCircle, CheckCircle, Eye, EyeOff, Globe } from "lucide-react";
+import { useAppLang } from "@/contexts/AppLanguageContext";
 
 export default function AppChangePassword() {
   const [, navigate] = useLocation();
@@ -16,23 +17,24 @@ export default function AppChangePassword() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const { lang, toggleLang, t } = useAppLang();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
     if (newPassword !== confirmPassword) {
-      setError("新しいパスワードが一致しません");
+      setError(t("changePassword_mismatch"));
       return;
     }
 
     if (newPassword.length < 6) {
-      setError("新しいパスワードは6文字以上にしてください");
+      setError(t("changePassword_minLength"));
       return;
     }
 
     if (currentPassword === newPassword) {
-      setError("新しいパスワードは現在のパスワードと異なるものにしてください");
+      setError(lang === "pt" ? "A nova senha deve ser diferente da atual" : "新しいパスワードは現在のパスワードと異なるものにしてください");
       return;
     }
 
@@ -49,7 +51,7 @@ export default function AppChangePassword() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "パスワードの変更に失敗しました");
+        setError(data.error || (lang === "pt" ? "Falha ao alterar a senha" : "パスワードの変更に失敗しました"));
         return;
       }
 
@@ -58,7 +60,7 @@ export default function AppChangePassword() {
         navigate("/app");
       }, 2000);
     } catch {
-      setError("サーバーに接続できません");
+      setError(lang === "pt" ? "Não foi possível conectar ao servidor" : "サーバーに接続できません");
     } finally {
       setLoading(false);
     }
@@ -70,9 +72,9 @@ export default function AppChangePassword() {
         <Card className="w-full max-w-md border-border bg-card">
           <CardContent className="pt-8 pb-8 text-center space-y-4">
             <CheckCircle className="h-12 w-12 text-green-500 mx-auto" />
-            <h2 className="text-xl font-bold">パスワードを変更しました</h2>
+            <h2 className="text-xl font-bold">{t("changePassword_success")}</h2>
             <p className="text-sm text-muted-foreground">
-              ダッシュボードに移動します...
+              {lang === "pt" ? "Redirecionando para o painel..." : "ダッシュボードに移動します..."}
             </p>
           </CardContent>
         </Card>
@@ -82,6 +84,14 @@ export default function AppChangePassword() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      {/* Language toggle */}
+      <div className="fixed top-4 right-4 z-50">
+        <Button variant="outline" size="sm" onClick={toggleLang} className="text-xs">
+          <Globe className="h-3 w-3 mr-1.5" />
+          {lang === "ja" ? "PT" : "JP"}
+        </Button>
+      </div>
+
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-foreground tracking-tight">
@@ -92,9 +102,9 @@ export default function AppChangePassword() {
 
         <Card className="border-border bg-card">
           <CardHeader className="space-y-1 pb-4">
-            <CardTitle className="text-xl text-center">パスワード変更</CardTitle>
+            <CardTitle className="text-xl text-center">{t("changePassword_title")}</CardTitle>
             <CardDescription className="text-center">
-              初回ログインのため、パスワードの変更が必要です
+              {t("changePassword_mustChange")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -108,14 +118,14 @@ export default function AppChangePassword() {
 
               <div className="space-y-2">
                 <Label htmlFor="currentPassword" className="text-sm font-medium">
-                  現在のパスワード（仮パスワード）
+                  {lang === "pt" ? "Senha atual (temporária)" : "現在のパスワード（仮パスワード）"}
                 </Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="currentPassword"
                     type={showCurrent ? "text" : "password"}
-                    placeholder="現在のパスワードを入力"
+                    placeholder={lang === "pt" ? "Digite a senha atual" : "現在のパスワードを入力"}
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     className="pl-10 pr-10"
@@ -135,14 +145,14 @@ export default function AppChangePassword() {
 
               <div className="space-y-2">
                 <Label htmlFor="newPassword" className="text-sm font-medium">
-                  新しいパスワード
+                  {t("changePassword_new")}
                 </Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="newPassword"
                     type={showNew ? "text" : "password"}
-                    placeholder="6文字以上の新しいパスワード"
+                    placeholder={lang === "pt" ? "Nova senha (mínimo 6 caracteres)" : "6文字以上の新しいパスワード"}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="pl-10 pr-10"
@@ -162,14 +172,14 @@ export default function AppChangePassword() {
 
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword" className="text-sm font-medium">
-                  新しいパスワード（確認）
+                  {t("changePassword_confirm")}
                 </Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="confirmPassword"
                     type={showNew ? "text" : "password"}
-                    placeholder="新しいパスワードを再入力"
+                    placeholder={lang === "pt" ? "Confirme a nova senha" : "新しいパスワードを再入力"}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     className="pl-10"
@@ -179,7 +189,7 @@ export default function AppChangePassword() {
                   />
                 </div>
                 {newPassword && confirmPassword && newPassword !== confirmPassword && (
-                  <p className="text-xs text-destructive">パスワードが一致しません</p>
+                  <p className="text-xs text-destructive">{t("changePassword_mismatch")}</p>
                 )}
               </div>
 
@@ -188,7 +198,9 @@ export default function AppChangePassword() {
                 className="w-full bg-gold text-background hover:bg-gold-dim font-medium"
                 disabled={loading || !currentPassword || !newPassword || !confirmPassword}
               >
-                {loading ? "変更中..." : "パスワードを変更"}
+                {loading
+                  ? (lang === "pt" ? "Alterando..." : "変更中...")
+                  : t("changePassword_button")}
               </Button>
             </form>
           </CardContent>

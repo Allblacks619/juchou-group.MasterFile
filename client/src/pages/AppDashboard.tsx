@@ -29,7 +29,6 @@ import {
   Users,
   UserPlus,
   AlertCircle,
-  CheckCircle,
   ArrowRight,
   UserCircle,
   Loader2,
@@ -55,25 +54,23 @@ import {
   isToday,
 } from "date-fns";
 import { ja } from "date-fns/locale";
+import { useAppLang } from "@/contexts/AppLanguageContext";
+import type { AppLang } from "@/lib/appTranslations";
 
 type WorkType = "normal" | "half_day" | "overtime" | "holiday" | "absence";
 type ShiftType = "day" | "night";
 
-const WORK_TYPE_LABELS: Record<WorkType, string> = {
-  normal: "出勤",
-  half_day: "半日",
-  overtime: "残業",
-  holiday: "休出",
-  absence: "欠勤",
-};
+function workTypeLabels(lang: AppLang): Record<WorkType, string> {
+  return lang === "pt"
+    ? { normal: "Presente", half_day: "Meio dia", overtime: "Hora extra", holiday: "Folga trab.", absence: "Ausente" }
+    : { normal: "出勤", half_day: "半日", overtime: "残業", holiday: "休出", absence: "欠勤" };
+}
 
-const WORK_TYPE_SHORT: Record<WorkType, string> = {
-  normal: "出",
-  half_day: "半",
-  overtime: "残",
-  holiday: "休",
-  absence: "欠",
-};
+function workTypeShort(lang: AppLang): Record<WorkType, string> {
+  return lang === "pt"
+    ? { normal: "P", half_day: "½", overtime: "HE", holiday: "FT", absence: "A" }
+    : { normal: "出", half_day: "半", overtime: "残", holiday: "休", absence: "欠" };
+}
 
 const WORK_TYPE_COLORS: Record<WorkType, string> = {
   normal: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
@@ -83,9 +80,12 @@ const WORK_TYPE_COLORS: Record<WorkType, string> = {
   absence: "bg-red-500/20 text-red-400 border-red-500/30",
 };
 
-const DAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+function dayLabels(lang: AppLang) {
+  return lang === "pt"
+    ? ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+    : ["日", "月", "火", "水", "木", "金", "土"];
+}
 
-// Overtime options: 0 to 12 in 0.5 steps, stored as *10
 const OVERTIME_OPTIONS: number[] = [];
 for (let i = 0; i <= 120; i += 5) {
   OVERTIME_OPTIONS.push(i);
@@ -94,13 +94,14 @@ for (let i = 0; i <= 120; i += 5) {
 export default function AppDashboard() {
   const { user } = useAuth();
   const appRole = (user as any)?.appRole || "worker";
+  const { t, lang } = useAppLang();
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">ダッシュボード</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t("nav_dashboard")}</h1>
         <p className="text-muted-foreground mt-1">
-          ようこそ、{user?.name || "ユーザー"}さん
+          {t("dashboard_welcome")}{user?.name || (lang === "pt" ? "Usuário" : "ユーザー")}{lang === "ja" ? "さん" : ""}
         </p>
       </div>
 
@@ -108,15 +109,14 @@ export default function AppDashboard() {
 
       {(appRole === "admin" || appRole === "leader") && <AdminStats />}
 
-      {/* Attendance calendar for all roles */}
       <AttendanceCalendar />
     </div>
   );
 }
 
-/** Alert banner for missing required profile fields */
 function ProfileCompletionAlert() {
   const [, setLocation] = useLocation();
+  const { t, lang } = useAppLang();
   const { data: missingInfo, isLoading } = trpc.employee.getMyMissingFields.useQuery(undefined, {
     retry: false,
   });
@@ -131,9 +131,13 @@ function ProfileCompletionAlert() {
             <div className="flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-yellow-500 shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium text-yellow-500">プロフィールが未登録です</p>
+                <p className="font-medium text-yellow-500">
+                  {lang === "pt" ? "Perfil não registrado" : "プロフィールが未登録です"}
+                </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  現場への提出書類に必要な情報を入力してください。
+                  {lang === "pt"
+                    ? "Preencha as informações necessárias para os documentos de obra."
+                    : "現場への提出書類に必要な情報を入力してください。"}
                 </p>
               </div>
             </div>
@@ -142,7 +146,7 @@ function ProfileCompletionAlert() {
               className="bg-gold text-background hover:bg-gold/90 shrink-0"
               onClick={() => setLocation("/app/my-profile")}
             >
-              入力する <ArrowRight className="h-4 w-4 ml-1" />
+              {lang === "pt" ? "Preencher" : "入力する"} <ArrowRight className="h-4 w-4 ml-1" />
             </Button>
           </div>
         </CardContent>
@@ -159,14 +163,16 @@ function ProfileCompletionAlert() {
               <AlertCircle className="h-5 w-5 text-yellow-500 shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium text-yellow-500">
-                  未記入の必須項目があります（{missingInfo.missingFields.length}件）
+                  {lang === "pt"
+                    ? `Há itens obrigatórios pendentes (${missingInfo.missingFields.length})`
+                    : `未記入の必須項目があります（${missingInfo.missingFields.length}件）`}
                 </p>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {missingInfo.missingFields.slice(0, 6).map((f) => (
                     <Badge key={f.key} variant="outline" className="text-xs">{f.label}</Badge>
                   ))}
                   {missingInfo.missingFields.length > 6 && (
-                    <Badge variant="outline" className="text-xs">+{missingInfo.missingFields.length - 6}件</Badge>
+                    <Badge variant="outline" className="text-xs">+{missingInfo.missingFields.length - 6}</Badge>
                   )}
                 </div>
               </div>
@@ -176,7 +182,7 @@ function ProfileCompletionAlert() {
               className="bg-gold text-background hover:bg-gold/90 shrink-0"
               onClick={() => setLocation("/app/my-profile")}
             >
-              入力する <ArrowRight className="h-4 w-4 ml-1" />
+              {lang === "pt" ? "Preencher" : "入力する"} <ArrowRight className="h-4 w-4 ml-1" />
             </Button>
           </div>
         </CardContent>
@@ -189,12 +195,13 @@ function ProfileCompletionAlert() {
 
 function AdminStats() {
   const [, setLocation] = useLocation();
+  const { t, lang } = useAppLang();
   const employeesQuery = trpc.employee.list.useQuery(undefined, { retry: false });
   const invitationsQuery = trpc.invitation.list.useQuery(undefined, { retry: false });
 
   const stats = [
-    { title: "従業員数", value: employeesQuery.data?.length ?? "-", icon: Users, path: "/app/employees" },
-    { title: "招待数", value: invitationsQuery.data?.length ?? "-", icon: UserPlus, path: "/app/invitations" },
+    { title: t("dashboard_totalEmployees"), value: employeesQuery.data?.length ?? "-", icon: Users, path: "/app/employees" },
+    { title: t("dashboard_totalInvitations"), value: invitationsQuery.data?.length ?? "-", icon: UserPlus, path: "/app/invitations" },
   ];
 
   return (
@@ -214,36 +221,33 @@ function AdminStats() {
           </CardContent>
         </Card>
       ))}
-      {/* 従業員追加ボタン */}
       <Card
         className="cursor-pointer hover:border-gold/30 transition-colors border-dashed"
         onClick={() => setLocation("/app/employees")}
       >
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">従業員追加</CardTitle>
+          <CardTitle className="text-sm font-medium text-muted-foreground">{t("dashboard_addEmployee")}</CardTitle>
           <Plus className="h-4 w-4 text-gold" />
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">新しい従業員を登録</p>
+          <p className="text-sm text-muted-foreground">{t("dashboard_newEmployee")}</p>
         </CardContent>
       </Card>
     </div>
   );
 }
 
-/** Main attendance calendar component */
 function AttendanceCalendar() {
+  const { t, lang, formatMonthStr } = useAppLang();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [projectInitialized, setProjectInitialized] = useState(false);
   const [guestDialogOpen, setGuestDialogOpen] = useState(false);
   const [guestName, setGuestName] = useState("");
-  const [editingMember, setEditingMember] = useState<{ id: number | null; name: string; type: "employee" | "guest" } | null>(null);
 
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
 
-  // Queries
   const projectsQuery = trpc.attendance.myProjects.useQuery();
   const lastProjectQuery = trpc.attendance.lastProject.useQuery();
   const myInfoQuery = trpc.attendance.myEmployeeInfo.useQuery();
@@ -257,18 +261,17 @@ function AttendanceCalendar() {
     onSuccess: () => {
       teamDataQuery.refetch();
     },
-    onError: (e) => toast.error(`保存エラー: ${e.message}`),
+    onError: (e) => toast.error(`${lang === "pt" ? "Erro ao salvar" : "保存エラー"}: ${e.message}`),
   });
 
   const pdfMutation = trpc.attendance.generatePdf.useMutation({
     onSuccess: (data) => {
       window.open(data.url, "_blank");
-      toast.success("PDFを生成しました");
+      toast.success(lang === "pt" ? "PDF gerado com sucesso" : "PDFを生成しました");
     },
-    onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
+    onError: (e) => toast.error(`${lang === "pt" ? "Erro ao gerar PDF" : "PDF生成エラー"}: ${e.message}`),
   });
 
-  // Auto-select last project
   useEffect(() => {
     if (projectInitialized) return;
     if (lastProjectQuery.data && !selectedProjectId) {
@@ -287,7 +290,6 @@ function AttendanceCalendar() {
     });
   }, [currentMonth]);
 
-  // Build attendance map: key = "emp-{id}-{date}" or "guest-{name}-{date}"
   const attendanceMap = useMemo(() => {
     const map: Record<string, any> = {};
     for (const rec of teamDataQuery.data?.records || []) {
@@ -302,7 +304,6 @@ function AttendanceCalendar() {
   const myEmployeeId = myInfoQuery.data?.id;
   const projects = projectsQuery.data || [];
 
-  // Auto-save: when user clicks a cell, immediately save
   const autoSave = useCallback(
     (params: {
       employeeId: number | null;
@@ -330,13 +331,11 @@ function AttendanceCalendar() {
     [selectedProjectId, upsertMutation]
   );
 
-  // Quick toggle for a member on a date
   const quickToggle = useCallback(
     (memberId: number | null, memberName: string | null, dateStr: string) => {
       const key = memberId ? `emp-${memberId}-${dateStr}` : `guest-${memberName}-${dateStr}`;
       const existing = attendanceMap[key];
       if (existing && existing.hoursWorked > 0) {
-        // Clear
         autoSave({
           employeeId: memberId,
           guestName: memberName,
@@ -347,7 +346,6 @@ function AttendanceCalendar() {
           shiftType: "day",
         });
       } else {
-        // Set to normal day
         autoSave({
           employeeId: memberId,
           guestName: memberName,
@@ -364,14 +362,13 @@ function AttendanceCalendar() {
 
   const handleAddGuest = () => {
     if (!guestName.trim()) {
-      toast.error("名前を入力してください");
+      toast.error(lang === "pt" ? "Digite o nome" : "名前を入力してください");
       return;
     }
     if (!selectedProjectId) {
-      toast.error("現場を選択してください");
+      toast.error(t("attendance_selectProject"));
       return;
     }
-    // Add guest by creating an attendance record for today
     const today = format(new Date(), "yyyy-MM-dd");
     autoSave({
       employeeId: null,
@@ -382,7 +379,7 @@ function AttendanceCalendar() {
       workType: "normal",
       shiftType: "day",
     });
-    toast.success(`ゲスト「${guestName.trim()}」を追加しました`);
+    toast.success(lang === "pt" ? `Convidado "${guestName.trim()}" adicionado` : `ゲスト「${guestName.trim()}」を追加しました`);
     setGuestName("");
     setGuestDialogOpen(false);
   };
@@ -394,7 +391,6 @@ function AttendanceCalendar() {
     pdfMutation.mutate({ year, month, projectId: selectedProjectId });
   };
 
-  // Summary for my attendance
   const mySummary = useMemo(() => {
     if (!myEmployeeId) return { totalDays: 0, totalHours: 0, totalOvertime: 0 };
     let totalDays = 0;
@@ -413,9 +409,10 @@ function AttendanceCalendar() {
     return { totalDays, totalHours: totalHours / 10, totalOvertime: totalOvertime / 10 };
   }, [daysInMonth, attendanceMap, myEmployeeId]);
 
+  const monthLabel = formatMonthStr(currentMonth.getFullYear(), currentMonth.getMonth() + 1);
+
   return (
     <>
-      {/* Controls */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex items-center gap-3 flex-wrap">
@@ -425,7 +422,7 @@ function AttendanceCalendar() {
               </Button>
               <div className="flex items-center gap-2 min-w-[130px] justify-center">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium text-sm">{format(currentMonth, "yyyy年M月", { locale: ja })}</span>
+                <span className="font-medium text-sm">{monthLabel}</span>
               </div>
               <Button variant="outline" size="icon" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
                 <ChevronRight className="h-4 w-4" />
@@ -437,7 +434,7 @@ function AttendanceCalendar() {
               onValueChange={(v) => setSelectedProjectId(Number(v))}
             >
               <SelectTrigger className="w-[220px]">
-                <SelectValue placeholder="現場を選択" />
+                <SelectValue placeholder={t("attendance_selectProject")} />
               </SelectTrigger>
               <SelectContent>
                 {projects.map((p: any) => (
@@ -448,7 +445,7 @@ function AttendanceCalendar() {
 
             <div className="flex items-center gap-2 ml-auto">
               <Button variant="outline" size="sm" onClick={() => setGuestDialogOpen(true)} disabled={!selectedProjectId}>
-                <Plus className="h-4 w-4 mr-1" /> ゲスト追加
+                <Plus className="h-4 w-4 mr-1" /> {t("dashboard_addGuest")}
               </Button>
               <Button
                 variant="outline"
@@ -457,7 +454,7 @@ function AttendanceCalendar() {
                 disabled={!selectedProjectId || pdfMutation.isPending}
               >
                 {pdfMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Download className="h-4 w-4 mr-1" />}
-                PDF出力
+                {t("dashboard_pdfExport")}
               </Button>
             </div>
           </div>
@@ -468,24 +465,23 @@ function AttendanceCalendar() {
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>現場を選択して出面表を表示してください</p>
+            <p>{lang === "pt" ? "Selecione uma obra para ver a presença" : "現場を選択して出面表を表示してください"}</p>
           </CardContent>
         </Card>
       ) : (
         <>
-          {/* My Calendar */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center justify-between flex-wrap gap-2">
                 <span className="flex items-center gap-2">
                   <UserCircle className="h-4 w-4" />
-                  マイ出面表
+                  {t("dashboard_myAttendance")}
                 </span>
                 <div className="flex gap-3 text-sm font-normal text-muted-foreground">
-                  <span>出勤: <strong className="text-foreground">{mySummary.totalDays}日</strong></span>
-                  <span>時間: <strong className="text-foreground">{mySummary.totalHours}h</strong></span>
+                  <span>{t("dashboard_workDays")}: <strong className="text-foreground">{mySummary.totalDays}{t("attendance_days")}</strong></span>
+                  <span>{t("dashboard_totalHours")}: <strong className="text-foreground">{mySummary.totalHours}h</strong></span>
                   {mySummary.totalOvertime > 0 && (
-                    <span>残業: <strong className="text-blue-400">{mySummary.totalOvertime}h</strong></span>
+                    <span>{t("dashboard_overtime")}: <strong className="text-blue-400">{mySummary.totalOvertime}h</strong></span>
                   )}
                 </div>
               </CardTitle>
@@ -497,6 +493,7 @@ function AttendanceCalendar() {
                   memberId={myEmployeeId}
                   memberName={null}
                   attendanceMap={attendanceMap}
+                  lang={lang}
                   onQuickToggle={(dateStr) => quickToggle(myEmployeeId, null, dateStr)}
                   onSave={(dateStr, data) =>
                     autoSave({ employeeId: myEmployeeId, guestName: null, workDate: dateStr, ...data })
@@ -504,19 +501,20 @@ function AttendanceCalendar() {
                 />
               ) : (
                 <p className="text-muted-foreground text-sm py-4 text-center">
-                  従業員プロフィールが未登録です。管理者にお問い合わせください。
+                  {lang === "pt"
+                    ? "Perfil de funcionário não registrado. Contate o administrador."
+                    : "従業員プロフィールが未登録です。管理者にお問い合わせください。"}
                 </p>
               )}
             </CardContent>
           </Card>
 
-          {/* Team members */}
           {members.length > 0 && (
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Users className="h-4 w-4" />
-                  チームメンバーの出面状況
+                  {t("dashboard_teamMembers")}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -526,7 +524,6 @@ function AttendanceCalendar() {
                     .map((member) => {
                       const isGuest = member.type === "guest";
                       const mKey = isGuest ? `guest-${member.nameKanji}` : `emp-${member.id}`;
-                      // Calculate summary
                       let days = 0, hours = 0, ot = 0;
                       for (const day of daysInMonth) {
                         const dateStr = format(day, "yyyy-MM-dd");
@@ -544,13 +541,15 @@ function AttendanceCalendar() {
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-sm">{member.nameKanji}</span>
                               {isGuest && (
-                                <Badge variant="outline" className="text-xs">ゲスト</Badge>
+                                <Badge variant="outline" className="text-xs">
+                                  {lang === "pt" ? "Convidado" : "ゲスト"}
+                                </Badge>
                               )}
                             </div>
                             <div className="flex gap-3 text-xs text-muted-foreground">
-                              <span>{days}日</span>
+                              <span>{days}{t("attendance_days")}</span>
                               <span>{hours / 10}h</span>
-                              {ot > 0 && <span className="text-blue-400">残{ot / 10}h</span>}
+                              {ot > 0 && <span className="text-blue-400">{lang === "pt" ? "HE" : "残"}{ot / 10}h</span>}
                             </div>
                           </div>
                           <CalendarGrid
@@ -559,6 +558,7 @@ function AttendanceCalendar() {
                             memberName={isGuest ? member.nameKanji : null}
                             attendanceMap={attendanceMap}
                             compact
+                            lang={lang}
                             onQuickToggle={(dateStr) =>
                               quickToggle(isGuest ? null : member.id, isGuest ? member.nameKanji : null, dateStr)
                             }
@@ -579,43 +579,47 @@ function AttendanceCalendar() {
             </Card>
           )}
 
-          {/* Legend */}
           <Card>
             <CardContent className="pt-4 pb-4">
               <p className="text-xs text-muted-foreground mb-2">
-                日付をタップで出勤を記録（自動保存）。もう一度タップで詳細編集。
+                {t("dashboard_attendanceHint")}
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {(Object.entries(WORK_TYPE_LABELS) as [WorkType, string][]).map(([type, label]) => (
+                {(Object.entries(workTypeLabels(lang)) as [WorkType, string][]).map(([type, label]) => (
                   <span key={type} className={`text-[10px] font-medium rounded px-1.5 py-0.5 ${WORK_TYPE_COLORS[type]}`}>
-                    {WORK_TYPE_SHORT[type]} = {label}
+                    {workTypeShort(lang)[type]} = {label}
                   </span>
                 ))}
-                <span className="text-[10px] font-medium rounded px-1.5 py-0.5 bg-indigo-500/20 text-indigo-400">夜 = 夜勤</span>
+                <span className="text-[10px] font-medium rounded px-1.5 py-0.5 bg-indigo-500/20 text-indigo-400">
+                  {lang === "pt" ? "N = Noturno" : "夜 = 夜勤"}
+                </span>
               </div>
             </CardContent>
           </Card>
         </>
       )}
 
-      {/* Guest dialog */}
       <Dialog open={guestDialogOpen} onOpenChange={setGuestDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ゲスト追加</DialogTitle>
+            <DialogTitle>{t("dashboard_addGuest")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">名前を入力してゲスト作業員を追加します。今日の出勤として記録されます。</p>
+            <p className="text-sm text-muted-foreground">
+              {lang === "pt"
+                ? "Digite o nome para adicionar um trabalhador convidado. Será registrado como presente hoje."
+                : "名前を入力してゲスト作業員を追加します。今日の出勤として記録されます。"}
+            </p>
             <Input
-              placeholder="ゲスト名（例：田中太郎）"
+              placeholder={lang === "pt" ? "Nome do convidado" : "ゲスト名（例：田中太郎）"}
               value={guestName}
               onChange={(e) => setGuestName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleAddGuest(); }}
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setGuestDialogOpen(false)}>キャンセル</Button>
-            <Button className="bg-gold text-background hover:bg-gold/90" onClick={handleAddGuest}>追加</Button>
+            <Button variant="outline" onClick={() => setGuestDialogOpen(false)}>{t("cancel")}</Button>
+            <Button className="bg-gold text-background hover:bg-gold/90" onClick={handleAddGuest}>{t("add")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -623,13 +627,13 @@ function AttendanceCalendar() {
   );
 }
 
-/** Reusable calendar grid for a single member */
 function CalendarGrid({
   days,
   memberId,
   memberName,
   attendanceMap,
   compact = false,
+  lang,
   onQuickToggle,
   onSave,
 }: {
@@ -638,6 +642,7 @@ function CalendarGrid({
   memberName: string | null;
   attendanceMap: Record<string, any>;
   compact?: boolean;
+  lang: AppLang;
   onQuickToggle: (dateStr: string) => void;
   onSave: (dateStr: string, data: { hoursWorked: number; overtimeHours: number; workType: WorkType; shiftType: ShiftType; notes?: string }) => void;
 }) {
@@ -645,10 +650,11 @@ function CalendarGrid({
   const cellSize = compact ? "min-h-[40px]" : "min-h-[52px]";
   const fontSize = compact ? "text-[9px]" : "text-xs";
   const detailFontSize = compact ? "text-[8px]" : "text-[10px]";
+  const DAY_LABELS = dayLabels(lang);
+  const WT_SHORT = workTypeShort(lang);
 
   return (
     <div className="grid grid-cols-7 gap-0.5">
-      {/* Day headers */}
       {DAY_LABELS.map((label, i) => (
         <div
           key={label}
@@ -660,12 +666,10 @@ function CalendarGrid({
         </div>
       ))}
 
-      {/* Empty cells */}
       {Array.from({ length: getDay(days[0]) }).map((_, i) => (
         <div key={`empty-${i}`} />
       ))}
 
-      {/* Day cells */}
       {days.map((day) => {
         const dateStr = format(day, "yyyy-MM-dd");
         const key = `${keyPrefix}-${dateStr}`;
@@ -704,8 +708,8 @@ function CalendarGrid({
                 {hasValue && (
                   <>
                     <span className={`${detailFontSize} font-bold mt-0.5`}>
-                      {WORK_TYPE_SHORT[rec.workType as WorkType]}
-                      {rec.shiftType === "night" ? "夜" : ""}
+                      {WT_SHORT[rec.workType as WorkType]}
+                      {rec.shiftType === "night" ? (lang === "pt" ? "N" : "夜") : ""}
                     </span>
                     {rec.overtimeHours > 0 && (
                       <span className="text-[7px] text-blue-400">+{rec.overtimeHours / 10}h</span>
@@ -719,6 +723,7 @@ function CalendarGrid({
                 dateStr={dateStr}
                 day={day}
                 existing={rec}
+                lang={lang}
                 onSave={onSave}
                 onClear={() =>
                   onSave(dateStr, { hoursWorked: 0, overtimeHours: 0, workType: "absence", shiftType: "day" })
@@ -732,33 +737,40 @@ function CalendarGrid({
   );
 }
 
-/** Popover cell editor */
 function CellEditor({
   dateStr,
   day,
   existing,
+  lang,
   onSave,
   onClear,
 }: {
   dateStr: string;
   day: Date;
   existing: any;
+  lang: AppLang;
   onSave: (dateStr: string, data: { hoursWorked: number; overtimeHours: number; workType: WorkType; shiftType: ShiftType }) => void;
   onClear: () => void;
 }) {
   const currentWorkType = (existing?.workType as WorkType) || "normal";
   const currentShift = (existing?.shiftType as ShiftType) || "day";
   const currentOvertime = existing?.overtimeHours || 0;
+  const WT_LABELS = workTypeLabels(lang);
+
+  const dateLabel = lang === "pt"
+    ? format(day, "dd/MM")
+    : format(day, "M月d日(E)", { locale: ja });
 
   return (
     <div className="space-y-3 p-1">
-      <p className="text-sm font-medium">{format(day, "M月d日(E)", { locale: ja })}</p>
+      <p className="text-sm font-medium">{dateLabel}</p>
 
-      {/* Work Type */}
       <div>
-        <label className="text-xs text-muted-foreground mb-1 block">出勤タイプ</label>
+        <label className="text-xs text-muted-foreground mb-1 block">
+          {lang === "pt" ? "Tipo de presença" : "出勤タイプ"}
+        </label>
         <div className="flex flex-wrap gap-1">
-          {(Object.entries(WORK_TYPE_LABELS) as [WorkType, string][]).map(([type, label]) => (
+          {(Object.entries(WT_LABELS) as [WorkType, string][]).map(([type, label]) => (
             <button
               key={type}
               className={`text-xs px-2 py-1 rounded border transition-colors ${
@@ -782,9 +794,10 @@ function CellEditor({
         </div>
       </div>
 
-      {/* Shift */}
       <div>
-        <label className="text-xs text-muted-foreground mb-1 block">シフト</label>
+        <label className="text-xs text-muted-foreground mb-1 block">
+          {lang === "pt" ? "Turno" : "シフト"}
+        </label>
         <div className="flex gap-1">
           <button
             className={`flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors ${
@@ -796,7 +809,7 @@ function CellEditor({
               }
             }}
           >
-            <Sun className="h-3 w-3" /> 昼勤
+            <Sun className="h-3 w-3" /> {lang === "pt" ? "Diurno" : "昼勤"}
           </button>
           <button
             className={`flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors ${
@@ -808,15 +821,14 @@ function CellEditor({
               }
             }}
           >
-            <Moon className="h-3 w-3" /> 夜勤
+            <Moon className="h-3 w-3" /> {lang === "pt" ? "Noturno" : "夜勤"}
           </button>
         </div>
       </div>
 
-      {/* Overtime - 0.5 increments up to 12h */}
       <div>
         <label className="text-xs text-muted-foreground mb-1 block">
-          <Clock className="h-3 w-3 inline mr-1" />残業時間
+          <Clock className="h-3 w-3 inline mr-1" />{lang === "pt" ? "Hora extra" : "残業時間"}
         </label>
         <Select
           value={currentOvertime.toString()}
@@ -833,7 +845,7 @@ function CellEditor({
           <SelectContent className="max-h-[200px]">
             {OVERTIME_OPTIONS.map((val) => (
               <SelectItem key={val} value={val.toString()}>
-                {val / 10}時間
+                {val / 10}{lang === "pt" ? " horas" : "時間"}
               </SelectItem>
             ))}
           </SelectContent>
@@ -841,7 +853,7 @@ function CellEditor({
       </div>
 
       <Button variant="outline" size="sm" className="w-full text-xs" onClick={onClear}>
-        <X className="h-3 w-3 mr-1" /> クリア
+        <X className="h-3 w-3 mr-1" /> {lang === "pt" ? "Limpar" : "クリア"}
       </Button>
     </div>
   );

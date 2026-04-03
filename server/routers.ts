@@ -1319,6 +1319,7 @@ export const appRouter = router({
         taxRate: z.number().default(10),
         notes: z.string().optional(),
         dueDate: z.string().optional(),
+        subject: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         // Get attendance records for the period
@@ -1330,7 +1331,16 @@ export const appRouter = router({
 
         // Get rates for this project
         const rates = await db.getRatesByProject(input.projectId);
-        const rateMap = new Map(rates.map(r => [r.employeeId, r]));
+        // Separate individual rates (employeeId != null) and default rate (employeeId = null)
+        const individualRateMap = new Map<number, typeof rates[0]>();
+        let defaultRate: typeof rates[0] | null = null;
+        for (const r of rates) {
+          if (r.employeeId) {
+            individualRateMap.set(r.employeeId, r);
+          } else {
+            defaultRate = r; // project-wide default rate
+          }
+        }
 
         // Get all employees for names
         const allEmployees = await db.getAllEmployees();
@@ -1351,16 +1361,20 @@ export const appRouter = router({
 
         for (const [empId, empRecords] of Array.from(byEmployee.entries())) {
           const emp = empMap.get(empId);
-          const rate = rateMap.get(empId);
+          // Priority: individual rate > project default rate > 0
+          const rate = individualRateMap.get(empId) || defaultRate;
           const clientRate = rate?.clientRate || 0;
 
-          // Calculate total days (hours / 80 = days, since 80 = 8.0h = 1 day)
-          let totalHours = 0;
+          // Calculate total days: hoursWorked is stored as int * 10 (80 = 8.0h = 1 day)
+          let totalHoursTimes10 = 0;
+          let totalOvertimeTimes10 = 0;
           for (const rec of empRecords) {
-            totalHours += rec.hoursWorked;
+            totalHoursTimes10 += rec.hoursWorked;
+            totalOvertimeTimes10 += rec.overtimeHours || 0;
           }
-          // Convert to days * 10 (e.g., 200 = 20.0 days)
-          const totalDaysTimes10 = Math.round(totalHours / 8);
+          // Convert to days: 80 hours*10 = 8.0h = 1.0 day
+          // quantity is stored as days * 10 (e.g., 10 = 1.0 day, 15 = 1.5 days)
+          const totalDaysTimes10 = Math.round(totalHoursTimes10 / 8);
 
           const amount = Math.round((totalDaysTimes10 / 10) * clientRate);
           subtotal += amount;
@@ -1382,6 +1396,12 @@ export const appRouter = router({
         const yearMonth = input.periodStart.slice(0, 7);
         const invoiceNumber = await db.getNextInvoiceNumber(yearMonth);
 
+        // Auto-generate subject: "X月分請求書 プロジェクト名"
+        const periodDate = new Date(input.periodStart);
+        const project = await db.getProjectById(input.projectId);
+        const monthStr = `${periodDate.getMonth() + 1}`;
+        const autoSubject = `${monthStr}月分請求書 ${project?.name || ''}`;
+
         // Create invoice
         const invoice = await db.createInvoice({
           invoiceNumber,
@@ -1397,6 +1417,7 @@ export const appRouter = router({
           taxRate: input.taxRate,
           notes: input.notes || null,
           createdBy: ctx.user.id,
+          subject: input.subject || autoSubject,
         });
 
         // Create invoice items

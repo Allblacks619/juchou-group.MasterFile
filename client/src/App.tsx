@@ -6,6 +6,7 @@ import { useEffect, lazy, Suspense } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { LanguageProvider } from "./contexts/LanguageContext";
+import { AppLanguageProvider } from "./contexts/AppLanguageContext";
 import Home from "./pages/Home";
 import Recruit from "./pages/Recruit";
 import Contact from "./pages/Contact";
@@ -26,6 +27,7 @@ const AppRates = lazy(() => import("./pages/AppRates"));
 const AppAttendance = lazy(() => import("./pages/AppAttendance"));
 const AppMyAttendance = lazy(() => import("./pages/AppMyAttendance"));
 const AppInvoices = lazy(() => import("./pages/AppInvoices"));
+const AppSupport = lazy(() => import("./pages/AppSupport"));
 
 function ScrollToTop() {
   const [location] = useLocation();
@@ -60,6 +62,7 @@ function AppRoutes() {
           <Route path="/app/attendance" component={AppAttendance} />
           <Route path="/app/my-attendance" component={AppMyAttendance} />
           <Route path="/app/invoices" component={AppInvoices} />
+          <Route path="/app/support" component={AppSupport} />
           <Route component={NotFound} />
         </Switch>
       </Suspense>
@@ -109,8 +112,10 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <LanguageProvider>
-            <Toaster />
-            <Router />
+            <AppLanguageProvider>
+              <Toaster />
+              <Router />
+            </AppLanguageProvider>
           </LanguageProvider>
         </TooltipProvider>
       </ThemeProvider>

@@ -19,9 +19,9 @@ import path from "path";
 import os from "os";
 
 const FONT_URL =
-  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Regular_e41d65c6.ttf";
+  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Regular_53121a47.ttf";
 const FONT_BOLD_URL =
-  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Bold_e41d65c6.ttf";
+  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Regular_53121a47.ttf";
 
 let fontPath: string | null = null;
 let fontBoldPath: string | null = null;

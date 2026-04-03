@@ -13,27 +13,33 @@ import {
   CalendarDays,
   FileText,
   FolderOpen,
+  Globe,
+  HelpCircle,
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
+import { useAppLang } from "@/contexts/AppLanguageContext";
+import type { TranslationKey } from "@/lib/appTranslations";
 
-const navItems = [
-  { path: "/app", label: "ダッシュボード", icon: LayoutDashboard },
-  { path: "/app/my-profile", label: "マイプロフィール", icon: UserCircle },
-  { path: "/app/invitations", label: "招待管理", icon: UserPlus, adminOnly: true },
-  { path: "/app/company", label: "会社設定", icon: Building2, adminOnly: true },
-  { path: "/app/employees", label: "従業員管理", icon: Users, adminOnly: true },
-  { path: "/app/projects", label: "現場管理", icon: FolderOpen, adminOnly: true },
-  { path: "/app/rates", label: "単価管理", icon: DollarSign, adminOnly: true },
-  { path: "/app/attendance", label: "出面表管理", icon: CalendarDays, adminOnly: true },
-  { path: "/app/invoices", label: "請求書", icon: FileText, adminOnly: true },
+const navItems: { path: string; labelKey: TranslationKey; icon: any; adminOnly?: boolean }[] = [
+  { path: "/app", labelKey: "nav_dashboard", icon: LayoutDashboard },
+  { path: "/app/my-profile", labelKey: "nav_myProfile", icon: UserCircle },
+  { path: "/app/invitations", labelKey: "nav_invitations", icon: UserPlus, adminOnly: true },
+  { path: "/app/company", labelKey: "nav_company", icon: Building2, adminOnly: true },
+  { path: "/app/employees", labelKey: "nav_employees", icon: Users, adminOnly: true },
+  { path: "/app/projects", labelKey: "nav_projects", icon: FolderOpen, adminOnly: true },
+  { path: "/app/rates", labelKey: "nav_rates", icon: DollarSign, adminOnly: true },
+  { path: "/app/attendance", labelKey: "nav_attendance", icon: CalendarDays, adminOnly: true },
+  { path: "/app/invoices", labelKey: "nav_invoices", icon: FileText, adminOnly: true },
+  { path: "/app/support", labelKey: "nav_support", icon: HelpCircle },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [location, navigate] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { lang, toggleLang, t } = useAppLang();
 
   // Check if user must change password
   useEffect(() => {
@@ -45,19 +51,18 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground">読み込み中...</p>
+        <p className="text-muted-foreground">{t("loading")}</p>
       </div>
     );
   }
 
   if (!isAuthenticated) {
-    // Redirect to custom login page using full page navigation
     if (typeof window !== "undefined" && !window.location.pathname.startsWith("/app/login")) {
       window.location.href = "/app/login";
     }
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground">ログインページに移動中...</p>
+        <p className="text-muted-foreground">{t("nav_redirectingLogin")}</p>
       </div>
     );
   }
@@ -117,7 +122,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     onClick={() => setSidebarOpen(false)}
                   >
                     <item.icon className="h-4 w-4" />
-                    {item.label}
+                    {t(item.labelKey)}
                   </Link>
                 );
               })}
@@ -125,12 +130,23 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           {/* Footer */}
           <div className="p-4 border-t border-border">
+            {/* Language toggle */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full mb-3 text-xs"
+              onClick={toggleLang}
+            >
+              <Globe className="h-3 w-3 mr-1.5" />
+              {lang === "ja" ? "Português" : "日本語"}
+            </Button>
+
             <div className="flex items-center gap-3 mb-3">
               <div className="w-8 h-8 rounded-full bg-gold/20 flex items-center justify-center text-gold text-sm font-bold">
                 {user?.name?.[0] || "U"}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{user?.name || (user as any)?.loginId || "ユーザー"}</p>
+                <p className="text-sm font-medium truncate">{user?.name || (user as any)?.loginId || (lang === "pt" ? "Usuário" : "ユーザー")}</p>
                 <p className="text-xs text-muted-foreground truncate capitalize">{appRole}</p>
               </div>
             </div>
@@ -142,13 +158,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 onClick={() => window.location.href = "/app/change-password"}
               >
                 <KeyRound className="h-3 w-3 mr-1" />
-                パスワード
+                {t("nav_password")}
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleLogout}
                 className="text-xs"
+                title={t("nav_logout")}
               >
                 <LogOut className="h-3 w-3" />
               </Button>
@@ -156,7 +173,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <div className="mt-2">
               <a href="/" className="block no-underline">
                 <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground">
-                  コーポレートサイトへ
+                  {t("nav_corporateSite")}
                 </Button>
               </a>
             </div>

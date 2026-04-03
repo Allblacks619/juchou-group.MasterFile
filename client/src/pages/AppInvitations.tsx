@@ -28,10 +28,12 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Copy, Mail, Plus, Check, X, Clock } from "lucide-react";
+import { Copy, Plus, Check, X, Clock } from "lucide-react";
 import { format } from "date-fns";
+import { useAppLang } from "@/contexts/AppLanguageContext";
 
 export default function AppInvitations() {
+  const { t, lang } = useAppLang();
   const [open, setOpen] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState<{
@@ -50,13 +52,11 @@ export default function AppInvitations() {
   const invitationsQuery = trpc.invitation.list.useQuery();
   const createMutation = trpc.invitation.create.useMutation({
     onSuccess: (data) => {
-      // Replace __ORIGIN__ with actual origin
       const actualUrl = data.inviteUrl.replace("__ORIGIN__", window.location.origin);
       setInviteResult({ ...data, inviteUrl: actualUrl });
       setOpen(false);
       setResultOpen(true);
       invitationsQuery.refetch();
-      // Reset form
       setLoginId("");
       setTempPassword("");
       setAssignedRole("worker");
@@ -69,11 +69,11 @@ export default function AppInvitations() {
 
   const handleCreate = () => {
     if (!loginId || !tempPassword) {
-      toast.error("ログインIDと仮パスワードは必須です");
+      toast.error(lang === "pt" ? "ID de login e senha temporária são obrigatórios" : "ログインIDと仮パスワードは必須です");
       return;
     }
     if (tempPassword.length < 6) {
-      toast.error("仮パスワードは6文字以上にしてください");
+      toast.error(lang === "pt" ? "A senha temporária deve ter no mínimo 6 caracteres" : "仮パスワードは6文字以上にしてください");
       return;
     }
     createMutation.mutate({
@@ -86,17 +86,21 @@ export default function AppInvitations() {
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
-    toast.success(`${label}をコピーしました`);
+    toast.success(lang === "pt" ? `${label} copiado` : `${label}をコピーしました`);
   };
+
+  const roleLabelsJa: Record<string, string> = { admin: "管理者", leader: "責任者", worker: "作業員" };
+  const roleLabelsPt: Record<string, string> = { admin: "Administrador", leader: "Gerente", worker: "Trabalhador" };
+  const roleLabels = lang === "pt" ? roleLabelsPt : roleLabelsJa;
 
   const statusBadge = (status: string, expiresAt: Date) => {
     if (status === "used") {
-      return <Badge variant="secondary"><Check className="h-3 w-3 mr-1" />使用済み</Badge>;
+      return <Badge variant="secondary"><Check className="h-3 w-3 mr-1" />{lang === "pt" ? "Usado" : "使用済み"}</Badge>;
     }
     if (new Date() > new Date(expiresAt)) {
-      return <Badge variant="destructive"><X className="h-3 w-3 mr-1" />期限切れ</Badge>;
+      return <Badge variant="destructive"><X className="h-3 w-3 mr-1" />{lang === "pt" ? "Expirado" : "期限切れ"}</Badge>;
     }
-    return <Badge variant="outline" className="border-gold/30 text-gold"><Clock className="h-3 w-3 mr-1" />有効</Badge>;
+    return <Badge variant="outline" className="border-gold/30 text-gold"><Clock className="h-3 w-3 mr-1" />{lang === "pt" ? "Válido" : "有効"}</Badge>;
   };
 
   const roleBadge = (role: string) => {
@@ -105,71 +109,66 @@ export default function AppInvitations() {
       leader: "bg-blue-500/10 text-blue-500 border-blue-500/20",
       worker: "bg-green-500/10 text-green-500 border-green-500/20",
     };
-    const labels: Record<string, string> = {
-      admin: "管理者",
-      leader: "責任者",
-      worker: "作業員",
-    };
-    return <Badge variant="outline" className={colors[role]}>{labels[role]}</Badge>;
+    return <Badge variant="outline" className={colors[role]}>{roleLabels[role]}</Badge>;
   };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">招待管理</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t("nav_invitations")}</h1>
           <p className="text-muted-foreground mt-1">
-            新しいユーザーを招待してアカウントを作成します
+            {lang === "pt" ? "Convide novos usuários para criar contas" : "新しいユーザーを招待してアカウントを作成します"}
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button className="bg-gold text-background hover:bg-gold-dim">
               <Plus className="h-4 w-4 mr-2" />
-              招待を作成
+              {t("invitations_create")}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>新しい招待を作成</DialogTitle>
+              <DialogTitle>{t("invitations_createNew")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-4">
               <div className="space-y-2">
-                <Label>ログインID（ローマ字氏名）</Label>
+                <Label>{lang === "pt" ? "ID de login (nome em romaji)" : "ログインID（ローマ字氏名）"}</Label>
                 <Input
                   value={loginId}
                   onChange={(e) => setLoginId(e.target.value)}
-                  placeholder="例: yamada.taro"
+                  placeholder={lang === "pt" ? "Ex: yamada.taro" : "例: yamada.taro"}
                 />
               </div>
               <div className="space-y-2">
-                <Label>仮パスワード（6文字以上）</Label>
+                <Label>{lang === "pt" ? "Senha temporária (mín. 6 caracteres)" : "仮パスワード（6文字以上）"}</Label>
                 <Input
                   value={tempPassword}
                   onChange={(e) => setTempPassword(e.target.value)}
-                  placeholder="初回ログイン後に変更必須"
+                  placeholder={lang === "pt" ? "Deve ser alterada no primeiro login" : "初回ログイン後に変更必須"}
                 />
               </div>
               <div className="space-y-2">
-                <Label>権限</Label>
+                <Label>{t("invitations_role")}</Label>
                 <Select value={assignedRole} onValueChange={(v) => setAssignedRole(v as any)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="worker">作業員</SelectItem>
-                    <SelectItem value="leader">責任者</SelectItem>
-                    <SelectItem value="admin">管理者</SelectItem>
+                    <SelectItem value="worker">{roleLabels.worker}</SelectItem>
+                    <SelectItem value="leader">{roleLabels.leader}</SelectItem>
+                    <SelectItem value="admin">{roleLabels.admin}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>メールアドレス（任意）</Label>
+                <Label>{lang === "pt" ? "E-mail (opcional)" : "メールアドレス（任意）"}</Label>
                 <Input
                   type="email"
                   value={recipientEmail}
                   onChange={(e) => setRecipientEmail(e.target.value)}
-                  placeholder="招待メール送信先"
+                  placeholder={lang === "pt" ? "Enviar convite por e-mail" : "招待メール送信先"}
                 />
               </div>
               <Button
@@ -177,7 +176,9 @@ export default function AppInvitations() {
                 disabled={createMutation.isPending}
                 className="w-full bg-gold text-background hover:bg-gold-dim"
               >
-                {createMutation.isPending ? "作成中..." : "招待リンクを生成"}
+                {createMutation.isPending
+                  ? (lang === "pt" ? "Criando..." : "作成中...")
+                  : (lang === "pt" ? "Gerar link de convite" : "招待リンクを生成")}
               </Button>
             </div>
           </DialogContent>
@@ -188,46 +189,46 @@ export default function AppInvitations() {
       <Dialog open={resultOpen} onOpenChange={setResultOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>招待リンクが生成されました</DialogTitle>
+            <DialogTitle>{lang === "pt" ? "Link de convite gerado" : "招待リンクが生成されました"}</DialogTitle>
           </DialogHeader>
           {inviteResult && (
             <div className="space-y-4 pt-4">
               <div className="bg-muted/50 p-4 rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">ログインID</span>
+                  <span className="text-sm text-muted-foreground">{t("invite_loginId")}</span>
                   <div className="flex items-center gap-2">
                     <code className="text-sm font-mono">{inviteResult.loginId}</code>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => copyToClipboard(inviteResult.loginId, "ログインID")}
+                      onClick={() => copyToClipboard(inviteResult.loginId, lang === "pt" ? "ID de login" : "ログインID")}
                     >
                       <Copy className="h-3 w-3" />
                     </Button>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">仮パスワード</span>
+                  <span className="text-sm text-muted-foreground">{lang === "pt" ? "Senha temporária" : "仮パスワード"}</span>
                   <div className="flex items-center gap-2">
                     <code className="text-sm font-mono">{inviteResult.tempPassword}</code>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => copyToClipboard(inviteResult.tempPassword, "仮パスワード")}
+                      onClick={() => copyToClipboard(inviteResult.tempPassword, lang === "pt" ? "Senha temporária" : "仮パスワード")}
                     >
                       <Copy className="h-3 w-3" />
                     </Button>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">有効期限</span>
+                  <span className="text-sm text-muted-foreground">{t("invitations_expiry")}</span>
                   <span className="text-sm">
                     {format(new Date(inviteResult.expiresAt), "yyyy/MM/dd HH:mm")}
                   </span>
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-sm">招待リンク</Label>
+                <Label className="text-sm">{lang === "pt" ? "Link de convite" : "招待リンク"}</Label>
                 <div className="flex gap-2">
                   <Input
                     readOnly
@@ -236,7 +237,7 @@ export default function AppInvitations() {
                   />
                   <Button
                     variant="outline"
-                    onClick={() => copyToClipboard(inviteResult.inviteUrl, "招待リンク")}
+                    onClick={() => copyToClipboard(inviteResult.inviteUrl, lang === "pt" ? "Link de convite" : "招待リンク")}
                   >
                     <Copy className="h-4 w-4" />
                   </Button>
@@ -246,12 +247,14 @@ export default function AppInvitations() {
                 variant="outline"
                 className="w-full"
                 onClick={() => {
-                  const text = `招待情報\nログインID: ${inviteResult.loginId}\n仮パスワード: ${inviteResult.tempPassword}\n招待リンク: ${inviteResult.inviteUrl}\n有効期限: ${format(new Date(inviteResult.expiresAt), "yyyy/MM/dd HH:mm")}\n\n※初回ログイン後にパスワードの変更が必要です。`;
-                  copyToClipboard(text, "招待情報全体");
+                  const text = lang === "pt"
+                    ? `Informações de convite\nID de login: ${inviteResult.loginId}\nSenha temporária: ${inviteResult.tempPassword}\nLink: ${inviteResult.inviteUrl}\nValidade: ${format(new Date(inviteResult.expiresAt), "yyyy/MM/dd HH:mm")}\n\n* Altere a senha no primeiro login.`
+                    : `招待情報\nログインID: ${inviteResult.loginId}\n仮パスワード: ${inviteResult.tempPassword}\n招待リンク: ${inviteResult.inviteUrl}\n有効期限: ${format(new Date(inviteResult.expiresAt), "yyyy/MM/dd HH:mm")}\n\n※初回ログイン後にパスワードの変更が必要です。`;
+                  copyToClipboard(text, lang === "pt" ? "Todas as informações" : "招待情報全体");
                 }}
               >
                 <Copy className="h-4 w-4 mr-2" />
-                すべてコピー
+                {lang === "pt" ? "Copiar tudo" : "すべてコピー"}
               </Button>
             </div>
           )}
@@ -261,24 +264,24 @@ export default function AppInvitations() {
       {/* Invitations Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">招待履歴</CardTitle>
+          <CardTitle className="text-lg">{t("invitations_history")}</CardTitle>
         </CardHeader>
         <CardContent>
           {invitationsQuery.isLoading ? (
-            <p className="text-muted-foreground text-center py-8">読み込み中...</p>
+            <p className="text-muted-foreground text-center py-8">{t("loading")}</p>
           ) : !invitationsQuery.data?.length ? (
             <p className="text-muted-foreground text-center py-8">
-              まだ招待がありません
+              {lang === "pt" ? "Nenhum convite ainda" : "まだ招待がありません"}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ログインID</TableHead>
-                  <TableHead>権限</TableHead>
-                  <TableHead>ステータス</TableHead>
-                  <TableHead>作成日</TableHead>
-                  <TableHead>有効期限</TableHead>
+                  <TableHead>{t("invite_loginId")}</TableHead>
+                  <TableHead>{t("invitations_role")}</TableHead>
+                  <TableHead>{t("invitations_status")}</TableHead>
+                  <TableHead>{t("invitations_createdAt")}</TableHead>
+                  <TableHead>{t("invitations_expiry")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
