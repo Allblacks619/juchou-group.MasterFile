@@ -214,6 +214,19 @@ function AdminStats() {
           </CardContent>
         </Card>
       ))}
+      {/* 従業員追加ボタン */}
+      <Card
+        className="cursor-pointer hover:border-gold/30 transition-colors border-dashed"
+        onClick={() => setLocation("/app/employees")}
+      >
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">従業員追加</CardTitle>
+          <Plus className="h-4 w-4 text-gold" />
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">新しい従業員を登録</p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

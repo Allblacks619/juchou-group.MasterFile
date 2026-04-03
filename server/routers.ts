@@ -1362,14 +1362,27 @@ export const appRouter = router({
         const items = await db.getInvoiceItemsByInvoice(input.id);
         const company = await db.getCompanyProfile();
 
-        // Get client name
+        // Get client info
         let clientName = "取引先";
+        let clientAddress = "";
+        let clientPostalCode = "";
+        let clientContactPerson = "";
         if (invoice.clientId) {
           const client = await db.getClientById(invoice.clientId);
-          if (client) clientName = client.name;
+          if (client) {
+            clientName = client.name;
+            clientAddress = client.address || "";
+            clientPostalCode = client.postalCode || "";
+            clientContactPerson = client.contactPerson || "";
+          }
         }
 
-        const pdfBuffer = await generateInvoicePdf({ invoice, items, company, clientName });
+        const pdfBuffer = await generateInvoicePdf({
+          invoice, items, company, clientName,
+          clientAddress, clientPostalCode, clientContactPerson,
+          showSeal: invoice.showSeal,
+          showLogo: invoice.showLogo,
+        });
 
         const fileName = `invoice_${invoice.invoiceNumber}_${Date.now()}.pdf`;
         const fileKey = `invoices/${fileName}`;
@@ -1401,6 +1414,7 @@ export const appRouter = router({
         taxRate: z.number().default(10),
         notes: z.string().optional(),
         dueDate: z.string().optional(),
+        subject: z.string().optional(),
         items: z.array(z.object({
           itemType: z.enum(["normal", "text"]).default("normal"),
           description: z.string(),
@@ -1411,6 +1425,7 @@ export const appRouter = router({
           itemTaxRate: z.number().default(10),
           notes: z.string().optional(),
           sortOrder: z.number().default(0),
+          transactionDate: z.string().optional(),
         })),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1449,6 +1464,7 @@ export const appRouter = router({
           totalAmount,
           taxRate: input.taxRate,
           notes: input.notes || null,
+          subject: input.subject || null,
           createdBy: ctx.user.id,
         });
 
@@ -1465,6 +1481,7 @@ export const appRouter = router({
             itemTaxRate: item.itemTaxRate,
             sortOrder: item.sortOrder || i,
             notes: item.notes || null,
+            transactionDate: item.transactionDate ? new Date(item.transactionDate) : null,
           });
         }
 

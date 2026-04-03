@@ -22,14 +22,13 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
   FileText,
@@ -44,9 +43,7 @@ import {
   Send,
   Eye,
   PlusCircle,
-  GripVertical,
   Type,
-  Edit,
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 
@@ -64,6 +61,8 @@ const TAX_RATES = [
   { value: 0, label: "0%（非課税）" },
 ];
 
+const UNIT_OPTIONS = ["式", "日", "枚", "個", "箱", "本", "台", "セット", "ヶ月", "回", "人"];
+
 function formatYen(amount: number): string {
   return `¥${amount.toLocaleString("ja-JP")}`;
 }
@@ -78,6 +77,7 @@ interface InvoiceLineItem {
   itemTaxRate: number;
   notes: string;
   sortOrder: number;
+  transactionDate: string;
 }
 
 function emptyNormalItem(sortOrder: number): InvoiceLineItem {
@@ -85,12 +85,13 @@ function emptyNormalItem(sortOrder: number): InvoiceLineItem {
     itemType: "normal",
     description: "",
     quantity: 0,
-    unit: "日",
+    unit: "式",
     unitPrice: 0,
     amount: 0,
     itemTaxRate: 10,
     notes: "",
     sortOrder,
+    transactionDate: "",
   };
 }
 
@@ -105,7 +106,20 @@ function emptyTextItem(sortOrder: number): InvoiceLineItem {
     itemTaxRate: 0,
     notes: "",
     sortOrder,
+    transactionDate: "",
   };
+}
+
+/** Calculate quantity display string based on unit */
+function quantityDisplay(quantity: number, unit: string): string {
+  if (unit === "日") return `${(quantity / 10).toFixed(1)} ${unit}`;
+  return `${quantity} ${unit}`;
+}
+
+/** Calculate amount based on quantity, unit, and unitPrice */
+function calcAmount(quantity: number, unit: string, unitPrice: number): number {
+  if (unit === "日") return Math.round((quantity / 10) * unitPrice);
+  return quantity * unitPrice;
 }
 
 // ── Invoice Detail Dialog ──
@@ -122,14 +136,14 @@ function InvoiceDetailDialog({
       toast.success("項目を追加しました");
       detailQuery.refetch();
     },
-    onError: (e) => toast.error(`追加エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`追加エラー: ${e.message}`),
   });
   const deleteItemMutation = trpc.invoice.deleteItem.useMutation({
     onSuccess: () => {
       toast.success("項目を削除しました");
       detailQuery.refetch();
     },
-    onError: (e) => toast.error(`削除エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`削除エラー: ${e.message}`),
   });
 
   const [newItem, setNewItem] = useState<InvoiceLineItem>(emptyNormalItem(0));
@@ -151,6 +165,7 @@ function InvoiceDetailDialog({
       toast.error("摘要を入力してください");
       return;
     }
+    const amount = newItem.itemType === "normal" ? calcAmount(newItem.quantity, newItem.unit, newItem.unitPrice) : 0;
     addItemMutation.mutate({
       invoiceId: invoice.id,
       itemType: newItem.itemType,
@@ -158,7 +173,7 @@ function InvoiceDetailDialog({
       quantity: newItem.quantity,
       unit: newItem.unit,
       unitPrice: newItem.unitPrice,
-      amount: newItem.itemType === "normal" ? Math.round((newItem.quantity / 10) * newItem.unitPrice) : 0,
+      amount,
       itemTaxRate: newItem.itemTaxRate,
       notes: newItem.notes || undefined,
       sortOrder: items.length,
@@ -179,6 +194,12 @@ function InvoiceDetailDialog({
           <span className="text-muted-foreground">合計金額:</span>{" "}
           <span className="font-bold text-gold">{formatYen(invoice.totalAmount)}</span>
         </div>
+        {(invoice as any).subject && (
+          <div className="col-span-2">
+            <span className="text-muted-foreground">件名:</span>{" "}
+            <span className="font-medium">{(invoice as any).subject}</span>
+          </div>
+        )}
         <div>
           <span className="text-muted-foreground">小計:</span> {formatYen(invoice.subtotal)}
         </div>
@@ -193,6 +214,7 @@ function InvoiceDetailDialog({
           <TableHeader>
             <TableRow>
               <TableHead className="w-8">No.</TableHead>
+              <TableHead className="w-24">取引日</TableHead>
               <TableHead>摘要</TableHead>
               <TableHead className="w-20">数量</TableHead>
               <TableHead className="w-20">単価</TableHead>
@@ -204,31 +226,33 @@ function InvoiceDetailDialog({
           <TableBody>
             {items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
                   項目がありません
                 </TableCell>
               </TableRow>
             ) : (
-              items.map((item, idx) => (
+              items.map((item: any, idx: number) => (
                 <TableRow key={item.id} className={item.itemType === "text" ? "bg-muted/30" : ""}>
                   <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                  <TableCell className="text-xs">
+                    {item.transactionDate ? format(new Date(item.transactionDate), "yyyy-MM-dd") : "-"}
+                  </TableCell>
                   <TableCell>
                     <div>
                       {item.itemType === "text" && (
                         <span className="text-xs bg-blue-500/20 text-blue-400 px-1 rounded mr-1">テキスト</span>
                       )}
                       {item.description}
+                      {item.itemTaxRate === 8 && item.itemType === "normal" && (
+                        <span className="text-xs text-amber-400 ml-1">※</span>
+                      )}
                       {item.notes && (
                         <p className="text-xs text-muted-foreground mt-0.5">{item.notes}</p>
                       )}
                     </div>
                   </TableCell>
                   <TableCell className="text-sm">
-                    {item.itemType === "normal"
-                      ? item.unit === "日"
-                        ? `${(item.quantity / 10).toFixed(1)}日`
-                        : `${item.quantity}${item.unit || ""}`
-                      : "-"}
+                    {item.itemType === "normal" ? quantityDisplay(item.quantity, item.unit || "式") : "-"}
                   </TableCell>
                   <TableCell className="text-sm">
                     {item.itemType === "normal" ? formatYen(item.unitPrice) : "-"}
@@ -260,6 +284,11 @@ function InvoiceDetailDialog({
         </Table>
       </div>
 
+      {/* Reduced tax rate note */}
+      {items.some((item: any) => item.itemTaxRate === 8 && item.itemType === "normal") && (
+        <p className="text-xs text-muted-foreground">※印は軽減税率対象です。</p>
+      )}
+
       {/* Add item form */}
       {showAddForm ? (
         <Card className="border-gold/30">
@@ -286,19 +315,29 @@ function InvoiceDetailDialog({
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label className="text-xs">摘要</Label>
-              <Input
-                value={newItem.description}
-                onChange={(e) => setNewItem((prev) => ({ ...prev, description: e.target.value }))}
-                placeholder="項目名・作業内容など"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">取引日</Label>
+                <Input
+                  type="date"
+                  value={newItem.transactionDate}
+                  onChange={(e) => setNewItem((prev) => ({ ...prev, transactionDate: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1 col-span-2 md:col-span-1">
+                <Label className="text-xs">摘要 *</Label>
+                <Input
+                  value={newItem.description}
+                  onChange={(e) => setNewItem((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="項目名・作業内容など"
+                />
+              </div>
             </div>
 
             {newItem.itemType === "normal" && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">数量（×10）</Label>
+                  <Label className="text-xs">数量{newItem.unit === "日" ? "（×10）" : ""}</Label>
                   <Input
                     type="number"
                     value={newItem.quantity}
@@ -307,22 +346,36 @@ function InvoiceDetailDialog({
                       setNewItem((prev) => ({
                         ...prev,
                         quantity: qty,
-                        amount: Math.round((qty / 10) * prev.unitPrice),
+                        amount: calcAmount(qty, prev.unit, prev.unitPrice),
                       }));
                     }}
-                    placeholder="例: 200 = 20.0日"
+                    placeholder={newItem.unit === "日" ? "200=20.0日" : "数量"}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    {newItem.quantity > 0 ? `= ${(newItem.quantity / 10).toFixed(1)}日` : ""}
-                  </p>
+                  {newItem.unit === "日" && newItem.quantity > 0 && (
+                    <span className="text-[10px] text-muted-foreground">{(newItem.quantity / 10).toFixed(1)}日</span>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">単位</Label>
-                  <Input
+                  <Select
                     value={newItem.unit}
-                    onChange={(e) => setNewItem((prev) => ({ ...prev, unit: e.target.value }))}
-                    placeholder="日"
-                  />
+                    onValueChange={(v) => {
+                      setNewItem((prev) => ({
+                        ...prev,
+                        unit: v,
+                        amount: calcAmount(prev.quantity, v, prev.unitPrice),
+                      }));
+                    }}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UNIT_OPTIONS.map((u) => (
+                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">単価（円）</Label>
@@ -334,7 +387,7 @@ function InvoiceDetailDialog({
                       setNewItem((prev) => ({
                         ...prev,
                         unitPrice: price,
-                        amount: Math.round((prev.quantity / 10) * price),
+                        amount: calcAmount(prev.quantity, prev.unit, price),
                       }));
                     }}
                   />
@@ -357,13 +410,11 @@ function InvoiceDetailDialog({
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">金額</Label>
+                  <div className="h-8 flex items-center text-sm font-medium">{formatYen(newItem.amount)}</div>
+                </div>
               </div>
-            )}
-
-            {newItem.itemType === "normal" && newItem.amount > 0 && (
-              <p className="text-sm text-muted-foreground">
-                金額: <span className="font-medium text-foreground">{formatYen(newItem.amount)}</span>
-              </p>
             )}
 
             <div className="space-y-1">
@@ -442,10 +493,11 @@ function ManualCreateDialog({
   const [defaultTaxRate, setDefaultTaxRate] = useState(10);
   const [notes, setNotes] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [subject, setSubject] = useState("");
   const [items, setItems] = useState<InvoiceLineItem[]>([emptyNormalItem(0)]);
 
   const createMutation = trpc.invoice.createManual.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(`請求書 ${data.invoiceNumber} を作成しました（${formatYen(data.totalAmount)}）`);
       onOpenChange(false);
       onSuccess();
@@ -455,8 +507,9 @@ function ManualCreateDialog({
       setSelectedProjectId("");
       setNotes("");
       setDueDate("");
+      setSubject("");
     },
-    onError: (e) => toast.error(`作成エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`作成エラー: ${e.message}`),
   });
 
   const projects = projectsQuery.data || [];
@@ -471,8 +524,8 @@ function ManualCreateDialog({
         if (i !== index) return item;
         const updated = { ...item, ...updates };
         // Auto-calc amount for normal items
-        if (updated.itemType === "normal" && (updates.quantity !== undefined || updates.unitPrice !== undefined)) {
-          updated.amount = Math.round((updated.quantity / 10) * updated.unitPrice);
+        if (updated.itemType === "normal" && (updates.quantity !== undefined || updates.unitPrice !== undefined || updates.unit !== undefined)) {
+          updated.amount = calcAmount(updated.quantity, updated.unit, updated.unitPrice);
         }
         return updated;
       })
@@ -520,18 +573,20 @@ function ManualCreateDialog({
       taxRate: defaultTaxRate,
       notes: notes || undefined,
       dueDate: dueDate || undefined,
+      subject: subject || undefined,
       items: items
         .filter((i) => i.description.trim())
         .map((item, idx) => ({
           ...item,
           sortOrder: idx,
+          transactionDate: item.transactionDate || undefined,
         })),
     });
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>請求書を作成</DialogTitle>
         </DialogHeader>
@@ -545,7 +600,7 @@ function ManualCreateDialog({
                   <SelectValue placeholder="取引先を選択" />
                 </SelectTrigger>
                 <SelectContent>
-                  {clients.map((c) => (
+                  {clients.map((c: any) => (
                     <SelectItem key={c.id} value={c.id.toString()}>
                       {c.name}
                     </SelectItem>
@@ -560,13 +615,21 @@ function ManualCreateDialog({
                   <SelectValue placeholder="現場を選択" />
                 </SelectTrigger>
                 <SelectContent>
-                  {projects.map((p) => (
+                  {projects.map((p: any) => (
                     <SelectItem key={p.id} value={p.id.toString()}>
                       {p.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5 col-span-2">
+              <Label className="text-xs">件名</Label>
+              <Input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="例: 11月分請求書 藤沢いすゞ新築工場"
+              />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">対象月</Label>
@@ -603,27 +666,57 @@ function ManualCreateDialog({
                     )}
                   </div>
 
-                  <Input
-                    value={item.description}
-                    onChange={(e) => updateItem(idx, { description: e.target.value })}
-                    placeholder="摘要（作業内容・項目名）"
-                    className="h-8"
-                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground">取引日</Label>
+                      <Input
+                        type="date"
+                        value={item.transactionDate}
+                        onChange={(e) => updateItem(idx, { transactionDate: e.target.value })}
+                        className="h-7 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground">摘要 *</Label>
+                      <Input
+                        value={item.description}
+                        onChange={(e) => updateItem(idx, { description: e.target.value })}
+                        placeholder="作業内容・項目名"
+                        className="h-7 text-sm"
+                      />
+                    </div>
+                  </div>
 
                   {item.itemType === "normal" && (
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-5 gap-2">
                       <div>
-                        <Label className="text-[10px] text-muted-foreground">数量（×10）</Label>
+                        <Label className="text-[10px] text-muted-foreground">数量{item.unit === "日" ? "（×10）" : ""}</Label>
                         <Input
                           type="number"
                           value={item.quantity}
                           onChange={(e) => updateItem(idx, { quantity: Number(e.target.value) })}
                           className="h-7 text-sm"
-                          placeholder="200=20.0日"
+                          placeholder={item.unit === "日" ? "200=20.0日" : "数量"}
                         />
-                        {item.quantity > 0 && (
+                        {item.unit === "日" && item.quantity > 0 && (
                           <span className="text-[10px] text-muted-foreground">{(item.quantity / 10).toFixed(1)}日</span>
                         )}
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">単位</Label>
+                        <Select
+                          value={item.unit}
+                          onValueChange={(v) => updateItem(idx, { unit: v })}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {UNIT_OPTIONS.map((u) => (
+                              <SelectItem key={u} value={u}>{u}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div>
                         <Label className="text-[10px] text-muted-foreground">単価（円）</Label>
@@ -687,17 +780,32 @@ function ManualCreateDialog({
               <span className="text-muted-foreground">小計</span>
               <span>{formatYen(subtotal)}</span>
             </div>
-            {Array.from(taxByRate.entries()).map(([rate, base]) => (
-              <div key={rate} className="flex justify-between text-xs">
-                <span className="text-muted-foreground">消費税 {rate}%（対象: {formatYen(base)}）</span>
-                <span>{formatYen(Math.round((base * rate) / 100))}</span>
-              </div>
-            ))}
+            {Array.from(taxByRate.entries()).sort((a, b) => b[0] - a[0]).map(([rate, base]) => {
+              if (rate === 0) return null;
+              const rateLabel = rate === 8 ? `軽減税率${rate}%対象（税抜）` : `${rate}%対象（税抜）`;
+              return (
+                <div key={rate}>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">{rateLabel}</span>
+                    <span>{formatYen(base)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground pl-4">{rate === 8 ? `軽減税率${rate}%消費税` : `${rate}%消費税`}</span>
+                    <span>{formatYen(Math.round((base * rate) / 100))}</span>
+                  </div>
+                </div>
+              );
+            })}
             <div className="flex justify-between font-bold text-base border-t pt-1">
               <span>合計金額</span>
               <span className="text-gold">{formatYen(totalAmount)}</span>
             </div>
           </div>
+
+          {/* Reduced tax rate note */}
+          {items.some((i) => i.itemTaxRate === 8 && i.itemType === "normal") && (
+            <p className="text-xs text-muted-foreground">※印は軽減税率対象です。</p>
+          )}
 
           {/* Notes */}
           <div className="space-y-1.5">
@@ -742,27 +850,28 @@ export default function AppInvoices() {
   const [autoTaxRate, setAutoTaxRate] = useState(10);
   const [autoNotes, setAutoNotes] = useState("");
   const [autoDueDate, setAutoDueDate] = useState("");
+  const [autoSubject, setAutoSubject] = useState("");
 
   const invoicesQuery = trpc.invoice.list.useQuery();
   const projectsQuery = trpc.project.list.useQuery();
   const clientsQuery = trpc.clientInfo.list.useQuery();
 
   const createFromAttendanceMutation = trpc.invoice.createFromAttendance.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(`請求書 ${data.invoiceNumber} を作成しました（${formatYen(data.totalAmount)}）`);
       setShowAutoCreate(false);
       invoicesQuery.refetch();
     },
-    onError: (e) => toast.error(`作成エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`作成エラー: ${e.message}`),
   });
 
   const generatePdfMutation = trpc.invoice.generatePdf.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       window.open(data.url, "_blank");
       toast.success("PDFを生成しました");
       invoicesQuery.refetch();
     },
-    onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`PDF生成エラー: ${e.message}`),
   });
 
   const updateStatusMutation = trpc.invoice.updateStatus.useMutation({
@@ -770,7 +879,7 @@ export default function AppInvoices() {
       toast.success("ステータスを更新しました");
       invoicesQuery.refetch();
     },
-    onError: (e) => toast.error(`更新エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`更新エラー: ${e.message}`),
   });
 
   const deleteMutation = trpc.invoice.delete.useMutation({
@@ -778,7 +887,7 @@ export default function AppInvoices() {
       toast.success("請求書を削除しました");
       invoicesQuery.refetch();
     },
-    onError: (e) => toast.error(`削除エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`削除エラー: ${e.message}`),
   });
 
   const handleAutoCreate = () => {
@@ -867,7 +976,7 @@ export default function AppInvoices() {
                   <SelectValue placeholder="取引先を選択" />
                 </SelectTrigger>
                 <SelectContent>
-                  {clients.map((c) => (
+                  {clients.map((c: any) => (
                     <SelectItem key={c.id} value={c.id.toString()}>
                       {c.name}
                     </SelectItem>
@@ -882,13 +991,21 @@ export default function AppInvoices() {
                   <SelectValue placeholder="現場を選択" />
                 </SelectTrigger>
                 <SelectContent>
-                  {projects.map((p) => (
+                  {projects.map((p: any) => (
                     <SelectItem key={p.id} value={p.id.toString()}>
                       {p.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>件名</Label>
+              <Input
+                value={autoSubject}
+                onChange={(e) => setAutoSubject(e.target.value)}
+                placeholder="例: 3月分請求書 藤沢いすゞ新築工場"
+              />
             </div>
             <div className="space-y-2">
               <Label>対象月</Label>
@@ -936,7 +1053,7 @@ export default function AppInvoices() {
 
       {/* Invoice Detail Dialog */}
       <Dialog open={detailInvoiceId !== null} onOpenChange={(open) => !open && setDetailInvoiceId(null)}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>請求書詳細</DialogTitle>
           </DialogHeader>
@@ -970,6 +1087,7 @@ export default function AppInvoices() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>請求書番号</TableHead>
+                    <TableHead>件名</TableHead>
                     <TableHead>取引先</TableHead>
                     <TableHead>現場</TableHead>
                     <TableHead>対象期間</TableHead>
@@ -979,12 +1097,13 @@ export default function AppInvoices() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {invoices.map((inv) => {
+                  {invoices.map((inv: any) => {
                     const status = STATUS_LABELS[inv.status] || STATUS_LABELS.draft;
                     const StatusIcon = status.icon;
                     return (
                       <TableRow key={inv.id}>
                         <TableCell className="font-mono text-sm">{inv.invoiceNumber}</TableCell>
+                        <TableCell className="text-sm max-w-[150px] truncate">{inv.subject || "-"}</TableCell>
                         <TableCell>{clientMap.get(inv.clientId) || `ID:${inv.clientId}`}</TableCell>
                         <TableCell>{inv.projectId ? projectMap.get(inv.projectId) || `ID:${inv.projectId}` : "-"}</TableCell>
                         <TableCell className="text-sm">

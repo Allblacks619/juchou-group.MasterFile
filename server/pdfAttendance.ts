@@ -1,6 +1,7 @@
 /**
  * Attendance Sheet PDF Generator (出面表PDF)
  * Generates A4 landscape PDF with monthly attendance grid.
+ * Marks: 出勤=○, 半日=△, 欠勤=X, 休出=休, 残業=+N
  */
 import PDFDocument from "pdfkit";
 import https from "https";
@@ -13,42 +14,74 @@ import { format, eachDayOfInterval, startOfMonth, endOfMonth, getDay } from "dat
 const FONT_URL =
   "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Regular_e41d65c6.ttf";
 
-let fontPath: string | null = null;
+const FONT_BOLD_URL =
+  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Bold_e41d65c6.ttf";
 
-async function ensureFont(): Promise<string> {
-  if (fontPath && fs.existsSync(fontPath)) return fontPath;
+let fontPath: string | null = null;
+let fontBoldPath: string | null = null;
+
+async function downloadFont(url: string, filename: string): Promise<string> {
   const tmpDir = os.tmpdir();
-  const dest = path.join(tmpDir, "NotoSansJP-Regular.ttf");
-  if (fs.existsSync(dest)) {
-    fontPath = dest;
-    return dest;
-  }
+  const dest = path.join(tmpDir, filename);
+  if (fs.existsSync(dest)) return dest;
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
-    const get = FONT_URL.startsWith("https") ? https.get : http.get;
-    get(FONT_URL, (res) => {
+    const get = url.startsWith("https") ? https.get : http.get;
+    get(url, (res) => {
       if (res.statusCode === 301 || res.statusCode === 302) {
         const loc = res.headers.location;
         if (loc) {
           const get2 = loc.startsWith("https") ? https.get : http.get;
-          get2(loc, (r2) => { r2.pipe(file); file.on("finish", () => { file.close(); fontPath = dest; resolve(dest); }); }).on("error", reject);
+          get2(loc, (r2) => { r2.pipe(file); file.on("finish", () => { file.close(); resolve(dest); }); }).on("error", reject);
         }
         return;
       }
       res.pipe(file);
-      file.on("finish", () => { file.close(); fontPath = dest; resolve(dest); });
+      file.on("finish", () => { file.close(); resolve(dest); });
     }).on("error", reject);
   });
 }
 
+async function ensureFonts(): Promise<{ regular: string; bold: string }> {
+  if (!fontPath || !fs.existsSync(fontPath)) {
+    fontPath = await downloadFont(FONT_URL, "NotoSansJP-Regular.ttf");
+  }
+  // Use regular for bold as well if bold download fails
+  try {
+    if (!fontBoldPath || !fs.existsSync(fontBoldPath)) {
+      fontBoldPath = await downloadFont(FONT_BOLD_URL, "NotoSansJP-Bold.ttf");
+    }
+  } catch {
+    fontBoldPath = fontPath;
+  }
+  return { regular: fontPath, bold: fontBoldPath || fontPath };
+}
+
+async function fetchImageBuffer(url: string): Promise<Buffer | null> {
+  if (!url) return null;
+  try {
+    return new Promise((resolve) => {
+      const get = url.startsWith("https") ? https.get : http.get;
+      get(url, (res) => {
+        if (res.statusCode !== 200) { resolve(null); return; }
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => resolve(Buffer.concat(chunks)));
+        res.on("error", () => resolve(null));
+      }).on("error", () => resolve(null));
+    });
+  } catch { return null; }
+}
+
 const DAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
-const WORK_TYPE_LABELS: Record<string, string> = {
-  normal: "出",
-  half_day: "半",
-  overtime: "残",
+// New marks per spec: 出勤=○, 半日(早退)=△, 欠勤=X, 休出=休
+const WORK_TYPE_MARKS: Record<string, string> = {
+  normal: "○",
+  half_day: "△",
+  overtime: "○",
   holiday: "休",
-  absence: "欠",
+  absence: "X",
 };
 
 interface AttendanceRecord {
@@ -72,14 +105,22 @@ interface AttendancePdfOptions {
   month: number; // 1-12
   projectName: string;
   companyName?: string;
+  logoUrl?: string;
+  watermarkUrl?: string;
   employees: EmployeeInfo[];
   guestNames: string[];
   records: AttendanceRecord[];
 }
 
 export async function generateAttendancePdf(options: AttendancePdfOptions): Promise<Buffer> {
-  const font = await ensureFont();
-  const { year, month, projectName, companyName, employees, guestNames, records } = options;
+  const fonts = await ensureFonts();
+  const { year, month, projectName, companyName, employees, guestNames, records, logoUrl, watermarkUrl } = options;
+
+  // Fetch images
+  const [logoBuffer, watermarkBuffer] = await Promise.all([
+    logoUrl ? fetchImageBuffer(logoUrl) : null,
+    watermarkUrl ? fetchImageBuffer(watermarkUrl) : null,
+  ]);
 
   const monthDate = new Date(year, month - 1, 1);
   const days = eachDayOfInterval({
@@ -113,33 +154,79 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
     },
   });
 
-  doc.font(font);
+  doc.registerFont("Regular", fonts.regular);
+  doc.registerFont("Bold", fonts.bold);
+  doc.font("Regular");
 
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
 
   const pageW = 841.89 - 60; // A4 landscape width minus margins
+  const pageH = 595.28;
   const startX = 30;
   const startY = 30;
 
-  // Title
-  doc.fontSize(14).text(`出面表 ${year}年${month}月`, startX, startY, { align: "center", width: pageW });
-  doc.fontSize(10).text(`現場: ${projectName}`, startX, startY + 20, { align: "center", width: pageW });
-  if (companyName) {
-    doc.fontSize(8).text(companyName, startX, startY + 35, { align: "center", width: pageW });
+  // --- Draw watermark ---
+  function drawWatermark() {
+    if (watermarkBuffer) {
+      try {
+        doc.save();
+        doc.opacity(0.06);
+        const wmSize = 300;
+        const wmX = (841.89 - wmSize) / 2;
+        const wmY = (pageH - wmSize) / 2;
+        doc.image(watermarkBuffer, wmX, wmY, { width: wmSize, height: wmSize });
+        doc.restore();
+      } catch { /* ignore */ }
+    }
   }
 
-  const tableY = startY + 55;
-  const nameColW = 90;
-  const summaryColW = 35;
-  const dayColW = Math.min(22, (pageW - nameColW - summaryColW * 3) / numDays);
-  const rowH = 18;
-  const headerH = 30;
+  drawWatermark();
 
-  // Header row
-  doc.fontSize(7);
-  doc.rect(startX, tableY, nameColW, headerH).stroke();
-  doc.text("氏名", startX + 2, tableY + 10, { width: nameColW - 4 });
+  // --- Header ---
+  // Company name and logo
+  let headerY = startY;
+  if (logoBuffer) {
+    try {
+      doc.image(logoBuffer, startX, headerY, { height: 30 });
+    } catch { /* ignore */ }
+  }
+  doc.font("Bold").fontSize(10).text(
+    companyName || "充寵グループ",
+    startX + (logoBuffer ? 35 : 0),
+    headerY + 5,
+    { width: 200 }
+  );
+
+  // Title centered
+  doc.font("Bold").fontSize(14).text(
+    `出面表 ${year}年${month}月`,
+    startX,
+    headerY,
+    { align: "center", width: pageW }
+  );
+  doc.font("Regular").fontSize(9).text(
+    `現場: ${projectName}`,
+    startX,
+    headerY + 20,
+    { align: "center", width: pageW }
+  );
+
+  const tableY = headerY + 45;
+  const nameColW = 85;
+  const summaryColW = 32;
+  const dayColW = Math.min(20, (pageW - nameColW - summaryColW * 3) / numDays);
+  const rowH = 20;
+  const headerRowH = 28;
+
+  // --- Table Header ---
+  doc.font("Regular").fontSize(6);
+
+  // Name column header
+  doc.save();
+  doc.rect(startX, tableY, nameColW, headerRowH).fill("#F3F4F6").stroke("#D1D5DB");
+  doc.restore();
+  doc.fillColor("#111827").font("Bold").fontSize(7).text("氏名", startX + 3, tableY + 9, { width: nameColW - 6 });
 
   let x = startX + nameColW;
   for (const day of days) {
@@ -148,37 +235,60 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
     const isSat = dayOfWeek === 6;
 
     // Background for weekends
-    if (isSun || isSat) {
-      doc.save();
-      doc.rect(x, tableY, dayColW, headerH).fill(isSun ? "#FEE2E2" : "#DBEAFE");
-      doc.restore();
+    doc.save();
+    if (isSun) {
+      doc.rect(x, tableY, dayColW, headerRowH).fill("#FEE2E2");
+    } else if (isSat) {
+      doc.rect(x, tableY, dayColW, headerRowH).fill("#DBEAFE");
+    } else {
+      doc.rect(x, tableY, dayColW, headerRowH).fill("#F3F4F6");
     }
-    doc.rect(x, tableY, dayColW, headerH).stroke();
-    doc.fontSize(6).text(format(day, "d"), x, tableY + 3, { width: dayColW, align: "center" });
-    doc.fontSize(5).text(DAY_LABELS[dayOfWeek], x, tableY + 14, { width: dayColW, align: "center" });
+    doc.restore();
+    doc.rect(x, tableY, dayColW, headerRowH).stroke("#D1D5DB");
+
+    doc.fillColor(isSun ? "#DC2626" : isSat ? "#2563EB" : "#111827");
+    doc.font("Bold").fontSize(7).text(format(day, "d"), x, tableY + 3, { width: dayColW, align: "center" });
+    doc.font("Regular").fontSize(5).text(DAY_LABELS[dayOfWeek], x, tableY + 15, { width: dayColW, align: "center" });
     x += dayColW;
   }
 
-  // Summary columns
+  // Summary columns header
   const summaryLabels = ["日数", "時間", "残業"];
   for (const label of summaryLabels) {
-    doc.rect(x, tableY, summaryColW, headerH).stroke();
-    doc.fontSize(6).text(label, x, tableY + 10, { width: summaryColW, align: "center" });
+    doc.save();
+    doc.rect(x, tableY, summaryColW, headerRowH).fill("#F3F4F6").stroke("#D1D5DB");
+    doc.restore();
+    doc.fillColor("#111827").font("Bold").fontSize(6).text(label, x, tableY + 9, { width: summaryColW, align: "center" });
     x += summaryColW;
   }
 
-  // Data rows
-  let y = tableY + headerH;
+  // --- Data Rows ---
+  let y = tableY + headerRowH;
+  let rowIndex = 0;
+
   for (const row of rows) {
-    if (y + rowH > 595.28 - 30) {
+    if (y + rowH > pageH - 40) {
       // New page
       doc.addPage({ size: "A4", layout: "landscape", margins: { top: 30, bottom: 30, left: 30, right: 30 } });
+      drawWatermark();
       y = 30;
     }
 
+    const isEvenRow = rowIndex % 2 === 0;
+
     // Name cell
-    doc.rect(startX, y, nameColW, rowH).stroke();
-    doc.fontSize(6).text(row.label, startX + 2, y + 5, { width: nameColW - 4, lineBreak: false });
+    doc.save();
+    if (isEvenRow) {
+      doc.rect(startX, y, nameColW, rowH).fill("#FAFAFA");
+    }
+    doc.restore();
+    doc.rect(startX, y, nameColW, rowH).stroke("#D1D5DB");
+    doc.fillColor("#111827").font("Regular").fontSize(6).text(
+      row.label,
+      startX + 3,
+      y + 6,
+      { width: nameColW - 6, lineBreak: false }
+    );
 
     let cx = startX + nameColW;
     let totalDays = 0;
@@ -193,48 +303,122 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
       const isSun = dayOfWeek === 0;
       const isSat = dayOfWeek === 6;
 
-      if (isSun || isSat) {
-        doc.save();
-        doc.rect(cx, y, dayColW, rowH).fill(isSun ? "#FEF2F2" : "#EFF6FF");
-        doc.restore();
+      // Background
+      doc.save();
+      if (isSun) {
+        doc.rect(cx, y, dayColW, rowH).fill("#FEF2F2");
+      } else if (isSat) {
+        doc.rect(cx, y, dayColW, rowH).fill("#EFF6FF");
+      } else if (isEvenRow) {
+        doc.rect(cx, y, dayColW, rowH).fill("#FAFAFA");
       }
-      doc.rect(cx, y, dayColW, rowH).stroke();
+      doc.restore();
+      doc.rect(cx, y, dayColW, rowH).stroke("#D1D5DB");
 
       if (rec && rec.hoursWorked > 0) {
         totalDays++;
         totalHours += rec.hoursWorked;
         totalOvertime += rec.overtimeHours;
 
-        const label = WORK_TYPE_LABELS[rec.workType] || "出";
-        const shiftMark = rec.shiftType === "night" ? "夜" : "";
-        doc.fontSize(5).text(`${label}${shiftMark}`, cx, y + 3, { width: dayColW, align: "center" });
+        const mark = WORK_TYPE_MARKS[rec.workType] || "○";
+        const nightMark = rec.shiftType === "night" ? "夜" : "";
+
+        // Color coding
+        let markColor = "#059669"; // green for normal
+        if (rec.workType === "half_day") markColor = "#D97706"; // amber
+        else if (rec.workType === "absence") markColor = "#DC2626"; // red
+        else if (rec.workType === "holiday") markColor = "#7C3AED"; // purple
+
+        doc.fillColor(markColor).font("Bold").fontSize(7).text(
+          `${mark}${nightMark}`,
+          cx,
+          y + (rec.overtimeHours > 0 ? 2 : 5),
+          { width: dayColW, align: "center" }
+        );
+
         if (rec.overtimeHours > 0) {
-          doc.fontSize(4).text(`+${rec.overtimeHours / 10}h`, cx, y + 10, { width: dayColW, align: "center" });
+          doc.fillColor("#2563EB").font("Regular").fontSize(4).text(
+            `+${rec.overtimeHours / 10}`,
+            cx,
+            y + 12,
+            { width: dayColW, align: "center" }
+          );
         }
+      } else if (rec && rec.workType === "absence") {
+        // Absence with 0 hours
+        doc.fillColor("#DC2626").font("Bold").fontSize(7).text(
+          "X",
+          cx,
+          y + 5,
+          { width: dayColW, align: "center" }
+        );
       }
       cx += dayColW;
     }
 
     // Summary cells
-    doc.rect(cx, y, summaryColW, rowH).stroke();
-    doc.fontSize(6).text(totalDays > 0 ? String(totalDays) : "-", cx, y + 5, { width: summaryColW, align: "center" });
+    doc.save();
+    if (isEvenRow) {
+      doc.rect(cx, y, summaryColW, rowH).fill("#FAFAFA");
+    }
+    doc.restore();
+    doc.rect(cx, y, summaryColW, rowH).stroke("#D1D5DB");
+    doc.fillColor("#111827").font("Bold").fontSize(7).text(
+      totalDays > 0 ? String(totalDays) : "-",
+      cx,
+      y + 6,
+      { width: summaryColW, align: "center" }
+    );
     cx += summaryColW;
 
-    doc.rect(cx, y, summaryColW, rowH).stroke();
-    doc.fontSize(6).text(totalHours > 0 ? String(totalHours / 10) : "-", cx, y + 5, { width: summaryColW, align: "center" });
+    doc.save();
+    if (isEvenRow) {
+      doc.rect(cx, y, summaryColW, rowH).fill("#FAFAFA");
+    }
+    doc.restore();
+    doc.rect(cx, y, summaryColW, rowH).stroke("#D1D5DB");
+    doc.fillColor("#111827").font("Regular").fontSize(7).text(
+      totalHours > 0 ? String(totalHours / 10) : "-",
+      cx,
+      y + 6,
+      { width: summaryColW, align: "center" }
+    );
     cx += summaryColW;
 
-    doc.rect(cx, y, summaryColW, rowH).stroke();
-    doc.fontSize(6).text(totalOvertime > 0 ? String(totalOvertime / 10) : "-", cx, y + 5, { width: summaryColW, align: "center" });
+    doc.save();
+    if (isEvenRow) {
+      doc.rect(cx, y, summaryColW, rowH).fill("#FAFAFA");
+    }
+    doc.restore();
+    doc.rect(cx, y, summaryColW, rowH).stroke("#D1D5DB");
+    doc.fillColor(totalOvertime > 0 ? "#2563EB" : "#111827").font("Regular").fontSize(7).text(
+      totalOvertime > 0 ? String(totalOvertime / 10) : "-",
+      cx,
+      y + 6,
+      { width: summaryColW, align: "center" }
+    );
 
     y += rowH;
+    rowIndex++;
   }
 
+  // --- Legend ---
+  y += 10;
+  if (y + 30 > pageH - 30) {
+    doc.addPage({ size: "A4", layout: "landscape", margins: { top: 30, bottom: 30, left: 30, right: 30 } });
+    drawWatermark();
+    y = 30;
+  }
+
+  doc.fillColor("#6B7280").font("Regular").fontSize(7);
+  doc.text("凡例:  ○ = 出勤    △ = 半日/早退    X = 欠勤    休 = 休日出勤    夜 = 夜勤    +N = 残業時間(h)", startX, y, { width: pageW });
+
   // Footer
-  doc.fontSize(7).text(
+  y += 15;
+  doc.fillColor("#9CA3AF").fontSize(6).text(
     `作成日: ${format(new Date(), "yyyy/MM/dd")}`,
     startX,
-    y + 10,
+    y,
     { width: pageW, align: "right" }
   );
 

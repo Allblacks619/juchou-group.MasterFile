@@ -488,6 +488,8 @@ export const invoices = mysqlTable("invoices", {
   subNumber: varchar("subNumber", { length: 32 }),
   /** Payment method */
   paymentMethod: varchar("paymentMethod", { length: 64 }).default("口座振込"),
+  /** Subject / 件名 (e.g. "11月分請求書 藤沢いすゞ新築工場") */
+  subject: text("subject"),
   /** Show company seal on PDF */
   showSeal: boolean("showSeal").default(true).notNull(),
   /** Show company logo on PDF */
@@ -527,6 +529,8 @@ export const invoiceItems = mysqlTable("invoice_items", {
   amount: int("amount").default(0).notNull(),
   /** Tax rate for this item (10, 8, 0) - percentage */
   itemTaxRate: int("itemTaxRate").default(10).notNull(),
+  /** Transaction date for this item */
+  transactionDate: timestamp("transactionDate"),
   /** Sort order within the invoice */
   sortOrder: int("sortOrder").default(0).notNull(),
   /** Notes / 備考 */

@@ -44,6 +44,7 @@ import {
   Moon,
   Clock,
   X,
+  Users,
 } from "lucide-react";
 import {
   format,
@@ -64,7 +65,7 @@ const WORK_TYPE_LABELS: Record<WorkType, string> = {
   half_day: "半日",
   overtime: "残業",
   holiday: "休出",
-  absence: "欠勤",
+  absence: "休",
 };
 
 const WORK_TYPE_SHORT: Record<WorkType, string> = {
@@ -72,7 +73,7 @@ const WORK_TYPE_SHORT: Record<WorkType, string> = {
   half_day: "半",
   overtime: "残",
   holiday: "休",
-  absence: "欠",
+  absence: "休",
 };
 
 const WORK_TYPE_COLORS: Record<WorkType, string> = {
@@ -195,12 +196,20 @@ export default function AppAttendance() {
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [cellEdits, setCellEdits] = useState<Record<string, CellData>>({});
   const [showGuestDialog, setShowGuestDialog] = useState(false);
+  const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
   const [newGuestName, setNewGuestName] = useState("");
   const [guestNames, setGuestNames] = useState<string[]>([]);
+  const [selectedMemberId, setSelectedMemberId] = useState<string>("");
 
   // Queries
   const projectsQuery = trpc.project.list.useQuery();
   const employeesQuery = trpc.employee.list.useQuery();
+
+  // Get project members for the selected project
+  const projectMembersQuery = trpc.project.members.useQuery(
+    { projectId: selectedProjectId! },
+    { enabled: !!selectedProjectId && isAdminOrLeader }
+  );
 
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
@@ -229,6 +238,16 @@ export default function AppAttendance() {
       window.open(data.url, "_blank");
     },
     onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
+  });
+
+  const addMemberMutation = trpc.project.addMember.useMutation({
+    onSuccess: () => {
+      toast.success("作業員を現場に追加しました");
+      projectMembersQuery.refetch();
+      setShowAddMemberDialog(false);
+      setSelectedMemberId("");
+    },
+    onError: (e) => toast.error(`追加エラー: ${e.message}`),
   });
 
   // Compute days of month
@@ -403,7 +422,6 @@ export default function AppAttendance() {
     }
 
     const dirtyRecords = Object.values(cellEdits).filter((c) => c.dirty);
-    // Include records with hours > 0, or records that existed before (to handle deletion via setting hours to 0)
     const recordsToSave = dirtyRecords.filter(c => c.hoursWorked > 0);
     if (recordsToSave.length === 0) {
       toast.info("変更がありません");
@@ -453,6 +471,18 @@ export default function AppAttendance() {
     toast.success(`ゲスト「${name}」を追加しました`);
   };
 
+  // Add member to project
+  const handleAddMember = () => {
+    if (!selectedProjectId || !selectedMemberId) {
+      toast.error("作業員を選択してください");
+      return;
+    }
+    addMemberMutation.mutate({
+      projectId: selectedProjectId,
+      employeeId: parseInt(selectedMemberId),
+    });
+  };
+
   const dirtyCount = Object.values(cellEdits).filter((c) => c.dirty).length;
 
   // Compute summary per row
@@ -475,20 +505,43 @@ export default function AppAttendance() {
   const employees = employeesQuery.data || [];
   const projects = projectsQuery.data || [];
 
-  // Build rows: employees + guests
+  // Build rows: use project members (not all employees) + guests from attendance records
+  const projectMemberIds = useMemo(() => {
+    if (!projectMembersQuery.data) return new Set<number>();
+    return new Set(projectMembersQuery.data.map((m: any) => m.employeeId));
+  }, [projectMembersQuery.data]);
+
+  // Also include employees who have attendance records for this project (even if not assigned)
+  const employeesWithRecords = useMemo(() => {
+    const ids = new Set<number>();
+    for (const rec of attendanceQuery.data || []) {
+      if (rec.employeeId) ids.add(rec.employeeId);
+    }
+    return ids;
+  }, [attendanceQuery.data]);
+
   const rows = useMemo(() => {
-    const empRows = employees.map((emp) => ({
-      key: `emp-${emp.id}`,
-      label: emp.nameKanji || emp.nameRomaji || `ID:${emp.id}`,
-      isGuest: false,
-    }));
+    // Combine project members + employees with existing records (deduplicated)
+    const allEmpIds = new Set([...Array.from(projectMemberIds), ...Array.from(employeesWithRecords)]);
+    const empRows = employees
+      .filter((emp) => allEmpIds.has(emp.id))
+      .map((emp) => ({
+        key: `emp-${emp.id}`,
+        label: emp.nameKanji || emp.nameRomaji || `ID:${emp.id}`,
+        isGuest: false,
+      }));
     const guestRows = allGuestNames.map((name) => ({
       key: `guest-${name}`,
       label: `${name}（ゲスト）`,
       isGuest: true,
     }));
     return [...empRows, ...guestRows];
-  }, [employees, allGuestNames]);
+  }, [employees, allGuestNames, projectMemberIds, employeesWithRecords]);
+
+  // Employees not yet assigned to this project (for add member dialog)
+  const availableEmployees = useMemo(() => {
+    return employees.filter((emp) => !projectMemberIds.has(emp.id));
+  }, [employees, projectMemberIds]);
 
   return (
     <div className="space-y-6">
@@ -500,6 +553,16 @@ export default function AppAttendance() {
         <div className="flex items-center gap-2 flex-wrap">
           {dirtyCount > 0 && (
             <span className="text-sm text-amber-400">{dirtyCount}件の未保存変更</span>
+          )}
+          {isAdminOrLeader && selectedProjectId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAddMemberDialog(true)}
+            >
+              <Users className="h-4 w-4 mr-1" />
+              作業員追加
+            </Button>
           )}
           <Button
             variant="outline"
@@ -603,6 +666,23 @@ export default function AppAttendance() {
           <CardContent className="py-12 text-center text-muted-foreground">
             <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>現場を選択して出面表を表示してください</p>
+          </CardContent>
+        </Card>
+      ) : rows.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p>この現場にはまだ作業員が配属されていません</p>
+            {isAdminOrLeader && (
+              <Button
+                variant="outline"
+                className="mt-4"
+                onClick={() => setShowAddMemberDialog(true)}
+              >
+                <UserPlus className="h-4 w-4 mr-1" />
+                作業員を追加する
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -793,6 +873,57 @@ export default function AppAttendance() {
             </Button>
             <Button onClick={handleAddGuest} className="bg-gold text-background hover:bg-gold-dim">
               <UserPlus className="h-4 w-4 mr-1" />
+              追加
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Member to Project Dialog */}
+      <Dialog open={showAddMemberDialog} onOpenChange={setShowAddMemberDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>作業員を現場に追加</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              登録済みの従業員をこの現場に配属します。
+            </p>
+            <Select
+              value={selectedMemberId}
+              onValueChange={setSelectedMemberId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="作業員を選択" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableEmployees.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id.toString()}>
+                    {emp.nameKanji || emp.nameRomaji || `ID:${emp.id}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {availableEmployees.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                すべての従業員が既にこの現場に配属されています。
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddMemberDialog(false)}>
+              キャンセル
+            </Button>
+            <Button
+              onClick={handleAddMember}
+              disabled={!selectedMemberId || addMemberMutation.isPending}
+              className="bg-gold text-background hover:bg-gold-dim"
+            >
+              {addMemberMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-1" />
+              ) : (
+                <Users className="h-4 w-4 mr-1" />
+              )}
               追加
             </Button>
           </DialogFooter>
