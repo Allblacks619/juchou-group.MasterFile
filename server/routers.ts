@@ -1051,9 +1051,16 @@ export const appRouter = router({
           shiftType: z.enum(["day", "night"]).default("day"),
           notes: z.string().optional(),
         })),
+        deletes: z.array(z.object({
+          employeeId: z.number().nullable().optional(),
+          guestName: z.string().optional(),
+          projectId: z.number(),
+          workDate: z.string(),
+        })).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const results = [];
+        // Upsert records with hours > 0
         for (const rec of input.records) {
           const result = await db.upsertAttendance({
             employeeId: rec.employeeId ?? null,
@@ -1069,7 +1076,20 @@ export const appRouter = router({
           });
           results.push(result);
         }
-        return { count: results.length };
+        // Delete records that were cleared (hoursWorked = 0)
+        let deletedCount = 0;
+        if (input.deletes) {
+          for (const del of input.deletes) {
+            await db.deleteAttendanceByKey({
+              employeeId: del.employeeId ?? null,
+              guestName: del.guestName || null,
+              projectId: del.projectId,
+              workDate: new Date(del.workDate),
+            });
+            deletedCount++;
+          }
+        }
+        return { count: results.length + deletedCount };
       }),
 
     /** Delete an attendance record */

@@ -525,12 +525,16 @@ export async function deleteAttendance(id: number) {
   await db.delete(attendance).where(eq(attendance.id, id));
 }
 
-/** Upsert attendance: if same employee+project+date+shift exists, update; else insert */
-export async function upsertAttendance(data: InsertAttendance) {
+/** Delete attendance by key (employee/guest + project + date) */
+export async function deleteAttendanceByKey(data: {
+  employeeId: number | null;
+  guestName: string | null;
+  projectId: number;
+  workDate: Date;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  // Check if record exists for same employee/guest, project, date, shift
   const workDateStart = new Date(data.workDate);
   workDateStart.setHours(0, 0, 0, 0);
   const workDateEnd = new Date(data.workDate);
@@ -540,7 +544,32 @@ export async function upsertAttendance(data: InsertAttendance) {
     eq(attendance.projectId, data.projectId),
     gte(attendance.workDate, workDateStart),
     lte(attendance.workDate, workDateEnd),
-    eq(attendance.shiftType, data.shiftType ?? "day"),
+  ];
+  
+  if (data.employeeId) {
+    conditions.push(eq(attendance.employeeId, data.employeeId));
+  } else if (data.guestName) {
+    conditions.push(eq(attendance.guestName, data.guestName));
+  }
+  
+  await db.delete(attendance).where(and(...conditions));
+}
+
+/** Upsert attendance: if same employee+project+date+shift exists, update; else insert */
+export async function upsertAttendance(data: InsertAttendance) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Check if record exists for same employee/guest, project, date
+  const workDateStart = new Date(data.workDate);
+  workDateStart.setHours(0, 0, 0, 0);
+  const workDateEnd = new Date(data.workDate);
+  workDateEnd.setHours(23, 59, 59, 999);
+  
+  const conditions = [
+    eq(attendance.projectId, data.projectId),
+    gte(attendance.workDate, workDateStart),
+    lte(attendance.workDate, workDateEnd),
   ];
   
   if (data.employeeId) {

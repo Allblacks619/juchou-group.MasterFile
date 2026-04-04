@@ -261,6 +261,37 @@ export default function AppAttendance() {
     onError: (e) => toast.error(`追加エラー: ${e.message}`),
   });
 
+  const removeMemberMutation = trpc.project.removeMember.useMutation({
+    onSuccess: () => {
+      toast.success("作業員を現場から削除しました");
+      projectMembersQuery.refetch();
+      attendanceQuery.refetch();
+    },
+    onError: (e) => toast.error(`削除エラー: ${e.message}`),
+  });
+
+  const handleRemoveMember = (rowKey: string, label: string) => {
+    if (!selectedProjectId) return;
+    if (!confirm(`${label} をこの現場から削除しますか？\n※出勤記録は削除されません`)) return;
+    if (rowKey.startsWith("emp-")) {
+      const empId = parseInt(rowKey.replace("emp-", ""));
+      removeMemberMutation.mutate({ projectId: selectedProjectId, employeeId: empId });
+    } else if (rowKey.startsWith("guest-")) {
+      // Remove guest from local state
+      const gName = rowKey.replace("guest-", "");
+      setGuestNames(prev => prev.filter(n => n !== gName));
+      // Remove guest's dirty edits
+      setCellEdits(prev => {
+        const next = { ...prev };
+        for (const k of Object.keys(next)) {
+          if (k.startsWith(`guest-${gName}-`)) delete next[k];
+        }
+        return next;
+      });
+      toast.success(`${gName}（ゲスト）を削除しました`);
+    }
+  };
+
   // Compute days of month
   const daysInMonth = useMemo(() => {
     return eachDayOfInterval({
@@ -433,11 +464,14 @@ export default function AppAttendance() {
     }
 
     const dirtyRecords = Object.values(cellEdits).filter((c) => c.dirty);
-    const recordsToSave = dirtyRecords.filter(c => c.hoursWorked > 0);
-    if (recordsToSave.length === 0) {
+    if (dirtyRecords.length === 0) {
       toast.info("変更がありません");
       return;
     }
+
+    // Split into upserts (hoursWorked > 0) and deletes (hoursWorked === 0)
+    const recordsToSave = dirtyRecords.filter(c => c.hoursWorked > 0);
+    const recordsToDelete = dirtyRecords.filter(c => c.hoursWorked === 0);
 
     batchUpsertMutation.mutate({
       records: recordsToSave.map((c) => ({
@@ -450,6 +484,12 @@ export default function AppAttendance() {
         workType: c.workType,
         shiftType: c.shiftType,
         notes: c.notes || undefined,
+      })),
+      deletes: recordsToDelete.map((c) => ({
+        employeeId: c.employeeId,
+        guestName: c.guestName || undefined,
+        projectId: selectedProjectId,
+        workDate: c.date,
       })),
     });
   };
@@ -779,7 +819,18 @@ export default function AppAttendance() {
                             row.isGuest ? "text-orange-400" : ""
                           }`}
                         >
-                          {row.label}
+                          <div className="flex items-center gap-1">
+                            <span className="truncate">{row.label}</span>
+                            {isAdminOrLeader && (
+                              <button
+                                onClick={() => handleRemoveMember(row.key, row.label)}
+                                className="shrink-0 p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"
+                                title="現場から削除"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
                         </TableCell>
                         {daysInMonth.map((day) => {
                           const dateStr = format(day, "yyyy-MM-dd");
