@@ -5,7 +5,7 @@ import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import * as db from "./db";
-import { parseDateString } from "./dateHelpers";
+import { parseDateString, parseDateRange } from "./dateHelpers";
 import { storagePut } from "./storage";
 import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "../shared/uploadValidation";
 import * as schema from "../drizzle/schema";
@@ -1000,9 +1000,11 @@ export const appRouter = router({
         projectId: z.number().optional(),
       }))
       .query(async ({ input }) => {
+        const startRange = parseDateRange(input.startDate);
+        const endRange = parseDateRange(input.endDate);
         return db.getAttendanceByDateRange(
-          parseDateString(input.startDate),
-          parseDateString(input.endDate),
+          startRange.start,
+          endRange.end,
           input.projectId,
         );
       }),
@@ -1017,8 +1019,8 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.getAttendanceByEmployee(
           input.employeeId,
-          input.startDate ? parseDateString(input.startDate) : undefined,
-          input.endDate ? parseDateString(input.endDate) : undefined,
+          input.startDate ? parseDateRange(input.startDate).start : undefined,
+          input.endDate ? parseDateRange(input.endDate).end : undefined,
         );
       }),
 
@@ -1113,6 +1115,57 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    /** Batch upsert MY OWN attendance records (worker self-service) */
+    myBatchUpsert: protectedProcedure
+      .input(z.object({
+        records: z.array(z.object({
+          projectId: z.number(),
+          workDate: z.string(),
+          hoursWorked: z.number().default(80),
+          overtimeHours: z.number().default(0),
+          workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence", "day_off"]).default("normal"),
+          shiftType: z.enum(["day", "night"]).default("day"),
+          notes: z.string().optional(),
+        })),
+        deletes: z.array(z.object({
+          projectId: z.number(),
+          workDate: z.string(),
+        })).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const employee = await db.getEmployeeByUserId(ctx.user.id);
+        if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+        const results = [];
+        for (const rec of input.records) {
+          const result = await db.upsertAttendance({
+            employeeId: employee.id,
+            guestName: null,
+            projectId: rec.projectId,
+            workDate: parseDateString(rec.workDate),
+            hoursWorked: rec.hoursWorked,
+            overtimeHours: rec.overtimeHours,
+            workType: rec.workType,
+            shiftType: rec.shiftType,
+            notes: rec.notes || null,
+            enteredBy: ctx.user.id,
+          });
+          results.push(result);
+        }
+        let deletedCount = 0;
+        if (input.deletes) {
+          for (const del of input.deletes) {
+            await db.deleteAttendanceByKey({
+              employeeId: employee.id,
+              guestName: null,
+              projectId: del.projectId,
+              workDate: parseDateString(del.workDate),
+            });
+            deletedCount++;
+          }
+        }
+        return { count: results.length + deletedCount };
+      }),
+
     /** Get my attendance records (for employee self-service) */
     myAttendance: protectedProcedure
       .input(z.object({
@@ -1126,8 +1179,8 @@ export const appRouter = router({
         if (!employee) return [];
         const records = await db.getAttendanceByEmployee(
           employee.id,
-          parseDateString(input.startDate),
-          parseDateString(input.endDate),
+          parseDateRange(input.startDate).start,
+          parseDateRange(input.endDate).end,
         );
         if (input.projectId) {
           return records.filter(r => r.projectId === input.projectId);
@@ -1176,8 +1229,8 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const records = await db.getAttendanceByProject(
           input.projectId,
-          parseDateString(input.startDate),
-          parseDateString(input.endDate),
+          parseDateRange(input.startDate).start,
+          parseDateRange(input.endDate).end,
         );
         // Collect unique employee IDs and guest names
         const empIds = new Set<number>();

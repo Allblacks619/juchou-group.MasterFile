@@ -47,7 +47,7 @@ import {
   Users,
   FileText,
   Lock,
-  Unlock,
+  LockOpen,
 } from "lucide-react";
 import {
   format,
@@ -60,36 +60,16 @@ import {
 } from "date-fns";
 import { ja } from "date-fns/locale";
 import { useLocation } from "wouter";
-
-type WorkType = "normal" | "half_day" | "overtime" | "holiday" | "absence" | "day_off";
-type ShiftType = "day" | "night";
-
-const WORK_TYPE_LABELS: Record<WorkType, string> = {
-  normal: "出勤",
-  half_day: "半日",
-  overtime: "残業",
-  holiday: "休出",
-  absence: "欠勤",
-  day_off: "休日",
-};
-
-const WORK_TYPE_SHORT: Record<WorkType, string> = {
-  normal: "出",
-  half_day: "半",
-  overtime: "残",
-  holiday: "休出",
-  absence: "欠",
-  day_off: "休",
-};
-
-const WORK_TYPE_COLORS: Record<WorkType, string> = {
-  normal: "bg-emerald-500/20 text-emerald-400",
-  half_day: "bg-amber-500/20 text-amber-400",
-  overtime: "bg-blue-500/20 text-blue-400",
-  holiday: "bg-purple-500/20 text-purple-400",
-  absence: "bg-red-500/20 text-red-400",
-  day_off: "bg-gray-500/20 text-gray-400",
-};
+import {
+  type WorkType,
+  type ShiftType,
+  WORK_TYPE_LABELS,
+  WORK_TYPE_SHORT,
+  WORK_TYPE_COLORS,
+  cellHasValue,
+  isWorkedType,
+  extractDateKey,
+} from "@shared/attendanceStatus";
 
 const DAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -335,7 +315,7 @@ export default function AppAttendance() {
   const attendanceMap = useMemo(() => {
     const map: Record<string, any> = {};
     for (const rec of attendanceQuery.data || []) {
-      const dateKey = format(new Date(rec.workDate), "yyyy-MM-dd");
+      const dateKey = extractDateKey(rec.workDate);
       if (rec.employeeId) {
         map[`emp-${rec.employeeId}-${dateKey}`] = rec;
       } else if (rec.guestName) {
@@ -403,7 +383,7 @@ export default function AppAttendance() {
       const key = `${rowKey}-${dateStr}`;
       const isEmp = rowKey.startsWith("emp-");
 
-      if (current.hoursWorked > 0 || current.workType === "day_off" || current.workType === "absence") {
+      if (cellHasValue(current.hoursWorked, current.workType)) {
         // Clear
         setCellEdits((prev) => ({
           ...prev,
@@ -504,8 +484,8 @@ export default function AppAttendance() {
     }
 
     // Split into upserts (hoursWorked > 0 OR day_off/absence markers) and deletes (truly empty)
-    const recordsToSave = dirtyRecords.filter(c => c.hoursWorked > 0 || c.workType === "day_off" || c.workType === "absence");
-    const recordsToDelete = dirtyRecords.filter(c => c.hoursWorked === 0 && c.workType !== "day_off" && c.workType !== "absence");
+    const recordsToSave = dirtyRecords.filter(c => cellHasValue(c.hoursWorked, c.workType));
+    const recordsToDelete = dirtyRecords.filter(c => !cellHasValue(c.hoursWorked, c.workType));
 
     batchUpsertMutation.mutate({
       records: recordsToSave.map((c) => ({
@@ -590,7 +570,7 @@ export default function AppAttendance() {
     for (const day of daysInMonth) {
       const dateStr = format(day, "yyyy-MM-dd");
       const cell = getCellValue(rowKey, dateStr);
-      if (cell.workType === "day_off") {
+      if (!isWorkedType(cell.workType) && cellHasValue(cell.hoursWorked, cell.workType)) {
         dayOffCount++;
       } else if (cell.hoursWorked > 0) {
         totalDays++;
@@ -641,10 +621,8 @@ export default function AppAttendance() {
     return employees.filter((emp) => !projectMemberIds.has(emp.id));
   }, [employees, projectMemberIds]);
 
-  // Check if a cell has a value (for display purposes)
-  const cellHasValue = (cell: CellData) => {
-    return cell.hoursWorked > 0 || cell.workType === "day_off" || cell.workType === "absence";
-  };
+  // cellHasValue from shared module — wrapper for local CellData
+  const cellHasVal = (cell: CellData) => cellHasValue(cell.hoursWorked, cell.workType);
 
   return (
     <div className="space-y-6">
@@ -658,24 +636,15 @@ export default function AppAttendance() {
             <span className="text-sm text-amber-400">{dirtyCount}件の未保存変更</span>
           )}
 
-          {/* Lock/Unlock toggle */}
+          {/* Lock/Unlock toggle — icon only */}
           <Button
-            variant={isLocked ? "outline" : "default"}
-            size="sm"
+            variant="ghost"
+            size="icon"
             onClick={() => setIsLocked(!isLocked)}
-            className={!isLocked ? "bg-amber-500 hover:bg-amber-600 text-black" : ""}
+            title={isLocked ? "ロック解除" : "ロック"}
+            className={!isLocked ? "text-amber-400 bg-amber-500/20 hover:bg-amber-500/30" : "text-muted-foreground"}
           >
-            {isLocked ? (
-              <>
-                <Lock className="h-4 w-4 mr-1" />
-                ロック中
-              </>
-            ) : (
-              <>
-                <Unlock className="h-4 w-4 mr-1" />
-                編集中
-              </>
-            )}
+            {isLocked ? <Lock className="h-5 w-5" /> : <LockOpen className="h-5 w-5" />}
           </Button>
 
           {isAdminOrLeader && selectedProjectId && (
@@ -914,7 +883,7 @@ export default function AppAttendance() {
                         {daysInMonth.map((day) => {
                           const dateStr = format(day, "yyyy-MM-dd");
                           const cell = getCellValue(row.key, dateStr);
-                          const hasValue = cellHasValue(cell);
+                          const hasValue = cellHasVal(cell);
                           const dayOfWeek = getDay(day);
                           const isSat = dayOfWeek === 6;
                           const isSun = dayOfWeek === 0;

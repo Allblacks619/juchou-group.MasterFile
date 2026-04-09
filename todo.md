@@ -357,3 +357,28 @@
 - [x] 招待履歴APIからtempPasswordを除外（一覧取得時にストリップ）
 - [x] 招待作成直後のダイアログでのみ仮パスワード表示（履歴テーブルには非表示）
 - [x] コード内の初期パスワード記載を除去（todo.md 57行目の記載を削除）
+
+# 第13段階 出面表安定化修正
+
+## ロックUI簡素化
+- [x] テキスト中心のロックUIをやめ、鍵アイコンのみでlock/unlock切替
+- [x] デフォルト状態をロック、ワンクリックでトグル
+- [x] 保存成功時に自動再ロック
+- [x] リロード時にデフォルトロック
+
+## 4月1日の出面反映修正
+- [x] attendanceMapの日付キー生成をextractDateKey統一関数に変更
+- [x] routers.tsの日付範囲処理をparseDateRangeに統一
+- [x] attendance.list/byEmployee/myAttendance/projectTeamDataの日付範囲を修正
+
+## Worker自己保存パス
+- [x] attendance.myBatchUpsert エンドポイント追加（worker自身のみ保存可能）
+- [x] AppMyAttendanceの保存mutationをmyBatchUpsertに変更
+
+## 休/出表示の統一
+- [x] 共通ステータスマッピングモジュール作成（shared/attendanceStatus.ts）
+- [x] absence → "休"、day_off → "休"、holiday → "出"（紫）に統一
+- [x] AppMyAttendance.tsxに適用
+- [x] AppAttendance.tsxに適用（"欠" → "休"）
+- [x] ダッシュボード表示に適用
+- [x] pdfAttendance.tsに適用

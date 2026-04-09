@@ -56,29 +56,26 @@ import {
 import { ja } from "date-fns/locale";
 import { useAppLang } from "@/contexts/AppLanguageContext";
 import type { AppLang } from "@/lib/appTranslations";
-
-type WorkType = "normal" | "half_day" | "overtime" | "holiday" | "absence";
-type ShiftType = "day" | "night";
+import {
+  type WorkType,
+  type ShiftType,
+  WORK_TYPE_COLORS,
+  cellHasValue,
+  isWorkedType,
+  extractDateKey,
+} from "@shared/attendanceStatus";
 
 function workTypeLabels(lang: AppLang): Record<WorkType, string> {
   return lang === "pt"
-    ? { normal: "Presente", half_day: "Meio dia", overtime: "Hora extra", holiday: "Folga trab.", absence: "Ausente" }
-    : { normal: "出勤", half_day: "半日", overtime: "残業", holiday: "休出", absence: "欠勤" };
+    ? { normal: "Presente", half_day: "Meio dia", overtime: "Hora extra", holiday: "Folga trab.", absence: "Ausente", day_off: "Folga" }
+    : { normal: "出勤", half_day: "半日", overtime: "残業", holiday: "休出", absence: "欠勤", day_off: "休日" };
 }
 
 function workTypeShort(lang: AppLang): Record<WorkType, string> {
   return lang === "pt"
-    ? { normal: "P", half_day: "½", overtime: "HE", holiday: "FT", absence: "A" }
-    : { normal: "出", half_day: "半", overtime: "残", holiday: "休", absence: "欠" };
+    ? { normal: "P", half_day: "½", overtime: "HE", holiday: "FT", absence: "A", day_off: "F" }
+    : { normal: "出", half_day: "半", overtime: "残", holiday: "休出", absence: "欠", day_off: "休" };
 }
-
-const WORK_TYPE_COLORS: Record<WorkType, string> = {
-  normal: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  half_day: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  overtime: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  holiday: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  absence: "bg-red-500/20 text-red-400 border-red-500/30",
-};
 
 function dayLabels(lang: AppLang) {
   return lang === "pt"
@@ -293,7 +290,7 @@ function AttendanceCalendar() {
   const attendanceMap = useMemo(() => {
     const map: Record<string, any> = {};
     for (const rec of teamDataQuery.data?.records || []) {
-      const dateStr = format(new Date(rec.workDate), "yyyy-MM-dd");
+      const dateStr = extractDateKey(rec.workDate);
       const key = rec.employeeId ? `emp-${rec.employeeId}-${dateStr}` : `guest-${rec.guestName}-${dateStr}`;
       map[key] = rec;
     }
@@ -345,7 +342,7 @@ function AttendanceCalendar() {
     (memberId: number | null, memberName: string | null, dateStr: string) => {
       const key = memberId ? `emp-${memberId}-${dateStr}` : `guest-${memberName}-${dateStr}`;
       const existing = attendanceMap[key];
-      if (existing && existing.hoursWorked > 0) {
+      if (existing && cellHasValue(existing.hoursWorked, existing.workType)) {
         autoSave({
           employeeId: memberId,
           guestName: memberName,
@@ -402,21 +399,24 @@ function AttendanceCalendar() {
   };
 
   const mySummary = useMemo(() => {
-    if (!myEmployeeId) return { totalDays: 0, totalHours: 0, totalOvertime: 0 };
+    if (!myEmployeeId) return { totalDays: 0, totalHours: 0, totalOvertime: 0, dayOffCount: 0 };
     let totalDays = 0;
     let totalHours = 0;
     let totalOvertime = 0;
+    let dayOffCount = 0;
     for (const day of daysInMonth) {
       const dateStr = format(day, "yyyy-MM-dd");
       const key = `emp-${myEmployeeId}-${dateStr}`;
       const rec = attendanceMap[key];
-      if (rec && rec.hoursWorked > 0) {
+      if (rec && !isWorkedType(rec.workType) && cellHasValue(rec.hoursWorked, rec.workType)) {
+        dayOffCount++;
+      } else if (rec && rec.hoursWorked > 0) {
         totalDays++;
         totalHours += rec.hoursWorked;
         totalOvertime += rec.overtimeHours;
       }
     }
-    return { totalDays, totalHours: totalHours / 10, totalOvertime: totalOvertime / 10 };
+    return { totalDays, totalHours: totalHours / 10, totalOvertime: totalOvertime / 10, dayOffCount };
   }, [daysInMonth, attendanceMap, myEmployeeId]);
 
   const monthLabel = formatMonthStr(currentMonth.getFullYear(), currentMonth.getMonth() + 1);
@@ -492,6 +492,9 @@ function AttendanceCalendar() {
                   <span>{t("dashboard_totalHours")}: <strong className="text-foreground">{mySummary.totalHours}h</strong></span>
                   {mySummary.totalOvertime > 0 && (
                     <span>{t("dashboard_overtime")}: <strong className="text-blue-400">{mySummary.totalOvertime}h</strong></span>
+                  )}
+                  {mySummary.dayOffCount > 0 && (
+                    <span>{lang === "pt" ? "Folgas" : "休"}: <strong className="text-gray-400">{mySummary.dayOffCount}{t("attendance_days")}</strong></span>
                   )}
                 </div>
               </CardTitle>
@@ -588,7 +591,7 @@ function AttendanceCalendar() {
                               {daysInMonth.map((day) => {
                                 const dateStr = format(day, "yyyy-MM-dd");
                                 const rec = attendanceMap[`${mKey}-${dateStr}`];
-                                const hasValue = rec && rec.hoursWorked > 0;
+                                const hasValue = rec && cellHasValue(rec.hoursWorked, rec.workType);
                                 const dow = getDay(day);
                                 const isSun = dow === 0;
                                 const isSat = dow === 6;
@@ -784,7 +787,7 @@ function CalendarGrid({
         const dateStr = format(day, "yyyy-MM-dd");
         const key = `${keyPrefix}-${dateStr}`;
         const rec = attendanceMap[key];
-        const hasValue = rec && rec.hoursWorked > 0;
+        const hasValue = rec && cellHasValue(rec.hoursWorked, rec.workType);
         const dayOfWeek = getDay(day);
         const isSun = dayOfWeek === 0;
         const isSat = dayOfWeek === 6;

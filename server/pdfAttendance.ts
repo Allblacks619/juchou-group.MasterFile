@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { format, eachDayOfInterval, startOfMonth, endOfMonth, getDay } from "date-fns";
+import { isWorkedType, cellHasValue, extractDateKey } from "../shared/attendanceStatus";
 
 // NotoSansJP Variable font — bundled on CDN, no external fetch failures
 const FONT_URL =
@@ -135,7 +136,7 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
   // Build attendance map
   const attendanceMap: Record<string, AttendanceRecord> = {};
   for (const rec of records) {
-    const dateStr = format(new Date(rec.workDate), "yyyy-MM-dd");
+    const dateStr = extractDateKey(rec.workDate);
     const key = rec.employeeId ? `emp-${rec.employeeId}-${dateStr}` : `guest-${rec.guestName}-${dateStr}`;
     attendanceMap[key] = rec;
   }
@@ -318,10 +319,12 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
       doc.restore();
       doc.rect(cx, y, dayColW, rowH).stroke("#D1D5DB");
 
-      if (rec && rec.workType === "day_off") {
-        // Day off — NOT counted as worked days
-        doc.fillColor("#6B7280").font("Bold").fontSize(7).text(
-          "休",
+      if (rec && !isWorkedType(rec.workType) && cellHasValue(rec.hoursWorked, rec.workType)) {
+        // Day off / absence — NOT counted as worked days
+        const mark = WORK_TYPE_MARKS[rec.workType] || "休";
+        const markColor = rec.workType === "absence" ? "#DC2626" : "#6B7280";
+        doc.fillColor(markColor).font("Bold").fontSize(7).text(
+          mark,
           cx,
           y + 5,
           { width: dayColW, align: "center" }
@@ -337,7 +340,6 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
         // Color coding
         let markColor = "#059669"; // green for normal
         if (rec.workType === "half_day") markColor = "#D97706"; // amber
-        else if (rec.workType === "absence") markColor = "#DC2626"; // red
         else if (rec.workType === "holiday") markColor = "#7C3AED"; // purple
 
         doc.fillColor(markColor).font("Bold").fontSize(7).text(
@@ -355,14 +357,6 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
             { width: dayColW, align: "center" }
           );
         }
-      } else if (rec && rec.workType === "absence") {
-        // Absence with 0 hours
-        doc.fillColor("#DC2626").font("Bold").fontSize(7).text(
-          "X",
-          cx,
-          y + 5,
-          { width: dayColW, align: "center" }
-        );
       }
       cx += dayColW;
     }
