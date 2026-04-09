@@ -27,6 +27,8 @@ import {
   Clock,
   X,
   Check,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import {
   format,
@@ -40,7 +42,7 @@ import {
 } from "date-fns";
 import { ja } from "date-fns/locale";
 
-type WorkType = "normal" | "half_day" | "overtime" | "holiday" | "absence";
+type WorkType = "normal" | "half_day" | "overtime" | "holiday" | "absence" | "day_off";
 type ShiftType = "day" | "night";
 
 const WORK_TYPE_LABELS: Record<WorkType, string> = {
@@ -49,14 +51,16 @@ const WORK_TYPE_LABELS: Record<WorkType, string> = {
   overtime: "残業",
   holiday: "休出",
   absence: "欠勤",
+  day_off: "休日",
 };
 
 const WORK_TYPE_SHORT: Record<WorkType, string> = {
   normal: "出",
   half_day: "半",
   overtime: "残",
-  holiday: "休",
+  holiday: "休出",
   absence: "欠",
+  day_off: "休",
 };
 
 const WORK_TYPE_COLORS: Record<WorkType, string> = {
@@ -65,6 +69,7 @@ const WORK_TYPE_COLORS: Record<WorkType, string> = {
   overtime: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   holiday: "bg-purple-500/20 text-purple-400 border-purple-500/30",
   absence: "bg-red-500/20 text-red-400 border-red-500/30",
+  day_off: "bg-gray-500/20 text-gray-400 border-gray-500/30",
 };
 
 const DAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -85,6 +90,9 @@ export default function AppMyAttendance() {
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [cellEdits, setCellEdits] = useState<Record<string, CellData>>({});
 
+  // Lock state: default LOCKED
+  const [isLocked, setIsLocked] = useState(true);
+
   // Get employee's projects
   const projectsQuery = trpc.attendance.myProjects.useQuery();
 
@@ -100,6 +108,7 @@ export default function AppMyAttendance() {
     onSuccess: () => {
       toast.success("出勤記録を保存しました");
       attendanceQuery.refetch();
+      setIsLocked(true); // Auto-lock after save
     },
     onError: (e) => toast.error(`保存エラー: ${e.message}`),
   });
@@ -109,6 +118,7 @@ export default function AppMyAttendance() {
       toast.success(`${data.count}件の出勤記録を保存しました`);
       setCellEdits({});
       attendanceQuery.refetch();
+      setIsLocked(true); // Auto-lock after save
     },
     onError: (e) => toast.error(`保存エラー: ${e.message}`),
   });
@@ -163,8 +173,9 @@ export default function AppMyAttendance() {
   // Quick toggle
   const quickToggle = useCallback(
     (dateStr: string) => {
+      if (isLocked) return;
       const current = getCellValue(dateStr);
-      if (current.hoursWorked > 0) {
+      if (current.hoursWorked > 0 || current.workType === "day_off" || current.workType === "absence") {
         setCellEdits((prev) => ({
           ...prev,
           [dateStr]: { ...current, hoursWorked: 0, overtimeHours: 0, workType: "normal", dirty: true },
@@ -176,23 +187,28 @@ export default function AppMyAttendance() {
         }));
       }
     },
-    [getCellValue]
+    [getCellValue, isLocked]
   );
 
   // Update cell
   const updateCell = useCallback(
     (dateStr: string, updates: Partial<CellData>) => {
+      if (isLocked) return;
       const current = getCellValue(dateStr);
       const newCell: CellData = { ...current, ...updates, date: dateStr, dirty: true };
-      if (updates.workType && newCell.hoursWorked === 0 && updates.workType !== "absence") {
+      if (updates.workType === "day_off" || updates.workType === "absence") {
+        newCell.hoursWorked = 0;
+        newCell.overtimeHours = 0;
+      } else if (updates.workType && newCell.hoursWorked === 0) {
         newCell.hoursWorked = updates.workType === "half_day" ? 40 : 80;
       }
       setCellEdits((prev) => ({ ...prev, [dateStr]: newCell }));
     },
-    [getCellValue]
+    [getCellValue, isLocked]
   );
 
   const clearCell = useCallback((dateStr: string) => {
+    if (isLocked) return;
     setCellEdits((prev) => ({
       ...prev,
       [dateStr]: {
@@ -205,7 +221,7 @@ export default function AppMyAttendance() {
         dirty: true,
       },
     }));
-  }, []);
+  }, [isLocked]);
 
   // Save
   const handleSave = () => {
@@ -213,13 +229,16 @@ export default function AppMyAttendance() {
       toast.error("現場を選択してください");
       return;
     }
-    const dirtyRecords = Object.values(cellEdits).filter((c) => c.dirty && c.hoursWorked > 0);
+    const dirtyRecords = Object.values(cellEdits).filter((c) => c.dirty);
     if (dirtyRecords.length === 0) {
       toast.info("変更がありません");
       return;
     }
+    const recordsToSave = dirtyRecords.filter(c => c.hoursWorked > 0 || c.workType === "day_off" || c.workType === "absence");
+    const recordsToDelete = dirtyRecords.filter(c => c.hoursWorked === 0 && c.workType !== "day_off" && c.workType !== "absence");
+
     batchUpsertMutation.mutate({
-      records: dirtyRecords.map((c) => ({
+      records: recordsToSave.map((c) => ({
         projectId: selectedProjectId,
         workDate: c.date,
         hoursWorked: c.hoursWorked,
@@ -228,27 +247,39 @@ export default function AppMyAttendance() {
         shiftType: c.shiftType,
         notes: c.notes || undefined,
       })),
+      deletes: recordsToDelete.map((c) => ({
+        projectId: selectedProjectId,
+        workDate: c.date,
+      })),
     });
   };
 
   const dirtyCount = Object.values(cellEdits).filter((c) => c.dirty).length;
   const projects = projectsQuery.data || [];
 
-  // Summary
+  // Check if a cell has a value
+  const cellHasValue = (cell: CellData) => {
+    return cell.hoursWorked > 0 || cell.workType === "day_off" || cell.workType === "absence";
+  };
+
+  // Summary — day_off and absence are NOT counted as worked days
   const summary = useMemo(() => {
     let totalDays = 0;
     let totalHours = 0;
     let totalOvertime = 0;
+    let dayOffCount = 0;
     for (const day of daysInMonth) {
       const dateStr = format(day, "yyyy-MM-dd");
       const cell = getCellValue(dateStr);
-      if (cell.hoursWorked > 0) {
+      if (cell.workType === "day_off") {
+        dayOffCount++;
+      } else if (cell.hoursWorked > 0) {
         totalDays++;
         totalHours += cell.hoursWorked;
         totalOvertime += cell.overtimeHours;
       }
     }
-    return { totalDays, totalHours: totalHours / 10, totalOvertime: totalOvertime / 10 };
+    return { totalDays, totalHours: totalHours / 10, totalOvertime: totalOvertime / 10, dayOffCount };
   }, [daysInMonth, getCellValue]);
 
   return (
@@ -262,9 +293,30 @@ export default function AppMyAttendance() {
           {dirtyCount > 0 && (
             <span className="text-sm text-amber-400">{dirtyCount}件の未保存変更</span>
           )}
+
+          {/* Lock/Unlock toggle */}
+          <Button
+            variant={isLocked ? "outline" : "default"}
+            size="sm"
+            onClick={() => setIsLocked(!isLocked)}
+            className={!isLocked ? "bg-amber-500 hover:bg-amber-600 text-black" : ""}
+          >
+            {isLocked ? (
+              <>
+                <Lock className="h-4 w-4 mr-1" />
+                ロック中
+              </>
+            ) : (
+              <>
+                <Unlock className="h-4 w-4 mr-1" />
+                編集中
+              </>
+            )}
+          </Button>
+
           <Button
             onClick={handleSave}
-            disabled={dirtyCount === 0 || batchUpsertMutation.isPending}
+            disabled={dirtyCount === 0 || batchUpsertMutation.isPending || isLocked}
             className="bg-gold text-background hover:bg-gold-dim gap-1.5"
             size="sm"
           >
@@ -278,6 +330,14 @@ export default function AppMyAttendance() {
         </div>
       </div>
 
+      {/* Lock banner */}
+      {isLocked && selectedProjectId && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-muted/50 border border-border rounded-md text-sm text-muted-foreground">
+          <Lock className="h-4 w-4" />
+          <span>出面表はロックされています。編集するには「ロック中」ボタンをクリックして解除してください。</span>
+        </div>
+      )}
+
       {/* Controls */}
       <Card>
         <CardContent className="pt-6">
@@ -289,6 +349,7 @@ export default function AppMyAttendance() {
                 onClick={() => {
                   setCurrentMonth(subMonths(currentMonth, 1));
                   setCellEdits({});
+                  setIsLocked(true);
                 }}
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -305,6 +366,7 @@ export default function AppMyAttendance() {
                 onClick={() => {
                   setCurrentMonth(addMonths(currentMonth, 1));
                   setCellEdits({});
+                  setIsLocked(true);
                 }}
               >
                 <ChevronRight className="h-4 w-4" />
@@ -316,6 +378,7 @@ export default function AppMyAttendance() {
               onValueChange={(v) => {
                 setSelectedProjectId(Number(v));
                 setCellEdits({});
+                setIsLocked(true);
               }}
             >
               <SelectTrigger className="w-[250px]">
@@ -346,12 +409,22 @@ export default function AppMyAttendance() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center justify-between">
-                <span>{format(currentMonth, "yyyy年M月", { locale: ja })}</span>
+                <div className="flex items-center gap-2">
+                  <span>{format(currentMonth, "yyyy年M月", { locale: ja })}</span>
+                  {!isLocked && (
+                    <span className="text-xs font-normal px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded">
+                      編集モード
+                    </span>
+                  )}
+                </div>
                 <div className="flex gap-4 text-sm font-normal text-muted-foreground">
                   <span>出勤: <strong className="text-foreground">{summary.totalDays}日</strong></span>
                   <span>時間: <strong className="text-foreground">{summary.totalHours}h</strong></span>
                   {summary.totalOvertime > 0 && (
                     <span>残業: <strong className="text-blue-400">{summary.totalOvertime}h</strong></span>
+                  )}
+                  {summary.dayOffCount > 0 && (
+                    <span>休: <strong className="text-gray-400">{summary.dayOffCount}日</strong></span>
                   )}
                 </div>
               </CardTitle>
@@ -380,12 +453,52 @@ export default function AppMyAttendance() {
                 {daysInMonth.map((day) => {
                   const dateStr = format(day, "yyyy-MM-dd");
                   const cell = getCellValue(dateStr);
-                  const hasValue = cell.hoursWorked > 0;
+                  const hasValue = cellHasValue(cell);
                   const dayOfWeek = getDay(day);
                   const isSun = dayOfWeek === 0;
                   const isSat = dayOfWeek === 6;
                   const today = isToday(day);
 
+                  if (isLocked) {
+                    // Locked: display only, no interaction
+                    return (
+                      <div
+                        key={dateStr}
+                        className={`relative rounded-lg border p-1.5 min-h-[56px] flex flex-col items-center justify-center ${
+                          today ? "ring-2 ring-gold/50" : ""
+                        } ${
+                          hasValue
+                            ? WORK_TYPE_COLORS[cell.workType]
+                            : isSun
+                            ? "border-red-500/20 bg-red-500/5"
+                            : isSat
+                            ? "border-blue-500/20 bg-blue-500/5"
+                            : "border-border"
+                        }`}
+                      >
+                        <span
+                          className={`text-xs ${
+                            isSun ? "text-red-400" : isSat ? "text-blue-400" : "text-muted-foreground"
+                          } ${today ? "font-bold" : ""}`}
+                        >
+                          {format(day, "d")}
+                        </span>
+                        {hasValue && (
+                          <>
+                            <span className="text-[10px] font-bold mt-0.5">
+                              {WORK_TYPE_SHORT[cell.workType]}
+                              {cell.shiftType === "night" ? "夜" : ""}
+                            </span>
+                            {cell.overtimeHours > 0 && (
+                              <span className="text-[8px] text-blue-400">+{cell.overtimeHours / 10}h</span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Unlocked: interactive
                   return (
                     <Popover key={dateStr}>
                       <PopoverTrigger asChild>
@@ -441,13 +554,17 @@ export default function AppMyAttendance() {
                                 <button
                                   key={type}
                                   className={`text-xs px-2 py-1 rounded border transition-colors ${
-                                    cell.workType === type && cell.hoursWorked > 0
-                                      ? WORK_TYPE_COLORS[type]
+                                    cell.workType === type && (cell.hoursWorked > 0 || type === "day_off" || type === "absence")
+                                      ? WORK_TYPE_COLORS[type].replace(" border-", " border-current border-")
                                       : "border-border text-muted-foreground hover:text-foreground"
                                   }`}
                                   onClick={() => {
-                                    const hours = type === "absence" ? 0 : type === "half_day" ? 40 : 80;
-                                    updateCell(dateStr, { workType: type, hoursWorked: hours });
+                                    if (type === "day_off" || type === "absence") {
+                                      updateCell(dateStr, { workType: type, hoursWorked: 0, overtimeHours: 0 });
+                                    } else {
+                                      const hours = type === "half_day" ? 40 : 80;
+                                      updateCell(dateStr, { workType: type, hoursWorked: hours });
+                                    }
                                   }}
                                 >
                                   {label}
@@ -518,7 +635,9 @@ export default function AppMyAttendance() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-sm text-muted-foreground mb-3">
-                日付をタップで出勤を記録。もう一度タップで詳細編集。
+                {isLocked
+                  ? "出面表はロック中です。「ロック中」ボタンをクリックして編集を開始してください。"
+                  : "日付をタップで出勤を記録。もう一度タップで詳細編集。"}
               </p>
               <div className="flex flex-wrap gap-2">
                 {(Object.entries(WORK_TYPE_LABELS) as [WorkType, string][]).map(([type, label]) => (

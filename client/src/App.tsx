@@ -7,6 +7,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { AppLanguageProvider } from "./contexts/AppLanguageContext";
+import RoleGuard from "./components/RoleGuard";
 import Home from "./pages/Home";
 import Recruit from "./pages/Recruit";
 import Contact from "./pages/Contact";
@@ -45,24 +46,51 @@ function AppFallback() {
   );
 }
 
-/** Protected app routes wrapped in AppLayout */
+/** Admin/Leader only pages */
+const ADMIN_LEADER: ("admin" | "leader")[] = ["admin", "leader"];
+/** All authenticated roles */
+const ALL_ROLES: ("admin" | "leader" | "worker")[] = ["admin", "leader", "worker"];
+
+/** Protected app routes wrapped in AppLayout with role guards */
 function AppRoutes() {
   return (
     <AppLayout>
       <Suspense fallback={<AppFallback />}>
         <Switch>
+          {/* All roles can access */}
           <Route path="/app" component={AppDashboard} />
-          <Route path="/app/invitations" component={AppInvitations} />
-          <Route path="/app/company" component={AppCompany} />
-          <Route path="/app/employees" component={AppEmployees} />
-          <Route path="/app/employees/:id" component={AppEmployeeDetail} />
           <Route path="/app/my-profile" component={AppMyProfile} />
-          <Route path="/app/projects" component={AppProjects} />
-          <Route path="/app/rates" component={AppRates} />
-          <Route path="/app/attendance" component={AppAttendance} />
           <Route path="/app/my-attendance" component={AppMyAttendance} />
-          <Route path="/app/invoices" component={AppInvoices} />
           <Route path="/app/support" component={AppSupport} />
+
+          {/* Admin/Leader only */}
+          <Route path="/app/invitations">
+            <RoleGuard allowed={ADMIN_LEADER}><AppInvitations /></RoleGuard>
+          </Route>
+          <Route path="/app/company">
+            <RoleGuard allowed={ADMIN_LEADER}><AppCompany /></RoleGuard>
+          </Route>
+          <Route path="/app/employees">
+            <RoleGuard allowed={ADMIN_LEADER}><AppEmployees /></RoleGuard>
+          </Route>
+          <Route path="/app/employees/:id">
+            {(params) => (
+              <RoleGuard allowed={ADMIN_LEADER}><AppEmployeeDetail /></RoleGuard>
+            )}
+          </Route>
+          <Route path="/app/projects">
+            <RoleGuard allowed={ADMIN_LEADER}><AppProjects /></RoleGuard>
+          </Route>
+          <Route path="/app/rates">
+            <RoleGuard allowed={ADMIN_LEADER}><AppRates /></RoleGuard>
+          </Route>
+          <Route path="/app/attendance">
+            <RoleGuard allowed={ADMIN_LEADER}><AppAttendance /></RoleGuard>
+          </Route>
+          <Route path="/app/invoices">
+            <RoleGuard allowed={ADMIN_LEADER}><AppInvoices /></RoleGuard>
+          </Route>
+
           <Route component={NotFound} />
         </Switch>
       </Suspense>

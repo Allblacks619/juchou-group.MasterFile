@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex } from "drizzle-orm/mysql-core";
 /**
  * Core user table backing auth flow.
  * Extended with role hierarchy: admin (統合管理者), leader (責任者), worker (作業員)
@@ -430,7 +430,7 @@ export const attendance = mysqlTable("attendance", {
   /** Overtime hours * 10 (e.g. 15 = 1.5h) */
   overtimeHours: int("overtimeHours").default(0).notNull(),
   /** Work type: normal, half_day, overtime, holiday, absence */
-  workType: mysqlEnum("workType", ["normal", "half_day", "overtime", "holiday", "absence"]).default("normal").notNull(),
+  workType: mysqlEnum("workType", ["normal", "half_day", "overtime", "holiday", "absence", "day_off"]).default("normal").notNull(),
   /** Shift type: day or night */
   shiftType: mysqlEnum("attendanceShiftType", ["day", "night"]).default("day").notNull(),
   /** Notes */
@@ -439,7 +439,10 @@ export const attendance = mysqlTable("attendance", {
   enteredBy: int("enteredBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ([
+  uniqueIndex("attendance_emp_proj_date").on(table.employeeId, table.projectId, table.workDate),
+  uniqueIndex("attendance_guest_proj_date").on(table.guestName, table.projectId, table.workDate),
+]));
 
 export type Attendance = typeof attendance.$inferSelect;
 export type InsertAttendance = typeof attendance.$inferInsert;
@@ -500,7 +503,9 @@ export const invoices = mysqlTable("invoices", {
   withholdingAmount: int("withholdingAmount").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ([
+  uniqueIndex("invoice_number_unique").on(table.invoiceNumber),
+]));
 
 export type Invoice = typeof invoices.$inferSelect;
 export type InsertInvoice = typeof invoices.$inferInsert;

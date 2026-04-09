@@ -46,6 +46,8 @@ import {
   X,
   Users,
   FileText,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import {
   format,
@@ -59,7 +61,7 @@ import {
 import { ja } from "date-fns/locale";
 import { useLocation } from "wouter";
 
-type WorkType = "normal" | "half_day" | "overtime" | "holiday" | "absence";
+type WorkType = "normal" | "half_day" | "overtime" | "holiday" | "absence" | "day_off";
 type ShiftType = "day" | "night";
 
 const WORK_TYPE_LABELS: Record<WorkType, string> = {
@@ -67,15 +69,17 @@ const WORK_TYPE_LABELS: Record<WorkType, string> = {
   half_day: "半日",
   overtime: "残業",
   holiday: "休出",
-  absence: "休",
+  absence: "欠勤",
+  day_off: "休日",
 };
 
 const WORK_TYPE_SHORT: Record<WorkType, string> = {
   normal: "出",
   half_day: "半",
   overtime: "残",
-  holiday: "休",
-  absence: "休",
+  holiday: "休出",
+  absence: "欠",
+  day_off: "休",
 };
 
 const WORK_TYPE_COLORS: Record<WorkType, string> = {
@@ -84,6 +88,7 @@ const WORK_TYPE_COLORS: Record<WorkType, string> = {
   overtime: "bg-blue-500/20 text-blue-400",
   holiday: "bg-purple-500/20 text-purple-400",
   absence: "bg-red-500/20 text-red-400",
+  day_off: "bg-gray-500/20 text-gray-400",
 };
 
 const DAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -117,13 +122,19 @@ function CellEditPopover({ cell, onUpdate, onClear }: CellEditPopoverProps) {
             <button
               key={type}
               className={`text-xs px-2 py-1 rounded border transition-colors ${
-                cell.workType === type && cell.hoursWorked > 0
+                cell.workType === type && (cell.hoursWorked > 0 || type === "day_off" || type === "absence")
                   ? WORK_TYPE_COLORS[type] + " border-current"
                   : "border-border text-muted-foreground hover:text-foreground"
               }`}
               onClick={() => {
-                const hours = type === "absence" ? 0 : type === "half_day" ? 40 : 80;
-                onUpdate({ workType: type, hoursWorked: hours });
+                if (type === "day_off") {
+                  onUpdate({ workType: type, hoursWorked: 0, overtimeHours: 0 });
+                } else if (type === "absence") {
+                  onUpdate({ workType: type, hoursWorked: 0, overtimeHours: 0 });
+                } else {
+                  const hours = type === "half_day" ? 40 : 80;
+                  onUpdate({ workType: type, hoursWorked: hours });
+                }
               }}
             >
               {label}
@@ -159,30 +170,47 @@ function CellEditPopover({ cell, onUpdate, onClear }: CellEditPopoverProps) {
         </div>
       </div>
 
-      {/* Overtime Hours - 0.5 increments up to 12h */}
-      <div>
-        <label className="text-xs text-muted-foreground mb-1 block">
-          <Clock className="h-3 w-3 inline mr-1" />残業時間
-        </label>
-        <Select
-          value={cell.overtimeHours.toString()}
-          onValueChange={(v) => onUpdate({ overtimeHours: Number(v) })}
-        >
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="max-h-[200px]">
-            {Array.from({ length: 25 }, (_, i) => i * 5).map((val) => (
-              <SelectItem key={val} value={val.toString()}>
-                {val / 10}時間
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* Hours */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">勤務時間(h)</label>
+          <Input
+            type="number"
+            min={0}
+            max={24}
+            step={0.5}
+            value={cell.hoursWorked / 10}
+            onChange={(e) => onUpdate({ hoursWorked: Math.round(parseFloat(e.target.value || "0") * 10) })}
+            className="h-8 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">残業(h)</label>
+          <Input
+            type="number"
+            min={0}
+            max={24}
+            step={0.5}
+            value={cell.overtimeHours / 10}
+            onChange={(e) => onUpdate({ overtimeHours: Math.round(parseFloat(e.target.value || "0") * 10) })}
+            className="h-8 text-sm"
+          />
+        </div>
       </div>
 
-      {/* Clear button */}
-      <Button variant="outline" size="sm" className="w-full text-xs" onClick={onClear}>
+      {/* Notes */}
+      <div>
+        <label className="text-xs text-muted-foreground mb-1 block">備考</label>
+        <Input
+          value={cell.notes}
+          onChange={(e) => onUpdate({ notes: e.target.value })}
+          placeholder="メモ"
+          className="h-8 text-sm"
+        />
+      </div>
+
+      {/* Clear */}
+      <Button variant="outline" size="sm" className="w-full text-red-400" onClick={onClear}>
         <X className="h-3 w-3 mr-1" /> クリア
       </Button>
     </div>
@@ -203,6 +231,9 @@ export default function AppAttendance() {
   const [newGuestName, setNewGuestName] = useState("");
   const [guestNames, setGuestNames] = useState<string[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string>("");
+
+  // Lock state: default LOCKED
+  const [isLocked, setIsLocked] = useState(true);
 
   // Queries
   const projectsQuery = trpc.project.list.useQuery();
@@ -231,6 +262,8 @@ export default function AppAttendance() {
       toast.success(`${data.count}件の出勤記録を保存しました`);
       setCellEdits({});
       attendanceQuery.refetch();
+      // Auto-lock after save
+      setIsLocked(true);
     },
     onError: (e) => toast.error(`保存エラー: ${e.message}`),
   });
@@ -277,10 +310,8 @@ export default function AppAttendance() {
       const empId = parseInt(rowKey.replace("emp-", ""));
       removeMemberMutation.mutate({ projectId: selectedProjectId, employeeId: empId });
     } else if (rowKey.startsWith("guest-")) {
-      // Remove guest from local state
       const gName = rowKey.replace("guest-", "");
       setGuestNames(prev => prev.filter(n => n !== gName));
-      // Remove guest's dirty edits
       setCellEdits(prev => {
         const next = { ...prev };
         for (const k of Object.keys(next)) {
@@ -367,11 +398,12 @@ export default function AppAttendance() {
   // Quick toggle cell (click to set normal 8h, click again to clear)
   const quickToggleCell = useCallback(
     (rowKey: string, dateStr: string) => {
+      if (isLocked) return; // Prevent editing when locked
       const current = getCellValue(rowKey, dateStr);
       const key = `${rowKey}-${dateStr}`;
       const isEmp = rowKey.startsWith("emp-");
 
-      if (current.hoursWorked > 0) {
+      if (current.hoursWorked > 0 || current.workType === "day_off" || current.workType === "absence") {
         // Clear
         setCellEdits((prev) => ({
           ...prev,
@@ -405,12 +437,13 @@ export default function AppAttendance() {
         }));
       }
     },
-    [getCellValue]
+    [getCellValue, isLocked]
   );
 
   // Update cell from popover
   const updateCell = useCallback(
     (rowKey: string, dateStr: string, updates: Partial<CellData>) => {
+      if (isLocked) return; // Prevent editing when locked
       const current = getCellValue(rowKey, dateStr);
       const key = `${rowKey}-${dateStr}`;
       const isEmp = rowKey.startsWith("emp-");
@@ -425,17 +458,18 @@ export default function AppAttendance() {
       };
 
       // If setting a work type, ensure hours are set
-      if (updates.workType && newCell.hoursWorked === 0 && updates.workType !== "absence") {
+      if (updates.workType && updates.workType !== "absence" && updates.workType !== "day_off" && newCell.hoursWorked === 0) {
         newCell.hoursWorked = updates.workType === "half_day" ? 40 : 80;
       }
 
       setCellEdits((prev) => ({ ...prev, [key]: newCell }));
     },
-    [getCellValue]
+    [getCellValue, isLocked]
   );
 
   const clearCell = useCallback(
     (rowKey: string, dateStr: string) => {
+      if (isLocked) return; // Prevent editing when locked
       const key = `${rowKey}-${dateStr}`;
       const isEmp = rowKey.startsWith("emp-");
       setCellEdits((prev) => ({
@@ -453,7 +487,7 @@ export default function AppAttendance() {
         },
       }));
     },
-    []
+    [isLocked]
   );
 
   // Save all dirty cells
@@ -469,9 +503,9 @@ export default function AppAttendance() {
       return;
     }
 
-    // Split into upserts (hoursWorked > 0) and deletes (hoursWorked === 0)
-    const recordsToSave = dirtyRecords.filter(c => c.hoursWorked > 0);
-    const recordsToDelete = dirtyRecords.filter(c => c.hoursWorked === 0);
+    // Split into upserts (hoursWorked > 0 OR day_off/absence markers) and deletes (truly empty)
+    const recordsToSave = dirtyRecords.filter(c => c.hoursWorked > 0 || c.workType === "day_off" || c.workType === "absence");
+    const recordsToDelete = dirtyRecords.filter(c => c.hoursWorked === 0 && c.workType !== "day_off" && c.workType !== "absence");
 
     batchUpsertMutation.mutate({
       records: recordsToSave.map((c) => ({
@@ -547,21 +581,24 @@ export default function AppAttendance() {
 
   const dirtyCount = Object.values(cellEdits).filter((c) => c.dirty).length;
 
-  // Compute summary per row
+  // Compute summary per row — day_off and absence are NOT counted
   const getRowSummary = (rowKey: string) => {
     let totalDays = 0;
     let totalHours = 0;
     let totalOvertime = 0;
+    let dayOffCount = 0;
     for (const day of daysInMonth) {
       const dateStr = format(day, "yyyy-MM-dd");
       const cell = getCellValue(rowKey, dateStr);
-      if (cell.hoursWorked > 0) {
+      if (cell.workType === "day_off") {
+        dayOffCount++;
+      } else if (cell.hoursWorked > 0) {
         totalDays++;
         totalHours += cell.hoursWorked;
         totalOvertime += cell.overtimeHours;
       }
     }
-    return { totalDays, totalHours: totalHours / 10, totalOvertime: totalOvertime / 10 };
+    return { totalDays, totalHours: totalHours / 10, totalOvertime: totalOvertime / 10, dayOffCount };
   };
 
   const employees = employeesQuery.data || [];
@@ -583,7 +620,6 @@ export default function AppAttendance() {
   }, [attendanceQuery.data]);
 
   const rows = useMemo(() => {
-    // Combine project members + employees with existing records (deduplicated)
     const allEmpIds = new Set([...Array.from(projectMemberIds), ...Array.from(employeesWithRecords)]);
     const empRows = employees
       .filter((emp) => allEmpIds.has(emp.id))
@@ -605,6 +641,11 @@ export default function AppAttendance() {
     return employees.filter((emp) => !projectMemberIds.has(emp.id));
   }, [employees, projectMemberIds]);
 
+  // Check if a cell has a value (for display purposes)
+  const cellHasValue = (cell: CellData) => {
+    return cell.hoursWorked > 0 || cell.workType === "day_off" || cell.workType === "absence";
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -616,6 +657,27 @@ export default function AppAttendance() {
           {dirtyCount > 0 && (
             <span className="text-sm text-amber-400">{dirtyCount}件の未保存変更</span>
           )}
+
+          {/* Lock/Unlock toggle */}
+          <Button
+            variant={isLocked ? "outline" : "default"}
+            size="sm"
+            onClick={() => setIsLocked(!isLocked)}
+            className={!isLocked ? "bg-amber-500 hover:bg-amber-600 text-black" : ""}
+          >
+            {isLocked ? (
+              <>
+                <Lock className="h-4 w-4 mr-1" />
+                ロック中
+              </>
+            ) : (
+              <>
+                <Unlock className="h-4 w-4 mr-1" />
+                編集中
+              </>
+            )}
+          </Button>
+
           {isAdminOrLeader && selectedProjectId && (
             <Button
               variant="outline"
@@ -630,7 +692,7 @@ export default function AppAttendance() {
             variant="outline"
             size="sm"
             onClick={() => setShowGuestDialog(true)}
-            disabled={!selectedProjectId}
+            disabled={!selectedProjectId || isLocked}
           >
             <UserPlus className="h-4 w-4 mr-1" />
             ゲスト追加
@@ -676,7 +738,7 @@ export default function AppAttendance() {
           )}
           <Button
             onClick={handleSave}
-            disabled={dirtyCount === 0 || batchUpsertMutation.isPending}
+            disabled={dirtyCount === 0 || batchUpsertMutation.isPending || isLocked}
             className="bg-gold text-background hover:bg-gold-dim gap-1.5"
             size="sm"
           >
@@ -690,6 +752,14 @@ export default function AppAttendance() {
         </div>
       </div>
 
+      {/* Lock banner */}
+      {isLocked && selectedProjectId && rows.length > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-muted/50 border border-border rounded-md text-sm text-muted-foreground">
+          <Lock className="h-4 w-4" />
+          <span>出面表はロックされています。編集するには「ロック中」ボタンをクリックして解除してください。</span>
+        </div>
+      )}
+
       {/* Controls */}
       <Card>
         <CardContent className="pt-6">
@@ -702,6 +772,7 @@ export default function AppAttendance() {
                 onClick={() => {
                   setCurrentMonth(subMonths(currentMonth, 1));
                   setCellEdits({});
+                  setIsLocked(true); // Re-lock on month change
                 }}
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -718,6 +789,7 @@ export default function AppAttendance() {
                 onClick={() => {
                   setCurrentMonth(addMonths(currentMonth, 1));
                   setCellEdits({});
+                  setIsLocked(true); // Re-lock on month change
                 }}
               >
                 <ChevronRight className="h-4 w-4" />
@@ -731,6 +803,7 @@ export default function AppAttendance() {
                 setSelectedProjectId(Number(v));
                 setCellEdits({});
                 setGuestNames([]);
+                setIsLocked(true); // Re-lock on project change
               }}
             >
               <SelectTrigger className="w-[250px]">
@@ -776,8 +849,13 @@ export default function AppAttendance() {
       ) : (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">
+            <CardTitle className="text-base flex items-center gap-2">
               {format(currentMonth, "yyyy年M月", { locale: ja })} 出面表
+              {!isLocked && (
+                <span className="text-xs font-normal px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded">
+                  編集モード
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -807,6 +885,7 @@ export default function AppAttendance() {
                     <TableHead className="text-center min-w-[45px]">日数</TableHead>
                     <TableHead className="text-center min-w-[45px]">時間</TableHead>
                     <TableHead className="text-center min-w-[45px]">残業</TableHead>
+                    <TableHead className="text-center min-w-[35px]">休</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -821,7 +900,7 @@ export default function AppAttendance() {
                         >
                           <div className="flex items-center gap-1">
                             <span className="truncate">{row.label}</span>
-                            {isAdminOrLeader && (
+                            {isAdminOrLeader && !isLocked && (
                               <button
                                 onClick={() => handleRemoveMember(row.key, row.label)}
                                 className="shrink-0 p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"
@@ -835,7 +914,7 @@ export default function AppAttendance() {
                         {daysInMonth.map((day) => {
                           const dateStr = format(day, "yyyy-MM-dd");
                           const cell = getCellValue(row.key, dateStr);
-                          const hasValue = cell.hoursWorked > 0;
+                          const hasValue = cellHasValue(cell);
                           const dayOfWeek = getDay(day);
                           const isSat = dayOfWeek === 6;
                           const isSun = dayOfWeek === 0;
@@ -845,47 +924,72 @@ export default function AppAttendance() {
                               key={dateStr}
                               className={`text-center px-0 py-0.5 select-none transition-colors ${
                                 isSun ? "bg-red-500/5" : isSat ? "bg-blue-500/5" : ""
-                              } ${cell.dirty ? "ring-1 ring-amber-400/50" : ""}`}
+                              } ${cell.dirty ? "ring-1 ring-amber-400/50" : ""} ${
+                                isLocked ? "cursor-default" : ""
+                              }`}
                             >
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <button
-                                    className="w-full h-full min-h-[28px] cursor-pointer hover:bg-muted/50 rounded-sm flex items-center justify-center"
-                                    onClick={(e) => {
-                                      // Quick toggle on single click
-                                      if (!hasValue) {
-                                        e.preventDefault();
-                                        quickToggleCell(row.key, dateStr);
-                                      }
-                                    }}
-                                  >
-                                    {hasValue ? (
-                                      <div className="flex flex-col items-center">
-                                        <span
-                                          className={`inline-block text-[9px] font-medium rounded px-0.5 ${
-                                            WORK_TYPE_COLORS[cell.workType]
-                                          }`}
-                                        >
-                                          {WORK_TYPE_SHORT[cell.workType]}
-                                          {cell.shiftType === "night" ? "夜" : ""}
+                              {isLocked ? (
+                                // Locked: display only, no interaction
+                                <div className="w-full min-h-[28px] flex items-center justify-center">
+                                  {hasValue ? (
+                                    <div className="flex flex-col items-center">
+                                      <span
+                                        className={`inline-block text-[9px] font-medium rounded px-0.5 ${
+                                          WORK_TYPE_COLORS[cell.workType]
+                                        }`}
+                                      >
+                                        {WORK_TYPE_SHORT[cell.workType]}
+                                        {cell.shiftType === "night" ? "夜" : ""}
+                                      </span>
+                                      {cell.overtimeHours > 0 && (
+                                        <span className="text-[8px] text-blue-400">
+                                          +{cell.overtimeHours / 10}
                                         </span>
-                                        {cell.overtimeHours > 0 && (
-                                          <span className="text-[8px] text-blue-400">
-                                            +{cell.overtimeHours / 10}
+                                      )}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                // Unlocked: interactive
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      className="w-full h-full min-h-[28px] cursor-pointer hover:bg-muted/50 rounded-sm flex items-center justify-center"
+                                      onClick={(e) => {
+                                        if (!hasValue) {
+                                          e.preventDefault();
+                                          quickToggleCell(row.key, dateStr);
+                                        }
+                                      }}
+                                    >
+                                      {hasValue ? (
+                                        <div className="flex flex-col items-center">
+                                          <span
+                                            className={`inline-block text-[9px] font-medium rounded px-0.5 ${
+                                              WORK_TYPE_COLORS[cell.workType]
+                                            }`}
+                                          >
+                                            {WORK_TYPE_SHORT[cell.workType]}
+                                            {cell.shiftType === "night" ? "夜" : ""}
                                           </span>
-                                        )}
-                                      </div>
-                                    ) : null}
-                                  </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-64" side="bottom" align="center">
-                                  <CellEditPopover
-                                    cell={cell}
-                                    onUpdate={(updates) => updateCell(row.key, dateStr, updates)}
-                                    onClear={() => clearCell(row.key, dateStr)}
-                                  />
-                                </PopoverContent>
-                              </Popover>
+                                          {cell.overtimeHours > 0 && (
+                                            <span className="text-[8px] text-blue-400">
+                                              +{cell.overtimeHours / 10}
+                                            </span>
+                                          )}
+                                        </div>
+                                      ) : null}
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-64" side="bottom" align="center">
+                                    <CellEditPopover
+                                      cell={cell}
+                                      onUpdate={(updates) => updateCell(row.key, dateStr, updates)}
+                                      onClear={() => clearCell(row.key, dateStr)}
+                                    />
+                                  </PopoverContent>
+                                </Popover>
+                              )}
                             </TableCell>
                           );
                         })}
@@ -897,6 +1001,9 @@ export default function AppAttendance() {
                         </TableCell>
                         <TableCell className="text-center text-sm font-medium">
                           {summary.totalOvertime > 0 ? summary.totalOvertime : "-"}
+                        </TableCell>
+                        <TableCell className="text-center text-sm font-medium text-gray-400">
+                          {summary.dayOffCount > 0 ? summary.dayOffCount : "-"}
                         </TableCell>
                       </TableRow>
                     );
@@ -912,7 +1019,9 @@ export default function AppAttendance() {
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-muted-foreground mb-3">
-            空セルをクリックで出勤（8h）を設定。出勤セルをクリックで詳細編集（シフト・残業時間・タイプ変更）。
+            {isLocked
+              ? "出面表はロック中です。「ロック中」ボタンをクリックして編集を開始してください。"
+              : "空セルをクリックで出勤（8h）を設定。出勤セルをクリックで詳細編集（シフト・残業時間・タイプ変更）。"}
           </p>
           <div className="flex flex-wrap gap-3">
             {(Object.entries(WORK_TYPE_LABELS) as [WorkType, string][]).map(

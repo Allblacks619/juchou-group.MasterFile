@@ -5,7 +5,9 @@ import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import * as db from "./db";
+import { parseDateString } from "./dateHelpers";
 import { storagePut } from "./storage";
+import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "../shared/uploadValidation";
 import * as schema from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -169,6 +171,8 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         const buffer = Buffer.from(input.base64, "base64");
+        const vErr = validateFile(input.fileName, input.mimeType, buffer.length);
+        if (vErr) throw new TRPCError({ code: "BAD_REQUEST", message: vErr });
         const suffix = nanoid(8);
         const key = `company/${input.type}/${suffix}-${input.fileName}`;
         const { url } = await storagePut(key, buffer, input.mimeType);
@@ -280,10 +284,10 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "従業員プロフィールが見つかりません" });
         }
         const data: any = { ...input };
-        if (input.dateOfBirth) data.dateOfBirth = new Date(input.dateOfBirth);
-        if (input.residenceCardExpiry) data.residenceCardExpiry = new Date(input.residenceCardExpiry);
-        if (input.passportExpiry) data.passportExpiry = new Date(input.passportExpiry);
-        if (input.healthCheckDate) data.healthCheckDate = new Date(input.healthCheckDate);
+        if (input.dateOfBirth) data.dateOfBirth = parseDateString(input.dateOfBirth);
+        if (input.residenceCardExpiry) data.residenceCardExpiry = parseDateString(input.residenceCardExpiry);
+        if (input.passportExpiry) data.passportExpiry = parseDateString(input.passportExpiry);
+        if (input.healthCheckDate) data.healthCheckDate = parseDateString(input.healthCheckDate);
         return db.updateEmployee(profile.id, data);
       }),
 
@@ -377,10 +381,10 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const data: any = { ...input };
         // Convert date strings to Date objects
-        if (input.dateOfBirth) data.dateOfBirth = new Date(input.dateOfBirth);
-        if (input.residenceCardExpiry) data.residenceCardExpiry = new Date(input.residenceCardExpiry);
-        if (input.passportExpiry) data.passportExpiry = new Date(input.passportExpiry);
-        if (input.healthCheckDate) data.healthCheckDate = new Date(input.healthCheckDate);
+        if (input.dateOfBirth) data.dateOfBirth = parseDateString(input.dateOfBirth);
+        if (input.residenceCardExpiry) data.residenceCardExpiry = parseDateString(input.residenceCardExpiry);
+        if (input.passportExpiry) data.passportExpiry = parseDateString(input.passportExpiry);
+        if (input.healthCheckDate) data.healthCheckDate = parseDateString(input.healthCheckDate);
         return db.createEmployee(data);
       }),
 
@@ -445,10 +449,10 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "アクセス権限がありません" });
         }
         const data: any = { ...updateData };
-        if (updateData.dateOfBirth) data.dateOfBirth = new Date(updateData.dateOfBirth);
-        if (updateData.residenceCardExpiry) data.residenceCardExpiry = new Date(updateData.residenceCardExpiry);
-        if (updateData.passportExpiry) data.passportExpiry = new Date(updateData.passportExpiry);
-        if (updateData.healthCheckDate) data.healthCheckDate = new Date(updateData.healthCheckDate);
+        if (updateData.dateOfBirth) data.dateOfBirth = parseDateString(updateData.dateOfBirth);
+        if (updateData.residenceCardExpiry) data.residenceCardExpiry = parseDateString(updateData.residenceCardExpiry);
+        if (updateData.passportExpiry) data.passportExpiry = parseDateString(updateData.passportExpiry);
+        if (updateData.healthCheckDate) data.healthCheckDate = parseDateString(updateData.healthCheckDate);
         return db.updateEmployee(id, data);
       }),
 
@@ -477,7 +481,12 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "アクセス権限がありません" });
         }
 
+        // Validate file type, extension, and size
         const buffer = Buffer.from(input.base64, "base64");
+        const validationError = validateFile(input.fileName, input.mimeType, buffer.length);
+        if (validationError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: validationError });
+        }
         const suffix = nanoid(8);
         const key = `employees/${input.employeeId}/${input.type}/${suffix}-${input.fileName}`;
         const { url } = await storagePut(key, buffer, input.mimeType);
@@ -512,7 +521,7 @@ export const appRouter = router({
           fileKey: key,
           mimeType: input.mimeType,
           fileSize: buffer.length,
-          expiryDate: input.expiryDate ? new Date(input.expiryDate) : undefined,
+          expiryDate: input.expiryDate ? parseDateString(input.expiryDate) : undefined,
           uploadedBy: ctx.user.id,
         });
 
@@ -557,6 +566,8 @@ export const appRouter = router({
         let certificateFileKey: string | undefined;
         if (input.certificateBase64 && input.certificateFileName) {
           const buffer = Buffer.from(input.certificateBase64, "base64");
+          const vErr = validateFile(input.certificateFileName, input.certificateMimeType || "application/octet-stream", buffer.length);
+          if (vErr) throw new TRPCError({ code: "BAD_REQUEST", message: vErr });
           const suffix = nanoid(8);
           const key = `employees/${input.employeeId}/qualifications/${suffix}-${input.certificateFileName}`;
           const { url } = await storagePut(key, buffer, input.certificateMimeType || "application/octet-stream");
@@ -566,7 +577,7 @@ export const appRouter = router({
         return db.createQualification({
           employeeId: input.employeeId,
           name: input.name,
-          obtainedDate: input.obtainedDate ? new Date(input.obtainedDate) : undefined,
+          obtainedDate: input.obtainedDate ? parseDateString(input.obtainedDate) : undefined,
           certificateNumber: input.certificateNumber,
           certificateFileUrl,
           certificateFileKey,
@@ -586,9 +597,11 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const { id, certificateBase64, certificateMimeType, certificateFileName, ...data } = input;
         const updateData: any = { ...data };
-        if (data.obtainedDate) updateData.obtainedDate = new Date(data.obtainedDate);
+        if (data.obtainedDate) updateData.obtainedDate = parseDateString(data.obtainedDate);
         if (certificateBase64 && certificateFileName) {
           const buffer = Buffer.from(certificateBase64, "base64");
+          const vErr = validateFile(certificateFileName, certificateMimeType || "application/octet-stream", buffer.length);
+          if (vErr) throw new TRPCError({ code: "BAD_REQUEST", message: vErr });
           const suffix = nanoid(8);
           const key = `qualifications/${id}/${suffix}-${certificateFileName}`;
           const { url } = await storagePut(key, buffer, certificateMimeType || "application/octet-stream");
@@ -731,8 +744,8 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         const data: any = { ...input };
-        if (input.startDate) data.startDate = new Date(input.startDate);
-        if (input.endDate) data.endDate = new Date(input.endDate);
+        if (input.startDate) data.startDate = parseDateString(input.startDate);
+        if (input.endDate) data.endDate = parseDateString(input.endDate);
         return db.createProject(data);
       }),
 
@@ -750,8 +763,8 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const { id, ...updateData } = input;
         const data: any = { ...updateData };
-        if (updateData.startDate) data.startDate = new Date(updateData.startDate);
-        if (updateData.endDate) data.endDate = new Date(updateData.endDate);
+        if (updateData.startDate) data.startDate = parseDateString(updateData.startDate);
+        if (updateData.endDate) data.endDate = parseDateString(updateData.endDate);
         return db.updateProject(id, data);
       }),
 
@@ -861,8 +874,8 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         const data: any = { ...input };
-        if (input.effectiveFrom) data.effectiveFrom = new Date(input.effectiveFrom);
-        if (input.effectiveUntil) data.effectiveUntil = new Date(input.effectiveUntil);
+        if (input.effectiveFrom) data.effectiveFrom = parseDateString(input.effectiveFrom);
+        if (input.effectiveUntil) data.effectiveUntil = parseDateString(input.effectiveUntil);
         return db.createEmployeeRate(data);
       }),
 
@@ -879,8 +892,8 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const { id, ...updateData } = input;
         const data: any = { ...updateData };
-        if (updateData.effectiveFrom) data.effectiveFrom = new Date(updateData.effectiveFrom);
-        if (updateData.effectiveUntil) data.effectiveUntil = new Date(updateData.effectiveUntil);
+        if (updateData.effectiveFrom) data.effectiveFrom = parseDateString(updateData.effectiveFrom);
+        if (updateData.effectiveUntil) data.effectiveUntil = parseDateString(updateData.effectiveUntil);
         return db.updateEmployeeRate(id, data);
       }),
 
@@ -988,8 +1001,8 @@ export const appRouter = router({
       }))
       .query(async ({ input }) => {
         return db.getAttendanceByDateRange(
-          new Date(input.startDate),
-          new Date(input.endDate),
+          parseDateString(input.startDate),
+          parseDateString(input.endDate),
           input.projectId,
         );
       }),
@@ -1004,13 +1017,13 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.getAttendanceByEmployee(
           input.employeeId,
-          input.startDate ? new Date(input.startDate) : undefined,
-          input.endDate ? new Date(input.endDate) : undefined,
+          input.startDate ? parseDateString(input.startDate) : undefined,
+          input.endDate ? parseDateString(input.endDate) : undefined,
         );
       }),
 
     /** Upsert a single attendance record (admin/leader or project member) */
-    upsert: protectedProcedure
+    upsert: leaderOrAdminProcedure
       .input(z.object({
         employeeId: z.number().nullable().optional(),
         guestName: z.string().optional(),
@@ -1018,7 +1031,7 @@ export const appRouter = router({
         workDate: z.string(),
         hoursWorked: z.number().default(80),
         overtimeHours: z.number().default(0),
-        workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence"]).default("normal"),
+        workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence", "day_off"]).default("normal"),
         shiftType: z.enum(["day", "night"]).default("day"),
         notes: z.string().optional(),
       }))
@@ -1027,7 +1040,7 @@ export const appRouter = router({
           employeeId: input.employeeId ?? null,
           guestName: input.guestName || null,
           projectId: input.projectId,
-          workDate: new Date(input.workDate),
+          workDate: parseDateString(input.workDate),
           hoursWorked: input.hoursWorked,
           overtimeHours: input.overtimeHours,
           workType: input.workType,
@@ -1038,7 +1051,7 @@ export const appRouter = router({
       }),
 
     /** Batch upsert attendance records (for grid entry) */
-    batchUpsert: protectedProcedure
+    batchUpsert: leaderOrAdminProcedure
       .input(z.object({
         records: z.array(z.object({
           employeeId: z.number().nullable().optional(),
@@ -1047,7 +1060,7 @@ export const appRouter = router({
           workDate: z.string(),
           hoursWorked: z.number().default(80),
           overtimeHours: z.number().default(0),
-          workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence"]).default("normal"),
+          workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence", "day_off"]).default("normal"),
           shiftType: z.enum(["day", "night"]).default("day"),
           notes: z.string().optional(),
         })),
@@ -1066,7 +1079,7 @@ export const appRouter = router({
             employeeId: rec.employeeId ?? null,
             guestName: rec.guestName || null,
             projectId: rec.projectId,
-            workDate: new Date(rec.workDate),
+            workDate: parseDateString(rec.workDate),
             hoursWorked: rec.hoursWorked,
             overtimeHours: rec.overtimeHours,
             workType: rec.workType,
@@ -1084,7 +1097,7 @@ export const appRouter = router({
               employeeId: del.employeeId ?? null,
               guestName: del.guestName || null,
               projectId: del.projectId,
-              workDate: new Date(del.workDate),
+              workDate: parseDateString(del.workDate),
             });
             deletedCount++;
           }
@@ -1113,8 +1126,8 @@ export const appRouter = router({
         if (!employee) return [];
         const records = await db.getAttendanceByEmployee(
           employee.id,
-          new Date(input.startDate),
-          new Date(input.endDate),
+          parseDateString(input.startDate),
+          parseDateString(input.endDate),
         );
         if (input.projectId) {
           return records.filter(r => r.projectId === input.projectId);
@@ -1163,8 +1176,8 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const records = await db.getAttendanceByProject(
           input.projectId,
-          new Date(input.startDate),
-          new Date(input.endDate),
+          parseDateString(input.startDate),
+          parseDateString(input.endDate),
         );
         // Collect unique employee IDs and guest names
         const empIds = new Set<number>();
@@ -1204,20 +1217,20 @@ export const appRouter = router({
     }),
 
     /** Generate attendance PDF */
-    generatePdf: protectedProcedure
+    generatePdf: leaderOrAdminProcedure
       .input(z.object({
         year: z.number(),
         month: z.number().min(1).max(12),
         projectId: z.number(),
       }))
-      .mutation(async ({ input }) => {
-        const startDate = new Date(input.year, input.month - 1, 1);
-        const endDate = new Date(input.year, input.month, 0);
+       .mutation(async ({ input }) => {
+        // Use UTC dates to avoid timezone shifts
+        const startDate = new Date(Date.UTC(input.year, input.month - 1, 1, 0, 0, 0));
+        const endDate = new Date(Date.UTC(input.year, input.month, 0, 23, 59, 59));
         const records = await db.getAttendanceByDateRange(startDate, endDate, input.projectId);
         const allEmployees = await db.getAllEmployees();
         const projects = await db.getAllProjects();
         const project = projects.find(p => p.id === input.projectId);
-
         // Collect unique employee IDs and guest names from records
         const empIds = new Set<number>();
         const guestNameSet = new Set<string>();
@@ -1261,22 +1274,22 @@ export const appRouter = router({
       }),
 
     /** Generate Excel for attendance */
-    generateExcel: protectedProcedure
+    generateExcel: leaderOrAdminProcedure
       .input(z.object({
         year: z.number(),
         month: z.number().min(1).max(12),
         projectId: z.number(),
       }))
       .mutation(async ({ input }) => {
-        const startDate = new Date(input.year, input.month - 1, 1);
-        const endDate = new Date(input.year, input.month, 0);
+        // Use UTC dates to avoid timezone shifts
+        const startDate = new Date(Date.UTC(input.year, input.month - 1, 1, 0, 0, 0));
+        const endDate = new Date(Date.UTC(input.year, input.month, 0, 23, 59, 59));
         const records = await db.getAttendanceByDateRange(startDate, endDate, input.projectId);
         const allEmployees = await db.getAllEmployees();
         const projects = await db.getAllProjects();
         const project = projects.find(p => p.id === input.projectId);
-
         const empIds = new Set<number>();
-        const guestNameSet = new Set<string>();
+        const guestNameSet = new Set<string>();;
         for (const rec of records) {
           if (rec.employeeId) empIds.add(rec.employeeId);
           if (rec.guestName) guestNameSet.add(rec.guestName);
@@ -1366,8 +1379,8 @@ export const appRouter = router({
         for (const projectId of input.projectIds) {
           // Get attendance records for the period for this project
           const records = await db.getAttendanceByDateRange(
-            new Date(input.periodStart),
-            new Date(input.periodEnd),
+            parseDateString(input.periodStart),
+            parseDateString(input.periodEnd),
             projectId,
           );
 
@@ -1444,7 +1457,7 @@ export const appRouter = router({
         const invoiceNumber = await db.getNextInvoiceNumber(yearMonth);
 
         // Auto-generate subject
-        const periodDate = new Date(input.periodStart);
+        const periodDate = parseDateString(input.periodStart);
         const monthStr = `${periodDate.getMonth() + 1}`;
         const projLabel = projectNames.join('・');
         const autoSubject = `${monthStr}月分請求書 ${projLabel}`;
@@ -1457,10 +1470,10 @@ export const appRouter = router({
           invoiceNumber,
           clientId: input.clientId,
           projectId: primaryProjectId,
-          periodStart: new Date(input.periodStart),
-          periodEnd: new Date(input.periodEnd),
+          periodStart: parseDateString(input.periodStart),
+          periodEnd: parseDateString(input.periodEnd),
           issueDate: new Date(),
-          dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          dueDate: input.dueDate ? parseDateString(input.dueDate) : null,
           subtotal,
           taxAmount,
           totalAmount,
@@ -1595,10 +1608,10 @@ export const appRouter = router({
           invoiceNumber,
           clientId: input.clientId,
           projectId: input.projectId || null,
-          periodStart: new Date(input.periodStart),
-          periodEnd: new Date(input.periodEnd),
+          periodStart: parseDateString(input.periodStart),
+          periodEnd: parseDateString(input.periodEnd),
           issueDate: new Date(),
-          dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          dueDate: input.dueDate ? parseDateString(input.dueDate) : null,
           subtotal,
           taxAmount: totalTax,
           totalAmount: finalTotal,

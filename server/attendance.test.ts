@@ -85,10 +85,11 @@ function createAdminContext(): TrpcContext {
     name: "Admin User",
     loginMethod: "manus",
     role: "admin",
+    appRole: "admin",
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
-  };
+  } as any;
 
   return {
     user,
@@ -110,10 +111,11 @@ function createWorkerContext(): TrpcContext {
     name: "Worker User",
     loginMethod: "manus",
     role: "user",
+    appRole: "worker",
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
-  };
+  } as any;
 
   return {
     user,
@@ -225,7 +227,7 @@ describe("attendance", () => {
 
   describe("attendance.upsert", () => {
     it("creates an attendance record with employee ID", async () => {
-      const ctx = createWorkerContext();
+      const ctx = createAdminContext();
       const caller = appRouter.createCaller(ctx);
 
       const result = await caller.attendance.upsert({
@@ -243,7 +245,7 @@ describe("attendance", () => {
     });
 
     it("creates an attendance record with guest name", async () => {
-      const ctx = createWorkerContext();
+      const ctx = createAdminContext();
       const caller = appRouter.createCaller(ctx);
 
       const result = await caller.attendance.upsert({
@@ -260,7 +262,7 @@ describe("attendance", () => {
     });
 
     it("supports night shift type", async () => {
-      const ctx = createWorkerContext();
+      const ctx = createAdminContext();
       const caller = appRouter.createCaller(ctx);
 
       const result = await caller.attendance.upsert({
@@ -277,7 +279,7 @@ describe("attendance", () => {
     });
 
     it("supports 0.5 increment overtime (e.g. 1.5h = 15)", async () => {
-      const ctx = createWorkerContext();
+      const ctx = createAdminContext();
       const caller = appRouter.createCaller(ctx);
 
       const result = await caller.attendance.upsert({
@@ -295,7 +297,7 @@ describe("attendance", () => {
     });
 
     it("supports up to 12h overtime (120)", async () => {
-      const ctx = createWorkerContext();
+      const ctx = createAdminContext();
       const caller = appRouter.createCaller(ctx);
 
       const result = await caller.attendance.upsert({
@@ -315,7 +317,7 @@ describe("attendance", () => {
 
   describe("attendance.batchUpsert", () => {
     it("saves multiple records at once", async () => {
-      const ctx = createWorkerContext();
+      const ctx = createAdminContext();
       const caller = appRouter.createCaller(ctx);
 
       const result = await caller.attendance.batchUpsert({

@@ -22,9 +22,12 @@ import { Button } from "@/components/ui/button";
 import { useAppLang } from "@/contexts/AppLanguageContext";
 import type { TranslationKey } from "@/lib/appTranslations";
 
-const navItems: { path: string; labelKey: TranslationKey; icon: any; adminOnly?: boolean }[] = [
-  { path: "/app", labelKey: "nav_dashboard", icon: LayoutDashboard },
-  { path: "/app/my-profile", labelKey: "nav_myProfile", icon: UserCircle },
+type NavItem = { path: string; labelKey: TranslationKey; icon: any; adminOnly?: boolean; workerVisible?: boolean };
+
+const navItems: NavItem[] = [
+  { path: "/app", labelKey: "nav_dashboard", icon: LayoutDashboard, workerVisible: true },
+  { path: "/app/my-profile", labelKey: "nav_myProfile", icon: UserCircle, workerVisible: true },
+  { path: "/app/my-attendance", labelKey: "nav_myAttendance", icon: CalendarDays, workerVisible: true },
   { path: "/app/invitations", labelKey: "nav_invitations", icon: UserPlus, adminOnly: true },
   { path: "/app/company", labelKey: "nav_company", icon: Building2, adminOnly: true },
   { path: "/app/employees", labelKey: "nav_employees", icon: Users, adminOnly: true },
@@ -32,7 +35,7 @@ const navItems: { path: string; labelKey: TranslationKey; icon: any; adminOnly?:
   { path: "/app/rates", labelKey: "nav_rates", icon: DollarSign, adminOnly: true },
   { path: "/app/attendance", labelKey: "nav_attendance", icon: CalendarDays, adminOnly: true },
   { path: "/app/invoices", labelKey: "nav_invoices", icon: FileText, adminOnly: true },
-  { path: "/app/support", labelKey: "nav_support", icon: HelpCircle },
+  { path: "/app/support", labelKey: "nav_support", icon: HelpCircle, workerVisible: true },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -107,7 +110,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           {/* Nav */}
           <nav className="flex-1 p-4 space-y-1">
             {navItems
-              .filter((item) => !item.adminOnly || appRole === "admin" || appRole === "leader")
+              .filter((item) => {
+                if (appRole === "worker") return item.workerVisible === true;
+                return !item.adminOnly || appRole === "admin" || appRole === "leader";
+              })
               .map((item) => {
                 const isActive = location === item.path || (item.path !== "/app" && location.startsWith(item.path));
                 return (

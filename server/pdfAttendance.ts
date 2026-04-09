@@ -11,12 +11,13 @@ import path from "path";
 import os from "os";
 import { format, eachDayOfInterval, startOfMonth, endOfMonth, getDay } from "date-fns";
 
+// NotoSansJP Variable font — bundled on CDN, no external fetch failures
 const FONT_URL =
-  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Regular_53121a47.ttf";
+  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Variable_0e3524c3.ttf";
 
-// Use same font for bold (variable font includes all weights)
+// Variable font includes all weights (Regular=400, Bold=700)
 const FONT_BOLD_URL =
-  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Regular_53121a47.ttf";
+  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Variable_0e3524c3.ttf";
 
 let fontPath: string | null = null;
 let fontBoldPath: string | null = null;
@@ -81,8 +82,9 @@ const WORK_TYPE_MARKS: Record<string, string> = {
   normal: "○",
   half_day: "△",
   overtime: "○",
-  holiday: "休",
+  holiday: "休出",
   absence: "X",
+  day_off: "休",
 };
 
 interface AttendanceRecord {
@@ -316,7 +318,15 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
       doc.restore();
       doc.rect(cx, y, dayColW, rowH).stroke("#D1D5DB");
 
-      if (rec && rec.hoursWorked > 0) {
+      if (rec && rec.workType === "day_off") {
+        // Day off — NOT counted as worked days
+        doc.fillColor("#6B7280").font("Bold").fontSize(7).text(
+          "休",
+          cx,
+          y + 5,
+          { width: dayColW, align: "center" }
+        );
+      } else if (rec && rec.hoursWorked > 0) {
         totalDays++;
         totalHours += rec.hoursWorked;
         totalOvertime += rec.overtimeHours;
@@ -412,7 +422,7 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
   }
 
   doc.fillColor("#6B7280").font("Regular").fontSize(7);
-  doc.text("凡例:  ○ = 出勤    △ = 半日/早退    X = 欠勤    休 = 休日出勤    夜 = 夜勤    +N = 残業時間(h)", startX, y, { width: pageW });
+  doc.text("凡例:  ○ = 出勤    △ = 半日/早退    X = 欠勤    休出 = 休日出勤    休 = 休日    夜 = 夜勤    +N = 残業時間(h)", startX, y, { width: pageW });
 
   // Footer
   y += 15;

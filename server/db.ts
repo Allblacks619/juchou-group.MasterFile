@@ -186,13 +186,17 @@ export async function markInvitationUsed(token: string, userId: number) {
 export async function getInvitationsByCreator(createdBy: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(invitations).where(eq(invitations.createdBy, createdBy));
+  const results = await db.select().from(invitations).where(eq(invitations.createdBy, createdBy));
+  // Strip tempPassword from list results for security
+  return results.map(({ tempPassword, ...rest }) => rest);
 }
 
 export async function getAllInvitations() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(invitations);
+  const results = await db.select().from(invitations);
+  // Strip tempPassword from list results for security
+  return results.map(({ tempPassword, ...rest }) => rest);
 }
 
 export async function deleteExpiredInvitations() {

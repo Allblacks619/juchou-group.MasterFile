@@ -43,6 +43,7 @@ const dict = {
   nav_employees: { ja: "従業員管理", pt: "Funcionários" },
   nav_projects: { ja: "現場管理", pt: "Obras" },
   nav_rates: { ja: "単価管理", pt: "Valores" },
+  nav_myAttendance: { ja: "マイ出面表", pt: "Minha Presença" },
   nav_attendance: { ja: "出面表管理", pt: "Presença" },
   nav_invoices: { ja: "請求書", pt: "Faturas" },
   nav_support: { ja: "サポート", pt: "Suporte" },

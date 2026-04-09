@@ -1,0 +1,1 @@
+ALTER TABLE `attendance` MODIFY COLUMN `workType` enum('normal','half_day','overtime','holiday','absence','day_off') NOT NULL DEFAULT 'normal';
