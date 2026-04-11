@@ -26,8 +26,12 @@ const AppMyProfile = lazy(() => import("./pages/AppMyProfile"));
 const AppProjects = lazy(() => import("./pages/AppProjects"));
 const AppRates = lazy(() => import("./pages/AppRates"));
 const AppAttendance = lazy(() => import("./pages/AppAttendance"));
-const AppMyAttendance = lazy(() => import("./pages/AppMyAttendance"));
+const AppMyClosing = lazy(() => import("./pages/AppMyClosing"));
 const AppInvoices = lazy(() => import("./pages/AppInvoices"));
+const AppClosings = lazy(() => import("./pages/AppClosings"));
+const AppPayments = lazy(() => import("./pages/AppPayments"));
+const AppReceivables = lazy(() => import("./pages/AppReceivables"));
+const AppAuditLogs = lazy(() => import("./pages/AppAuditLogs"));
 const AppSupport = lazy(() => import("./pages/AppSupport"));
 
 function ScrollToTop() {
@@ -48,8 +52,7 @@ function AppFallback() {
 
 /** Admin/Leader only pages */
 const ADMIN_LEADER: ("admin" | "leader")[] = ["admin", "leader"];
-/** All authenticated roles */
-const ALL_ROLES: ("admin" | "leader" | "worker")[] = ["admin", "leader", "worker"];
+const WORKER_ONLY: ("worker")[] = ["worker"];
 
 /** Protected app routes wrapped in AppLayout with role guards */
 function AppRoutes() {
@@ -60,7 +63,9 @@ function AppRoutes() {
           {/* All roles can access */}
           <Route path="/app" component={AppDashboard} />
           <Route path="/app/my-profile" component={AppMyProfile} />
-          <Route path="/app/my-attendance" component={AppMyAttendance} />
+          <Route path="/app/my-closing">
+            <RoleGuard allowed={WORKER_ONLY}><AppMyClosing /></RoleGuard>
+          </Route>
           <Route path="/app/support" component={AppSupport} />
 
           {/* Admin/Leader only */}
@@ -89,6 +94,18 @@ function AppRoutes() {
           </Route>
           <Route path="/app/invoices">
             <RoleGuard allowed={ADMIN_LEADER}><AppInvoices /></RoleGuard>
+          </Route>
+          <Route path="/app/closings">
+            <RoleGuard allowed={ADMIN_LEADER}><AppClosings /></RoleGuard>
+          </Route>
+          <Route path="/app/payments">
+            <RoleGuard allowed={ADMIN_LEADER}><AppPayments /></RoleGuard>
+          </Route>
+          <Route path="/app/receivables">
+            <RoleGuard allowed={ADMIN_LEADER}><AppReceivables /></RoleGuard>
+          </Route>
+          <Route path="/app/audit">
+            <RoleGuard allowed={ADMIN_LEADER}><AppAuditLogs /></RoleGuard>
           </Route>
 
           <Route component={NotFound} />

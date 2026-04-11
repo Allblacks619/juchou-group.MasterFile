@@ -31,6 +31,11 @@ import {
   AlertCircle,
   ArrowRight,
   UserCircle,
+  FileCheck2,
+  FileText,
+  Wallet,
+  Landmark,
+  ClipboardList,
   Loader2,
   ChevronLeft,
   ChevronRight,
@@ -41,6 +46,8 @@ import {
   X,
   Download,
   Plus,
+  Lock,
+  LockOpen,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import {
@@ -103,6 +110,8 @@ export default function AppDashboard() {
       </div>
 
       <ProfileCompletionAlert />
+
+      <WorkflowShortcuts appRole={appRole} />
 
       {(appRole === "admin" || appRole === "leader") && <AdminStats />}
 
@@ -190,6 +199,43 @@ function ProfileCompletionAlert() {
   return null;
 }
 
+function WorkflowShortcuts({ appRole }: { appRole: "admin" | "leader" | "worker" }) {
+  const [, setLocation] = useLocation();
+  const isAdminOrLeader = appRole === "admin" || appRole === "leader";
+
+  const items = isAdminOrLeader
+    ? [
+        { title: "締め管理", description: "未提出・領収書不足・ready を確認", icon: FileCheck2, path: "/app/closings" },
+        { title: "請求管理", description: "締め完了後の請求書作成へ", icon: FileText, path: "/app/invoices" },
+        { title: "支払管理", description: "従業員支払の確認と確定", icon: Wallet, path: "/app/payments" },
+        { title: "入金管理", description: "請求入金と残高を確認", icon: Landmark, path: "/app/receivables" },
+      ]
+    : [
+        { title: "月締め提出", description: "交通費・経費・領収書を提出", icon: FileCheck2, path: "/app/my-closing" },
+        { title: "プロフィール", description: "提出に必要な情報を確認", icon: UserCircle, path: "/app/my-profile" },
+      ];
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {items.map((item) => (
+        <Card
+          key={item.path}
+          className="cursor-pointer hover:border-gold/30 transition-colors"
+          onClick={() => setLocation(item.path)}
+        >
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">{item.title}</CardTitle>
+            <item.icon className="h-4 w-4 text-gold" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">{item.description}</p>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 function AdminStats() {
   const [, setLocation] = useLocation();
   const { t, lang } = useAppLang();
@@ -236,9 +282,14 @@ function AdminStats() {
 
 function AttendanceCalendar() {
   const { t, lang, formatMonthStr } = useAppLang();
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const appRole = (user as any)?.appRole || "worker";
+  const isAdminOrLeader = appRole === "admin" || appRole === "leader";
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [projectInitialized, setProjectInitialized] = useState(false);
+  const [isLocked, setIsLocked] = useState(true);
   const [guestDialogOpen, setGuestDialogOpen] = useState(false);
   const [guestName, setGuestName] = useState("");
 
@@ -322,7 +373,7 @@ function AttendanceCalendar() {
       shiftType: ShiftType;
       notes?: string;
     }) => {
-      if (!selectedProjectId) return;
+      if (!selectedProjectId || isLocked) return;
       upsertMutation.mutate({
         employeeId: params.employeeId,
         guestName: params.guestName || undefined,
@@ -335,11 +386,12 @@ function AttendanceCalendar() {
         notes: params.notes,
       });
     },
-    [selectedProjectId, upsertMutation]
+    [selectedProjectId, upsertMutation, isLocked]
   );
 
   const quickToggle = useCallback(
     (memberId: number | null, memberName: string | null, dateStr: string) => {
+      if (isLocked) return;
       const key = memberId ? `emp-${memberId}-${dateStr}` : `guest-${memberName}-${dateStr}`;
       const existing = attendanceMap[key];
       if (existing && cellHasValue(existing.hoursWorked, existing.workType)) {
@@ -364,10 +416,11 @@ function AttendanceCalendar() {
         });
       }
     },
-    [attendanceMap, autoSave]
+    [attendanceMap, autoSave, isLocked]
   );
 
   const handleAddGuest = () => {
+    if (isLocked) return;
     if (!guestName.trim()) {
       toast.error(lang === "pt" ? "Digite o nome" : "名前を入力してください");
       return;
@@ -427,21 +480,21 @@ function AttendanceCalendar() {
         <CardContent className="pt-6">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+              <Button variant="outline" size="icon" onClick={() => { setCurrentMonth(subMonths(currentMonth, 1)); setIsLocked(true); }}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <div className="flex items-center gap-2 min-w-[130px] justify-center">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium text-sm">{monthLabel}</span>
               </div>
-              <Button variant="outline" size="icon" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+              <Button variant="outline" size="icon" onClick={() => { setCurrentMonth(addMonths(currentMonth, 1)); setIsLocked(true); }}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
 
             <Select
               value={selectedProjectId?.toString() || ""}
-              onValueChange={(v) => setSelectedProjectId(Number(v))}
+              onValueChange={(v) => { setSelectedProjectId(Number(v)); setIsLocked(true); }}
             >
               <SelectTrigger className="w-[220px]">
                 <SelectValue placeholder={t("attendance_selectProject")} />
@@ -454,22 +507,46 @@ function AttendanceCalendar() {
             </Select>
 
             <div className="flex items-center gap-2 ml-auto">
-              <Button variant="outline" size="sm" onClick={() => setGuestDialogOpen(true)} disabled={!selectedProjectId}>
-                <Plus className="h-4 w-4 mr-1" /> {t("dashboard_addGuest")}
-              </Button>
               <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePdfDownload}
-                disabled={!selectedProjectId || pdfMutation.isPending}
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsLocked(!isLocked)}
+                title={isLocked ? (lang === "pt" ? "Desbloquear" : "ロック解除") : (lang === "pt" ? "Bloquear" : "ロック")}
+                className={!isLocked ? "text-amber-400 bg-amber-500/20 hover:bg-amber-500/30" : "text-muted-foreground"}
               >
-                {pdfMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Download className="h-4 w-4 mr-1" />}
-                {t("dashboard_pdfExport")}
+                {isLocked ? <Lock className="h-5 w-5" /> : <LockOpen className="h-5 w-5" />}
               </Button>
+              {isAdminOrLeader ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => setGuestDialogOpen(true)} disabled={!selectedProjectId || isLocked}>
+                    <Plus className="h-4 w-4 mr-1" /> {t("dashboard_addGuest")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePdfDownload}
+                    disabled={!selectedProjectId || pdfMutation.isPending}
+                  >
+                    {pdfMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Download className="h-4 w-4 mr-1" />}
+                    {t("dashboard_pdfExport")}
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setLocation("/app/my-closing")}>
+                  <FileCheck2 className="h-4 w-4 mr-1" /> 月締め提出
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {!isLocked && selectedProjectId && (
+        <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-2">
+          <LockOpen className="h-4 w-4" />
+          <span>{lang === "pt" ? "Modo de edição — toque nas datas para registrar presença." : "編集モード — 日付をタップして出面を登録できます。"}</span>
+        </div>
+      )}
 
       {!selectedProjectId ? (
         <Card>
@@ -486,6 +563,11 @@ function AttendanceCalendar() {
                 <span className="flex items-center gap-2">
                   <UserCircle className="h-4 w-4" />
                   {t("dashboard_myAttendance")}
+                  {!isLocked && (
+                    <span className="text-xs font-normal px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded">
+                      {lang === "pt" ? "Editando" : "編集中"}
+                    </span>
+                  )}
                 </span>
                 <div className="flex gap-3 text-sm font-normal text-muted-foreground">
                   <span>{t("dashboard_workDays")}: <strong className="text-foreground">{mySummary.totalDays}{t("attendance_days")}</strong></span>
@@ -507,6 +589,7 @@ function AttendanceCalendar() {
                   memberName={null}
                   attendanceMap={attendanceMap}
                   lang={lang}
+                  isLocked={isLocked}
                   onQuickToggle={(dateStr) => quickToggle(myEmployeeId, null, dateStr)}
                   onSave={(dateStr, data) =>
                     autoSave({ employeeId: myEmployeeId, guestName: null, workDate: dateStr, ...data })
@@ -608,68 +691,90 @@ function AttendanceCalendar() {
                                 return (
                                   <td
                                     key={dateStr}
-                                    className={`border-b border-border text-center py-1 cursor-pointer transition-colors ${
+                                    className={`border-b border-border text-center py-1 transition-colors ${
                                       today ? "bg-gold/5" : isSun ? "bg-red-500/5" : isSat ? "bg-blue-500/5" : ""
                                     }`}
                                   >
-                                    <Popover>
-                                      <PopoverTrigger asChild>
-                                        <button
-                                          className={`w-full h-full min-h-[28px] flex flex-col items-center justify-center rounded-sm transition-colors ${
-                                            hasValue
-                                              ? WORK_TYPE_COLORS[rec.workType as WorkType]
-                                              : "hover:bg-muted/30"
-                                          }`}
-                                          onClick={(e) => {
-                                            if (!hasValue) {
-                                              e.preventDefault();
-                                              quickToggle(isGuest ? null : member.id, isGuest ? member.nameKanji : null, dateStr);
-                                            }
-                                          }}
-                                        >
-                                          {hasValue && (
-                                            <>
-                                              <span className="text-[9px] font-bold leading-none">
-                                                {WT_SHORT[rec.workType as WorkType]}
-                                                {rec.shiftType === "night" ? (lang === "pt" ? "N" : "夜") : ""}
-                                              </span>
-                                              {rec.overtimeHours > 0 && (
-                                                <span className="text-[7px] text-blue-400 leading-none">+{rec.overtimeHours / 10}h</span>
-                                              )}
-                                            </>
-                                          )}
-                                        </button>
-                                      </PopoverTrigger>
-                                      {hasValue && (
-                                        <PopoverContent className="w-60" side="bottom">
-                                          <CellEditor
-                                            dateStr={dateStr}
-                                            day={day}
-                                            existing={rec}
-                                            lang={lang}
-                                            onSave={(d, data) =>
-                                              autoSave({
-                                                employeeId: isGuest ? null : member.id,
-                                                guestName: isGuest ? member.nameKanji : null,
-                                                workDate: d,
-                                                ...data,
-                                              })
-                                            }
-                                            onClear={() =>
-                                              autoSave({
-                                                employeeId: isGuest ? null : member.id,
-                                                guestName: isGuest ? member.nameKanji : null,
-                                                workDate: dateStr,
-                                                hoursWorked: 0,
-                                                overtimeHours: 0,
-                                                workType: "absence",
-                                                shiftType: "day",
-                                              })
-                                            }
-                                          />
-                                        </PopoverContent>
-                                      )}
-                                    </Popover>
+                                    {isLocked ? (
+                                      <div
+                                        className={`w-full h-full min-h-[28px] flex flex-col items-center justify-center rounded-sm ${
+                                          hasValue
+                                            ? WORK_TYPE_COLORS[rec.workType as WorkType]
+                                            : ""
+                                        }`}
+                                      >
+                                        {hasValue && (
+                                          <>
+                                            <span className="text-[9px] font-bold leading-none">
+                                              {WT_SHORT[rec.workType as WorkType]}
+                                              {rec.shiftType === "night" ? (lang === "pt" ? "N" : "夜") : ""}
+                                            </span>
+                                            {rec.overtimeHours > 0 && (
+                                              <span className="text-[7px] text-blue-400 leading-none">+{rec.overtimeHours / 10}h</span>
+                                            )}
+                                          </>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <Popover>
+                                        <PopoverTrigger asChild>
+                                          <button
+                                            className={`w-full h-full min-h-[28px] flex flex-col items-center justify-center rounded-sm transition-colors ${
+                                              hasValue
+                                                ? WORK_TYPE_COLORS[rec.workType as WorkType]
+                                                : "hover:bg-muted/30"
+                                            }`}
+                                            onClick={(e) => {
+                                              if (!hasValue) {
+                                                e.preventDefault();
+                                                quickToggle(isGuest ? null : member.id, isGuest ? member.nameKanji : null, dateStr);
+                                              }
+                                            }}
+                                          >
+                                            {hasValue && (
+                                              <>
+                                                <span className="text-[9px] font-bold leading-none">
+                                                  {WT_SHORT[rec.workType as WorkType]}
+                                                  {rec.shiftType === "night" ? (lang === "pt" ? "N" : "夜") : ""}
+                                                </span>
+                                                {rec.overtimeHours > 0 && (
+                                                  <span className="text-[7px] text-blue-400 leading-none">+{rec.overtimeHours / 10}h</span>
+                                                )}
+                                              </>
+                                            )}
+                                          </button>
+                                        </PopoverTrigger>
+                                        {hasValue && (
+                                          <PopoverContent className="w-60" side="bottom">
+                                            <CellEditor
+                                              dateStr={dateStr}
+                                              day={day}
+                                              existing={rec}
+                                              lang={lang}
+                                              onSave={(d, data) =>
+                                                autoSave({
+                                                  employeeId: isGuest ? null : member.id,
+                                                  guestName: isGuest ? member.nameKanji : null,
+                                                  workDate: d,
+                                                  ...data,
+                                                })
+                                              }
+                                              onClear={() =>
+                                                autoSave({
+                                                  employeeId: isGuest ? null : member.id,
+                                                  guestName: isGuest ? member.nameKanji : null,
+                                                  workDate: dateStr,
+                                                  hoursWorked: 0,
+                                                  overtimeHours: 0,
+                                                  workType: "absence",
+                                                  shiftType: "day",
+                                                })
+                                              }
+                                            />
+                                          </PopoverContent>
+                                        )}
+                                      </Popover>
+                                    )}
                                   </td>
                                 );
                               })}
@@ -695,7 +800,9 @@ function AttendanceCalendar() {
           <Card>
             <CardContent className="pt-4 pb-4">
               <p className="text-xs text-muted-foreground mb-2">
-                {t("dashboard_attendanceHint")}
+                {isLocked
+                  ? (lang === "pt" ? "O painel está bloqueado. Clique no ícone de chave para liberar a edição e evitar registros acidentais ao rolar a tela." : "ダッシュボードはロック中です。スクロール時の誤登録防止のため、編集する時だけ鍵アイコンで解除してください。")
+                  : t("dashboard_attendanceHint")}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {(Object.entries(workTypeLabels(lang)) as [WorkType, string][]).map(([type, label]) => (
@@ -747,6 +854,7 @@ function CalendarGrid({
   attendanceMap,
   compact = false,
   lang,
+  isLocked,
   onQuickToggle,
   onSave,
 }: {
@@ -756,6 +864,7 @@ function CalendarGrid({
   attendanceMap: Record<string, any>;
   compact?: boolean;
   lang: AppLang;
+  isLocked: boolean;
   onQuickToggle: (dateStr: string) => void;
   onSave: (dateStr: string, data: { hoursWorked: number; overtimeHours: number; workType: WorkType; shiftType: ShiftType; notes?: string }) => void;
 }) {
@@ -792,6 +901,40 @@ function CalendarGrid({
         const isSun = dayOfWeek === 0;
         const isSat = dayOfWeek === 6;
         const today = isToday(day);
+
+        if (isLocked) {
+          return (
+            <div
+              key={dateStr}
+              className={`relative rounded-md border p-0.5 ${cellSize} flex flex-col items-center justify-center ${
+                today ? "ring-1 ring-gold/50" : ""
+              } ${
+                hasValue
+                  ? WORK_TYPE_COLORS[rec.workType as WorkType]
+                  : isSun
+                  ? "border-red-500/15 bg-red-500/5"
+                  : isSat
+                  ? "border-blue-500/15 bg-blue-500/5"
+                  : "border-border"
+              }`}
+            >
+              <span className={`${fontSize} ${isSun ? "text-red-400" : isSat ? "text-blue-400" : "text-muted-foreground"} ${today ? "font-bold" : ""}`}>
+                {format(day, "d")}
+              </span>
+              {hasValue && (
+                <>
+                  <span className={`${detailFontSize} font-bold mt-0.5`}>
+                    {WT_SHORT[rec.workType as WorkType]}
+                    {rec.shiftType === "night" ? (lang === "pt" ? "N" : "夜") : ""}
+                  </span>
+                  {rec.overtimeHours > 0 && (
+                    <span className="text-[7px] text-blue-400">+{rec.overtimeHours / 10}h</span>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        }
 
         return (
           <Popover key={dateStr}>

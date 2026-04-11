@@ -483,6 +483,14 @@ export const invoices = mysqlTable("invoices", {
   internalMemo: text("internalMemo"),
   /** PDF URL (generated) */
   pdfUrl: text("pdfUrl"),
+  /** Received amount from client */
+  receivedAmount: int("receivedAmount").default(0).notNull(),
+  /** Received date */
+  receivedAt: timestamp("receivedAt"),
+  /** Received by user ID */
+  receivedBy: int("receivedBy"),
+  /** Payment memo / 入金メモ */
+  paymentMemo: text("paymentMemo"),
   /** Created by user ID */
   createdBy: int("createdBy"),
   /** Honorific for client name (御中, 様, etc.) */
@@ -545,3 +553,148 @@ export const invoiceItems = mysqlTable("invoice_items", {
 
 export type InvoiceItem = typeof invoiceItems.$inferSelect;
 export type InsertInvoiceItem = typeof invoiceItems.$inferInsert;
+
+/**
+ * Project closings (案件月締め)
+ * One row per project per closing month (YYYY-MM)
+ */
+export const projectClosings = mysqlTable("project_closings", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Project ID */
+  projectId: int("projectId").notNull(),
+  /** Closing month in YYYY-MM format */
+  closingMonth: varchar("closingMonth", { length: 7 }).notNull(),
+  /** Closing status */
+  status: mysqlEnum("closingStatus", ["open", "ready", "closed", "locked"]).default("open").notNull(),
+  /** Optional notes */
+  notes: text("notes"),
+  /** Closed at */
+  closedAt: timestamp("closedAt"),
+  /** Closed by user ID */
+  closedBy: int("closedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("project_closing_unique").on(table.projectId, table.closingMonth),
+]));
+
+export type ProjectClosing = typeof projectClosings.$inferSelect;
+export type InsertProjectClosing = typeof projectClosings.$inferInsert;
+
+/**
+ * Closing submissions (従業員の締め提出状況)
+ * One row per employee per project closing month
+ */
+export const closingSubmissions = mysqlTable("closing_submissions", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Project closing ID */
+  closingId: int("closingId").notNull(),
+  /** Employee ID */
+  employeeId: int("employeeId").notNull(),
+  /** Submission status */
+  status: mysqlEnum("submissionStatus", ["not_required", "pending", "submitted", "approved", "rejected"]).default("pending").notNull(),
+  /** Transportation amount in yen */
+  transportAmount: int("transportAmount").default(0).notNull(),
+  /** Expense amount in yen */
+  expenseAmount: int("expenseAmount").default(0).notNull(),
+  /** Whether receipt is required */
+  receiptRequired: boolean("receiptRequired").default(false).notNull(),
+  /** Whether receipt has been uploaded/confirmed */
+  receiptUploaded: boolean("receiptUploaded").default(false).notNull(),
+  /** Receipt file URL */
+  receiptFileUrl: text("receiptFileUrl"),
+  /** Receipt original filename */
+  receiptFileName: varchar("receiptFileName", { length: 512 }),
+  /** Receipt file key */
+  receiptFileKey: varchar("receiptFileKey", { length: 512 }),
+  /** Receipt MIME type */
+  receiptMimeType: varchar("receiptMimeType", { length: 128 }),
+  /** Submitted at */
+  submittedAt: timestamp("submittedAt"),
+  /** Approved at */
+  approvedAt: timestamp("approvedAt"),
+  /** Reviewed by user ID */
+  reviewedBy: int("reviewedBy"),
+  /** Notes */
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("closing_submission_unique").on(table.closingId, table.employeeId),
+]));
+
+export type ClosingSubmission = typeof closingSubmissions.$inferSelect;
+export type InsertClosingSubmission = typeof closingSubmissions.$inferInsert;
+
+
+/**
+ * Employee payments (従業員支払管理)
+ * One row per employee per project closing month
+ */
+export const employeePayments = mysqlTable("employee_payments", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Project closing ID */
+  closingId: int("closingId").notNull(),
+  /** Employee ID */
+  employeeId: int("employeeId").notNull(),
+  /** Payment status */
+  status: mysqlEnum("paymentStatus", ["pending", "confirmed", "paid"]).default("pending").notNull(),
+  /** Total worked days ×10 */
+  baseDaysTimes10: int("baseDaysTimes10").default(0).notNull(),
+  /** Base worker payment amount */
+  baseAmount: int("baseAmount").default(0).notNull(),
+  /** Transportation amount */
+  transportAmount: int("transportAmount").default(0).notNull(),
+  /** Expense amount */
+  expenseAmount: int("expenseAmount").default(0).notNull(),
+  /** Manual adjustment amount (+/-) */
+  adjustmentAmount: int("adjustmentAmount").default(0).notNull(),
+  /** Final total amount */
+  totalAmount: int("totalAmount").default(0).notNull(),
+  /** Paid at */
+  paidAt: timestamp("paidAt"),
+  /** Paid by user ID */
+  paidBy: int("paidBy"),
+  /** Notes */
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("employee_payment_unique").on(table.closingId, table.employeeId),
+]));
+
+export type EmployeePayment = typeof employeePayments.$inferSelect;
+export type InsertEmployeePayment = typeof employeePayments.$inferInsert;
+
+
+/**
+ * Audit logs (監査ログ)
+ * Records important admin/leader/worker actions for traceability
+ */
+export const auditLogs = mysqlTable("audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Action key (e.g. closing.markReady, payment.markPaid) */
+  action: varchar("action", { length: 128 }).notNull(),
+  /** Entity type */
+  entityType: varchar("entityType", { length: 64 }).notNull(),
+  /** Generic entity id */
+  entityId: int("entityId"),
+  /** Related project */
+  projectId: int("projectId"),
+  /** Related closing */
+  closingId: int("closingId"),
+  /** Related invoice */
+  invoiceId: int("invoiceId"),
+  /** Related employee */
+  employeeId: int("employeeId"),
+  /** Performed by user id */
+  performedBy: int("performedBy"),
+  /** Short note */
+  note: text("note"),
+  /** JSON payload string */
+  payload: text("payload"),
+  performedAt: timestamp("performedAt").defaultNow().notNull(),
+});
+
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = typeof auditLogs.$inferInsert;

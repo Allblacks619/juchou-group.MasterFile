@@ -5,7 +5,7 @@
  * - Client info top-left, dates/numbers top-right
  * - Company info + logo/seal center-right
  * - Subject line, summary box (subtotal/tax/total), bank info
- * - Items table with transaction date, description, quantity, unit price, amount
+ * - Items table with description, quantity, unit price, amount
  * - Tax breakdown by rate group at bottom
  * - Notes section
  * - Watermark
@@ -338,15 +338,12 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   }
 
   // ── Items table ──
-  const hasTransactionDate = items.some((i) => i.transactionDate);
-  const dateColW = hasTransactionDate ? 60 : 0;
   const amountColW = 75;
   const qtyColW = 55;
   const priceColW = 60;
-  const descColW = contentW - dateColW - qtyColW - priceColW - amountColW;
+  const descColW = contentW - qtyColW - priceColW - amountColW;
 
   const colDefs = [
-    ...(hasTransactionDate ? [{ w: dateColW, label: "取引日", align: "center" as const }] : []),
     { w: descColW, label: "品目・摘要", align: "left" as const },
     { w: qtyColW, label: "数量", align: "right" as const },
     { w: priceColW, label: "単価", align: "right" as const },
@@ -390,7 +387,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
       // Text row - spans full width
       doc.rect(mL, y, contentW, rowH).fillAndStroke("#f9f9f5", "#ddd");
       doc.font("JP").fillColor("#666").fontSize(6.5);
-      doc.text(item.description || "", mL + (hasTransactionDate ? dateColW + 3 : 3), y + 4, { width: contentW - 10 });
+      doc.text(item.description || "", mL + 3, y + 4, { width: contentW - 10 });
       y += rowH;
       itemIdx++;
       continue;
@@ -407,9 +404,6 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
       const descText = item.description + (item.itemTaxRate === 8 ? " ※" : "");
 
       const values: string[] = [];
-      if (hasTransactionDate) {
-        values.push(item.transactionDate ? toDateStr(item.transactionDate) : "");
-      }
       values.push(descText);
       values.push(quantityStr);
       values.push(formatYen(item.unitPrice));

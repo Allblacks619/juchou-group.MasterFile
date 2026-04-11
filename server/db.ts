@@ -14,6 +14,10 @@ import {
   InsertInvoice, invoices,
   InsertInvoiceItem, invoiceItems,
   projectMembers, InsertProjectMember,
+  InsertProjectClosing, projectClosings,
+  InsertClosingSubmission, closingSubmissions,
+  InsertEmployeePayment, employeePayments,
+  InsertAuditLog, auditLogs,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -747,4 +751,152 @@ export async function deleteInvoiceItem(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(invoiceItems).where(eq(invoiceItems.id, id));
+}
+
+// ── Project Closings ──
+
+export async function getProjectClosingByProjectMonth(projectId: number, closingMonth: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(projectClosings).where(
+    and(eq(projectClosings.projectId, projectId), eq(projectClosings.closingMonth, closingMonth))
+  ).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getProjectClosingById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(projectClosings).where(eq(projectClosings.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getProjectClosingsByMonth(closingMonth: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(projectClosings).where(eq(projectClosings.closingMonth, closingMonth));
+}
+
+export async function createProjectClosing(data: InsertProjectClosing) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(projectClosings).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function updateProjectClosing(id: number, data: Partial<InsertProjectClosing>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(projectClosings).set({ ...data, updatedAt: new Date() }).where(eq(projectClosings.id, id));
+  return getProjectClosingById(id);
+}
+
+// ── Closing Submissions ──
+
+export async function getClosingSubmissionsByClosing(closingId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(closingSubmissions).where(eq(closingSubmissions.closingId, closingId));
+}
+
+export async function getClosingSubmissionById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(closingSubmissions).where(eq(closingSubmissions.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getClosingSubmissionByClosingEmployee(closingId: number, employeeId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(closingSubmissions).where(
+    and(eq(closingSubmissions.closingId, closingId), eq(closingSubmissions.employeeId, employeeId))
+  ).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function upsertClosingSubmission(data: InsertClosingSubmission) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await getClosingSubmissionByClosingEmployee(data.closingId, data.employeeId);
+  if (existing?.id) {
+    await db.update(closingSubmissions)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(closingSubmissions.id, existing.id));
+    return getClosingSubmissionById(existing.id);
+  }
+  const result = await db.insert(closingSubmissions).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function updateClosingSubmission(id: number, data: Partial<InsertClosingSubmission>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(closingSubmissions).set({ ...data, updatedAt: new Date() }).where(eq(closingSubmissions.id, id));
+  return getClosingSubmissionById(id);
+}
+
+
+// ── Employee Payments ──
+
+export async function getEmployeePaymentsByClosing(closingId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(employeePayments).where(eq(employeePayments.closingId, closingId));
+}
+
+export async function getEmployeePaymentById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(employeePayments).where(eq(employeePayments.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getEmployeePaymentByClosingEmployee(closingId: number, employeeId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(employeePayments).where(
+    and(eq(employeePayments.closingId, closingId), eq(employeePayments.employeeId, employeeId))
+  ).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function upsertEmployeePayment(data: InsertEmployeePayment) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await getEmployeePaymentByClosingEmployee(data.closingId, data.employeeId);
+  if (existing?.id) {
+    await db.update(employeePayments)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(employeePayments.id, existing.id));
+    return getEmployeePaymentById(existing.id);
+  }
+  const result = await db.insert(employeePayments).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function updateEmployeePayment(id: number, data: Partial<InsertEmployeePayment>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(employeePayments).set({ ...data, updatedAt: new Date() }).where(eq(employeePayments.id, id));
+  return getEmployeePaymentById(id);
+}
+
+
+// ── Audit Logs ──
+
+export async function createAuditLog(data: InsertAuditLog) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(auditLogs).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function getAuditLogsByMonth(monthKey: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const [year, month] = monthKey.split("-").map(Number);
+  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+  return db.select().from(auditLogs).where(and(gte(auditLogs.performedAt, start), lte(auditLogs.performedAt, end)));
 }

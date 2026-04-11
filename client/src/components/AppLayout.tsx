@@ -15,6 +15,9 @@ import {
   FolderOpen,
   Globe,
   HelpCircle,
+  FileCheck2,
+  Wallet,
+  ClipboardList,
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -22,20 +25,25 @@ import { Button } from "@/components/ui/button";
 import { useAppLang } from "@/contexts/AppLanguageContext";
 import type { TranslationKey } from "@/lib/appTranslations";
 
-type NavItem = { path: string; labelKey: TranslationKey; icon: any; adminOnly?: boolean; workerVisible?: boolean };
+type AppRole = "admin" | "leader" | "worker";
+type NavItem = { path: string; labelKey: TranslationKey; icon: any; roles: AppRole[] };
 
 const navItems: NavItem[] = [
-  { path: "/app", labelKey: "nav_dashboard", icon: LayoutDashboard, workerVisible: true },
-  { path: "/app/my-profile", labelKey: "nav_myProfile", icon: UserCircle, workerVisible: true },
-  { path: "/app/my-attendance", labelKey: "nav_myAttendance", icon: CalendarDays, workerVisible: true },
-  { path: "/app/invitations", labelKey: "nav_invitations", icon: UserPlus, adminOnly: true },
-  { path: "/app/company", labelKey: "nav_company", icon: Building2, adminOnly: true },
-  { path: "/app/employees", labelKey: "nav_employees", icon: Users, adminOnly: true },
-  { path: "/app/projects", labelKey: "nav_projects", icon: FolderOpen, adminOnly: true },
-  { path: "/app/rates", labelKey: "nav_rates", icon: DollarSign, adminOnly: true },
-  { path: "/app/attendance", labelKey: "nav_attendance", icon: CalendarDays, adminOnly: true },
-  { path: "/app/invoices", labelKey: "nav_invoices", icon: FileText, adminOnly: true },
-  { path: "/app/support", labelKey: "nav_support", icon: HelpCircle, workerVisible: true },
+  { path: "/app", labelKey: "nav_dashboard", icon: LayoutDashboard, roles: ["admin", "leader", "worker"] },
+  { path: "/app/my-profile", labelKey: "nav_myProfile", icon: UserCircle, roles: ["admin", "leader", "worker"] },
+  { path: "/app/my-closing", labelKey: "nav_myClosing", icon: FileCheck2, roles: ["worker"] },
+  { path: "/app/invitations", labelKey: "nav_invitations", icon: UserPlus, roles: ["admin", "leader"] },
+  { path: "/app/company", labelKey: "nav_company", icon: Building2, roles: ["admin", "leader"] },
+  { path: "/app/employees", labelKey: "nav_employees", icon: Users, roles: ["admin", "leader"] },
+  { path: "/app/projects", labelKey: "nav_projects", icon: FolderOpen, roles: ["admin", "leader"] },
+  { path: "/app/rates", labelKey: "nav_rates", icon: DollarSign, roles: ["admin", "leader"] },
+  { path: "/app/attendance", labelKey: "nav_attendance", icon: CalendarDays, roles: ["admin", "leader"] },
+  { path: "/app/invoices", labelKey: "nav_invoices", icon: FileText, roles: ["admin", "leader"] },
+  { path: "/app/closings", labelKey: "nav_closings", icon: FileCheck2, roles: ["admin", "leader"] },
+  { path: "/app/payments", labelKey: "nav_payments", icon: Wallet, roles: ["admin", "leader"] },
+  { path: "/app/receivables", labelKey: "nav_receivables", icon: FileText, roles: ["admin", "leader"] },
+  { path: "/app/audit", labelKey: "nav_audit", icon: ClipboardList, roles: ["admin", "leader"] },
+  { path: "/app/support", labelKey: "nav_support", icon: HelpCircle, roles: ["admin", "leader", "worker"] },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -110,10 +118,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           {/* Nav */}
           <nav className="flex-1 p-4 space-y-1">
             {navItems
-              .filter((item) => {
-                if (appRole === "worker") return item.workerVisible === true;
-                return !item.adminOnly || appRole === "admin" || appRole === "leader";
-              })
+              .filter((item) => item.roles.includes(appRole as AppRole))
               .map((item) => {
                 const isActive = location === item.path || (item.path !== "/app" && location.startsWith(item.path));
                 return (

@@ -45,6 +45,322 @@ async function recalcInvoiceTotals(invoiceId: number) {
   });
 }
 
+
+
+
+async function safeAuditLog(userId: number | null | undefined, action: string, entityType: string, meta: {
+  entityId?: number | null;
+  projectId?: number | null;
+  closingId?: number | null;
+  invoiceId?: number | null;
+  employeeId?: number | null;
+  note?: string | null;
+  payload?: any;
+} = {}) {
+  try {
+    await db.createAuditLog({
+      action,
+      entityType,
+      entityId: meta.entityId ?? null,
+      projectId: meta.projectId ?? null,
+      closingId: meta.closingId ?? null,
+      invoiceId: meta.invoiceId ?? null,
+      employeeId: meta.employeeId ?? null,
+      performedBy: userId ?? null,
+      note: meta.note ?? null,
+      payload: meta.payload ? JSON.stringify(meta.payload) : null,
+    } as any);
+  } catch (error) {
+    console.warn("[AuditLog] failed:", error);
+  }
+}
+
+function getMonthDateRange(closingMonth: string): { start: Date; end: Date } {
+  if (!/^\d{4}-\d{2}$/.test(closingMonth)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "closingMonth must be YYYY-MM" });
+  }
+  const [year, month] = closingMonth.split("-").map(Number);
+  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+  return { start, end };
+}
+
+async function buildClosingDetail(projectId: number, closingMonth: string) {
+  const closing = await db.getProjectClosingByProjectMonth(projectId, closingMonth);
+  if (!closing?.id) return null;
+
+  const project = await db.getProjectById(projectId);
+  const [client, submissions, employees] = await Promise.all([
+    project?.clientId ? db.getClientById(project.clientId) : Promise.resolve(null),
+    db.getClosingSubmissionsByClosing(closing.id),
+    db.getAllEmployees(),
+  ]);
+
+  const employeeMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
+  const enrichedSubmissions = submissions
+    .map((submission) => ({ ...submission, employee: employeeMap.get(submission.employeeId) || null }))
+    .sort((a, b) => (a.employee?.nameKanji || "").localeCompare(b.employee?.nameKanji || "", "ja"));
+
+  const targetSubmissions = enrichedSubmissions.filter((s) => s.status !== "not_required");
+  const pendingCount = targetSubmissions.filter((s) => s.status === "pending" || s.status === "rejected").length;
+  const submittedCount = targetSubmissions.filter((s) => s.status === "submitted" || s.status === "approved").length;
+  const approvedCount = targetSubmissions.filter((s) => s.status === "approved").length;
+  const receiptMissingCount = targetSubmissions.filter((s) => s.receiptRequired && !s.receiptUploaded).length;
+  const canMarkReady = targetSubmissions.length > 0 && pendingCount === 0 && receiptMissingCount === 0;
+
+  return {
+    closing,
+    project,
+    client,
+    submissions: enrichedSubmissions,
+    summary: {
+      targetCount: targetSubmissions.length,
+      pendingCount,
+      submittedCount,
+      approvedCount,
+      receiptMissingCount,
+      canMarkReady,
+    },
+  };
+}
+
+function canInvoiceFromClosingStatus(status?: string | null) {
+  return status === "ready" || status === "closed" || status === "locked";
+}
+
+
+function findBestWorkerRate(rates: any[], employeeId: number, shiftType: string) {
+  return (
+    rates.find((r) => r.employeeId === employeeId && r.shiftType === shiftType) ||
+    rates.find((r) => r.employeeId === employeeId) ||
+    rates.find((r) => !r.employeeId && r.shiftType === shiftType) ||
+    rates.find((r) => !r.employeeId) ||
+    null
+  );
+}
+
+async function ensurePaymentRowsForProjectMonth(projectId: number, closingMonth: string) {
+  const closing = await ensureClosingInitializedForProjectMonth(projectId, closingMonth);
+  const [submissions, rates] = await Promise.all([
+    db.getClosingSubmissionsByClosing(closing.id!),
+    db.getRatesByProject(projectId),
+  ]);
+  const { start, end } = getMonthDateRange(closingMonth);
+  const attendanceRecords = await db.getAttendanceByProject(projectId, start, end);
+
+  const targetSubmissions = submissions.filter((s: any) => s.status !== "not_required");
+  for (const submission of targetSubmissions) {
+    const empRecords = attendanceRecords.filter((rec: any) => rec.employeeId === submission.employeeId);
+    const byShift = new Map<string, number>();
+    for (const rec of empRecords) {
+      if (!rec.employeeId) continue;
+      const shift = rec.shiftType || "day";
+      byShift.set(shift, (byShift.get(shift) || 0) + (rec.hoursWorked || 0));
+    }
+
+    let baseDaysTimes10 = 0;
+    let baseAmount = 0;
+    for (const [shiftType, totalHoursTimes10] of Array.from(byShift.entries())) {
+      const daysTimes10 = Math.round(totalHoursTimes10 / 8);
+      baseDaysTimes10 += daysTimes10;
+      const rate = findBestWorkerRate(rates as any[], submission.employeeId, shiftType);
+      const workerRate = rate?.workerRate || 0;
+      baseAmount += Math.round((daysTimes10 / 10) * workerRate);
+    }
+
+    const existing = await db.getEmployeePaymentByClosingEmployee(closing.id!, submission.employeeId);
+    const adjustmentAmount = existing?.adjustmentAmount || 0;
+    const totalAmount = baseAmount + (submission.transportAmount || 0) + (submission.expenseAmount || 0) + adjustmentAmount;
+
+    await db.upsertEmployeePayment({
+      closingId: closing.id!,
+      employeeId: submission.employeeId,
+      status: existing?.status || "pending",
+      baseDaysTimes10,
+      baseAmount,
+      transportAmount: submission.transportAmount || 0,
+      expenseAmount: submission.expenseAmount || 0,
+      adjustmentAmount,
+      totalAmount,
+      paidAt: existing?.paidAt || null,
+      paidBy: existing?.paidBy || null,
+      notes: existing?.notes || null,
+    } as any);
+  }
+
+  return closing;
+}
+
+function getMonthKeyFromDate(value?: Date | string | null) {
+  if (!value) return "";
+  if (typeof value === "string") return value.slice(0, 7);
+  const y = value.getUTCFullYear();
+  const m = String(value.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+function getInvoiceReceivedAmount(invoice: any) {
+  const received = Number(invoice.receivedAmount || 0);
+  if (received > 0) return received;
+  if (invoice.status === "paid") return Number(invoice.totalAmount || 0);
+  return 0;
+}
+
+function getReceivableStatus(invoice: any): "pending" | "partial" | "received" | "overdue" | "cancelled" {
+  if (invoice.status === "cancelled") return "cancelled";
+  const expected = Number(invoice.totalAmount || 0);
+  const received = getInvoiceReceivedAmount(invoice);
+  if (expected > 0 && received >= expected) return "received";
+  if (received > 0) return "partial";
+  if (invoice.status === "overdue") return "overdue";
+  if (invoice.dueDate) {
+    const due = typeof invoice.dueDate === "string" ? new Date(invoice.dueDate) : invoice.dueDate;
+    if (!Number.isNaN(due.getTime()) && due.getTime() < Date.now()) return "overdue";
+  }
+  return "pending";
+}
+
+async function buildReceivableMonthSummary(closingMonth: string) {
+  const [allInvoices, closings] = await Promise.all([
+    db.getAllInvoices(),
+    db.getProjectClosingsByMonth(closingMonth),
+  ]);
+  const invoicesForMonth = allInvoices.filter((invoice: any) => getMonthKeyFromDate(invoice.periodStart) === closingMonth && invoice.status !== "cancelled");
+  const invoiceCount = invoicesForMonth.length;
+  const expectedTotal = invoicesForMonth.reduce((sum: number, invoice: any) => sum + Number(invoice.totalAmount || 0), 0);
+  const receivedTotal = invoicesForMonth.reduce((sum: number, invoice: any) => sum + getInvoiceReceivedAmount(invoice), 0);
+  const outstandingTotal = Math.max(expectedTotal - receivedTotal, 0);
+
+  let employeePaymentTotal = 0;
+  let employeePaidTotal = 0;
+  for (const closing of closings) {
+    if (!closing?.id) continue;
+    const payments = await db.getEmployeePaymentsByClosing(closing.id);
+    employeePaymentTotal += payments.reduce((sum: number, payment: any) => sum + Number(payment.totalAmount || 0), 0);
+    employeePaidTotal += payments.filter((payment: any) => payment.status === "paid").reduce((sum: number, payment: any) => sum + Number(payment.totalAmount || 0), 0);
+  }
+
+  return {
+    invoiceCount,
+    expectedTotal,
+    receivedTotal,
+    outstandingTotal,
+    employeePaymentTotal,
+    employeePaidTotal,
+    cashBalance: receivedTotal - employeePaidTotal,
+  };
+}
+
+async function buildPaymentDetail(projectId: number, closingMonth: string) {
+  const closing = await ensurePaymentRowsForProjectMonth(projectId, closingMonth);
+  const [project, closingsDetail, employees, payments] = await Promise.all([
+    db.getProjectById(projectId),
+    buildClosingDetail(projectId, closingMonth),
+    db.getAllEmployees(),
+    db.getEmployeePaymentsByClosing(closing.id!),
+  ]);
+
+  const employeeMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
+  const submissionMap = new Map<number, any>((closingsDetail?.submissions || []).map((s: any) => [s.employeeId, s]));
+  const rows = payments
+    .map((payment: any) => ({
+      payment,
+      employee: employeeMap.get(payment.employeeId) || null,
+      submission: submissionMap.get(payment.employeeId) || null,
+    }))
+    .sort((a: any, b: any) => (a.employee?.nameKanji || "").localeCompare(b.employee?.nameKanji || "", "ja"));
+
+  const targetCount = rows.length;
+  const paidCount = rows.filter((r: any) => r.payment.status === "paid").length;
+  const confirmedCount = rows.filter((r: any) => r.payment.status === "confirmed").length;
+  const unpaidCount = rows.filter((r: any) => r.payment.status !== "paid").length;
+  const totalAmount = rows.reduce((sum: number, r: any) => sum + Number(r.payment.totalAmount || 0), 0);
+
+  return {
+    closing,
+    project,
+    client: closingsDetail?.client || null,
+    payments: rows,
+    summary: { targetCount, paidCount, confirmedCount, unpaidCount, totalAmount },
+  };
+}
+
+async function ensureClosingInitializedForProjectMonth(projectId: number, closingMonth: string) {
+  const existing = await db.getProjectClosingByProjectMonth(projectId, closingMonth);
+  const closing = existing?.id
+    ? existing
+    : await db.createProjectClosing({
+        projectId,
+        closingMonth,
+        status: "open",
+        notes: null,
+        closedAt: null,
+        closedBy: null,
+      });
+
+  const { start, end } = getMonthDateRange(closingMonth);
+  const [records, projectMembers] = await Promise.all([
+    db.getAttendanceByProject(projectId, start, end),
+    db.getProjectMembers(projectId),
+  ]);
+
+  const activeMemberIds = new Set(projectMembers.filter((m) => m.isActive).map((m) => m.employeeId));
+  const targetEmployeeIds = Array.from(new Set(
+    records
+      .filter((rec) => !!rec.employeeId && activeMemberIds.has(rec.employeeId!))
+      .map((rec) => rec.employeeId!)
+  ));
+
+  const existingSubmissions = await db.getClosingSubmissionsByClosing(closing.id!);
+  const existingByEmployee = new Map<number, any>(existingSubmissions.map((s: any) => [s.employeeId, s]));
+
+  for (const employeeId of targetEmployeeIds) {
+    const prev = existingByEmployee.get(employeeId);
+    await db.upsertClosingSubmission({
+      closingId: closing.id!,
+      employeeId,
+      status: prev?.status && prev.status !== "not_required" ? prev.status : "pending",
+      transportAmount: prev?.transportAmount || 0,
+      expenseAmount: prev?.expenseAmount || 0,
+      receiptRequired: prev?.receiptRequired || false,
+      receiptUploaded: prev?.receiptUploaded || false,
+      receiptFileUrl: prev?.receiptFileUrl || null,
+      receiptFileName: prev?.receiptFileName || null,
+      receiptFileKey: prev?.receiptFileKey || null,
+      receiptMimeType: prev?.receiptMimeType || null,
+      submittedAt: prev?.submittedAt || null,
+      approvedAt: prev?.approvedAt || null,
+      reviewedBy: prev?.reviewedBy || null,
+      notes: prev?.notes || null,
+    } as any);
+  }
+
+  for (const submission of existingSubmissions) {
+    if (!targetEmployeeIds.includes(submission.employeeId)) {
+      await db.updateClosingSubmission(submission.id, { status: "not_required" });
+    }
+  }
+
+  return closing;
+}
+
+async function getMyClosingSubmission(projectId: number, closingMonth: string, userId: number) {
+  const employee = await db.getEmployeeByUserId(userId);
+  if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+
+  const closing = await ensureClosingInitializedForProjectMonth(projectId, closingMonth);
+  const detail = await buildClosingDetail(projectId, closingMonth);
+  const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, employee.id);
+
+  return {
+    employee,
+    closing,
+    detail,
+    submission,
+    eligible: !!submission && submission.status !== "not_required",
+  };
+}
+
 export const appRouter = router({
   system: systemRouter,
 
@@ -696,7 +1012,7 @@ export const appRouter = router({
         contactPerson: z.string().optional(),
         notes: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
         return db.updateClient(id, data);
       }),
@@ -781,7 +1097,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const members = await db.getProjectMembers(input.projectId);
         const allEmployees = await db.getAllEmployees();
-        const empMap = new Map(allEmployees.map(e => [e.id, e]));
+        const empMap = new Map<number, any>(allEmployees.map((e: any) => [e.id, e]));
         return members.map(m => ({
           ...m,
           employee: empMap.get(m.employeeId) || null,
@@ -1384,6 +1700,609 @@ export const appRouter = router({
   }),
 
   // ── Invoices (請求書) ──
+  closing: router({
+    listByMonth: leaderOrAdminProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        const [projects, clients, closings] = await Promise.all([
+          db.getAllProjects(),
+          db.getAllClients(),
+          db.getProjectClosingsByMonth(input.closingMonth),
+        ]);
+        const clientMap = new Map<number, any>(clients.map((c: any) => [c.id, c]));
+        const closingMap = new Map<number, any>(closings.map((c: any) => [c.projectId, c]));
+
+        const rows = await Promise.all(
+          projects.map(async (project) => {
+            const closing = closingMap.get(project.id) || null;
+            if (!closing?.id) {
+              return {
+                project,
+                client: project.clientId ? clientMap.get(project.clientId) || null : null,
+                closing: null,
+                summary: {
+                  targetCount: 0,
+                  pendingCount: 0,
+                  submittedCount: 0,
+                  approvedCount: 0,
+                  receiptMissingCount: 0,
+                  canMarkReady: false,
+                },
+              };
+            }
+            const detail = await buildClosingDetail(project.id, input.closingMonth);
+            return {
+              project,
+              client: project.clientId ? clientMap.get(project.clientId) || null : null,
+              closing,
+              summary: detail?.summary || {
+                targetCount: 0,
+                pendingCount: 0,
+                submittedCount: 0,
+                approvedCount: 0,
+                receiptMissingCount: 0,
+                canMarkReady: false,
+              },
+            };
+          })
+        );
+
+        return rows.sort((a, b) => a.project.name.localeCompare(b.project.name, "ja"));
+      }),
+
+    get: leaderOrAdminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+      }))
+      .query(async ({ input }) => {
+        return buildClosingDetail(input.projectId, input.closingMonth);
+      }),
+
+    initialize: leaderOrAdminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
+        await safeAuditLog(ctx.user.id, "closing.initialize", "closing", { projectId: input.projectId, note: `${input.closingMonth} を初期化` });
+        return buildClosingDetail(input.projectId, input.closingMonth);
+      }),
+
+    updateSubmission: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["not_required", "pending", "submitted", "approved", "rejected"]).optional(),
+        transportAmount: z.number().min(0).optional(),
+        expenseAmount: z.number().min(0).optional(),
+        receiptUploaded: z.boolean().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const current = await db.getClosingSubmissionById(input.id);
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "提出行が見つかりません" });
+
+        const nextTransport = input.transportAmount ?? current.transportAmount;
+        const nextExpense = input.expenseAmount ?? current.expenseAmount;
+        const receiptRequired = nextTransport > 0 || nextExpense > 0;
+        const nextStatus = input.status ?? current.status;
+
+        const updateData: any = {
+          status: nextStatus,
+          transportAmount: nextTransport,
+          expenseAmount: nextExpense,
+          receiptRequired,
+          receiptUploaded: input.receiptUploaded ?? current.receiptUploaded,
+          notes: input.notes !== undefined ? input.notes : current.notes,
+        };
+        if (!receiptRequired) {
+          updateData.receiptUploaded = false;
+          updateData.receiptFileUrl = null;
+          updateData.receiptFileName = null;
+          updateData.receiptFileKey = null;
+          updateData.receiptMimeType = null;
+        }
+        if (nextStatus === "submitted" && !current.submittedAt) updateData.submittedAt = new Date();
+        if (nextStatus === "approved") {
+          updateData.approvedAt = new Date();
+          updateData.reviewedBy = ctx.user.id;
+        }
+        if (nextStatus === "rejected") updateData.approvedAt = null;
+
+        await db.updateClosingSubmission(input.id, updateData);
+        await safeAuditLog(ctx.user.id, "submission.update", "submission", { entityId: input.id, closingId: current.closingId, employeeId: current.employeeId, note: `提出状態を更新: ${nextStatus}` });
+        return { success: true };
+      }),
+
+    uploadReceipt: leaderOrAdminProcedure
+      .input(z.object({
+        submissionId: z.number(),
+        base64: z.string(),
+        mimeType: z.string(),
+        fileName: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const submission = await db.getClosingSubmissionById(input.submissionId);
+        if (!submission) throw new TRPCError({ code: "NOT_FOUND", message: "提出行が見つかりません" });
+        const closing = await db.getProjectClosingById(submission.closingId);
+        if (!closing) throw new TRPCError({ code: "NOT_FOUND", message: "締めデータが見つかりません" });
+        if (closing.status === "closed" || closing.status === "locked") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "締め済みデータにはアップロードできません" });
+        }
+
+        const buffer = Buffer.from(input.base64, "base64");
+        const validationError = validateFile(input.fileName, input.mimeType, buffer.length);
+        if (validationError) throw new TRPCError({ code: "BAD_REQUEST", message: validationError });
+        const suffix = nanoid(8);
+        const fileKey = `closings/${submission.closingId}/employee-${submission.employeeId}/receipt-${suffix}-${input.fileName}`;
+        const { url } = await storagePut(fileKey, buffer, input.mimeType);
+
+        await db.updateClosingSubmission(input.submissionId, {
+          receiptUploaded: true,
+          receiptRequired: true,
+          receiptFileUrl: url,
+          receiptFileName: input.fileName,
+          receiptFileKey: fileKey,
+          receiptMimeType: input.mimeType,
+          reviewedBy: ctx.user.id,
+        } as any);
+        await safeAuditLog(ctx.user.id, "submission.uploadReceipt", "submission", { entityId: input.submissionId, closingId: submission.closingId, employeeId: submission.employeeId, note: `領収書アップロード: ${input.fileName}` });
+        return { url, fileName: input.fileName };
+      }),
+
+    clearReceipt: leaderOrAdminProcedure
+      .input(z.object({ submissionId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const submission = await db.getClosingSubmissionById(input.submissionId);
+        if (!submission) throw new TRPCError({ code: "NOT_FOUND", message: "提出行が見つかりません" });
+        await db.updateClosingSubmission(input.submissionId, {
+          receiptUploaded: false,
+          receiptFileUrl: null,
+          receiptFileName: null,
+          receiptFileKey: null,
+          receiptMimeType: null,
+        } as any);
+        await safeAuditLog(ctx.user.id, "submission.clearReceipt", "submission", { entityId: input.submissionId, closingId: submission.closingId, employeeId: submission.employeeId, note: "領収書解除" });
+        return { success: true };
+      }),
+
+    mySubmission: protectedProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        return {
+          eligible: result.eligible,
+          closing: result.detail?.closing || result.closing,
+          project: result.detail?.project || null,
+          client: result.detail?.client || null,
+          submission: result.submission || null,
+          summary: result.detail?.summary || null,
+        };
+      }),
+
+    saveMySubmission: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        transportAmount: z.number().min(0),
+        expenseAmount: z.number().min(0),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (result.closing.status === "closed" || result.closing.status === "locked") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "締め済みデータは編集できません" });
+        }
+        const receiptRequired = input.transportAmount > 0 || input.expenseAmount > 0;
+        let nextStatus = result.submission.status;
+        if (["submitted", "approved", "rejected"].includes(nextStatus)) nextStatus = "pending";
+        const updateData: any = {
+          transportAmount: input.transportAmount,
+          expenseAmount: input.expenseAmount,
+          receiptRequired,
+          status: nextStatus,
+          notes: input.notes || null,
+        };
+        if (nextStatus === "pending") {
+          updateData.approvedAt = null;
+          updateData.reviewedBy = null;
+        }
+        if (!receiptRequired) {
+          updateData.receiptUploaded = false;
+          updateData.receiptFileUrl = null;
+          updateData.receiptFileName = null;
+          updateData.receiptFileKey = null;
+          updateData.receiptMimeType = null;
+        }
+        await db.updateClosingSubmission(result.submission.id, updateData);
+        await safeAuditLog(ctx.user.id, "submission.saveMySubmission", "submission", { entityId: result.submission.id, projectId: input.projectId, closingId: result.closing.id, employeeId: result.submission.employeeId, note: `${input.closingMonth} の提出内容を保存` });
+        return { success: true };
+      }),
+
+    submitMySubmission: protectedProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (result.closing.status === "closed" || result.closing.status === "locked") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "締め済みデータは提出できません" });
+        }
+        if (result.submission.receiptRequired && !result.submission.receiptUploaded) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "領収書を添付してから提出してください" });
+        }
+        await db.updateClosingSubmission(result.submission.id, {
+          status: "submitted",
+          submittedAt: new Date(),
+          approvedAt: null,
+          reviewedBy: null,
+        });
+        await safeAuditLog(ctx.user.id, "submission.submit", "submission", { entityId: result.submission.id, projectId: input.projectId, closingId: result.closing.id, employeeId: result.submission.employeeId, note: `${input.closingMonth} を提出` });
+        return { success: true };
+      }),
+
+    uploadMyReceipt: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        base64: z.string(),
+        mimeType: z.string(),
+        fileName: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (result.closing.status === "closed" || result.closing.status === "locked") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "締め済みデータにはアップロードできません" });
+        }
+        const buffer = Buffer.from(input.base64, "base64");
+        const validationError = validateFile(input.fileName, input.mimeType, buffer.length);
+        if (validationError) throw new TRPCError({ code: "BAD_REQUEST", message: validationError });
+        const suffix = nanoid(8);
+        const fileKey = `closings/${result.submission.closingId}/employee-${result.submission.employeeId}/receipt-${suffix}-${input.fileName}`;
+        const { url } = await storagePut(fileKey, buffer, input.mimeType);
+        await db.updateClosingSubmission(result.submission.id, {
+          receiptUploaded: true,
+          receiptRequired: true,
+          receiptFileUrl: url,
+          receiptFileName: input.fileName,
+          receiptFileKey: fileKey,
+          receiptMimeType: input.mimeType,
+          status: result.submission.status === "approved" ? "pending" : result.submission.status,
+          approvedAt: null,
+          reviewedBy: null,
+        } as any);
+        await safeAuditLog(ctx.user.id, "submission.uploadMyReceipt", "submission", { entityId: result.submission.id, projectId: input.projectId, closingId: result.closing.id, employeeId: result.submission.employeeId, note: `自分の領収書アップロード: ${input.fileName}` });
+        return { url, fileName: input.fileName };
+      }),
+
+    clearMyReceipt: protectedProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        await db.updateClosingSubmission(result.submission.id, {
+          receiptUploaded: false,
+          receiptFileUrl: null,
+          receiptFileName: null,
+          receiptFileKey: null,
+          receiptMimeType: null,
+          status: result.submission.status === "approved" ? "pending" : result.submission.status,
+          approvedAt: null,
+          reviewedBy: null,
+        } as any);
+        await safeAuditLog(ctx.user.id, "submission.clearMyReceipt", "submission", { entityId: result.submission.id, projectId: input.projectId, closingId: result.closing.id, employeeId: result.submission.employeeId, note: "自分の領収書解除" });
+        return { success: true };
+      }),
+
+    markReady: leaderOrAdminProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .mutation(async ({ ctx, input }) => {
+        const detail = await buildClosingDetail(input.projectId, input.closingMonth);
+        if (!detail?.closing?.id) throw new TRPCError({ code: "NOT_FOUND", message: "締めデータが見つかりません" });
+        if (!detail.summary.canMarkReady) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "未提出または領収書不足があるため ready にできません" });
+        }
+        await db.updateProjectClosing(detail.closing.id, { status: "ready" });
+        await safeAuditLog(ctx.user.id, "closing.markReady", "closing", { entityId: detail.closing.id, projectId: input.projectId, closingId: detail.closing.id, note: `${input.closingMonth} を ready 化` });
+        return buildClosingDetail(input.projectId, input.closingMonth);
+      }),
+
+    close: leaderOrAdminProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .mutation(async ({ ctx, input }) => {
+        const detail = await buildClosingDetail(input.projectId, input.closingMonth);
+        if (!detail?.closing?.id) throw new TRPCError({ code: "NOT_FOUND", message: "締めデータが見つかりません" });
+        if (detail.closing.status !== "ready") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "ready 状態の締めのみ閉じられます" });
+        }
+        await db.updateProjectClosing(detail.closing.id, {
+          status: "closed",
+          closedAt: new Date(),
+          closedBy: ctx.user.id,
+        });
+        await safeAuditLog(ctx.user.id, "closing.close", "closing", { entityId: detail.closing.id, projectId: input.projectId, closingId: detail.closing.id, note: `${input.closingMonth} を締め完了` });
+        return buildClosingDetail(input.projectId, input.closingMonth);
+      }),
+
+    reopen: leaderOrAdminProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .mutation(async ({ ctx, input }) => {
+        const detail = await buildClosingDetail(input.projectId, input.closingMonth);
+        if (!detail?.closing?.id) throw new TRPCError({ code: "NOT_FOUND", message: "締めデータが見つかりません" });
+        await db.updateProjectClosing(detail.closing.id, {
+          status: "open",
+          closedAt: null,
+          closedBy: null,
+        });
+        await safeAuditLog(ctx.user.id, "closing.reopen", "closing", { entityId: detail.closing.id, projectId: input.projectId, closingId: detail.closing.id, note: `${input.closingMonth} を再開` });
+        return buildClosingDetail(input.projectId, input.closingMonth);
+      }),
+  }),
+
+
+  payment: router({
+    listByMonth: leaderOrAdminProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        const [projects, clients, closings] = await Promise.all([
+          db.getAllProjects(),
+          db.getAllClients(),
+          db.getProjectClosingsByMonth(input.closingMonth),
+        ]);
+        const clientMap = new Map<number, any>(clients.map((c: any) => [c.id, c]));
+
+        const rows = await Promise.all(projects.map(async (project) => {
+          const closing = closings.find((c: any) => c.projectId === project.id && c.closingMonth === input.closingMonth) || null;
+          if (!closing?.id) {
+            return {
+              project,
+              client: project.clientId ? clientMap.get(project.clientId) || null : null,
+              closing: null,
+              summary: { targetCount: 0, paidCount: 0, confirmedCount: 0, unpaidCount: 0, totalAmount: 0 },
+            };
+          }
+          const payments = await db.getEmployeePaymentsByClosing(closing.id);
+          const targetCount = payments.length;
+          const paidCount = payments.filter((p: any) => p.status === "paid").length;
+          const confirmedCount = payments.filter((p: any) => p.status === "confirmed").length;
+          const unpaidCount = payments.filter((p: any) => p.status !== "paid").length;
+          const totalAmount = payments.reduce((sum: number, p: any) => sum + Number(p.totalAmount || 0), 0);
+          return {
+            project,
+            client: project.clientId ? clientMap.get(project.clientId) || null : null,
+            closing,
+            summary: { targetCount, paidCount, confirmedCount, unpaidCount, totalAmount },
+          };
+        }));
+
+        return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
+      }),
+
+    get: leaderOrAdminProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        return await buildPaymentDetail(input.projectId, input.closingMonth);
+      }),
+
+    refresh: leaderOrAdminProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .mutation(async ({ ctx, input }) => {
+        await ensurePaymentRowsForProjectMonth(input.projectId, input.closingMonth);
+        const refreshed = await buildPaymentDetail(input.projectId, input.closingMonth);
+        await safeAuditLog(ctx.user.id, "payment.refresh", "payment", { projectId: input.projectId, closingId: refreshed?.closing?.id || null, note: `${input.closingMonth} の支払行を再計算` });
+        return refreshed;
+
+      }),
+
+    update: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        adjustmentAmount: z.number().optional(),
+        notes: z.string().optional(),
+        status: z.enum(["pending", "confirmed", "paid"]).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const current = await db.getEmployeePaymentById(input.id);
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "支払行が見つかりません" });
+        const adjustmentAmount = input.adjustmentAmount ?? current.adjustmentAmount;
+        const totalAmount = Number(current.baseAmount || 0) + Number(current.transportAmount || 0) + Number(current.expenseAmount || 0) + Number(adjustmentAmount || 0);
+        await db.updateEmployeePayment(input.id, {
+          adjustmentAmount,
+          totalAmount,
+          notes: input.notes !== undefined ? input.notes : current.notes,
+          status: input.status || current.status,
+        } as any);
+        await safeAuditLog(ctx.user.id, "payment.update", "payment", { entityId: input.id, closingId: current.closingId, employeeId: current.employeeId, note: `支払行更新: ${totalAmount}円` });
+        return { success: true };
+      }),
+
+    markPaid: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const current = await db.getEmployeePaymentById(input.id);
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "支払行が見つかりません" });
+        await db.updateEmployeePayment(input.id, { status: "paid", paidAt: new Date(), paidBy: ctx.user.id } as any);
+        await safeAuditLog(ctx.user.id, "payment.markPaid", "payment", { entityId: input.id, closingId: current.closingId, employeeId: current.employeeId, note: `支払済みに変更 (${Number(current.totalAmount || 0)}円)` });
+        return { success: true };
+      }),
+
+    markUnpaid: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const current = await db.getEmployeePaymentById(input.id);
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "支払行が見つかりません" });
+        await db.updateEmployeePayment(input.id, { status: "pending", paidAt: null, paidBy: null } as any);
+        await safeAuditLog(ctx.user.id, "payment.markUnpaid", "payment", { entityId: input.id, closingId: current.closingId, employeeId: current.employeeId, note: "支払済み解除" });
+        return { success: true };
+      }),
+  }),
+
+  receivable: router({
+    listByMonth: leaderOrAdminProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        const [invoices, clients, projects, summary] = await Promise.all([
+          db.getAllInvoices(),
+          db.getAllClients(),
+          db.getAllProjects(),
+          buildReceivableMonthSummary(input.closingMonth),
+        ]);
+        const clientMap = new Map<number, any>(clients.map((c: any) => [c.id, c]));
+        const projectMap = new Map<number, any>(projects.map((p: any) => [p.id, p]));
+        const rows = invoices
+          .filter((invoice: any) => getMonthKeyFromDate(invoice.periodStart) === input.closingMonth)
+          .map((invoice: any) => {
+            const receivedAmount = getInvoiceReceivedAmount(invoice);
+            return {
+              invoice,
+              client: clientMap.get(invoice.clientId) || null,
+              project: invoice.projectId ? projectMap.get(invoice.projectId) || null : null,
+              receivedAmount,
+              outstandingAmount: Math.max(Number(invoice.totalAmount || 0) - receivedAmount, 0),
+              receivableStatus: getReceivableStatus(invoice),
+            };
+          })
+          .sort((a: any, b: any) => {
+            const ad = a.invoice.dueDate ? new Date(a.invoice.dueDate).getTime() : 0;
+            const bd = b.invoice.dueDate ? new Date(b.invoice.dueDate).getTime() : 0;
+            return ad - bd;
+          });
+        return { rows, summary };
+      }),
+
+    get: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const invoice = await db.getInvoiceById(input.id);
+        if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+        const [client, project, monthSummary] = await Promise.all([
+          invoice.clientId ? db.getClientById(invoice.clientId) : Promise.resolve(null),
+          invoice.projectId ? db.getProjectById(invoice.projectId) : Promise.resolve(null),
+          buildReceivableMonthSummary(getMonthKeyFromDate(invoice.periodStart)),
+        ]);
+        const receivedAmount = getInvoiceReceivedAmount(invoice);
+        return {
+          invoice,
+          client,
+          project,
+          receivedAmount,
+          outstandingAmount: Math.max(Number(invoice.totalAmount || 0) - receivedAmount, 0),
+          receivableStatus: getReceivableStatus(invoice),
+          monthSummary,
+        };
+      }),
+
+    update: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        receivedAmount: z.number().optional(),
+        receivedAt: z.string().optional(),
+        paymentMemo: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const current = await db.getInvoiceById(input.id);
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+        const receivedAmount = input.receivedAmount ?? Number(current.receivedAmount || 0);
+        const expected = Number(current.totalAmount || 0);
+        const dueDate = current.dueDate ? new Date(current.dueDate) : null;
+        let status: any = current.status;
+        if (current.status !== "cancelled") {
+          if (expected > 0 && receivedAmount >= expected) status = "paid";
+          else if (dueDate && dueDate.getTime() < Date.now()) status = "overdue";
+          else status = current.status === "draft" ? "draft" : "sent";
+        }
+        await db.updateInvoice(input.id, {
+          receivedAmount,
+          receivedAt: input.receivedAt ? parseDateString(input.receivedAt) : current.receivedAt,
+          receivedBy: receivedAmount > 0 ? ctx.user.id : current.receivedBy,
+          paymentMemo: input.paymentMemo !== undefined ? input.paymentMemo : current.paymentMemo,
+          status,
+        } as any);
+        await safeAuditLog(ctx.user.id, "receivable.update", "receivable", { entityId: input.id, invoiceId: input.id, note: `入金情報更新: ${receivedAmount}円` });
+        return { success: true };
+      }),
+
+    markReceived: leaderOrAdminProcedure
+      .input(z.object({ id: z.number(), receivedAmount: z.number().optional(), receivedAt: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const current = await db.getInvoiceById(input.id);
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+        const receivedAmount = input.receivedAmount ?? Number(current.totalAmount || 0);
+        await db.updateInvoice(input.id, {
+          status: "paid",
+          receivedAmount,
+          receivedAt: input.receivedAt ? parseDateString(input.receivedAt) : new Date(),
+          receivedBy: ctx.user.id,
+        } as any);
+        await safeAuditLog(ctx.user.id, "receivable.markReceived", "receivable", { entityId: input.id, invoiceId: input.id, note: `入金済みに変更: ${receivedAmount}円` });
+        return { success: true };
+      }),
+
+    markUnreceived: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const current = await db.getInvoiceById(input.id);
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+        const dueDate = current.dueDate ? new Date(current.dueDate) : null;
+        const status: any = current.status === "cancelled"
+          ? "cancelled"
+          : dueDate && dueDate.getTime() < Date.now()
+            ? "overdue"
+            : current.status === "draft"
+              ? "draft"
+              : "sent";
+        await db.updateInvoice(input.id, {
+          status,
+          receivedAmount: 0,
+          receivedAt: null,
+          receivedBy: null,
+        } as any);
+        await safeAuditLog(ctx.user.id, "receivable.markUnreceived", "receivable", { entityId: input.id, invoiceId: input.id, note: "入金済み解除" });
+        return { success: true };
+      }),
+  }),
+
+
+  audit: router({
+    list: leaderOrAdminProcedure
+      .input(z.object({
+        month: z.string().regex(/^\d{4}-\d{2}$/),
+        entityType: z.string().optional(),
+        action: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        const [logs, users, employees, projects, invoices] = await Promise.all([
+          db.getAuditLogsByMonth(input.month),
+          db.getAllUsers(),
+          db.getAllEmployees(),
+          db.getAllProjects(),
+          db.getAllInvoices(),
+        ]);
+        const userMap = new Map(users.map((u: any) => [u.id, u]));
+        const employeeMap = new Map(employees.map((e: any) => [e.id, e]));
+        const projectMap = new Map(projects.map((p: any) => [p.id, p]));
+        const invoiceMap = new Map(invoices.map((inv: any) => [inv.id, inv]));
+        let rows = logs.map((log: any) => ({
+          ...log,
+          user: log.performedBy ? userMap.get(log.performedBy) || null : null,
+          employeeName: log.employeeId ? (employeeMap.get(log.employeeId)?.nameKanji || null) : null,
+          projectName: log.projectId ? (projectMap.get(log.projectId)?.name || null) : null,
+          invoiceNumber: log.invoiceId ? (invoiceMap.get(log.invoiceId)?.invoiceNumber || null) : null,
+        }));
+        if (input.entityType) rows = rows.filter((row: any) => row.entityType === input.entityType);
+        if (input.action) rows = rows.filter((row: any) => String(row.action || "").toLowerCase().includes(input.action!.toLowerCase()));
+        rows.sort((a: any, b: any) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime());
+        const byEntity = rows.reduce((acc: any, row: any) => {
+          acc[row.entityType] = (acc[row.entityType] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        return { rows, summary: { total: rows.length, byEntity } };
+      }),
+  }),
+
+
   invoice: router({
     /** List all invoices */
     list: leaderOrAdminProcedure.query(async () => {
@@ -1420,12 +2339,28 @@ export const appRouter = router({
         withholding: z.boolean().default(false),
       }))
       .mutation(async ({ ctx, input }) => {
+        const closingMonth = input.periodStart.slice(0, 7);
+        if (input.periodEnd.slice(0, 7) !== closingMonth) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "請求対象期間は1ヶ月単位で指定してください" });
+        }
+
+        for (const projectId of input.projectIds) {
+          const project = await db.getProjectById(projectId);
+          const closing = await db.getProjectClosingByProjectMonth(projectId, closingMonth);
+          if (!canInvoiceFromClosingStatus(closing?.status)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `案件「${project?.name || projectId}」は ${closingMonth} の締めが完了していないため請求作成できません`,
+            });
+          }
+        }
+
         // Get all employees for names
         const allEmployees = await db.getAllEmployees();
-        const empMap = new Map(allEmployees.map(e => [e.id, e]));
+        const empMap = new Map<number, any>(allEmployees.map((e: any) => [e.id, e]));
 
         // Build invoice items across all projects
-        const items: Array<{ employeeId: number; description: string; quantity: number; unitPrice: number; amount: number; unit: string; transactionDate: Date | null }> = [];
+        const items: Array<{ employeeId: number; description: string; quantity: number; unitPrice: number; amount: number; unit: string }> = [];
         let subtotal = 0;
         const projectNames: string[] = [];
 
@@ -1477,11 +2412,6 @@ export const appRouter = router({
             const amount = Math.round((totalDaysTimes10 / 10) * clientRate);
             subtotal += amount;
 
-            const sortedDates = empRecords
-              .map(r => new Date(r.workDate))
-              .sort((a, b) => a.getTime() - b.getTime());
-            const firstWorkDate = sortedDates.length > 0 ? sortedDates[0] : null;
-
             // Include project name in description when multiple projects
             const descPrefix = input.projectIds.length > 1 ? `[${projName}] ` : '';
             items.push({
@@ -1491,7 +2421,6 @@ export const appRouter = router({
               unitPrice: clientRate,
               amount,
               unit: "日",
-              transactionDate: firstWorkDate,
             });
           }
         }
@@ -1546,18 +2475,29 @@ export const appRouter = router({
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             amount: item.amount,
-            unit: item.unit,
-            transactionDate: item.transactionDate,
+            unit: item.unit
           });
         }
 
+        for (const projectId of input.projectIds) {
+          const closing = await db.getProjectClosingByProjectMonth(projectId, closingMonth);
+          if (closing?.id) {
+            await db.updateProjectClosing(closing.id, {
+              status: "locked",
+              closedAt: closing.closedAt || new Date(),
+              closedBy: closing.closedBy || ctx.user.id,
+            });
+          }
+        }
+
+        await safeAuditLog(ctx.user.id, "invoice.createFromAttendance", "invoice", { entityId: invoice.id, invoiceId: invoice.id, projectId: primaryProjectId, note: `請求書自動作成 ${invoiceNumber}` });
         return { id: invoice.id, invoiceNumber, totalAmount };
       }),
 
     /** Generate PDF for an invoice */
     generatePdf: leaderOrAdminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const invoice = await db.getInvoiceById(input.id);
         if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
         const items = await db.getInvoiceItemsByInvoice(input.id);
@@ -1591,6 +2531,7 @@ export const appRouter = router({
 
         // Update invoice with PDF URL
         await db.updateInvoice(input.id, { pdfUrl: url });
+        await safeAuditLog(ctx.user.id, "invoice.generatePdf", "invoice", { entityId: input.id, invoiceId: input.id, note: `PDF生成 ${fileName}` });
 
         return { url, fileName };
       }),
@@ -1601,8 +2542,17 @@ export const appRouter = router({
         id: z.number(),
         status: z.enum(["draft", "sent", "paid", "overdue", "cancelled"]),
       }))
-      .mutation(async ({ input }) => {
-        return db.updateInvoice(input.id, { status: input.status });
+      .mutation(async ({ ctx, input }) => {
+        const current = await db.getInvoiceById(input.id);
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+        const updateData: any = { status: input.status };
+        if (input.status === "paid") {
+          updateData.receivedAmount = Number(current.receivedAmount || 0) > 0 ? Number(current.receivedAmount || 0) : Number(current.totalAmount || 0);
+          updateData.receivedAt = current.receivedAt || new Date();
+          updateData.receivedBy = ctx.user.id;
+        }
+        await safeAuditLog(ctx.user.id, "invoice.updateStatus", "invoice", { entityId: input.id, invoiceId: input.id, note: `ステータス変更: ${input.status}` });
+        return db.updateInvoice(input.id, updateData);
       }),
 
     /** Create manual invoice (手動請求書作成) */
@@ -1630,7 +2580,6 @@ export const appRouter = router({
           itemTaxRate: z.number().default(10),
           notes: z.string().optional(),
           sortOrder: z.number().default(0),
-          transactionDate: z.string().optional(),
         })),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1691,10 +2640,10 @@ export const appRouter = router({
             itemTaxRate: item.itemTaxRate,
             sortOrder: item.sortOrder || i,
             notes: item.notes || null,
-            transactionDate: item.transactionDate ? new Date(item.transactionDate) : null,
           });
         }
 
+        await safeAuditLog(ctx.user.id, "invoice.createManual", "invoice", { entityId: invoice.id, invoiceId: invoice.id, projectId: input.projectId || null, note: `手動請求書作成 ${invoiceNumber}` });
         return { id: invoice.id, invoiceNumber, totalAmount };
       }),
 
@@ -1712,7 +2661,7 @@ export const appRouter = router({
         notes: z.string().optional(),
         sortOrder: z.number().default(0),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const invoice = await db.getInvoiceById(input.invoiceId);
         if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -1732,6 +2681,7 @@ export const appRouter = router({
         // Recalculate invoice totals
         await recalcInvoiceTotals(input.invoiceId);
 
+        await safeAuditLog(ctx.user.id, "invoice.addItem", "invoice", { entityId: input.invoiceId, invoiceId: input.invoiceId, note: `明細追加: ${input.description}` });
         return newItem;
       }),
 
@@ -1748,13 +2698,14 @@ export const appRouter = router({
         notes: z.string().optional(),
         sortOrder: z.number().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
         await db.updateInvoiceItem(id, data);
 
         // Get the item to find its invoiceId
         const item = await db.getInvoiceItemById(id);
         if (item) await recalcInvoiceTotals(item.invoiceId);
+        await safeAuditLog(ctx.user.id, "invoice.updateItem", "invoice", { entityId: item?.invoiceId || null, invoiceId: item?.invoiceId || null, note: `明細更新 item:${id}` });
 
         return { success: true };
       }),
@@ -1762,12 +2713,13 @@ export const appRouter = router({
     /** Delete an invoice item */
     deleteItem: leaderOrAdminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const item = await db.getInvoiceItemById(input.id);
         if (!item) throw new TRPCError({ code: "NOT_FOUND" });
 
         await db.deleteInvoiceItem(input.id);
         await recalcInvoiceTotals(item.invoiceId);
+        await safeAuditLog(ctx.user.id, "invoice.deleteItem", "invoice", { entityId: item.invoiceId, invoiceId: item.invoiceId, note: `明細削除 item:${input.id}` });
 
         return { success: true };
       }),
@@ -1783,18 +2735,20 @@ export const appRouter = router({
         showSeal: z.boolean().optional(),
         showLogo: z.boolean().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
         const updateData: any = { ...data };
         if (data.dueDate) updateData.dueDate = new Date(data.dueDate);
+        await safeAuditLog(ctx.user.id, "invoice.update", "invoice", { entityId: id, invoiceId: id, note: "請求書情報更新" });
         return db.updateInvoice(id, updateData);
       }),
 
     /** Delete an invoice */
     delete: leaderOrAdminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.deleteInvoice(input.id);
+        await safeAuditLog(ctx.user.id, "invoice.delete", "invoice", { entityId: input.id, invoiceId: input.id, note: "請求書削除" });
         return { success: true };
       }),
   }),

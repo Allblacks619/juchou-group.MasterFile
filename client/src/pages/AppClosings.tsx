@@ -1,0 +1,408 @@
+import { useMemo, useRef, useState } from "react";
+import { format } from "date-fns";
+import { trpc } from "@/lib/trpc";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { toast } from "sonner";
+import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2 } from "lucide-react";
+
+const STATUS_LABELS: Record<string, { label: string; className: string }> = {
+  open: { label: "開放中", className: "bg-slate-500/20 text-slate-300" },
+  ready: { label: "準備完了", className: "bg-emerald-500/20 text-emerald-400" },
+  closed: { label: "締め完了", className: "bg-blue-500/20 text-blue-400" },
+  locked: { label: "ロック", className: "bg-amber-500/20 text-amber-400" },
+};
+
+const SUBMISSION_LABELS: Record<string, string> = {
+  not_required: "対象外",
+  pending: "未提出",
+  submitted: "提出済",
+  approved: "確認済",
+  rejected: "差戻し",
+};
+
+export default function AppClosings() {
+  const [closingMonth, setClosingMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+
+  const listQuery = trpc.closing.listByMonth.useQuery({ closingMonth });
+  const detailQuery = trpc.closing.get.useQuery(
+    { projectId: selectedProjectId || 0, closingMonth },
+    { enabled: !!selectedProjectId }
+  );
+
+  const initializeMutation = trpc.closing.initialize.useMutation({
+    onSuccess: () => {
+      toast.success("月締めデータを初期化しました");
+      listQuery.refetch();
+      detailQuery.refetch();
+    },
+    onError: (e) => toast.error(`初期化エラー: ${e.message}`),
+  });
+
+  const updateSubmissionMutation = trpc.closing.updateSubmission.useMutation({
+    onSuccess: () => {
+      toast.success("提出状況を更新しました");
+      detailQuery.refetch();
+      listQuery.refetch();
+    },
+    onError: (e) => toast.error(`更新エラー: ${e.message}`),
+  });
+
+  const markReadyMutation = trpc.closing.markReady.useMutation({
+    onSuccess: () => {
+      toast.success("準備完了にしました");
+      detailQuery.refetch();
+      listQuery.refetch();
+    },
+    onError: (e) => toast.error(`ready化エラー: ${e.message}`),
+  });
+
+  const closeMutation = trpc.closing.close.useMutation({
+    onSuccess: () => {
+      toast.success("締めを完了しました");
+      detailQuery.refetch();
+      listQuery.refetch();
+    },
+    onError: (e) => toast.error(`締め完了エラー: ${e.message}`),
+  });
+
+  const reopenMutation = trpc.closing.reopen.useMutation({
+    onSuccess: () => {
+      toast.success("締めを再開しました");
+      detailQuery.refetch();
+      listQuery.refetch();
+    },
+    onError: (e) => toast.error(`再開エラー: ${e.message}`),
+  });
+
+  const uploadReceiptMutation = trpc.closing.uploadReceipt.useMutation({
+    onSuccess: () => {
+      toast.success("領収書をアップロードしました");
+      detailQuery.refetch();
+      listQuery.refetch();
+    },
+    onError: (e) => toast.error(`領収書アップロードエラー: ${e.message}`),
+  });
+
+  const clearReceiptMutation = trpc.closing.clearReceipt.useMutation({
+    onSuccess: () => {
+      toast.success("領収書を解除しました");
+      detailQuery.refetch();
+      listQuery.refetch();
+    },
+    onError: (e) => toast.error(`領収書解除エラー: ${e.message}`),
+  });
+
+  const rows = listQuery.data || [];
+  const selectedRow = useMemo(
+    () => rows.find((row: any) => row.project.id === selectedProjectId) || null,
+    [rows, selectedProjectId]
+  );
+  const detail = detailQuery.data;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">締め管理</h1>
+          <p className="text-sm text-muted-foreground">案件ごと・月ごとの提出状況と締め状態を管理します。</p>
+        </div>
+        <div className="w-[180px]">
+          <Label className="text-xs text-muted-foreground">対象月</Label>
+          <Input type="month" value={closingMonth} onChange={(e) => setClosingMonth(e.target.value)} />
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>案件一覧</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {listQuery.isLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-5 w-5 animate-spin text-gold" />
+            </div>
+          ) : (
+            <div className="border rounded-md overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>案件</TableHead>
+                    <TableHead>取引先</TableHead>
+                    <TableHead>状態</TableHead>
+                    <TableHead className="text-right">対象者</TableHead>
+                    <TableHead className="text-right">未提出</TableHead>
+                    <TableHead className="text-right">領収書不足</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row: any) => (
+                    <TableRow key={row.project.id} className={selectedProjectId === row.project.id ? "bg-muted/50" : ""}>
+                      <TableCell className="font-medium">{row.project.name}</TableCell>
+                      <TableCell>{row.client?.name || "-"}</TableCell>
+                      <TableCell>
+                        {row.closing ? (
+                          <span className={`px-2 py-1 rounded text-xs ${STATUS_LABELS[row.closing.status]?.className || "bg-muted"}`}>
+                            {STATUS_LABELS[row.closing.status]?.label || row.closing.status}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 rounded text-xs bg-muted text-muted-foreground">未初期化</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">{row.summary.targetCount}</TableCell>
+                      <TableCell className="text-right">{row.summary.pendingCount}</TableCell>
+                      <TableCell className="text-right">{row.summary.receiptMissingCount}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button size="sm" variant="outline" onClick={() => setSelectedProjectId(row.project.id)}>
+                            詳細
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => initializeMutation.mutate({ projectId: row.project.id, closingMonth })}
+                            disabled={initializeMutation.isPending}
+                          >
+                            初期化
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {rows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                        対象案件がありません
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedProjectId && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between gap-3">
+              <span>{selectedRow?.project?.name || "案件"} / {closingMonth} 締め詳細</span>
+              {detail?.closing && (
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-1 rounded text-xs ${STATUS_LABELS[detail.closing.status]?.className || "bg-muted"}`}>
+                    {STATUS_LABELS[detail.closing.status]?.label || detail.closing.status}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => markReadyMutation.mutate({ projectId: selectedProjectId, closingMonth })}
+                    disabled={!detail.summary.canMarkReady || markReadyMutation.isPending}
+                  >
+                    <FileCheck className="h-3.5 w-3.5 mr-1" />
+                    ready
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => closeMutation.mutate({ projectId: selectedProjectId, closingMonth })}
+                    disabled={detail.closing.status !== "ready" || closeMutation.isPending}
+                  >
+                    <Lock className="h-3.5 w-3.5 mr-1" />
+                    締める
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => reopenMutation.mutate({ projectId: selectedProjectId, closingMonth })}
+                    disabled={reopenMutation.isPending}
+                  >
+                    <LockOpen className="h-3.5 w-3.5 mr-1" />
+                    再開
+                  </Button>
+                </div>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {detailQuery.isLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-5 w-5 animate-spin text-gold" />
+              </div>
+            ) : !detail?.closing ? (
+              <div className="text-sm text-muted-foreground">まだ初期化されていません。上の「初期化」を押してください。</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <SummaryCard label="対象者" value={detail.summary.targetCount} />
+                  <SummaryCard label="未提出" value={detail.summary.pendingCount} />
+                  <SummaryCard label="提出済" value={detail.summary.submittedCount} />
+                  <SummaryCard label="確認済" value={detail.summary.approvedCount} />
+                  <SummaryCard label="領収書不足" value={detail.summary.receiptMissingCount} />
+                </div>
+
+                <div className="border rounded-md overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>作業員</TableHead>
+                        <TableHead>状態</TableHead>
+                        <TableHead className="text-right">交通費</TableHead>
+                        <TableHead className="text-right">経費</TableHead>
+                        <TableHead className="text-center">領収書</TableHead>
+                        <TableHead>メモ</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {detail.submissions.map((submission: any) => (
+                        <SubmissionRow
+                          key={submission.id}
+                          submission={submission}
+                          onUpdate={(payload) => updateSubmissionMutation.mutate({ id: submission.id, ...payload })}
+                          onUploadReceipt={(payload) => uploadReceiptMutation.mutate({ submissionId: submission.id, ...payload })}
+                          onClearReceipt={() => clearReceiptMutation.mutate({ submissionId: submission.id })}
+                          busy={updateSubmissionMutation.isPending || uploadReceiptMutation.isPending || clearReceiptMutation.isPending}
+                        />
+                      ))}
+                      {detail.submissions.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                            対象提出データがありません
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {!detail.summary.canMarkReady && (
+                  <div className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3">
+                    未提出または領収書不足があるため、まだ ready にできません。
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function SummaryCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-xl font-bold">{value}</div>
+    </div>
+  );
+}
+
+function SubmissionRow({
+  submission,
+  onUpdate,
+  onUploadReceipt,
+  onClearReceipt,
+  busy,
+}: {
+  submission: any;
+  onUpdate: (payload: any) => void;
+  onUploadReceipt: (payload: { base64: string; mimeType: string; fileName: string }) => void;
+  onClearReceipt: () => void;
+  busy?: boolean;
+}) {
+  const [transportAmount, setTransportAmount] = useState<number>(submission.transportAmount || 0);
+  const [expenseAmount, setExpenseAmount] = useState<number>(submission.expenseAmount || 0);
+  const [status, setStatus] = useState<string>(submission.status);
+  const [notes, setNotes] = useState<string>(submission.notes || "");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const receiptRequired = transportAmount > 0 || expenseAmount > 0;
+
+  const handleReceiptFile = async (file?: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",")[1] : result;
+      onUploadReceipt({
+        base64,
+        mimeType: file.type || "application/octet-stream",
+        fileName: file.name,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <TableRow>
+      <TableCell className="font-medium">{submission.employee?.nameKanji || `従業員${submission.employeeId}`}</TableCell>
+      <TableCell>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="h-8 w-[120px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {Object.entries(SUBMISSION_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </TableCell>
+      <TableCell className="text-right"><Input type="number" className="h-8 text-right" value={transportAmount} onChange={(e) => setTransportAmount(Number(e.target.value))} /></TableCell>
+      <TableCell className="text-right"><Input type="number" className="h-8 text-right" value={expenseAmount} onChange={(e) => setExpenseAmount(Number(e.target.value))} /></TableCell>
+      <TableCell className="text-center">
+        <div className="flex flex-col items-center gap-1">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="image/*,.pdf"
+            onChange={(e) => handleReceiptFile(e.target.files?.[0] || null)}
+          />
+          <Button
+            variant={submission.receiptUploaded ? "default" : "outline"}
+            size="sm"
+            disabled={!receiptRequired || busy}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="h-3.5 w-3.5 mr-1" />
+            {submission.receiptUploaded ? "差替" : "アップ"}
+          </Button>
+          {submission.receiptFileUrl ? (
+            <div className="flex items-center gap-1 text-[11px] max-w-[180px]">
+              <a href={submission.receiptFileUrl} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline inline-flex items-center gap-1 truncate">
+                <LinkIcon className="h-3 w-3 shrink-0" />
+                <span className="truncate">{submission.receiptFileName || "領収書"}</span>
+              </a>
+              <button type="button" className="text-red-400 hover:text-red-300 shrink-0" onClick={onClearReceipt} disabled={busy}>
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ) : (
+            <span className={`text-[11px] ${receiptRequired ? "text-amber-400" : "text-muted-foreground"}`}>
+              {receiptRequired ? "未添付" : "不要"}
+            </span>
+          )}
+        </div>
+      </TableCell>
+      <TableCell><Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="メモ" /></TableCell>
+      <TableCell className="text-right"><Button size="sm" disabled={busy} onClick={() => onUpdate({ status, transportAmount, expenseAmount, receiptUploaded: submission.receiptUploaded, notes })}>保存</Button></TableCell>
+    </TableRow>
+  );
+}

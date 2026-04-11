@@ -33,7 +33,6 @@ interface InvoiceItemData {
   unitPrice: number;
   amount: number;
   itemTaxRate: number;
-  transactionDate?: Date | string | null;
   notes?: string | null;
   sortOrder: number;
 }
@@ -202,7 +201,6 @@ export default function InvoicePreview({ invoice, items, client, company }: Invo
           <thead>
             <tr className="bg-gray-100">
               <th className="border border-gray-300 px-2 py-1.5 text-left text-[10px] w-8">No.</th>
-              <th className="border border-gray-300 px-2 py-1.5 text-left text-[10px] w-20">取引日</th>
               <th className="border border-gray-300 px-2 py-1.5 text-left text-[10px]">摘要</th>
               <th className="border border-gray-300 px-2 py-1.5 text-right text-[10px] w-16">数量</th>
               <th className="border border-gray-300 px-2 py-1.5 text-center text-[10px] w-10">単位</th>
@@ -214,9 +212,6 @@ export default function InvoicePreview({ invoice, items, client, company }: Invo
             {sortedItems.map((item, idx) => (
               <tr key={idx} className={item.itemType === "text" ? "bg-gray-50" : ""}>
                 <td className="border border-gray-300 px-2 py-1 text-[10px] text-gray-500">{idx + 1}</td>
-                <td className="border border-gray-300 px-2 py-1 text-[10px]">
-                  {item.transactionDate ? format(new Date(item.transactionDate as string), "yyyy/MM/dd") : ""}
-                </td>
                 <td className="border border-gray-300 px-2 py-1 text-[10px]">
                   {item.description}
                   {item.itemTaxRate === 8 && item.itemType === "normal" && (

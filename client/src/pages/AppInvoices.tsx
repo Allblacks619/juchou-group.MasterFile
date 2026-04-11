@@ -45,6 +45,7 @@ import {
   Eye,
   PlusCircle,
   Type,
+  Pencil,
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 
@@ -62,7 +63,7 @@ const TAX_RATES = [
   { value: 0, label: "0%（非課税）" },
 ];
 
-const UNIT_OPTIONS = ["式", "日", "枚", "個", "箱", "本", "台", "セット", "ヶ月", "回", "人"];
+const UNIT_OPTIONS = ["日", "式", "個"];
 
 function formatYen(amount: number): string {
   return `¥${amount.toLocaleString("ja-JP")}`;
@@ -78,7 +79,6 @@ interface InvoiceLineItem {
   itemTaxRate: number;
   notes: string;
   sortOrder: number;
-  transactionDate: string;
 }
 
 function emptyNormalItem(sortOrder: number): InvoiceLineItem {
@@ -92,7 +92,6 @@ function emptyNormalItem(sortOrder: number): InvoiceLineItem {
     itemTaxRate: 10,
     notes: "",
     sortOrder,
-    transactionDate: "",
   };
 }
 
@@ -107,7 +106,6 @@ function emptyTextItem(sortOrder: number): InvoiceLineItem {
     itemTaxRate: 0,
     notes: "",
     sortOrder,
-    transactionDate: "",
   };
 }
 
@@ -146,8 +144,19 @@ function InvoiceDetailDialog({
     },
     onError: (e: any) => toast.error(`削除エラー: ${e.message}`),
   });
+  const updateItemMutation = trpc.invoice.updateItem.useMutation({
+    onSuccess: () => {
+      toast.success("項目を更新しました");
+      detailQuery.refetch();
+      setEditItemId(null);
+      setEditItem(null);
+    },
+    onError: (e: any) => toast.error(`更新エラー: ${e.message}`),
+  });
 
   const [newItem, setNewItem] = useState<InvoiceLineItem>(emptyNormalItem(0));
+  const [editItemId, setEditItemId] = useState<number | null>(null);
+  const [editItem, setEditItem] = useState<InvoiceLineItem | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [activeTab, setActiveTab] = useState<"detail" | "preview">("detail");
 
@@ -182,6 +191,28 @@ function InvoiceDetailDialog({
     });
     setNewItem(emptyNormalItem(items.length + 1));
     setShowAddForm(false);
+  };
+
+  const handleEditSave = () => {
+    if (!editItemId || !editItem) return;
+    if (!editItem.description.trim()) {
+      toast.error("摘要を入力してください");
+      return;
+    }
+    const amount = editItem.itemType === "normal"
+      ? calcAmount(editItem.quantity, editItem.unit, editItem.unitPrice)
+      : 0;
+    updateItemMutation.mutate({
+      id: editItemId,
+      description: editItem.description,
+      quantity: editItem.quantity,
+      unit: editItem.unit,
+      unitPrice: editItem.unitPrice,
+      amount,
+      itemTaxRate: editItem.itemTaxRate,
+      notes: editItem.notes || undefined,
+      sortOrder: editItem.sortOrder,
+    });
   };
 
   return (
@@ -246,8 +277,7 @@ function InvoiceDetailDialog({
           <TableHeader>
             <TableRow>
               <TableHead className="w-8">No.</TableHead>
-              <TableHead className="w-24">取引日</TableHead>
-              <TableHead>摘要</TableHead>
+                            <TableHead>摘要</TableHead>
               <TableHead className="w-20">数量</TableHead>
               <TableHead className="w-20">単価</TableHead>
               <TableHead className="w-16">税率</TableHead>
@@ -258,7 +288,7 @@ function InvoiceDetailDialog({
           <TableBody>
             {items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
                   項目がありません
                 </TableCell>
               </TableRow>
@@ -266,9 +296,6 @@ function InvoiceDetailDialog({
               items.map((item: any, idx: number) => (
                 <TableRow key={item.id} className={item.itemType === "text" ? "bg-muted/30" : ""}>
                   <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                  <TableCell className="text-xs">
-                    {item.transactionDate ? format(new Date(item.transactionDate), "yyyy-MM-dd") : "-"}
-                  </TableCell>
                   <TableCell>
                     <div>
                       {item.itemType === "text" && (
@@ -296,18 +323,44 @@ function InvoiceDetailDialog({
                     {item.itemType === "normal" ? formatYen(item.amount) : "-"}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
-                      onClick={() => {
-                        if (confirm("この項目を削除しますか？")) {
-                          deleteItemMutation.mutate({ id: item.id });
-                        }
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-blue-400 hover:text-blue-300"
+                        onClick={() => {
+                          setEditItemId(item.id);
+                          setEditItem({
+                            itemType: item.itemType,
+                            description: item.description || "",
+                            quantity: item.quantity || 0,
+                            unit: item.unit || "式",
+                            unitPrice: item.unitPrice || 0,
+                            amount: item.amount || 0,
+                            itemTaxRate: item.itemTaxRate || 10,
+                            notes: item.notes || "",
+                            sortOrder: item.sortOrder || idx,
+                          });
+                          setShowAddForm(false);
+                        }}
+                        title="編集"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
+                        onClick={() => {
+                          if (confirm("この項目を削除しますか？")) {
+                            deleteItemMutation.mutate({ id: item.id });
+                          }
+                        }}
+                        title="削除"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -319,6 +372,132 @@ function InvoiceDetailDialog({
       {/* Reduced tax rate note */}
       {items.some((item: any) => item.itemTaxRate === 8 && item.itemType === "normal") && (
         <p className="text-xs text-muted-foreground">※印は軽減税率対象です。</p>
+      )}
+
+      {/* Edit item form */}
+      {editItem && editItemId !== null && (
+        <Card className="border-blue-500/30">
+          <CardContent className="pt-4 space-y-3">
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-sm font-medium">項目を編集</Label>
+              <Button variant="ghost" size="sm" onClick={() => { setEditItemId(null); setEditItem(null); }}>
+                キャンセル
+              </Button>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs">摘要 *</Label>
+              <Input
+                value={editItem.description}
+                onChange={(e) => setEditItem((prev) => prev ? ({ ...prev, description: e.target.value }) : prev)}
+                placeholder="項目名・作業内容など"
+              />
+            </div>
+
+            {editItem.itemType === "normal" && (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">数量{editItem.unit === "日" ? "（×10）" : ""}</Label>
+                  <Input
+                    type="number"
+                    value={editItem.quantity}
+                    onChange={(e) => {
+                      const qty = Number(e.target.value);
+                      setEditItem((prev) => prev ? ({
+                        ...prev,
+                        quantity: qty,
+                        amount: calcAmount(qty, prev.unit, prev.unitPrice),
+                      }) : prev);
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">単位</Label>
+                  <Select
+                    value={editItem.unit}
+                    onValueChange={(v) => {
+                      setEditItem((prev) => prev ? ({
+                        ...prev,
+                        unit: v,
+                        amount: calcAmount(prev.quantity, v, prev.unitPrice),
+                      }) : prev);
+                    }}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UNIT_OPTIONS.map((u) => (
+                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">単価（円）</Label>
+                  <Input
+                    type="number"
+                    value={editItem.unitPrice}
+                    onChange={(e) => {
+                      const price = Number(e.target.value);
+                      setEditItem((prev) => prev ? ({
+                        ...prev,
+                        unitPrice: price,
+                        amount: calcAmount(prev.quantity, prev.unit, price),
+                      }) : prev);
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">税率</Label>
+                  <Select
+                    value={String(editItem.itemTaxRate)}
+                    onValueChange={(v) => setEditItem((prev) => prev ? ({ ...prev, itemTaxRate: Number(v) }) : prev)}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TAX_RATES.map((r) => (
+                        <SelectItem key={r.value} value={String(r.value)}>
+                          {r.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">金額</Label>
+                  <div className="h-8 flex items-center text-sm font-medium">{formatYen(editItem.amount)}</div>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <Label className="text-xs">備考（任意）</Label>
+              <Input
+                value={editItem.notes}
+                onChange={(e) => setEditItem((prev) => prev ? ({ ...prev, notes: e.target.value }) : prev)}
+                placeholder="補足説明..."
+              />
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <Button
+                size="sm"
+                onClick={handleEditSave}
+                disabled={updateItemMutation.isPending}
+                className="bg-blue-600 text-white hover:bg-blue-700"
+              >
+                {updateItemMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                更新
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => { setEditItemId(null); setEditItem(null); }}>
+                閉じる
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Add item form */}
@@ -346,24 +525,13 @@ function InvoiceDetailDialog({
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">取引日</Label>
-                <Input
-                  type="date"
-                  value={newItem.transactionDate}
-                  onChange={(e) => setNewItem((prev) => ({ ...prev, transactionDate: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1 col-span-2 md:col-span-1">
-                <Label className="text-xs">摘要 *</Label>
-                <Input
-                  value={newItem.description}
-                  onChange={(e) => setNewItem((prev) => ({ ...prev, description: e.target.value }))}
-                  placeholder="項目名・作業内容など"
-                />
-              </div>
+            <div className="space-y-1">
+              <Label className="text-xs">摘要 *</Label>
+              <Input
+                value={newItem.description}
+                onChange={(e) => setNewItem((prev) => ({ ...prev, description: e.target.value }))}
+                placeholder="項目名・作業内容など"
+              />
             </div>
 
             {newItem.itemType === "normal" && (
@@ -642,7 +810,6 @@ function ManualCreateDialog({
         .map((item, idx) => ({
           ...item,
           sortOrder: idx,
-          transactionDate: item.transactionDate || undefined,
         })),
     });
   };
@@ -833,26 +1000,14 @@ function ManualCreateDialog({
                       </Button>
                     )}
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label className="text-[10px] text-muted-foreground">取引日</Label>
-                      <Input
-                        type="date"
-                        value={item.transactionDate}
-                        onChange={(e) => updateItem(idx, { transactionDate: e.target.value })}
-                        className="h-7 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-[10px] text-muted-foreground">摘要 *</Label>
-                      <Input
-                        value={item.description}
-                        onChange={(e) => updateItem(idx, { description: e.target.value })}
-                        placeholder="作業内容・項目名"
-                        className="h-7 text-sm"
-                      />
-                    </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">摘要 *</Label>
+                    <Input
+                      value={item.description}
+                      onChange={(e) => updateItem(idx, { description: e.target.value })}
+                      placeholder="作業内容・項目名"
+                      className="h-7 text-sm"
+                    />
                   </div>
 
                   {item.itemType === "normal" && (
@@ -1050,6 +1205,10 @@ export default function AppInvoices() {
   const invoicesQuery = trpc.invoice.list.useQuery();
   const projectsQuery = trpc.project.list.useQuery();
   const clientsQuery = trpc.clientInfo.list.useQuery();
+  const autoClosingsQuery = trpc.closing.listByMonth.useQuery(
+    { closingMonth: autoPeriodMonth },
+    { enabled: showAutoCreate }
+  );
 
   const createFromAttendanceMutation = trpc.invoice.createFromAttendance.useMutation({
     onSuccess: (data: any) => {
@@ -1122,6 +1281,11 @@ export default function AppInvoices() {
   const invoices = invoicesQuery.data || [];
   const projects = projectsQuery.data || [];
   const clients = clientsQuery.data || [];
+  const closingRows = autoClosingsQuery.data || [];
+  const blockingClosings = autoProjectIds
+    .map((projectId) => closingRows.find((row: any) => row.project.id === projectId))
+    .filter((row: any) => !row?.closing || !["ready", "closed", "locked"].includes(row.closing.status));
+  const canAutoCreate = !!autoClientId && autoProjectIds.length > 0 && blockingClosings.length === 0;
 
   return (
     <div className="space-y-6">
@@ -1217,6 +1381,16 @@ export default function AppInvoices() {
             <div className="space-y-2">
               <Label>対象月</Label>
               <Input type="month" value={autoPeriodMonth} onChange={(e) => setAutoPeriodMonth(e.target.value)} />
+              {blockingClosings.length > 0 && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300 space-y-1">
+                  <p>以下の案件はまだ締めが完了していないため請求作成できません。</p>
+                  {blockingClosings.map((row: any, index: number) => (
+                    <div key={row?.project?.id || index}>
+                      ・{row?.project?.name || "不明案件"}（{row?.closing ? row.closing.status : "未初期化"}）
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label>消費税率 (%)</Label>
@@ -1258,7 +1432,7 @@ export default function AppInvoices() {
             </DialogClose>
             <Button
               onClick={handleAutoCreate}
-              disabled={createFromAttendanceMutation.isPending}
+              disabled={createFromAttendanceMutation.isPending || !canAutoCreate}
               className="bg-gold text-background hover:bg-gold-dim"
             >
               {createFromAttendanceMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}

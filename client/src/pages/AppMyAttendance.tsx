@@ -28,6 +28,7 @@ import {
   X,
   Lock,
   LockOpen,
+  FileCheck2,
 } from "lucide-react";
 import {
   format,
@@ -269,6 +270,16 @@ export default function AppMyAttendance() {
             className={!isLocked ? "text-amber-400 bg-amber-500/20 hover:bg-amber-500/30" : "text-muted-foreground"}
           >
             {isLocked ? <Lock className="h-5 w-5" /> : <LockOpen className="h-5 w-5" />}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.location.href = "/app/my-closing"}
+            className="gap-1.5"
+          >
+            <FileCheck2 className="h-4 w-4" />
+            月締め提出
           </Button>
 
           <Button
