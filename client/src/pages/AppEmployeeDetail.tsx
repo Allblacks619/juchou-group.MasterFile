@@ -107,6 +107,14 @@ export default function AppEmployeeDetail() {
     onError: (e) => toast.error(e.message),
   });
 
+  const deleteMutation = trpc.employee.delete.useMutation({
+    onSuccess: () => {
+      toast.success("従業員を削除しました");
+      setLocation("/app/employees");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   // Form state
   const [form, setForm] = useState({
     nameKanji: "",
@@ -446,9 +454,25 @@ export default function AppEmployeeDetail() {
                 </div>
               )}
 
-              <Button onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending} className="bg-gold text-background hover:bg-gold-dim">
-                {(createMutation.isPending || updateMutation.isPending) ? "保存中..." : "保存"}
-              </Button>
+              <div className="flex gap-2">
+                <Button onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending} className="bg-gold text-background hover:bg-gold-dim">
+                  {(createMutation.isPending || updateMutation.isPending) ? "保存中..." : "保存"}
+                </Button>
+                {!isNew && (
+                  <Button
+                    variant="destructive"
+                    disabled={deleteMutation.isPending}
+                    onClick={() => {
+                      if (window.confirm("本当に従業員を削除しますか？")) {
+                        deleteMutation.mutate({ id: employeeId! });
+                      }
+                    }}
+                  >
+                    {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                    削除
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

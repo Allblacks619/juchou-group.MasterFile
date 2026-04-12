@@ -21,7 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2 } from "lucide-react";
+import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2, FileDown } from "lucide-react";
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   open: { label: "開放中", className: "bg-slate-500/20 text-slate-300" },
@@ -91,6 +91,14 @@ export default function AppClosings() {
       listQuery.refetch();
     },
     onError: (e) => toast.error(`再開エラー: ${e.message}`),
+  });
+
+  const generateInvoiceMutation = trpc.invoice.generateForClosing.useMutation({
+    onSuccess: (data: any) => {
+      window.open(data.url, "_blank");
+      toast.success("請求書を生成しました");
+    },
+    onError: (e: any) => toast.error(`請求書生成エラー: ${e.message}`),
   });
 
   const uploadReceiptMutation = trpc.closing.uploadReceipt.useMutation({
@@ -237,6 +245,16 @@ export default function AppClosings() {
                     <LockOpen className="h-3.5 w-3.5 mr-1" />
                     再開
                   </Button>
+                  {detail.closing.status === "closed" && (
+                    <Button
+                      size="sm"
+                      onClick={() => generateInvoiceMutation.mutate({ projectId: selectedProjectId, closingMonth })}
+                      disabled={generateInvoiceMutation.isPending}
+                    >
+                      <FileDown className="h-3.5 w-3.5 mr-1" />
+                      請求書出力
+                    </Button>
+                  )}
                 </div>
               )}
             </CardTitle>

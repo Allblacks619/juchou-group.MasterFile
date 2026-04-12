@@ -2743,6 +2743,124 @@ export const appRouter = router({
         return db.updateInvoice(id, updateData);
       }),
 
+    /** Generate invoice for closing */
+    generateForClosing: leaderOrAdminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        closingMonth: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const project = await db.getProjectById(input.projectId);
+        if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const closing = await db.getProjectClosingByProjectMonth(input.projectId, input.closingMonth);
+        if (!closing || closing.status !== "closed") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "締めが完了していません" });
+        }
+
+        const [year, month] = input.closingMonth.split("-");
+        const periodStart = new Date(`${year}-${month}-01`);
+        const periodEnd = new Date(parseInt(year), parseInt(month), 0);
+
+        const records = await db.getAttendanceByDateRange(periodStart, periodEnd, input.projectId);
+        const rates = await db.getRatesByProject(input.projectId);
+        const allEmployees = await db.getAllEmployees();
+        const empMap = new Map<number, any>(allEmployees.map((e: any) => [e.id, e]));
+
+        const items: Array<any> = [];
+        let subtotal = 0;
+
+        const byEmployee = new Map<number, typeof records>();
+        for (const rec of records) {
+          if (!rec.employeeId) continue;
+          const arr = byEmployee.get(rec.employeeId) || [];
+          arr.push(rec);
+          byEmployee.set(rec.employeeId, arr);
+        }
+
+        for (const [empId, empRecords] of Array.from(byEmployee.entries())) {
+          const emp = empMap.get(empId);
+          if (!emp) continue;
+          const workedDays = empRecords.filter((r: any) => r.workType === "worked").length;
+          if (workedDays === 0) continue;
+          const rate = rates.find((r: any) => r.employeeId === empId) || rates.find((r: any) => !r.employeeId);
+          if (!rate) continue;
+          const itemAmount = workedDays * Number(rate.clientRate || 0);
+          items.push({
+            employeeId: empId,
+            description: `${emp.nameKanji} - ${workedDays}日間`,
+            quantity: workedDays,
+            unitPrice: Number(rate.clientRate || 0),
+            amount: itemAmount,
+            unit: "日"
+          });
+          subtotal += itemAmount;
+        }
+
+        const taxRate = 10;
+        const taxAmount = Math.floor(subtotal * taxRate / 100);
+        const totalAmount = subtotal + taxAmount;
+
+        const allInvoices = await db.getAllInvoices();
+        const maxNum = Math.max(...allInvoices.map((inv: any) => {
+          const match = inv.invoiceNumber.match(/\d+$/);
+          return match ? parseInt(match[0]) : 0;
+        }), 0);
+        const invoiceNumber = String(maxNum + 1).padStart(5, "0");
+
+        const invoice = await db.createInvoice({
+          invoiceNumber,
+          clientId: null as any,
+          projectId: input.projectId,
+          periodStart,
+          periodEnd,
+          issueDate: new Date(),
+          dueDate: null,
+          subtotal,
+          taxAmount,
+          totalAmount,
+          taxRate,
+          notes: null,
+          createdBy: ctx.user.id,
+          subject: `${project.name} - ${input.closingMonth}月請求書`,
+          withholdingAmount: 0,
+        });
+
+        for (const item of items) {
+          await db.createInvoiceItem({
+            invoiceId: invoice.id!,
+            employeeId: item.employeeId,
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            amount: item.amount,
+            unit: item.unit
+          });
+        }
+
+        const company = await db.getCompanyProfile();
+        const pdfBuffer = await generateInvoicePdf({
+          invoice: { ...invoice, id: invoice.id! } as any,
+          items,
+          company,
+          clientName: "取引先",
+          clientAddress: "",
+          clientPostalCode: "",
+          clientContactPerson: "",
+          showSeal: false,
+          showLogo: true,
+        });
+
+        const fileName = `invoice_${invoiceNumber}_${Date.now()}.pdf`;
+        const fileKey = `invoices/${fileName}`;
+        const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
+
+        await db.updateInvoice(invoice.id!, { pdfUrl: url });
+        await safeAuditLog(ctx.user.id, "invoice.generateForClosing", "invoice", { entityId: invoice.id, invoiceId: invoice.id, projectId: input.projectId, note: `締めから請求書自動生成 ${invoiceNumber}` });
+
+        return { url, fileName, invoiceNumber };
+      }),
+
     /** Delete an invoice */
     delete: leaderOrAdminProcedure
       .input(z.object({ id: z.number() }))
