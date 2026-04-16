@@ -2810,7 +2810,7 @@ export const appRouter = router({
 
         const invoice = await db.createInvoice({
           invoiceNumber,
-          clientId: null as any,
+          clientId: 0,
           projectId: input.projectId,
           periodStart,
           periodEnd,
@@ -2820,9 +2820,22 @@ export const appRouter = router({
           taxAmount,
           totalAmount,
           taxRate,
+          status: "draft",
           notes: null,
+          internalMemo: null,
+          pdfUrl: null,
+          receivedAmount: 0,
+          receivedAt: null,
+          receivedBy: null,
+          paymentMemo: null,
           createdBy: ctx.user.id,
+          honorific: "御中",
+          subNumber: null,
+          paymentMethod: "口座振込",
           subject: `${project.name} - ${input.closingMonth}月請求書`,
+          showSeal: true,
+          showLogo: true,
+          withholding: false,
           withholdingAmount: 0,
         });
 
