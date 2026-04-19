@@ -205,32 +205,29 @@ function WorkflowShortcuts({ appRole }: { appRole: "admin" | "leader" | "worker"
 
   const items = isAdminOrLeader
     ? [
-        { title: "締め管理", description: "未提出・領収書不足・ready を確認", icon: FileCheck2, path: "/app/closings" },
-        { title: "請求管理", description: "締め完了後の請求書作成へ", icon: FileText, path: "/app/invoices" },
-        { title: "支払管理", description: "従業員支払の確認と確定", icon: Wallet, path: "/app/payments" },
-        { title: "入金管理", description: "請求入金と残高を確認", icon: Landmark, path: "/app/receivables" },
+        { title: "締め管理", icon: FileCheck2, path: "/app/closings" },
+        { title: "請求管理", icon: FileText, path: "/app/invoices" },
+        { title: "支払管理", icon: Wallet, path: "/app/payments" },
+        { title: "入金管理", icon: Landmark, path: "/app/receivables" },
+        { title: "月締め提出", icon: FileCheck2, path: "/app/my-closing" },
       ]
     : [
-        { title: "月締め提出", description: "交通費・経費・領収書を提出", icon: FileCheck2, path: "/app/my-closing" },
-        { title: "プロフィール", description: "提出に必要な情報を確認", icon: UserCircle, path: "/app/my-profile" },
+        { title: "月締め提出", icon: FileCheck2, path: "/app/my-closing" },
+        { title: "プロフィール", icon: UserCircle, path: "/app/my-profile" },
       ];
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="flex gap-3 flex-wrap">
       {items.map((item) => (
-        <Card
+        <button
           key={item.path}
-          className="cursor-pointer hover:border-gold/30 transition-colors"
           onClick={() => setLocation(item.path)}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gold/20 hover:border-gold/50 hover:bg-gold/5 transition-all"
+          title={item.title}
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{item.title}</CardTitle>
-            <item.icon className="h-4 w-4 text-gold" />
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">{item.description}</p>
-          </CardContent>
-        </Card>
+          <item.icon className="h-5 w-5 text-gold" />
+          <span className="text-sm font-medium text-foreground">{item.title}</span>
+        </button>
       ))}
     </div>
   );
