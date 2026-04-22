@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useState, useMemo, useRef } from "react";
 import { format } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2, FileDown } from "lucide-react";
+import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2, FileDown, Clock, CheckCircle, AlertCircle, XCircle } from "lucide-react";
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   open: { label: "開放中", className: "bg-slate-500/20 text-slate-300" },
@@ -38,7 +38,16 @@ const SUBMISSION_LABELS: Record<string, string> = {
   rejected: "差戻し",
 };
 
+const SUBMISSION_ICONS: Record<string, { icon: React.ReactNode; color: string }> = {
+  not_required: { icon: <AlertCircle className="h-4 w-4" />, color: "text-slate-400" },
+  pending: { icon: <Clock className="h-4 w-4" />, color: "text-amber-400" },
+  submitted: { icon: <CheckCircle className="h-4 w-4" />, color: "text-blue-400" },
+  approved: { icon: <CheckCircle className="h-4 w-4" />, color: "text-emerald-400" },
+  rejected: { icon: <XCircle className="h-4 w-4" />, color: "text-red-400" },
+};
+
 export default function AppClosings() {
+  // React hooks are now imported at the top
   const [closingMonth, setClosingMonth] = useState(format(new Date(), "yyyy-MM"));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
 
@@ -373,14 +382,19 @@ function SubmissionRow({
     <TableRow>
       <TableCell className="font-medium">{submission.employee?.nameKanji || `従業員${submission.employeeId}`}</TableCell>
       <TableCell>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="h-8 w-[120px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {Object.entries(SUBMISSION_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>{label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <span className={SUBMISSION_ICONS[status]?.color || "text-muted-foreground"}>
+            {SUBMISSION_ICONS[status]?.icon}
+          </span>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="h-8 w-[120px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {Object.entries(SUBMISSION_LABELS).map(([value, label]) => (
+                <SelectItem key={value} value={value}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </TableCell>
       <TableCell className="text-right"><Input type="number" className="h-8 text-right" value={transportAmount} onChange={(e) => setTransportAmount(Number(e.target.value))} /></TableCell>
       <TableCell className="text-right"><Input type="number" className="h-8 text-right" value={expenseAmount} onChange={(e) => setExpenseAmount(Number(e.target.value))} /></TableCell>
