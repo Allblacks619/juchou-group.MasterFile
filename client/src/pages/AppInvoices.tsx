@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import InvoicePreview from "@/components/InvoicePreview";
 import { Button } from "@/components/ui/button";
@@ -740,6 +740,11 @@ function ManualCreateDialog({
   const projects = projectsQuery.data || [];
   const clients = clientsQuery.data || [];
 
+  const filteredProjects = useMemo(
+    () => projects.filter((project: any) => !selectedClientId || Number(project.clientId) === Number(selectedClientId)),
+    [projects, selectedClientId]
+  );
+
   const addNormalRow = () => setItems((prev) => [...prev, emptyNormalItem(prev.length)]);
   const addTextRow = () => setItems((prev) => [...prev, emptyTextItem(prev.length)]);
 
@@ -933,7 +938,7 @@ function ManualCreateDialog({
                   <SelectValue placeholder="現場を選択" />
                 </SelectTrigger>
                 <SelectContent>
-                  {projects.map((p: any) => (
+                  {filteredProjects.map((p: any) => (
                     <SelectItem key={p.id} value={p.id.toString()}>
                       {p.name}
                     </SelectItem>
@@ -1282,6 +1287,19 @@ export default function AppInvoices() {
   const projects = projectsQuery.data || [];
   const clients = clientsQuery.data || [];
   const closingRows = autoClosingsQuery.data || [];
+
+const filteredProjects = useMemo(
+  () => projects.filter((project: any) => !autoClientId || Number(project.clientId) === Number(autoClientId)),
+  [projects, autoClientId]
+);
+
+useEffect(() => {
+  if (!autoClientId) {
+    setAutoProjectIds([]);
+    return;
+  }
+  setAutoProjectIds((current) => current.filter((id) => filteredProjects.some((project: any) => project.id === id)));
+}, [autoClientId, filteredProjects]);
   const blockingClosings = autoProjectIds
     .map((projectId) => closingRows.find((row: any) => row.project.id === projectId))
     .filter((row: any) => !row?.closing || !["ready", "closed", "locked"].includes(row.closing.status));
@@ -1348,7 +1366,7 @@ export default function AppInvoices() {
             <div className="space-y-2">
               <Label>現場 * （複数選択可）</Label>
               <div className="border border-border rounded-md p-2 max-h-[160px] overflow-y-auto space-y-1">
-                {projects.map((p: any) => (
+                {filteredProjects.map((p: any) => (
                   <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/30 cursor-pointer text-sm">
                     <input
                       type="checkbox"
@@ -1366,9 +1384,11 @@ export default function AppInvoices() {
                   </label>
                 ))}
               </div>
-              {autoProjectIds.length > 0 && (
+              {filteredProjects.length === 0 ? (
+                <p className="text-xs text-muted-foreground">先に取引先を選択してください</p>
+              ) : autoProjectIds.length > 0 ? (
                 <p className="text-xs text-muted-foreground">{autoProjectIds.length}件の現場を選択中</p>
-              )}
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label>件名</Label>

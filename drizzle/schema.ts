@@ -542,8 +542,6 @@ export const invoiceItems = mysqlTable("invoice_items", {
   amount: int("amount").default(0).notNull(),
   /** Tax rate for this item (10, 8, 0) - percentage */
   itemTaxRate: int("itemTaxRate").default(10).notNull(),
-  /** Transaction date for this item */
-  transactionDate: timestamp("transactionDate"),
   /** Sort order within the invoice */
   sortOrder: int("sortOrder").default(0).notNull(),
   /** Notes / 備考 */

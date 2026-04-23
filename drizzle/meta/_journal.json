@@ -92,6 +92,13 @@
       "when": 1775912173403,
       "tag": "0012_busy_purple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1776984821631,
+      "tag": "0013_lucky_sunspot",
+      "breakpoints": true
     }
   ]
 }

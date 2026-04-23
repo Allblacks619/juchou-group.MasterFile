@@ -286,7 +286,6 @@ const dict = {
   invoices_itemType: { ja: "項目タイプ", pt: "Tipo de item" },
   invoices_itemType_normal: { ja: "通常行", pt: "Linha normal" },
   invoices_itemType_text: { ja: "テキスト行", pt: "Linha de texto" },
-  invoices_transactionDate: { ja: "取引日", pt: "Data da transação" },
   invoices_description: { ja: "摘要", pt: "Descrição" },
   invoices_quantity: { ja: "数量", pt: "Quantidade" },
   invoices_unit: { ja: "単位", pt: "Unidade" },
