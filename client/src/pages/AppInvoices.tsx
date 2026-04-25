@@ -712,6 +712,7 @@ function ManualCreateDialog({
       toast.success("取引先を追加しました");
       clientsQuery.refetch();
       setSelectedClientId(String(data.id));
+      setSelectedProjectId("");
       setShowNewClient(false);
       setNewClientName("");
       setNewClientPostalCode("");
@@ -739,6 +740,17 @@ function ManualCreateDialog({
 
   const projects = projectsQuery.data || [];
   const clients = clientsQuery.data || [];
+  const manualClientProjects = useMemo(
+    () => selectedClientId
+      ? projects.filter((project: any) => Number(project.clientId) === Number(selectedClientId))
+      : [],
+    [projects, selectedClientId]
+  );
+
+  const handleManualClientChange = (clientId: string) => {
+    setSelectedClientId(clientId);
+    setSelectedProjectId("");
+  };
 
   const addNormalRow = () => setItems((prev) => [...prev, emptyNormalItem(prev.length)]);
   const addTextRow = () => setItems((prev) => [...prev, emptyTextItem(prev.length)]);
@@ -786,6 +798,13 @@ function ManualCreateDialog({
     if (items.filter((i) => i.description.trim()).length === 0) {
       toast.error("少なくとも1つの項目を入力してください");
       return;
+    }
+    if (selectedProjectId) {
+      const selectedProject = projects.find((project: any) => String(project.id) === selectedProjectId);
+      if (!selectedProject || Number(selectedProject.clientId) !== Number(selectedClientId)) {
+        toast.error("選択できるのは取引先に紐づく現場だけです");
+        return;
+      }
     }
 
     const [year, month] = periodMonth.split("-").map(Number);
@@ -889,7 +908,7 @@ function ManualCreateDialog({
                     placeholder="取引先を検索..."
                     className="text-sm mb-1"
                   />
-                  <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+                  <Select value={selectedClientId} onValueChange={handleManualClientChange}>
                     <SelectTrigger>
                       <SelectValue placeholder="取引先を選択" />
                     </SelectTrigger>
@@ -928,18 +947,33 @@ function ManualCreateDialog({
             {/* Project */}
             <div className="space-y-1.5">
               <Label className="text-xs">現場（任意）</Label>
-              <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+              <Select value={selectedProjectId} onValueChange={setSelectedProjectId} disabled={!selectedClientId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="現場を選択" />
+                  <SelectValue placeholder={selectedClientId ? "現場を選択" : "先に取引先を選択"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {projects.map((p: any) => (
-                    <SelectItem key={p.id} value={p.id.toString()}>
-                      {p.name}
+                  {!selectedClientId ? (
+                    <SelectItem value="__select_client_first" disabled>
+                      先に取引先を選択してください
                     </SelectItem>
-                  ))}
+                  ) : manualClientProjects.length === 0 ? (
+                    <SelectItem value="__no_project_for_client" disabled>
+                      この取引先に紐づく現場がありません
+                    </SelectItem>
+                  ) : (
+                    manualClientProjects.map((p: any) => (
+                      <SelectItem key={p.id} value={p.id.toString()}>
+                        {p.name}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
+              {selectedClientId && manualClientProjects.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  選択中の取引先に紐づく現場のみ表示しています
+                </p>
+              )}
             </div>
 
             {/* Payment method */}
