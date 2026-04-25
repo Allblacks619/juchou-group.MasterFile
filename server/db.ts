@@ -18,6 +18,8 @@ import {
   InsertClosingSubmission, closingSubmissions,
   InsertEmployeePayment, employeePayments,
   InsertAuditLog, auditLogs,
+  workerBaseRates,
+  InsertWorkerBaseRate,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -35,6 +37,47 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+// ── Worker Base Rates ──
+
+export async function createWorkerBaseRate(data: InsertWorkerBaseRate) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(workerBaseRates).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function getWorkerBaseRateById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(workerBaseRates).where(eq(workerBaseRates.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getWorkerBaseRatesByEmployee(employeeId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(workerBaseRates).where(eq(workerBaseRates.employeeId, employeeId));
+}
+
+export async function getAllWorkerBaseRates() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(workerBaseRates);
+}
+
+export async function updateWorkerBaseRate(id: number, data: Partial<InsertWorkerBaseRate>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(workerBaseRates).set({ ...data, updatedAt: new Date() }).where(eq(workerBaseRates.id, id));
+  return getWorkerBaseRateById(id);
+}
+
+export async function deleteWorkerBaseRate(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(workerBaseRates).where(eq(workerBaseRates.id, id));
 }
 
 // ── Users ──

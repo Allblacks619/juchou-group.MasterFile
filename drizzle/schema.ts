@@ -412,6 +412,33 @@ export type EmployeeRate = typeof employeeRates.$inferSelect;
 export type InsertEmployeeRate = typeof employeeRates.$inferInsert;
 
 /**
+ * Worker fixed base rates (従業員固定支払単価)
+ * Used when there is no project-specific worker rate.
+ */
+export const workerBaseRates = mysqlTable("worker_base_rates", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Employee ID */
+  employeeId: int("employeeId").notNull(),
+  /** Shift type: day or night */
+  shiftType: mysqlEnum("workerBaseRateShiftType", ["day", "night"]).default("day").notNull(),
+  /** Fixed worker payment rate per day */
+  workerRate: int("workerRate").notNull(),
+  /** Effective from date */
+  effectiveFrom: timestamp("effectiveFrom"),
+  /** Effective until date */
+  effectiveUntil: timestamp("effectiveUntil"),
+  /** Notes */
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("worker_base_rate_lookup").on(table.employeeId, table.shiftType, table.effectiveFrom),
+]));
+
+export type WorkerBaseRate = typeof workerBaseRates.$inferSelect;
+export type InsertWorkerBaseRate = typeof workerBaseRates.$inferInsert;
+
+/**
  * Attendance records (出面表 / 出勤管理)
  * One record per employee per day per project
  */

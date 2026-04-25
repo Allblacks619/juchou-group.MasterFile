@@ -1,7 +1,7 @@
-
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
-import { isWorkedType } from "@shared/attendanceStatus";
+import { isWorkedType, extractDateKey } from "@shared/attendanceStatus";
+import { resolveClientBillingRate, rateSourceLabel } from "./rateResolver";
 
 export type InvoiceableClosingStatus = "ready" | "closed" | "locked";
 
@@ -42,6 +42,30 @@ function toYearMonth(date: Date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function sourceToInvoiceSuffix(source: string, shiftType: string) {
+  const shiftLabel = shiftType === "night" ? " 夜勤" : "";
+  if (source === "project_uniform") return `一律${shiftLabel}`;
+  if (source === "employee_individual") return `個別${shiftLabel}`;
+  return shiftLabel.trim() || "通常";
+}
+
+function lineDescriptionForBucket(bucketIndex: number, source: string, shiftType: string) {
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const letter = letters[bucketIndex] || String(bucketIndex + 1);
+  const suffix = sourceToInvoiceSuffix(source, shiftType);
+  return `電気工事業 ${letter}${suffix ? `（${suffix}）` : ""}`;
+}
+
+/**
+ * Build an invoice draft from selected project closings.
+ *
+ * Important business rules:
+ * - Source of truth is closing_submissions.
+ * - Removed/non-target members are excluded.
+ * - not_required, guests, absence, day_off are excluded.
+ * - Client invoice is grouped by project/site and rate bucket, not one row per worker by default.
+ * - Client billing rate priority is delegated to resolveClientBillingRate().
+ */
 export async function buildInvoiceDraftFromProjects(args: {
   projectIds: number[];
   periodStart: Date;
@@ -52,12 +76,13 @@ export async function buildInvoiceDraftFromProjects(args: {
   withholding?: boolean;
   subject?: string;
   includeProjectSectionHeaders?: boolean;
-}) : Promise<InvoiceDraft> {
-  if (!args.projectIds.length) {
+}): Promise<InvoiceDraft> {
+  const projectIds = Array.from(new Set(args.projectIds.map(Number).filter(Boolean)));
+  if (!projectIds.length) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "案件が選択されていません" });
   }
 
-  const projects = await Promise.all(args.projectIds.map((projectId) => db.getProjectById(projectId)));
+  const projects = await Promise.all(projectIds.map((projectId) => db.getProjectById(projectId)));
   if (projects.some((project) => !project)) {
     throw new TRPCError({ code: "NOT_FOUND", message: "指定された案件が見つかりません" });
   }
@@ -72,16 +97,8 @@ export async function buildInvoiceDraftFromProjects(args: {
   if (!clientId) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "取引先が設定されていない案件は請求できません" });
   }
-  if (args.expectedClientId && clientId !== args.expectedClientId) {
+  if (args.expectedClientId && clientId !== Number(args.expectedClientId)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "選択した案件と取引先が一致していません" });
-  }
-
-  const closingMonth = toYearMonth(args.periodStart);
-  const closings = await Promise.all(
-    args.projectIds.map((projectId) => db.getProjectClosingByProjectMonth(projectId, closingMonth))
-  );
-  if (closings.some((closing) => !isAllowedClosingStatus(closing?.status, args.allowedClosingStatuses))) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "請求対象の案件に未締めまたは請求不可の締め状態が含まれています" });
   }
 
   const client = await db.getClientById(clientId);
@@ -89,66 +106,136 @@ export async function buildInvoiceDraftFromProjects(args: {
     throw new TRPCError({ code: "BAD_REQUEST", message: "取引先情報が見つかりません" });
   }
 
+  const closingMonth = toYearMonth(args.periodStart);
   const allEmployees = await db.getAllEmployees();
-  const employeeMap = new Map<number, any>(allEmployees.map((employee: any) => [employee.id, employee]));
+  const employeeMap = new Map<number, any>((allEmployees as any[]).map((employee) => [employee.id, employee]));
 
   const items: BuiltInvoiceItem[] = [];
   let subtotal = 0;
   const taxRate = Number(args.taxRate ?? 10);
-  const includeProjectSectionHeaders = args.includeProjectSectionHeaders ?? args.projectIds.length > 1;
+  const includeProjectSectionHeaders = args.includeProjectSectionHeaders ?? projectIds.length > 1;
+  const missingRateMessages: string[] = [];
 
   for (const project of resolvedProjects) {
-    const records = await db.getAttendanceByDateRange(args.periodStart, args.periodEnd, project.id);
-    const rates = await db.getRatesByProject(project.id);
-
-    const individualRateMap = new Map<number, any>();
-    let defaultRate: any = null;
-    for (const rate of rates) {
-      if (rate.employeeId) {
-        individualRateMap.set(rate.employeeId, rate);
-      } else {
-        defaultRate = rate;
-      }
-    }
-
-    const recordsByEmployee = new Map<number, any[]>();
-    for (const record of records) {
-      if (!record.employeeId || !isWorkedType(record.workType)) continue;
-      const current = recordsByEmployee.get(record.employeeId) || [];
-      current.push(record);
-      recordsByEmployee.set(record.employeeId, current);
-    }
-
-    const projectItems: BuiltInvoiceItem[] = [];
-    for (const [employeeId, employeeRecords] of Array.from(recordsByEmployee.entries())) {
-      const employee = employeeMap.get(employeeId);
-      const rate = individualRateMap.get(employeeId) || defaultRate;
-      const clientRate = Number(rate?.clientRate || 0);
-      if (!clientRate) continue;
-
-      const totalHoursTimes10 = employeeRecords.reduce((sum, record) => sum + Number(record.hoursWorked || 0), 0);
-      const totalDaysTimes10 = Math.round(totalHoursTimes10 / 8);
-      if (totalDaysTimes10 <= 0) continue;
-
-      const amount = Math.round((totalDaysTimes10 / 10) * clientRate);
-      if (amount <= 0) continue;
-
-      projectItems.push({
-        employeeId,
-        itemType: "normal",
-        description: includeProjectSectionHeaders ? `${employee?.nameKanji || `従業員${employeeId}`}` : `${employee?.nameKanji || `従業員${employeeId}`}`,
-        quantity: totalDaysTimes10,
-        unit: "日",
-        unitPrice: clientRate,
-        amount,
-        itemTaxRate: taxRate,
-        notes: null,
-        sortOrder: 0,
+    const closing = await db.getProjectClosingByProjectMonth(project.id, closingMonth);
+    if (!closing?.id || !isAllowedClosingStatus(closing.status, args.allowedClosingStatuses)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `請求対象外の締め状態です: ${project.name}`,
       });
-      subtotal += amount;
     }
 
-    if (projectItems.length && includeProjectSectionHeaders) {
+    const [submissions, projectMembers, records] = await Promise.all([
+      db.getClosingSubmissionsByClosing(closing.id),
+      db.getProjectMembers(project.id),
+      db.getAttendanceByDateRange(args.periodStart, args.periodEnd, project.id),
+    ]);
+
+    const activeMemberIds = new Set(
+      (projectMembers as any[])
+        .filter((member) => member.isActive)
+        .map((member) => Number(member.employeeId))
+    );
+
+    const billableEmployeeIds = new Set(
+      (submissions as any[])
+        .filter((submission) =>
+          submission.status !== "not_required" &&
+          activeMemberIds.has(Number(submission.employeeId))
+        )
+        .map((submission) => Number(submission.employeeId))
+    );
+
+    if (!billableEmployeeIds.size) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `請求対象の提出者がいません: ${project.name}`,
+      });
+    }
+
+    type Bucket = {
+      projectId: number;
+      projectName: string;
+      clientRate: number;
+      rateSource: string;
+      shiftType: string;
+      totalDaysTimes10: number;
+      amount: number;
+      employeeNames: Set<string>;
+    };
+
+    const buckets = new Map<string, Bucket>();
+
+    for (const record of records as any[]) {
+      if (!record.employeeId) continue;
+      const employeeId = Number(record.employeeId);
+      if (!billableEmployeeIds.has(employeeId)) continue;
+      if (!isWorkedType(record.workType)) continue;
+      if (Number(record.hoursWorked || 0) <= 0) continue;
+
+      const shiftType = record.shiftType || "day";
+      const workDateKey = extractDateKey(record.workDate);
+      const workDate = new Date(`${workDateKey}T00:00:00.000Z`);
+
+      let resolved;
+      try {
+        resolved = await resolveClientBillingRate({
+          projectId: project.id,
+          employeeId,
+          shiftType,
+          workDate,
+        });
+      } catch (error: any) {
+        missingRateMessages.push(error?.message || `先方請求単価が未設定です: ${project.name}`);
+        continue;
+      }
+
+      const totalHoursTimes10 = Number(record.hoursWorked || 0);
+      const daysTimes10 = Math.round(totalHoursTimes10 / 8);
+      if (daysTimes10 <= 0) continue;
+
+      const key = `${project.id}:${resolved.rate}:${resolved.source}:${shiftType}`;
+      const employee = employeeMap.get(employeeId);
+      const employeeName = employee?.nameKanji || employee?.nameRomaji || `従業員${employeeId}`;
+
+      const current = buckets.get(key) || {
+        projectId: project.id,
+        projectName: project.name,
+        clientRate: resolved.rate,
+        rateSource: resolved.source,
+        shiftType,
+        totalDaysTimes10: 0,
+        amount: 0,
+        employeeNames: new Set<string>(),
+      };
+
+      current.totalDaysTimes10 += daysTimes10;
+      current.amount += Math.round((daysTimes10 / 10) * resolved.rate);
+      current.employeeNames.add(employeeName);
+      buckets.set(key, current);
+    }
+
+    if (missingRateMessages.length) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `請求単価未設定があります: ${missingRateMessages.join(" / ")}`,
+      });
+    }
+
+    const projectBuckets = Array.from(buckets.values()).filter((bucket) => bucket.amount > 0);
+    if (!projectBuckets.length) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `請求対象の billable data がありません: ${project.name}`,
+      });
+    }
+
+    projectBuckets.sort((a, b) => {
+      if (a.clientRate !== b.clientRate) return b.clientRate - a.clientRate;
+      return a.shiftType.localeCompare(b.shiftType);
+    });
+
+    if (includeProjectSectionHeaders) {
       items.push({
         employeeId: null,
         itemType: "text",
@@ -159,22 +246,35 @@ export async function buildInvoiceDraftFromProjects(args: {
         amount: 0,
         itemTaxRate: 0,
         notes: null,
-        sortOrder: 0,
-      });
-    }
-
-    for (const projectItem of projectItems) {
-      items.push({
-        ...projectItem,
-        description: includeProjectSectionHeaders ? projectItem.description : (args.projectIds.length > 1 ? `[${project.name}] ${projectItem.description}` : projectItem.description),
         sortOrder: items.length,
       });
     }
+
+    projectBuckets.forEach((bucket, index) => {
+      const amount = Math.round((bucket.totalDaysTimes10 / 10) * bucket.clientRate);
+      subtotal += amount;
+
+      items.push({
+        employeeId: null,
+        itemType: "normal",
+        description: lineDescriptionForBucket(index, bucket.rateSource, bucket.shiftType),
+        quantity: bucket.totalDaysTimes10,
+        unit: "日",
+        unitPrice: bucket.clientRate,
+        amount,
+        itemTaxRate: taxRate,
+        notes: `${rateSourceLabel(bucket.rateSource as any)} / 対象: ${Array.from(bucket.employeeNames).join("、")}`,
+        sortOrder: items.length,
+      });
+    });
   }
 
   const normalItems = items.filter((item) => item.itemType === "normal");
   if (!normalItems.length || subtotal <= 0) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "請求対象の billable data がありません。空の請求書は生成できません。" });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "請求対象の billable data がありません。空の請求書は生成できません。",
+    });
   }
 
   const withholdingAmount = args.withholding ? Math.floor(subtotal * 0.1021) : 0;
@@ -182,14 +282,16 @@ export async function buildInvoiceDraftFromProjects(args: {
   const totalAmount = subtotal + taxAmount - withholdingAmount;
 
   const monthLabel = `${args.periodStart.getUTCMonth() + 1}`;
-  const subject = args.subject?.trim() || `${monthLabel}月分請求書 ${resolvedProjects.map((project) => project.name).join("・")}`;
+  const subject =
+    args.subject?.trim() ||
+    `${monthLabel}月分請求書 ${resolvedProjects.map((project) => project.name).join("・")}`;
 
   return {
     clientId,
     client,
     projects: resolvedProjects,
-    projectIds: args.projectIds,
-    primaryProjectId: args.projectIds.length === 1 ? args.projectIds[0] : null,
+    projectIds,
+    primaryProjectId: projectIds.length === 1 ? projectIds[0] : null,
     periodStart: args.periodStart,
     periodEnd: args.periodEnd,
     items: items.map((item, index) => ({ ...item, sortOrder: index })),
