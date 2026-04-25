@@ -6,6 +6,7 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import * as db from "./db";
 import { parseDateString, parseDateRange } from "./dateHelpers";
+import { isWorkedType } from "@shared/attendanceStatus";
 import { storagePut } from "./storage";
 import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "../shared/uploadValidation";
 import * as schema from "../drizzle/schema";
@@ -2327,92 +2328,104 @@ export const appRouter = router({
       }),
 
     /** Create invoice from attendance data */
-    
-createFromAttendance: leaderOrAdminProcedure
-  .input(z.object({
-    clientId: z.number(),
-    projectIds: z.array(z.number()).min(1),
-    periodStart: z.string(),
-    periodEnd: z.string(),
-    taxRate: z.number().default(10),
-    notes: z.string().optional(),
-    dueDate: z.string().optional(),
-    subject: z.string().optional(),
-    withholding: z.boolean().default(false),
-  }))
-  .mutation(async ({ ctx, input }) => {
-    const closingMonth = input.periodStart.slice(0, 7);
-    if (input.periodEnd.slice(0, 7) !== closingMonth) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "請求対象期間は1ヶ月単位で指定してください" });
-    }
+    createFromAttendance: leaderOrAdminProcedure
+      .input(z.object({
+        clientId: z.number(),
+        projectIds: z.array(z.number()).min(1),
+        periodStart: z.string(),
+        periodEnd: z.string(),
+        taxRate: z.number().default(10),
+        notes: z.string().optional(),
+        dueDate: z.string().optional(),
+        subject: z.string().optional(),
+        withholding: z.boolean().default(false),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const closingMonth = input.periodStart.slice(0, 7);
+        if (input.periodEnd.slice(0, 7) !== closingMonth) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "請求対象期間は1ヶ月単位で指定してください" });
+        }
 
-    const draft = await buildInvoiceDraftFromProjects({
-      projectIds: input.projectIds,
-      periodStart: parseDateString(input.periodStart),
-      periodEnd: parseDateString(input.periodEnd),
-      allowedClosingStatuses: ["ready", "closed", "locked"],
-      expectedClientId: Number(input.clientId),
-      taxRate: input.taxRate,
-      withholding: input.withholding,
-      subject: input.subject,
-    });
-
-    const invoiceNumber = await db.getNextInvoiceNumber(closingMonth);
-    const invoice = await db.createInvoice({
-      invoiceNumber,
-      clientId: draft.clientId,
-      projectId: draft.primaryProjectId,
-      periodStart: draft.periodStart,
-      periodEnd: draft.periodEnd,
-      issueDate: new Date(),
-      dueDate: input.dueDate ? parseDateString(input.dueDate) : null,
-      subtotal: draft.subtotal,
-      taxAmount: draft.taxAmount,
-      totalAmount: draft.totalAmount,
-      taxRate: input.taxRate,
-      notes: input.notes || null,
-      createdBy: ctx.user.id,
-      subject: draft.subject,
-      withholding: input.withholding,
-      withholdingAmount: draft.withholdingAmount,
-    });
-
-    for (const item of draft.items) {
-      await db.createInvoiceItem({
-        invoiceId: invoice.id!,
-        employeeId: item.employeeId,
-        itemType: item.itemType,
-        description: item.description,
-        quantity: item.quantity,
-        unit: item.unit || null,
-        unitPrice: item.unitPrice,
-        amount: item.amount,
-        itemTaxRate: item.itemTaxRate,
-        notes: item.notes || null,
-        sortOrder: item.sortOrder,
-      } as any);
-    }
-
-    for (const projectId of input.projectIds) {
-      const closing = await db.getProjectClosingByProjectMonth(projectId, closingMonth);
-      if (closing?.id) {
-        await db.updateProjectClosing(closing.id, {
-          status: "locked",
-          closedAt: closing.closedAt || new Date(),
-          closedBy: closing.closedBy || ctx.user.id,
+        const draft = await buildInvoiceDraftFromProjects({
+          projectIds: input.projectIds,
+          periodStart: parseDateString(input.periodStart),
+          periodEnd: parseDateString(input.periodEnd),
+          allowedClosingStatuses: ["ready", "closed", "locked"],
+          expectedClientId: input.clientId,
+          taxRate: input.taxRate,
+          withholding: input.withholding,
+          subject: input.subject,
+          includeProjectSectionHeaders: input.projectIds.length > 1,
         });
-      }
-    }
 
-    await safeAuditLog(ctx.user.id, "invoice.createFromAttendance", "invoice", {
-      entityId: invoice.id,
-      invoiceId: invoice.id,
-      projectId: draft.primaryProjectId,
-      note: `請求書自動作成 ${invoiceNumber} / projects=${input.projectIds.join(",")}`,
-    });
-    return { id: invoice.id, invoiceNumber, totalAmount: draft.totalAmount };
-  }),
+        const invoiceNumber = await db.getNextInvoiceNumber(closingMonth);
+        const invoice = await db.createInvoice({
+          invoiceNumber,
+          clientId: draft.clientId,
+          projectId: draft.primaryProjectId,
+          periodStart: draft.periodStart,
+          periodEnd: draft.periodEnd,
+          issueDate: new Date(),
+          dueDate: input.dueDate ? parseDateString(input.dueDate) : null,
+          subtotal: draft.subtotal,
+          taxAmount: draft.taxAmount,
+          totalAmount: draft.totalAmount,
+          taxRate: input.taxRate,
+          status: "draft",
+          notes: input.notes || null,
+          internalMemo: null,
+          pdfUrl: null,
+          receivedAmount: 0,
+          receivedAt: null,
+          receivedBy: null,
+          paymentMemo: null,
+          createdBy: ctx.user.id,
+          honorific: "御中",
+          subNumber: null,
+          paymentMethod: "口座振込",
+          subject: draft.subject,
+          showSeal: true,
+          showLogo: true,
+          withholding: input.withholding,
+          withholdingAmount: draft.withholdingAmount,
+        });
 
+        for (const item of draft.items) {
+          await db.createInvoiceItem({
+            invoiceId: invoice.id!,
+            employeeId: item.employeeId,
+            itemType: item.itemType,
+            description: item.description,
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: item.unitPrice,
+            amount: item.amount,
+            itemTaxRate: item.itemTaxRate,
+            sortOrder: item.sortOrder,
+            notes: item.notes || null,
+          } as any);
+        }
+
+        for (const projectId of input.projectIds) {
+          const closing = await db.getProjectClosingByProjectMonth(projectId, closingMonth);
+          if (closing?.id) {
+            await db.updateProjectClosing(closing.id, {
+              status: "locked",
+              closedAt: closing.closedAt || new Date(),
+              closedBy: closing.closedBy || ctx.user.id,
+            });
+          }
+        }
+
+        await safeAuditLog(ctx.user.id, "invoice.createFromAttendance", "invoice", {
+          entityId: invoice.id,
+          invoiceId: invoice.id,
+          projectId: draft.primaryProjectId || input.projectIds[0],
+          note: `請求書自動作成 ${invoiceNumber}`,
+          payload: { projectIds: input.projectIds, clientId: draft.clientId },
+        });
+        return { id: invoice.id, invoiceNumber, totalAmount: draft.totalAmount };
+      }),
 
     /** Generate PDF for an invoice */
     generatePdf: leaderOrAdminProcedure
@@ -2664,115 +2677,115 @@ createFromAttendance: leaderOrAdminProcedure
       }),
 
     /** Generate invoice for closing */
-    
-generateForClosing: leaderOrAdminProcedure
-  .input(z.object({
-    projectId: z.number(),
-    closingMonth: z.string(),
-    projectIds: z.array(z.number()).optional(),
-  }))
-  .mutation(async ({ ctx, input }) => {
-    const projectIds = input.projectIds && input.projectIds.length > 0 ? input.projectIds : [input.projectId];
-    const { start: periodStart, end: periodEnd } = getMonthDateRange(input.closingMonth);
+    generateForClosing: leaderOrAdminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        closingMonth: z.string(),
+        projectIds: z.array(z.number()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const projectIds = input.projectIds && input.projectIds.length > 0 ? input.projectIds : [input.projectId];
+        const { start: periodStart, end: periodEnd } = getMonthDateRange(input.closingMonth);
 
-    const draft = await buildInvoiceDraftFromProjects({
-      projectIds,
-      periodStart,
-      periodEnd,
-      allowedClosingStatuses: ["closed", "locked"],
-      taxRate: 10,
-      withholding: false,
-      includeProjectSectionHeaders: projectIds.length > 1,
-      subject: undefined,
-    });
-
-    const invoiceNumber = await db.getNextInvoiceNumber(input.closingMonth);
-    const invoice = await db.createInvoice({
-      invoiceNumber,
-      clientId: draft.clientId,
-      projectId: draft.primaryProjectId,
-      periodStart: draft.periodStart,
-      periodEnd: draft.periodEnd,
-      issueDate: new Date(),
-      dueDate: null,
-      subtotal: draft.subtotal,
-      taxAmount: draft.taxAmount,
-      totalAmount: draft.totalAmount,
-      taxRate: 10,
-      status: "draft",
-      notes: null,
-      internalMemo: null,
-      pdfUrl: null,
-      receivedAmount: 0,
-      receivedAt: null,
-      receivedBy: null,
-      paymentMemo: null,
-      createdBy: ctx.user.id,
-      honorific: "御中",
-      subNumber: null,
-      paymentMethod: "口座振込",
-      subject: draft.subject,
-      showSeal: true,
-      showLogo: true,
-      withholding: false,
-      withholdingAmount: 0,
-    });
-
-    for (const item of draft.items) {
-      await db.createInvoiceItem({
-        invoiceId: invoice.id!,
-        employeeId: item.employeeId,
-        itemType: item.itemType,
-        description: item.description,
-        quantity: item.quantity,
-        unit: item.unit || null,
-        unitPrice: item.unitPrice,
-        amount: item.amount,
-        itemTaxRate: item.itemTaxRate,
-        notes: item.notes || null,
-        sortOrder: item.sortOrder,
-      } as any);
-    }
-
-    for (const projectId of projectIds) {
-      const closing = await db.getProjectClosingByProjectMonth(projectId, input.closingMonth);
-      if (closing?.id) {
-        await db.updateProjectClosing(closing.id, {
-          status: "locked",
-          closedAt: closing.closedAt || new Date(),
-          closedBy: closing.closedBy || ctx.user.id,
+        const draft = await buildInvoiceDraftFromProjects({
+          projectIds,
+          periodStart,
+          periodEnd,
+          allowedClosingStatuses: ["closed", "locked"],
+          taxRate: 10,
+          withholding: false,
+          includeProjectSectionHeaders: projectIds.length > 1,
         });
-      }
-    }
 
-    const company = await db.getCompanyProfile();
-    const pdfBuffer = await generateInvoicePdf({
-      invoice: { ...invoice, id: invoice.id! } as any,
-      items: draft.items as any,
-      company,
-      clientName: draft.client?.name || "取引先",
-      clientAddress: draft.client?.address || "",
-      clientPostalCode: draft.client?.postalCode || "",
-      clientContactPerson: draft.client?.contactPerson || "",
-      showSeal: true,
-      showLogo: true,
-    });
+        const invoiceNumber = await db.getNextInvoiceNumber(input.closingMonth);
+        const invoice = await db.createInvoice({
+          invoiceNumber,
+          clientId: draft.clientId,
+          projectId: draft.primaryProjectId || input.projectId,
+          periodStart: draft.periodStart,
+          periodEnd: draft.periodEnd,
+          issueDate: new Date(),
+          dueDate: null,
+          subtotal: draft.subtotal,
+          taxAmount: draft.taxAmount,
+          totalAmount: draft.totalAmount,
+          taxRate: 10,
+          status: "draft",
+          notes: null,
+          internalMemo: null,
+          pdfUrl: null,
+          receivedAmount: 0,
+          receivedAt: null,
+          receivedBy: null,
+          paymentMemo: null,
+          createdBy: ctx.user.id,
+          honorific: "御中",
+          subNumber: null,
+          paymentMethod: "口座振込",
+          subject: draft.subject,
+          showSeal: true,
+          showLogo: true,
+          withholding: false,
+          withholdingAmount: 0,
+        });
 
-    const fileName = `invoice_${invoiceNumber}_${Date.now()}.pdf`;
-    const fileKey = `invoices/${fileName}`;
-    const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
+        for (const item of draft.items) {
+          await db.createInvoiceItem({
+            invoiceId: invoice.id!,
+            employeeId: item.employeeId,
+            itemType: item.itemType,
+            description: item.description,
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: item.unitPrice,
+            amount: item.amount,
+            itemTaxRate: item.itemTaxRate,
+            sortOrder: item.sortOrder,
+            notes: item.notes || null,
+          } as any);
+        }
 
-    await db.updateInvoice(invoice.id!, { pdfUrl: url });
-    await safeAuditLog(ctx.user.id, "invoice.generateForClosing", "invoice", {
-      entityId: invoice.id,
-      invoiceId: invoice.id,
-      projectId: draft.primaryProjectId,
-      note: `締めから請求書自動生成 ${invoiceNumber} / projects=${projectIds.join(",")}`,
-    });
+        const company = await db.getCompanyProfile();
+        const pdfBuffer = await generateInvoicePdf({
+          invoice: { ...invoice, id: invoice.id! } as any,
+          items: draft.items as any,
+          company,
+          clientName: draft.client?.name || "取引先",
+          clientAddress: draft.client?.address || "",
+          clientPostalCode: draft.client?.postalCode || "",
+          clientContactPerson: draft.client?.contactPerson || "",
+          showSeal: true,
+          showLogo: true,
+        });
 
-    return { url, fileName, invoiceNumber, projectIds, invoiceId: invoice.id, totalAmount: draft.totalAmount };
-  }),
+        const fileName = `invoice_${invoiceNumber}_${Date.now()}.pdf`;
+        const fileKey = `invoices/${fileName}`;
+        const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
 
+        await db.updateInvoice(invoice.id!, { pdfUrl: url });
+
+        for (const projectId of projectIds) {
+          const closing = await db.getProjectClosingByProjectMonth(projectId, input.closingMonth);
+          if (closing?.id) {
+            await db.updateProjectClosing(closing.id, {
+              status: "locked",
+              closedAt: closing.closedAt || new Date(),
+              closedBy: closing.closedBy || ctx.user.id,
+            });
+          }
+        }
+
+        const projectNote = projectIds.length > 1 ? `複数案件統合: ${projectIds.join(", ")}` : `案件ID: ${input.projectId}`;
+        await safeAuditLog(ctx.user.id, "invoice.generateForClosing", "invoice", {
+          entityId: invoice.id,
+          invoiceId: invoice.id,
+          projectId: input.projectId,
+          note: `締めから請求書自動生成 ${invoiceNumber} (${projectNote})`,
+          payload: { projectIds, clientId: draft.clientId },
+        });
+
+        return { id: invoice.id, url, fileName, invoiceNumber, projectIds, totalAmount: draft.totalAmount };
+      }),
 
     getSameClientProjects: leaderOrAdminProcedure
       .input(z.object({
@@ -2792,8 +2805,7 @@ generateForClosing: leaderOrAdminProcedure
             return {
               projectId: p.id,
               projectName: p.name,
-              isClosed: canInvoiceFromClosingStatus(closing?.status),
-              closingStatus: closing?.status || null,
+              isClosed: closing?.status === "closed",
             };
           })
         );

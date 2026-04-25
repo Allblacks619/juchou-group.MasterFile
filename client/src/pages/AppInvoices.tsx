@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import InvoicePreview from "@/components/InvoicePreview";
 import { Button } from "@/components/ui/button";
@@ -740,11 +740,6 @@ function ManualCreateDialog({
   const projects = projectsQuery.data || [];
   const clients = clientsQuery.data || [];
 
-  const filteredProjects = useMemo(
-    () => projects.filter((project: any) => !selectedClientId || Number(project.clientId) === Number(selectedClientId)),
-    [projects, selectedClientId]
-  );
-
   const addNormalRow = () => setItems((prev) => [...prev, emptyNormalItem(prev.length)]);
   const addTextRow = () => setItems((prev) => [...prev, emptyTextItem(prev.length)]);
 
@@ -938,7 +933,7 @@ function ManualCreateDialog({
                   <SelectValue placeholder="現場を選択" />
                 </SelectTrigger>
                 <SelectContent>
-                  {filteredProjects.map((p: any) => (
+                  {projects.map((p: any) => (
                     <SelectItem key={p.id} value={p.id.toString()}>
                       {p.name}
                     </SelectItem>
@@ -1254,6 +1249,11 @@ export default function AppInvoices() {
       toast.error("取引先と現場を選択してください");
       return;
     }
+    const invalidProject = projects.find((p: any) => autoProjectIds.includes(p.id) && Number(p.clientId) !== Number(autoClientId));
+    if (invalidProject) {
+      toast.error("選択できるのは同一取引先の現場だけです");
+      return;
+    }
     const [year, month] = autoPeriodMonth.split("-").map(Number);
     const periodStart = format(startOfMonth(new Date(year, month - 1)), "yyyy-MM-dd");
     const periodEnd = format(endOfMonth(new Date(year, month - 1)), "yyyy-MM-dd");
@@ -1286,20 +1286,10 @@ export default function AppInvoices() {
   const invoices = invoicesQuery.data || [];
   const projects = projectsQuery.data || [];
   const clients = clientsQuery.data || [];
+  const autoClientProjects = autoClientId
+    ? projects.filter((p: any) => Number(p.clientId) === Number(autoClientId))
+    : [];
   const closingRows = autoClosingsQuery.data || [];
-
-const filteredProjects = useMemo(
-  () => projects.filter((project: any) => !autoClientId || Number(project.clientId) === Number(autoClientId)),
-  [projects, autoClientId]
-);
-
-useEffect(() => {
-  if (!autoClientId) {
-    setAutoProjectIds([]);
-    return;
-  }
-  setAutoProjectIds((current) => current.filter((id) => filteredProjects.some((project: any) => project.id === id)));
-}, [autoClientId, filteredProjects]);
   const blockingClosings = autoProjectIds
     .map((projectId) => closingRows.find((row: any) => row.project.id === projectId))
     .filter((row: any) => !row?.closing || !["ready", "closed", "locked"].includes(row.closing.status));
@@ -1350,7 +1340,7 @@ useEffect(() => {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>取引先 *</Label>
-              <Select value={autoClientId} onValueChange={setAutoClientId}>
+              <Select value={autoClientId} onValueChange={(v) => { setAutoClientId(v); setAutoProjectIds([]); }}>
                 <SelectTrigger>
                   <SelectValue placeholder="取引先を選択" />
                 </SelectTrigger>
@@ -1366,29 +1356,33 @@ useEffect(() => {
             <div className="space-y-2">
               <Label>現場 * （複数選択可）</Label>
               <div className="border border-border rounded-md p-2 max-h-[160px] overflow-y-auto space-y-1">
-                {filteredProjects.map((p: any) => (
-                  <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/30 cursor-pointer text-sm">
-                    <input
-                      type="checkbox"
-                      checked={autoProjectIds.includes(p.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setAutoProjectIds([...autoProjectIds, p.id]);
-                        } else {
-                          setAutoProjectIds(autoProjectIds.filter((id: number) => id !== p.id));
-                        }
-                      }}
-                      className="rounded border-border"
-                    />
-                    {p.name}
-                  </label>
-                ))}
+                {!autoClientId ? (
+                  <p className="text-xs text-muted-foreground px-2 py-2">先に取引先を選択してください</p>
+                ) : autoClientProjects.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-2 py-2">この取引先に紐づく現場がありません</p>
+                ) : (
+                  autoClientProjects.map((p: any) => (
+                    <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/30 cursor-pointer text-sm">
+                      <input
+                        type="checkbox"
+                        checked={autoProjectIds.includes(p.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setAutoProjectIds([...autoProjectIds, p.id]);
+                          } else {
+                            setAutoProjectIds(autoProjectIds.filter((id: number) => id !== p.id));
+                          }
+                        }}
+                        className="rounded border-border"
+                      />
+                      {p.name}
+                    </label>
+                  ))
+                )}
               </div>
-              {filteredProjects.length === 0 ? (
-                <p className="text-xs text-muted-foreground">先に取引先を選択してください</p>
-              ) : autoProjectIds.length > 0 ? (
+              {autoProjectIds.length > 0 && (
                 <p className="text-xs text-muted-foreground">{autoProjectIds.length}件の現場を選択中</p>
-              ) : null}
+              )}
             </div>
             <div className="space-y-2">
               <Label>件名</Label>

@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import type { ReactNode } from "react";
 import { format } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,23 +39,28 @@ const SUBMISSION_LABELS: Record<string, string> = {
   rejected: "差戻し",
 };
 
-const SUBMISSION_ICONS: Record<string, { icon: React.ReactNode; color: string }> = {
-  not_required: { icon: <AlertCircle className="h-4 w-4" />, color: "text-slate-400" },
-  pending: { icon: <Clock className="h-4 w-4" />, color: "text-amber-400" },
-  submitted: { icon: <CheckCircle className="h-4 w-4" />, color: "text-blue-400" },
-  approved: { icon: <CheckCircle className="h-4 w-4" />, color: "text-emerald-400" },
-  rejected: { icon: <XCircle className="h-4 w-4" />, color: "text-red-400" },
+const SUBMISSION_ICONS: Record<string, { icon: ReactNode; color: string; dotClassName: string }> = {
+  not_required: { icon: <AlertCircle className="h-4 w-4" />, color: "text-orange-400", dotClassName: "bg-orange-400" },
+  pending: { icon: <Clock className="h-4 w-4" />, color: "text-red-400", dotClassName: "bg-red-400" },
+  submitted: { icon: <CheckCircle className="h-4 w-4" />, color: "text-green-400", dotClassName: "bg-green-400" },
+  approved: { icon: <CheckCircle className="h-4 w-4" />, color: "text-blue-400", dotClassName: "bg-blue-400" },
+  rejected: { icon: <XCircle className="h-4 w-4" />, color: "text-pink-400", dotClassName: "bg-pink-400" },
 };
 
 export default function AppClosings() {
   // React hooks are now imported at the top
   const [closingMonth, setClosingMonth] = useState(format(new Date(), "yyyy-MM"));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [invoiceProjectIds, setInvoiceProjectIds] = useState<number[]>([]);
 
   const listQuery = trpc.closing.listByMonth.useQuery({ closingMonth });
   const detailQuery = trpc.closing.get.useQuery(
     { projectId: selectedProjectId || 0, closingMonth },
     { enabled: !!selectedProjectId }
+  );
+  const sameClientProjectsQuery = trpc.invoice.getSameClientProjects.useQuery(
+    { projectId: selectedProjectId || 0, closingMonth },
+    { enabled: !!selectedProjectId && detailQuery.data?.closing?.status === "closed" }
   );
 
   const initializeMutation = trpc.closing.initialize.useMutation({
@@ -134,6 +140,19 @@ export default function AppClosings() {
     [rows, selectedProjectId]
   );
   const detail = detailQuery.data;
+  const sameClientProjects = sameClientProjectsQuery.data || [];
+
+  useEffect(() => {
+    if (selectedProjectId) setInvoiceProjectIds([selectedProjectId]);
+  }, [selectedProjectId, closingMonth]);
+
+  const toggleInvoiceProject = (projectId: number) => {
+    setInvoiceProjectIds((prev) =>
+      prev.includes(projectId)
+        ? (prev.length > 1 ? prev.filter((id) => id !== projectId) : prev)
+        : [...prev, projectId]
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -257,8 +276,8 @@ export default function AppClosings() {
                   {detail.closing.status === "closed" && (
                     <Button
                       size="sm"
-                      onClick={() => generateInvoiceMutation.mutate({ projectId: selectedProjectId, closingMonth })}
-                      disabled={generateInvoiceMutation.isPending}
+                      onClick={() => generateInvoiceMutation.mutate({ projectId: selectedProjectId, closingMonth, projectIds: invoiceProjectIds.length ? invoiceProjectIds : [selectedProjectId] })}
+                      disabled={generateInvoiceMutation.isPending || invoiceProjectIds.length === 0}
                     >
                       <FileDown className="h-3.5 w-3.5 mr-1" />
                       請求書出力
@@ -284,6 +303,30 @@ export default function AppClosings() {
                   <SummaryCard label="確認済" value={detail.summary.approvedCount} />
                   <SummaryCard label="領収書不足" value={detail.summary.receiptMissingCount} />
                 </div>
+
+                {detail.closing.status === "closed" && sameClientProjects.length > 0 && (
+                  <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 space-y-3">
+                    <div>
+                      <p className="text-sm font-medium text-blue-300">請求書に含める案件</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        初期状態は現在の案件のみです。同一取引先の締め完了案件だけを選択して、1枚の請求書にまとめられます。
+                      </p>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {sameClientProjects.map((project: any) => (
+                        <label key={project.projectId} className="flex items-center gap-2 rounded border border-border px-3 py-2 text-sm cursor-pointer hover:bg-muted/30">
+                          <input
+                            type="checkbox"
+                            checked={invoiceProjectIds.includes(project.projectId)}
+                            onChange={() => toggleInvoiceProject(project.projectId)}
+                          />
+                          <span>{project.projectName}</span>
+                          {project.projectId === selectedProjectId && <span className="text-xs text-gold">現在の案件</span>}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="border rounded-md overflow-hidden">
                   <Table>
@@ -380,21 +423,24 @@ function SubmissionRow({
 
   return (
     <TableRow>
-      <TableCell className="font-medium">{submission.employee?.nameKanji || `従業員${submission.employeeId}`}</TableCell>
-      <TableCell>
+      <TableCell className="font-medium">
         <div className="flex items-center gap-2">
-          <span className={SUBMISSION_ICONS[status]?.color || "text-muted-foreground"}>
+          <span className={SUBMISSION_ICONS[status]?.color || "text-muted-foreground"} title={SUBMISSION_LABELS[status] || status}>
             {SUBMISSION_ICONS[status]?.icon}
           </span>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="h-8 w-[120px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {Object.entries(SUBMISSION_LABELS).map(([value, label]) => (
-                <SelectItem key={value} value={value}>{label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <span className={`h-2.5 w-2.5 rounded-full ${SUBMISSION_ICONS[status]?.dotClassName || "bg-muted"}`} />
+          <span>{submission.employee?.nameKanji || `従業員${submission.employeeId}`}</span>
         </div>
+      </TableCell>
+      <TableCell>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="h-8 w-[120px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {Object.entries(SUBMISSION_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </TableCell>
       <TableCell className="text-right"><Input type="number" className="h-8 text-right" value={transportAmount} onChange={(e) => setTransportAmount(Number(e.target.value))} /></TableCell>
       <TableCell className="text-right"><Input type="number" className="h-8 text-right" value={expenseAmount} onChange={(e) => setExpenseAmount(Number(e.target.value))} /></TableCell>
