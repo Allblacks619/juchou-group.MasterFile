@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import { useLocation } from "wouter";
 import type { ReactNode } from "react";
 import { format } from "date-fns";
 import { trpc } from "@/lib/trpc";
@@ -49,18 +50,33 @@ const SUBMISSION_ICONS: Record<string, { icon: ReactNode; color: string; dotClas
 
 export default function AppClosings() {
   // React hooks are now imported at the top
+  const [location] = useLocation();
   const [closingMonth, setClosingMonth] = useState(format(new Date(), "yyyy-MM"));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [invoiceProjectIds, setInvoiceProjectIds] = useState<number[]>([]);
+
+  // Read deep-link query params on mount
+  useEffect(() => {
+    const queryString = window.location.search;
+    const params = new URLSearchParams(queryString);
+    const monthParam = params.get("month") || params.get("closingMonth");
+    const projectIdParam = params.get("projectId");
+
+    if (monthParam) setClosingMonth(monthParam);
+    if (projectIdParam) {
+      const id = Number(projectIdParam);
+      if (!Number.isNaN(id)) setSelectedProjectId(id);
+    }
+  }, [location]);
 
   const listQuery = trpc.closing.listByMonth.useQuery({ closingMonth });
   const detailQuery = trpc.closing.get.useQuery(
     { projectId: selectedProjectId || 0, closingMonth },
     { enabled: !!selectedProjectId }
   );
-  const sameClientProjectsQuery = trpc.invoice.getSameClientProjects.useQuery(
-    { projectId: selectedProjectId || 0, closingMonth },
-    { enabled: !!selectedProjectId && detailQuery.data?.closing?.status === "closed" }
+  const sameClientCandidatesQuery = trpc.closing.sameClientInvoiceCandidates.useQuery(
+    { projectId: selectedProjectId!, closingMonth },
+    { enabled: !!selectedProjectId && !!closingMonth }
   );
 
   const initializeMutation = trpc.closing.initialize.useMutation({
@@ -140,11 +156,11 @@ export default function AppClosings() {
     [rows, selectedProjectId]
   );
   const detail = detailQuery.data;
-  const sameClientProjects = sameClientProjectsQuery.data || [];
+  const sameClientProjects = sameClientCandidatesQuery.data || [];
 
   useEffect(() => {
     if (selectedProjectId) setInvoiceProjectIds([selectedProjectId]);
-  }, [selectedProjectId, closingMonth]);
+  }, [selectedProjectId]);
 
   const toggleInvoiceProject = (projectId: number) => {
     setInvoiceProjectIds((prev) =>
@@ -276,7 +292,7 @@ export default function AppClosings() {
                   {detail.closing.status === "closed" && (
                     <Button
                       size="sm"
-                      onClick={() => generateInvoiceMutation.mutate({ projectId: selectedProjectId, closingMonth, projectIds: invoiceProjectIds.length ? invoiceProjectIds : [selectedProjectId] })}
+                      onClick={() => generateInvoiceMutation.mutate({ projectId: selectedProjectId!, closingMonth, projectIds: invoiceProjectIds.length ? invoiceProjectIds : [selectedProjectId!] })}
                       disabled={generateInvoiceMutation.isPending || invoiceProjectIds.length === 0}
                     >
                       <FileDown className="h-3.5 w-3.5 mr-1" />

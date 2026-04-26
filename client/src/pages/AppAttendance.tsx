@@ -275,10 +275,18 @@ export default function AppAttendance() {
   });
 
   const removeMemberMutation = trpc.project.removeMember.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success("作業員を現場から削除しました");
       projectMembersQuery.refetch();
       attendanceQuery.refetch();
+      setCellEdits((prev) => {
+        const next = { ...prev };
+        const prefix = `emp-${variables.employeeId}-`;
+        for (const key of Object.keys(next)) {
+          if (key.startsWith(prefix)) delete next[key];
+        }
+        return next;
+      });
     },
     onError: (e) => toast.error(`削除エラー: ${e.message}`),
   });
@@ -590,19 +598,11 @@ export default function AppAttendance() {
     return new Set(projectMembersQuery.data.map((m: any) => m.employeeId));
   }, [projectMembersQuery.data]);
 
-  // Also include employees who have attendance records for this project (even if not assigned)
-  const employeesWithRecords = useMemo(() => {
-    const ids = new Set<number>();
-    for (const rec of attendanceQuery.data || []) {
-      if (rec.employeeId) ids.add(rec.employeeId);
-    }
-    return ids;
-  }, [attendanceQuery.data]);
+
 
   const rows = useMemo(() => {
-    const allEmpIds = new Set([...Array.from(projectMemberIds), ...Array.from(employeesWithRecords)]);
     const empRows = employees
-      .filter((emp) => allEmpIds.has(emp.id))
+      .filter((emp) => projectMemberIds.has(emp.id))
       .map((emp) => ({
         key: `emp-${emp.id}`,
         label: emp.nameKanji || emp.nameRomaji || `ID:${emp.id}`,
@@ -614,7 +614,7 @@ export default function AppAttendance() {
       isGuest: true,
     }));
     return [...empRows, ...guestRows];
-  }, [employees, allGuestNames, projectMemberIds, employeesWithRecords]);
+  }, [employees, allGuestNames, projectMemberIds]);
 
   // Employees not yet assigned to this project (for add member dialog)
   const availableEmployees = useMemo(() => {
@@ -698,11 +698,11 @@ export default function AppAttendance() {
               size="sm"
               onClick={() => {
                 const month = format(currentMonth, "yyyy-MM");
-                setLocation(`/app/invoices?fromAttendance=1&projectId=${selectedProjectId}&month=${month}`);
+                setLocation(`/app/closings?projectId=${selectedProjectId}&month=${month}`);
               }}
             >
               <FileText className="h-4 w-4 mr-1" />
-              請求書作成
+              締め管理へ
             </Button>
           )}
           <Button

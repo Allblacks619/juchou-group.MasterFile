@@ -15,6 +15,7 @@ import { TRPCError } from "@trpc/server";
 import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from "./pdfRoster";
 import { generateInvoicePdf } from "./pdfInvoice";
 import { buildInvoiceDraftFromProjects } from "./invoiceBuilder";
+import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 
 // ── Helper: check admin or leader role ──
 const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -1219,6 +1220,60 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteEmployeeRate(input.id);
+        return { success: true };
+      }),
+
+    resolvePreview: leaderOrAdminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+      }))
+      .query(async ({ input }) => resolveProjectMemberRatesForMonth(input)),
+  }),
+
+  workerBaseRate: router({
+    listAll: leaderOrAdminProcedure.query(async () => db.getAllWorkerBaseRates()),
+    listByEmployee: leaderOrAdminProcedure
+      .input(z.object({ employeeId: z.number() }))
+      .query(async ({ input }) => db.getWorkerBaseRatesByEmployee(input.employeeId)),
+    create: leaderOrAdminProcedure
+      .input(z.object({
+        employeeId: z.number(),
+        shiftType: z.enum(["day", "night"]).default("day"),
+        workerRate: z.number().min(0),
+        effectiveFrom: z.string().nullable().optional(),
+        effectiveUntil: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => db.createWorkerBaseRate({
+        employeeId: input.employeeId,
+        shiftType: input.shiftType,
+        workerRate: input.workerRate,
+        effectiveFrom: input.effectiveFrom ? parseDateString(input.effectiveFrom) : null,
+        effectiveUntil: input.effectiveUntil ? parseDateString(input.effectiveUntil) : null,
+        notes: input.notes || null,
+      } as any)),
+    update: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        shiftType: z.enum(["day", "night"]).optional(),
+        workerRate: z.number().min(0).optional(),
+        effectiveFrom: z.string().nullable().optional(),
+        effectiveUntil: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...rest } = input;
+        return db.updateWorkerBaseRate(id, {
+          ...rest,
+          effectiveFrom: rest.effectiveFrom ? parseDateString(rest.effectiveFrom) : rest.effectiveFrom === null ? null : undefined,
+          effectiveUntil: rest.effectiveUntil ? parseDateString(rest.effectiveUntil) : rest.effectiveUntil === null ? null : undefined,
+        } as any);
+      }),
+    delete: leaderOrAdminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteWorkerBaseRate(input.id);
         return { success: true };
       }),
   }),
@@ -2785,6 +2840,31 @@ export const appRouter = router({
         });
 
         return { id: invoice.id, url, fileName, invoiceNumber, projectIds, totalAmount: draft.totalAmount };
+      }),
+
+    sameClientInvoiceCandidates: leaderOrAdminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+      }))
+      .query(async ({ input }) => {
+        const currentProject = await db.getProjectById(input.projectId);
+        if (!currentProject?.clientId) return [];
+
+        const allProjects = await db.getAllProjects();
+        const sameClientProjects = allProjects.filter(
+          (project: any) => Number(project.clientId) === Number(currentProject.clientId)
+        );
+
+        const rows = [];
+        for (const project of sameClientProjects) {
+          const closing = await db.getProjectClosingByProjectMonth(project.id, input.closingMonth);
+          if (closing && ["ready", "closed", "locked"].includes(closing.status)) {
+            rows.push({ project, closing });
+          }
+        }
+
+        return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
       }),
 
     getSameClientProjects: leaderOrAdminProcedure

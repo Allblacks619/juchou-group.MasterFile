@@ -63,9 +63,7 @@ function AppRoutes() {
           {/* All roles can access */}
           <Route path="/app" component={AppDashboard} />
           <Route path="/app/my-profile" component={AppMyProfile} />
-          <Route path="/app/my-closing">
-            <RoleGuard allowed={WORKER_ONLY}><AppMyClosing /></RoleGuard>
-          </Route>
+          <Route path="/app/my-closing" component={AppMyClosing} />
           <Route path="/app/support" component={AppSupport} />
 
           {/* Admin/Leader only */}

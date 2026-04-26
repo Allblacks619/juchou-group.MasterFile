@@ -80,8 +80,8 @@ function workTypeLabels(lang: AppLang): Record<WorkType, string> {
 
 function workTypeShort(lang: AppLang): Record<WorkType, string> {
   return lang === "pt"
-    ? { normal: "P", half_day: "½", overtime: "HE", holiday: "FT", absence: "A", day_off: "F" }
-    : { normal: "出", half_day: "半", overtime: "残", holiday: "休出", absence: "欠", day_off: "休" };
+    ? { normal: "P", half_day: "½", overtime: "HE", holiday: "P", absence: "F", day_off: "F" }
+    : { normal: "出", half_day: "半", overtime: "残", holiday: "出", absence: "休", day_off: "休" };
 }
 
 function dayLabels(lang: AppLang) {
