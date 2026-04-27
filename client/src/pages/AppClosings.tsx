@@ -74,7 +74,7 @@ export default function AppClosings() {
     { projectId: selectedProjectId || 0, closingMonth },
     { enabled: !!selectedProjectId }
   );
-  const sameClientCandidatesQuery = trpc.invoice.sameClientInvoiceCandidates.useQuery(
+  const sameClientCandidatesQuery = trpc.closing.sameClientInvoiceCandidates.useQuery(
     { projectId: selectedProjectId!, closingMonth },
     { enabled: !!selectedProjectId && !!closingMonth }
   );
@@ -126,7 +126,7 @@ export default function AppClosings() {
 
   const [, setLocation] = useLocation();
 
-  const generateInvoiceMutation = trpc.invoice.generateForClosing.useMutation({
+  const generateInvoiceMutation = trpc.closing.generateForClosing.useMutation({
     onSuccess: (data: any) => {
       toast.success(data.message || "請求書ドラフトを作成しました");
       if (data.editUrl) {
@@ -306,7 +306,7 @@ export default function AppClosings() {
                       disabled={generateInvoiceMutation.isPending || invoiceProjectIds.length === 0}
                     >
                       <FileDown className="h-3.5 w-3.5 mr-1" />
-                      請求書出力
+                      請求書ドラフト作成
                     </Button>
                   )}
                 </div>
