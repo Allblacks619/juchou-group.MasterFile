@@ -48,6 +48,8 @@ import {
   Pencil,
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
+import { useEffect } from "react";
+import { useLocation } from "wouter";
 
 const STATUS_LABELS: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   draft: { label: "下書き", color: "bg-gray-500/20 text-gray-400", icon: Clock },
@@ -1222,9 +1224,19 @@ function ManualCreateDialog({
 
 // ── Main Component ──
 export default function AppInvoices() {
+  const [location, setLocation] = useLocation();
   const [showCreate, setShowCreate] = useState(false);
   const [showAutoCreate, setShowAutoCreate] = useState(false);
   const [detailInvoiceId, setDetailInvoiceId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const invoiceIdParam = params.get("invoiceId");
+    if (invoiceIdParam) {
+      const id = Number(invoiceIdParam);
+      if (!Number.isNaN(id)) setDetailInvoiceId(id);
+    }
+  }, [location]);
 
   // Auto-create state
   const [autoClientId, setAutoClientId] = useState<string>("");

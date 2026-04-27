@@ -74,7 +74,7 @@ export default function AppClosings() {
     { projectId: selectedProjectId || 0, closingMonth },
     { enabled: !!selectedProjectId }
   );
-  const sameClientCandidatesQuery = trpc.closing.sameClientInvoiceCandidates.useQuery(
+  const sameClientCandidatesQuery = trpc.invoice.sameClientInvoiceCandidates.useQuery(
     { projectId: selectedProjectId!, closingMonth },
     { enabled: !!selectedProjectId && !!closingMonth }
   );
@@ -124,13 +124,23 @@ export default function AppClosings() {
     onError: (e) => toast.error(`再開エラー: ${e.message}`),
   });
 
+  const [, setLocation] = useLocation();
+
   const generateInvoiceMutation = trpc.invoice.generateForClosing.useMutation({
     onSuccess: (data: any) => {
-      window.open(data.url, "_blank");
-      toast.success("請求書を生成しました");
+      toast.success(data.message || "請求書ドラフトを作成しました");
+      if (data.editUrl) {
+        setLocation(data.editUrl);
+      } else if (data.invoiceId) {
+        setLocation(`/app/invoices?invoiceId=${data.invoiceId}`);
+      }
     },
-    onError: (e: any) => toast.error(`請求書生成エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`請求書ドラフト作成エラー: ${e.message}`),
   });
+
+  useEffect(() => {
+    if (selectedProjectId) setInvoiceProjectIds([selectedProjectId]);
+  }, [selectedProjectId]);
 
   const uploadReceiptMutation = trpc.closing.uploadReceipt.useMutation({
     onSuccess: () => {

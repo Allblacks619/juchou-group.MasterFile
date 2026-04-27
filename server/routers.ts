@@ -144,10 +144,7 @@ function findBestWorkerRate(rates: any[], employeeId: number, shiftType: string)
 
 async function ensurePaymentRowsForProjectMonth(projectId: number, closingMonth: string) {
   const closing = await ensureClosingInitializedForProjectMonth(projectId, closingMonth);
-  const [submissions, rates] = await Promise.all([
-    db.getClosingSubmissionsByClosing(closing.id!),
-    db.getRatesByProject(projectId),
-  ]);
+  const submissions = await db.getClosingSubmissionsByClosing(closing.id!);
   const { start, end } = getMonthDateRange(closingMonth);
   const attendanceRecords = await db.getAttendanceByProject(projectId, start, end);
 
@@ -165,10 +162,23 @@ async function ensurePaymentRowsForProjectMonth(projectId: number, closingMonth:
     let baseAmount = 0;
     for (const [shiftType, totalHoursTimes10] of Array.from(byShift.entries())) {
       const daysTimes10 = Math.round(totalHoursTimes10 / 8);
+      if (daysTimes10 <= 0) continue;
+
       baseDaysTimes10 += daysTimes10;
-      const rate = findBestWorkerRate(rates as any[], submission.employeeId, shiftType);
-      const workerRate = rate?.workerRate || 0;
-      baseAmount += Math.round((daysTimes10 / 10) * workerRate);
+
+      const sampleRecord = empRecords.find((rec: any) => (rec.shiftType || "day") === shiftType);
+      const workDate = sampleRecord?.workDate
+        ? (sampleRecord.workDate instanceof Date ? sampleRecord.workDate : new Date(sampleRecord.workDate))
+        : start;
+
+      const resolvedWorkerRate = await resolveWorkerPaymentRate({
+        projectId,
+        employeeId: submission.employeeId,
+        shiftType,
+        workDate,
+      });
+
+      baseAmount += Math.round((daysTimes10 / 10) * resolvedWorkerRate.rate);
     }
 
     const existing = await db.getEmployeePaymentByClosingEmployee(closing.id!, submission.employeeId);
@@ -2734,29 +2744,43 @@ export const appRouter = router({
     /** Generate invoice for closing */
     generateForClosing: leaderOrAdminProcedure
       .input(z.object({
-        projectId: z.number(),
-        closingMonth: z.string(),
+        projectId: z.number().optional(),
         projectIds: z.array(z.number()).optional(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
       }))
       .mutation(async ({ ctx, input }) => {
-        const projectIds = input.projectIds && input.projectIds.length > 0 ? input.projectIds : [input.projectId];
-        const { start: periodStart, end: periodEnd } = getMonthDateRange(input.closingMonth);
+        const selectedProjectIds = input.projectIds?.length
+          ? Array.from(new Set(input.projectIds.map(Number).filter(Boolean)))
+          : input.projectId ? [input.projectId] : [];
+
+        if (!selectedProjectIds.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "案件が選択されていません" });
+        }
+
+        const { start, end } = getMonthDateRange(input.closingMonth);
 
         const draft = await buildInvoiceDraftFromProjects({
-          projectIds,
-          periodStart,
-          periodEnd,
-          allowedClosingStatuses: ["closed", "locked"],
+          projectIds: selectedProjectIds,
+          periodStart: start,
+          periodEnd: end,
+          allowedClosingStatuses: ["ready", "closed", "locked"],
           taxRate: 10,
-          withholding: false,
-          includeProjectSectionHeaders: projectIds.length > 1,
+          includeProjectSectionHeaders: selectedProjectIds.length > 1,
         });
+
+        const billableItems = draft.items.filter((item: any) => item.itemType !== "text");
+        if (!billableItems.length || Number(draft.totalAmount || 0) <= 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "請求対象データがありません。空または0円の請求書ドラフトは作成できません。",
+          });
+        }
 
         const invoiceNumber = await db.getNextInvoiceNumber(input.closingMonth);
         const invoice = await db.createInvoice({
           invoiceNumber,
           clientId: draft.clientId,
-          projectId: draft.primaryProjectId || input.projectId,
+          projectId: draft.primaryProjectId,
           periodStart: draft.periodStart,
           periodEnd: draft.periodEnd,
           issueDate: new Date(),
@@ -2767,7 +2791,7 @@ export const appRouter = router({
           taxRate: 10,
           status: "draft",
           notes: null,
-          internalMemo: null,
+          internalMemo: `closing draft / projectIds=${draft.projectIds.join(",")}`,
           pdfUrl: null,
           receivedAmount: 0,
           receivedAt: null,
@@ -2780,13 +2804,13 @@ export const appRouter = router({
           subject: draft.subject,
           showSeal: true,
           showLogo: true,
-          withholding: false,
-          withholdingAmount: 0,
-        });
+          withholding: !!draft.withholdingAmount,
+          withholdingAmount: draft.withholdingAmount,
+        } as any);
 
         for (const item of draft.items) {
           await db.createInvoiceItem({
-            invoiceId: invoice.id!,
+            invoiceId: invoice.id,
             employeeId: item.employeeId,
             itemType: item.itemType,
             description: item.description,
@@ -2800,46 +2824,27 @@ export const appRouter = router({
           } as any);
         }
 
-        const company = await db.getCompanyProfile();
-        const pdfBuffer = await generateInvoicePdf({
-          invoice: { ...invoice, id: invoice.id! } as any,
-          items: draft.items as any,
-          company,
-          clientName: draft.client?.name || "取引先",
-          clientAddress: draft.client?.address || "",
-          clientPostalCode: draft.client?.postalCode || "",
-          clientContactPerson: draft.client?.contactPerson || "",
-          showSeal: true,
-          showLogo: true,
-        });
-
-        const fileName = `invoice_${invoiceNumber}_${Date.now()}.pdf`;
-        const fileKey = `invoices/${fileName}`;
-        const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
-
-        await db.updateInvoice(invoice.id!, { pdfUrl: url });
-
-        for (const projectId of projectIds) {
-          const closing = await db.getProjectClosingByProjectMonth(projectId, input.closingMonth);
-          if (closing?.id) {
-            await db.updateProjectClosing(closing.id, {
-              status: "locked",
-              closedAt: closing.closedAt || new Date(),
-              closedBy: closing.closedBy || ctx.user.id,
-            });
-          }
-        }
-
-        const projectNote = projectIds.length > 1 ? `複数案件統合: ${projectIds.join(", ")}` : `案件ID: ${input.projectId}`;
-        await safeAuditLog(ctx.user.id, "invoice.generateForClosing", "invoice", {
-          entityId: invoice.id,
+        await safeAuditLog(ctx.user.id, "invoice_draft_created_from_closing", "invoice", {
           invoiceId: invoice.id,
-          projectId: input.projectId,
-          note: `締めから請求書自動生成 ${invoiceNumber} (${projectNote})`,
-          payload: { projectIds, clientId: draft.clientId },
+          projectId: draft.primaryProjectId,
+          note: "Created editable invoice draft from monthly closing. PDF not generated yet.",
+          payload: {
+            closingMonth: input.closingMonth,
+            projectIds: draft.projectIds,
+            subtotal: draft.subtotal,
+            taxAmount: draft.taxAmount,
+            totalAmount: draft.totalAmount,
+          },
         });
 
-        return { id: invoice.id, url, fileName, invoiceNumber, projectIds, totalAmount: draft.totalAmount };
+        return {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          totalAmount: draft.totalAmount,
+          status: "draft",
+          editUrl: `/app/invoices?invoiceId=${invoice.id}`,
+          message: "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
+        };
       }),
 
     sameClientInvoiceCandidates: leaderOrAdminProcedure

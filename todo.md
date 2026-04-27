@@ -432,3 +432,33 @@
 - [x] UI: 同一取引先プロジェクトの検出と提案
 - [x] バリデーション: 異なる取引先プロジェクト混在時のエラー表示
 - [ ] テスト: 単一プロジェクト・複数プロジェクト両パターンの請求書生成テスト
+
+# Priority 2 パッチ適用
+
+## Patch 01: Payment Rate Calculation
+- [x] resolveWorkerPaymentRate 関数を使用した単価計算に更新
+- [x] ensurePaymentRowsForProjectMonth で shift ごとの単価を動的に解決
+- [x] 日付ベースの単価適用に対応
+
+## Patch 02: generateForClosing Draft-Only
+- [x] generateForClosing エンドポイントを draft-only に変更
+- [x] PDF生成を削除
+- [x] editUrl を返すように変更
+- [x] 請求対象データの検証を追加
+- [x] 空または0円の請求書ドラフト作成を防止
+
+## Patch 03: AppClosings Draft Redirect
+- [x] generateInvoiceMutation の onSuccess で editUrl にリダイレクト
+- [x] 請求書ドラフト作成後、自動的に編集ページに遷移
+
+## Patch 04: AppInvoices invoiceId Deep-Link
+- [x] URL クエリパラメータから invoiceId を検出
+- [x] 請求書詳細ダイアログを自動オープン
+- [x] AppClosings → AppInvoices への seamless な遷移
+
+## Patch 05: AppMyClosing Review/Submit
+- [x] 提出前確認ダイアログを追加
+- [x] 現場・対象月・交通費・経費・メモを表示
+- [x] 領収書添付状況を確認
+- [x] 「戻る」「この内容で提出」ボタン
+- [x] 提出前に内容を確認・修正可能
