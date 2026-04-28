@@ -377,6 +377,22 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
 export const appRouter = router({
   system: systemRouter,
 
+  diagnostic: router({
+    runtimeInfo: protectedProcedure.query(() => {
+      return {
+        ok: true,
+        sourceRepo: "Allblacks619/juchou-group.MasterFile",
+        buildMarker: "masterfile-runtime-diagnostic-2026-04-28",
+        timestamp: new Date().toISOString(),
+        expectedProcedures: [
+          "closing.generateForClosing",
+          "closing.sameClientInvoiceCandidates",
+          "invoice.generatePdf",
+        ],
+      };
+    }),
+  }),
+
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
