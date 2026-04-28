@@ -562,18 +562,25 @@ export const appRouter = router({
     getMyProfile: protectedProcedure.query(async ({ ctx }) => {
       let profile = await db.getEmployeeByUserId(ctx.user.id);
       if (!profile) {
-        // Auto-create employee record for users who don't have one yet
-        const userName = ctx.user.name || ctx.user.loginId || "未設定";
-        const created = await db.createEmployee({
-          nameKanji: userName,
-          userId: ctx.user.id,
-        });
-        // Link employee to user
-        const dbInstance = await db.getDb();
-        if (dbInstance && created.id) {
-          await dbInstance.update(schema.users).set({ employeeId: created.id }).where(eq(schema.users.id, ctx.user.id));
+        try {
+          // Auto-create employee record for users who don't have one yet
+          const userName = ctx.user.name || ctx.user.loginId || "未設定";
+          const created = await db.createEmployee({
+            nameKanji: userName,
+            userId: ctx.user.id,
+          });
+          // Link employee to user
+          const dbInstance = await db.getDb();
+          if (dbInstance && created.id) {
+            await dbInstance.update(schema.users).set({ employeeId: created.id }).where(eq(schema.users.id, ctx.user.id));
+          }
+          profile = await db.getEmployeeByUserId(ctx.user.id);
+        } catch (error) {
+          if (error instanceof Error && error.message === "Database not available") {
+            return null;
+          }
+          throw error;
         }
-        profile = await db.getEmployeeByUserId(ctx.user.id);
       }
       return profile ?? null;
     }),
@@ -2121,6 +2128,126 @@ export const appRouter = router({
         });
         await safeAuditLog(ctx.user.id, "closing.reopen", "closing", { entityId: detail.closing.id, projectId: input.projectId, closingId: detail.closing.id, note: `${input.closingMonth} を再開` });
         return buildClosingDetail(input.projectId, input.closingMonth);
+      }),
+
+    /** Generate invoice draft for closing */
+    generateForClosing: leaderOrAdminProcedure
+      .input(z.object({
+        projectId: z.number().optional(),
+        projectIds: z.array(z.number()).optional(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const selectedProjectIds = input.projectIds?.length
+          ? Array.from(new Set(input.projectIds.map(Number).filter(Boolean)))
+          : input.projectId ? [input.projectId] : [];
+        if (!selectedProjectIds.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "案件が選択されていません" });
+        }
+        const { start, end } = getMonthDateRange(input.closingMonth);
+        const draft = await buildInvoiceDraftFromProjects({
+          projectIds: selectedProjectIds,
+          periodStart: start,
+          periodEnd: end,
+          allowedClosingStatuses: ["ready", "closed", "locked"],
+          taxRate: 10,
+          includeProjectSectionHeaders: selectedProjectIds.length > 1,
+        });
+        const billableItems = draft.items.filter((item: any) => item.itemType !== "text");
+        if (!billableItems.length || Number(draft.totalAmount || 0) <= 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "請求対象データがありません。空または0円の請求書ドラフトは作成できません。",
+          });
+        }
+        const invoiceNumber = await db.getNextInvoiceNumber(input.closingMonth);
+        const invoice = await db.createInvoice({
+          invoiceNumber,
+          clientId: draft.clientId,
+          projectId: draft.primaryProjectId,
+          periodStart: draft.periodStart,
+          periodEnd: draft.periodEnd,
+          issueDate: new Date(),
+          dueDate: null,
+          subtotal: draft.subtotal,
+          taxAmount: draft.taxAmount,
+          totalAmount: draft.totalAmount,
+          taxRate: 10,
+          status: "draft",
+          notes: null,
+          internalMemo: `closing draft / projectIds=${draft.projectIds.join(",")}`,
+          pdfUrl: null,
+          receivedAmount: 0,
+          receivedAt: null,
+          receivedBy: null,
+          paymentMemo: null,
+          createdBy: ctx.user.id,
+          honorific: "御中",
+          subNumber: null,
+          paymentMethod: "口座振込",
+          subject: draft.subject,
+          showSeal: true,
+          showLogo: true,
+          withholding: !!draft.withholdingAmount,
+          withholdingAmount: draft.withholdingAmount,
+        } as any);
+        for (const item of draft.items) {
+          await db.createInvoiceItem({
+            invoiceId: invoice.id,
+            employeeId: item.employeeId,
+            itemType: item.itemType,
+            description: item.description,
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: item.unitPrice,
+            amount: item.amount,
+            itemTaxRate: item.itemTaxRate,
+            sortOrder: item.sortOrder,
+            notes: item.notes || null,
+          } as any);
+        }
+        await safeAuditLog(ctx.user.id, "invoice_draft_created_from_closing", "invoice", {
+          invoiceId: invoice.id,
+          projectId: draft.primaryProjectId,
+          note: "Created editable invoice draft from monthly closing. PDF not generated yet.",
+          payload: {
+            closingMonth: input.closingMonth,
+            projectIds: draft.projectIds,
+            subtotal: draft.subtotal,
+            taxAmount: draft.taxAmount,
+            totalAmount: draft.totalAmount,
+          },
+        });
+        return {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          totalAmount: draft.totalAmount,
+          status: "draft",
+          editUrl: `/app/invoices?invoiceId=${invoice.id}`,
+          message: "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
+        };
+      }),
+
+    sameClientInvoiceCandidates: leaderOrAdminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+      }))
+      .query(async ({ input }) => {
+        const currentProject = await db.getProjectById(input.projectId);
+        if (!currentProject?.clientId) return [];
+        const allProjects = await db.getAllProjects();
+        const sameClientProjects = allProjects.filter(
+          (project: any) => Number(project.clientId) === Number(currentProject.clientId)
+        );
+        const rows = [];
+        for (const project of sameClientProjects) {
+          const closing = await db.getProjectClosingByProjectMonth(project.id, input.closingMonth);
+          if (closing && ["ready", "closed", "locked"].includes(closing.status)) {
+            rows.push({ project, closing });
+          }
+        }
+        return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
       }),
   }),
 

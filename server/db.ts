@@ -210,7 +210,10 @@ export async function getAllUsers() {
 
 export async function createInvitation(data: InsertInvitation) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    console.warn("[Database] Cannot create invitation: database not available");
+    return data;
+  }
   await db.insert(invitations).values(data);
   return data;
 }
