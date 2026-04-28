@@ -181,8 +181,8 @@ export default function AppClosings() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="space-y-6 max-w-full overflow-x-hidden">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">締め管理</h1>
           <p className="text-sm text-muted-foreground">案件ごと・月ごとの提出状況と締め状態を管理します。</p>
@@ -203,7 +203,7 @@ export default function AppClosings() {
               <Loader2 className="h-5 w-5 animate-spin text-gold" />
             </div>
           ) : (
-            <div className="border rounded-md overflow-hidden">
+            <div className="border rounded-md overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -266,7 +266,7 @@ export default function AppClosings() {
       {selectedProjectId && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center justify-between gap-3">
+            <CardTitle className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <span>{selectedRow?.project?.name || "案件"} / {closingMonth} 締め詳細</span>
               {detail?.closing && (
                 <div className="flex items-center gap-2">
@@ -338,7 +338,7 @@ export default function AppClosings() {
                         初期状態は現在の案件のみです。同一取引先の締め完了案件だけを選択して、1枚の請求書にまとめられます。
                       </p>
                     </div>
-                    <div className="grid gap-2 md:grid-cols-2">
+                    <div className="grid gap-2 grid-cols-1 md:grid-cols-2">
                       {sameClientProjects.map((project: any) => (
                         <label key={project.projectId} className="flex items-center gap-2 rounded border border-border px-3 py-2 text-sm cursor-pointer hover:bg-muted/30">
                           <input
@@ -354,7 +354,7 @@ export default function AppClosings() {
                   </div>
                 )}
 
-                <div className="border rounded-md overflow-hidden">
+                <div className="border rounded-md overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>

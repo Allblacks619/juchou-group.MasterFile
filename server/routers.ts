@@ -2367,6 +2367,7 @@ export const appRouter = router({
         }, {} as Record<string, number>);
         return { rows, summary: { total: rows.length, byEntity } };
       }),
+
     /** Generate invoice draft for closing */
     generateForClosing: leaderOrAdminProcedure
       .input(z.object({
@@ -2486,8 +2487,6 @@ export const appRouter = router({
         return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
       }),
   }),
-
-
   invoice: router({
     /** List all invoices */
     list: leaderOrAdminProcedure.query(async () => {
