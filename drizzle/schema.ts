@@ -388,10 +388,14 @@ export type InsertProjectMember = typeof projectMembers.$inferInsert;
  */
 export const employeeRates = mysqlTable("employee_rates", {
   id: int("id").autoincrement().primaryKey(),
+  /** Scope type: project or client */
+  scopeType: mysqlEnum("rateScopeType", ["project", "client"]).default("project").notNull(),
   /** Employee ID (null = project-wide default rate) */
   employeeId: int("employeeId"),
   /** Project ID */
-  projectId: int("projectId").notNull(),
+  projectId: int("projectId"),
+  /** Client ID (used when scopeType=client) */
+  clientId: int("clientId"),
   /** Shift type: day or night */
   shiftType: mysqlEnum("shiftType", ["day", "night"]).default("day").notNull(),
   /** Rate charged to client per day (先方単価/日) in yen */

@@ -2,7 +2,10 @@ import { TRPCError } from "@trpc/server";
 import * as db from "./db";
 
 type RateSource =
+  | "project_employee"
   | "project_uniform"
+  | "client_employee"
+  | "client_uniform"
   | "employee_individual"
   | "project_variable"
   | "employee_fixed";
@@ -31,7 +34,11 @@ function chooseLatestEffective<T extends any>(rates: T[]): T | null {
   return [...rates].sort((a: any, b: any) => {
     const at = toDate(a.effectiveFrom)?.getTime() ?? 0;
     const bt = toDate(b.effectiveFrom)?.getTime() ?? 0;
-    return bt - at;
+    if (bt !== at) return bt - at;
+    const aut = toDate(a.updatedAt)?.getTime() ?? 0;
+    const but = toDate(b.updatedAt)?.getTime() ?? 0;
+    if (but !== aut) return but - aut;
+    return (Number(b.id) || 0) - (Number(a.id) || 0);
   })[0];
 }
 
@@ -61,7 +68,8 @@ export async function resolveClientBillingRate(args: {
   workDate: Date;
 }): Promise<ResolvedRate> {
   const shiftType = args.shiftType || "day";
-  const rates = await db.getRatesByProject(args.projectId);
+  const project = await db.getProjectById(args.projectId);
+  const rates = await db.getAllEmployeeRates();
 
   const validRates = (rates as any[]).filter((rate) => {
     if (rate.shiftType && rate.shiftType !== shiftType) return false;
@@ -69,8 +77,15 @@ export async function resolveClientBillingRate(args: {
     return Number(rate.clientRate || 0) > 0;
   });
 
+  const projectEmployee = chooseLatestEffective(
+    validRates.filter((rate) => rate.scopeType === "project" && Number(rate.projectId) === Number(args.projectId) && Number(rate.employeeId) === Number(args.employeeId))
+  );
+  if (projectEmployee) {
+    return { rate: Number(projectEmployee.clientRate), source: "project_employee", rateRecord: projectEmployee };
+  }
+
   const projectUniform = chooseLatestEffective(
-    validRates.filter((rate) => rate.employeeId === null || rate.employeeId === undefined)
+    validRates.filter((rate) => rate.scopeType === "project" && Number(rate.projectId) === Number(args.projectId) && (rate.employeeId === null || rate.employeeId === undefined))
   );
   if (projectUniform) {
     return {
@@ -80,8 +95,24 @@ export async function resolveClientBillingRate(args: {
     };
   }
 
+  if (project?.clientId) {
+    const clientEmployee = chooseLatestEffective(
+      validRates.filter((rate) => rate.scopeType === "client" && Number(rate.clientId) === Number(project.clientId) && Number(rate.employeeId) === Number(args.employeeId))
+    );
+    if (clientEmployee) {
+      return { rate: Number(clientEmployee.clientRate), source: "client_employee", rateRecord: clientEmployee };
+    }
+  }
+
+  const clientUniform = project?.clientId ? chooseLatestEffective(
+    validRates.filter((rate) => rate.scopeType === "client" && Number(rate.clientId) === Number(project.clientId) && (rate.employeeId === null || rate.employeeId === undefined))
+  ) : null;
+  if (clientUniform) {
+    return { rate: Number(clientUniform.clientRate), source: "client_uniform", rateRecord: clientUniform };
+  }
+
   const employeeIndividual = chooseLatestEffective(
-    validRates.filter((rate) => Number(rate.employeeId) === Number(args.employeeId))
+    validRates.filter((rate) => rate.scopeType === "project" && Number(rate.projectId) === Number(args.projectId) && Number(rate.employeeId) === Number(args.employeeId))
   );
   if (employeeIndividual) {
     return {
@@ -159,6 +190,9 @@ export async function resolveWorkerPaymentRate(args: {
 export function rateSourceLabel(source: RateSource): string {
   switch (source) {
     case "project_uniform": return "プロジェクト一律単価";
+    case "project_employee": return "プロジェクト個別単価";
+    case "client_employee": return "取引先個別単価";
+    case "client_uniform": return "取引先一律単価";
     case "employee_individual": return "個別型単価";
     case "project_variable": return "プロジェクト変動単価";
     case "employee_fixed": return "固定単価";

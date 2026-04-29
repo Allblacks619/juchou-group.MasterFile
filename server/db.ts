@@ -493,13 +493,25 @@ export async function getEmployeeRateById(id: number) {
 export async function getRatesByProject(projectId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(employeeRates).where(eq(employeeRates.projectId, projectId));
+  return db.select().from(employeeRates).where(and(
+    eq(employeeRates.scopeType, "project"),
+    eq(employeeRates.projectId, projectId),
+  ));
 }
 
 export async function getRatesByEmployee(employeeId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(employeeRates).where(eq(employeeRates.employeeId, employeeId));
+}
+
+export async function getRatesByClient(clientId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(employeeRates).where(and(
+    eq(employeeRates.scopeType, "client"),
+    eq(employeeRates.clientId, clientId),
+  ));
 }
 
 export async function getAllEmployeeRates() {

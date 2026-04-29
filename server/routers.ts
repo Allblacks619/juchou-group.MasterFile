@@ -1194,29 +1194,49 @@ export const appRouter = router({
         const projMap = new Map(projList.map(p => [p.id, p]));
         return rates.map(r => ({
           ...r,
-          project: projMap.get(r.projectId) ?? null,
+          project: r.projectId ? projMap.get(r.projectId) ?? null : null,
         }));
       }),
 
     listAll: leaderOrAdminProcedure.query(async () => {
-      const [rates, empList, projList] = await Promise.all([
+      const [rates, empList, projList, clientList] = await Promise.all([
         db.getAllEmployeeRates(),
         db.getAllEmployees(),
         db.getAllProjects(),
+        db.getAllClients(),
       ]);
       const empMap = new Map(empList.map(e => [e.id, e]));
       const projMap = new Map(projList.map(p => [p.id, p]));
+      const clientMap = new Map(clientList.map(c => [c.id, c]));
+      const toTime = (v: any, fallback: number) => v ? new Date(v).getTime() : fallback;
+      const overlaps = (a: any, b: any) => {
+        const aFrom = toTime(a.effectiveFrom, Number.MIN_SAFE_INTEGER);
+        const aTo = toTime(a.effectiveUntil, Number.MAX_SAFE_INTEGER);
+        const bFrom = toTime(b.effectiveFrom, Number.MIN_SAFE_INTEGER);
+        const bTo = toTime(b.effectiveUntil, Number.MAX_SAFE_INTEGER);
+        return aFrom <= bTo && bFrom <= aTo;
+      };
       return rates.map(r => ({
         ...r,
         employee: r.employeeId ? empMap.get(r.employeeId) ?? null : null,
-        project: projMap.get(r.projectId) ?? null,
+        project: r.projectId ? projMap.get(r.projectId) ?? null : null,
+        client: r.clientId ? clientMap.get(r.clientId) ?? null : null,
+        hasOverlapWarning: rates.some(other => other.id !== r.id
+          && other.scopeType === r.scopeType
+          && (other.projectId ?? null) === (r.projectId ?? null)
+          && (other.clientId ?? null) === (r.clientId ?? null)
+          && (other.employeeId ?? null) === (r.employeeId ?? null)
+          && (other.shiftType ?? "day") === (r.shiftType ?? "day")
+          && overlaps(r, other)),
       }));
     }),
 
     create: leaderOrAdminProcedure
       .input(z.object({
         employeeId: z.number().nullable().optional(),
-        projectId: z.number(),
+        scopeType: z.enum(["project", "client"]).default("project"),
+        projectId: z.number().optional(),
+        clientId: z.number().optional(),
         shiftType: z.enum(["day", "night"]).default("day"),
         clientRate: z.number().min(0),
         workerRate: z.number().min(0),
@@ -1225,6 +1245,8 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
+        if (input.scopeType === "project" && !input.projectId) throw new TRPCError({ code: "BAD_REQUEST", message: "現場別では現場選択が必要です" });
+        if (input.scopeType === "client" && !input.clientId) throw new TRPCError({ code: "BAD_REQUEST", message: "取引先別では取引先選択が必要です" });
         const data: any = { ...input };
         if (input.effectiveFrom) data.effectiveFrom = parseDateString(input.effectiveFrom);
         if (input.effectiveUntil) data.effectiveUntil = parseDateString(input.effectiveUntil);
