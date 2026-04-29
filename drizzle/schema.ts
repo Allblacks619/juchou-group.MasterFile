@@ -399,9 +399,9 @@ export const employeeRates = mysqlTable("employee_rates", {
   /** Shift type: day or night */
   shiftType: mysqlEnum("shiftType", ["day", "night"]).default("day").notNull(),
   /** Rate charged to client per day (先方単価/日) in yen */
-  clientRate: int("clientRate").notNull(),
+  clientRate: int("clientRate"),
   /** Rate paid to worker per day (支払単価/日) in yen */
-  workerRate: int("workerRate").notNull(),
+  workerRate: int("workerRate"),
   /** Effective from date */
   effectiveFrom: timestamp("effectiveFrom"),
   /** Effective until date (null = still active) */

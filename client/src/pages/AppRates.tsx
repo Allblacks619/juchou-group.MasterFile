@@ -526,13 +526,16 @@ function RatesTab() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>売上単価（日額）<span className="text-red-500">*</span></Label>
+                  <Label>売上単価（日額）</Label>
                   <Input type="number" value={form.clientRate} onChange={(e) => setForm(p => ({ ...p, clientRate: e.target.value }))} placeholder="25000" />
                 </div>
                 <div>
-                  <Label>支払単価（日額）<span className="text-red-500">*</span></Label>
+                  <Label>支払単価（日額）</Label>
                   <Input type="number" value={form.workerRate} onChange={(e) => setForm(p => ({ ...p, workerRate: e.target.value }))} placeholder="18000" />
                 </div>
+              </div>
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded p-3 text-sm text-blue-900 dark:text-blue-100">
+                <p>売上単価と支払単価は別管理です。片方だけの登録も可能です。</p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div><Label>適用開始日</Label><Input type="date" value={form.effectiveFrom} onChange={(e) => setForm(p => ({ ...p, effectiveFrom: e.target.value }))} /></div>
@@ -546,7 +549,7 @@ function RatesTab() {
                 disabled={((rateType === "uniform" && uniformScope === "project" && !form.projectId)
                   || (rateType === "uniform" && uniformScope === "client" && !form.clientId)
                   || (rateType === "individual" && (!form.employeeId || !form.projectId))
-                  || !form.clientRate || !form.workerRate || createRate.isPending)}
+                  || (!form.clientRate && !form.workerRate) || createRate.isPending)}
                 onClick={() => {
                   createRate.mutate({
                     employeeId: rateType === "uniform" ? null : Number(form.employeeId),
@@ -554,8 +557,8 @@ function RatesTab() {
                     projectId: (rateType === "uniform" && uniformScope === "client") ? undefined : Number(form.projectId),
                     clientId: (rateType === "uniform" && uniformScope === "client") ? Number(form.clientId) : undefined,
                     shiftType: form.shiftType,
-                    clientRate: Number(form.clientRate),
-                    workerRate: Number(form.workerRate),
+                    clientRate: form.clientRate ? Number(form.clientRate) : undefined,
+                    workerRate: form.workerRate ? Number(form.workerRate) : undefined,
                     effectiveFrom: form.effectiveFrom || undefined,
                     effectiveUntil: form.effectiveUntil || undefined,
                     notes: form.notes || undefined,

@@ -1238,15 +1238,17 @@ export const appRouter = router({
         projectId: z.number().optional(),
         clientId: z.number().optional(),
         shiftType: z.enum(["day", "night"]).default("day"),
-        clientRate: z.number().min(0),
-        workerRate: z.number().min(0),
+        clientRate: z.number().min(0).optional(),
+        workerRate: z.number().min(0).optional(),
         effectiveFrom: z.string().optional(),
         effectiveUntil: z.string().optional(),
         notes: z.string().optional(),
+      }).refine((data) => data.clientRate != null || data.workerRate != null, {
+        message: "売上単価または支払単価のいずれかを入力してください",
       }))
       .mutation(async ({ input }) => {
-        if (input.scopeType === "project" && !input.projectId) throw new TRPCError({ code: "BAD_REQUEST", message: "現場別では現場選択が必要です" });
-        if (input.scopeType === "client" && !input.clientId) throw new TRPCError({ code: "BAD_REQUEST", message: "取引先別では取引先選択が必要です" });
+        if (input.scopeType === "project" && !input.projectId) throw new TRPCError({ code: "BAD_REQUEST", message: "現場別では現場選択が必需です" });
+        if (input.scopeType === "client" && !input.clientId) throw new TRPCError({ code: "BAD_REQUEST", message: "取引先別では取引先選択が必需です" });
         const data: any = { ...input };
         if (input.effectiveFrom) data.effectiveFrom = parseDateString(input.effectiveFrom);
         if (input.effectiveUntil) data.effectiveUntil = parseDateString(input.effectiveUntil);

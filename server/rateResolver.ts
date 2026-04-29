@@ -76,7 +76,7 @@ export async function resolveClientBillingRate(args: {
   const validRates = (rates as any[]).filter((rate) => {
     if (rate.shiftType && rate.shiftType !== shiftType) return false;
     if (!isActiveOn(rate, args.workDate)) return false;
-    return Number(rate.clientRate || 0) > 0;
+    return rate.clientRate != null && Number(rate.clientRate) > 0;
   });
 
   const projectEmployee = chooseLatestEffective(
@@ -148,7 +148,7 @@ export async function resolveWorkerPaymentRate(args: {
       if (Number(rate.employeeId) !== Number(args.employeeId)) return false;
       if (rate.shiftType && rate.shiftType !== shiftType) return false;
       if (!isActiveOn(rate, args.workDate)) return false;
-      return Number(rate.workerRate || 0) > 0;
+      return rate.workerRate != null && Number(rate.workerRate) > 0;
     })
   );
 
@@ -167,7 +167,7 @@ export async function resolveWorkerPaymentRate(args: {
       if (Number(rate.employeeId) !== Number(args.employeeId)) return false;
       if (rate.shiftType && rate.shiftType !== shiftType) return false;
       if (!isActiveOn(rate, args.workDate)) return false;
-      return Number(rate.workerRate || 0) > 0;
+      return rate.workerRate != null && Number(rate.workerRate) > 0;
     })
   ) : null;
 
@@ -184,7 +184,7 @@ export async function resolveWorkerPaymentRate(args: {
     (baseRates as any[]).filter((rate) => {
       if (rate.shiftType && rate.shiftType !== shiftType) return false;
       if (!isActiveOn(rate, args.workDate)) return false;
-      return Number(rate.workerRate || 0) > 0;
+      return rate.workerRate != null && Number(rate.workerRate) > 0;
     })
   );
 
