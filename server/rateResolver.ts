@@ -57,9 +57,11 @@ async function getContextNames(projectId: number, employeeId: number) {
  * Client billing rate = rate charged to the client.
  *
  * Priority:
- * 1. Project-wide uniform client rate: employeeId == null
- * 2. Employee-specific client rate
- * 3. Error
+ * 1. project + employee
+ * 2. project + uniform
+ * 3. client + employee
+ * 4. client + uniform
+ * 5. Error
  */
 export async function resolveClientBillingRate(args: {
   projectId: number;
@@ -111,17 +113,6 @@ export async function resolveClientBillingRate(args: {
     return { rate: Number(clientUniform.clientRate), source: "client_uniform", rateRecord: clientUniform };
   }
 
-  const employeeIndividual = chooseLatestEffective(
-    validRates.filter((rate) => rate.scopeType === "project" && Number(rate.projectId) === Number(args.projectId) && Number(rate.employeeId) === Number(args.employeeId))
-  );
-  if (employeeIndividual) {
-    return {
-      rate: Number(employeeIndividual.clientRate),
-      source: "employee_individual",
-      rateRecord: employeeIndividual,
-    };
-  }
-
   const ctx = await getContextNames(args.projectId, args.employeeId);
   throw new TRPCError({
     code: "BAD_REQUEST",
@@ -133,9 +124,10 @@ export async function resolveClientBillingRate(args: {
  * Worker payment rate = rate paid by our company to the worker.
  *
  * Priority:
- * 1. Project-specific worker rate: employeeId + projectId
- * 2. Employee fixed worker rate: worker_base_rates
- * 3. Error
+ * 1. project + employee worker rate
+ * 2. client + employee worker rate
+ * 3. employee fixed/base worker rate
+ * 4. Error
  */
 export async function resolveWorkerPaymentRate(args: {
   projectId: number;
@@ -144,10 +136,15 @@ export async function resolveWorkerPaymentRate(args: {
   workDate: Date;
 }): Promise<ResolvedRate> {
   const shiftType = args.shiftType || "day";
-  const rates = await db.getRatesByProject(args.projectId);
+  const [project, allRates] = await Promise.all([
+    db.getProjectById(args.projectId),
+    db.getAllEmployeeRates(),
+  ]);
 
   const projectVariable = chooseLatestEffective(
-    (rates as any[]).filter((rate) => {
+    (allRates as any[]).filter((rate) => {
+      if (rate.scopeType !== "project") return false;
+      if (Number(rate.projectId) !== Number(args.projectId)) return false;
       if (Number(rate.employeeId) !== Number(args.employeeId)) return false;
       if (rate.shiftType && rate.shiftType !== shiftType) return false;
       if (!isActiveOn(rate, args.workDate)) return false;
@@ -160,6 +157,25 @@ export async function resolveWorkerPaymentRate(args: {
       rate: Number(projectVariable.workerRate),
       source: "project_variable",
       rateRecord: projectVariable,
+    };
+  }
+
+  const clientEmployee = project?.clientId ? chooseLatestEffective(
+    (allRates as any[]).filter((rate) => {
+      if (rate.scopeType !== "client") return false;
+      if (Number(rate.clientId) !== Number(project.clientId)) return false;
+      if (Number(rate.employeeId) !== Number(args.employeeId)) return false;
+      if (rate.shiftType && rate.shiftType !== shiftType) return false;
+      if (!isActiveOn(rate, args.workDate)) return false;
+      return Number(rate.workerRate || 0) > 0;
+    })
+  ) : null;
+
+  if (clientEmployee) {
+    return {
+      rate: Number(clientEmployee.workerRate),
+      source: "client_employee",
+      rateRecord: clientEmployee,
     };
   }
 
