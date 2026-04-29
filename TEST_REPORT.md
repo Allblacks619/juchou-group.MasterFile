@@ -7,14 +7,11 @@
 
 ## Results
 - check: pass
-- build: pass (with non-blocking Vite/env/chunk warnings)
+- build: pass
 - test: pass
 
-## Focus validation
-- Verified split-rate resolution logic:
-  - Client invoice billing resolution (`resolveClientBillingRate`) remains isolated from worker payment logic.
-  - Worker payment resolution (`resolveWorkerPaymentRate`) now includes client+employee payment fallback before employee base rate.
-- Verified UI now shows:
-  - 売上単価 / 支払単価 as separate concepts.
-  - 粗利/日 value.
-  - Red warning state when 支払単価 > 売上単価 (no save-block behavior added).
+## Scope checks validated in UI implementation
+- 個別単価 supports both project-scope and client-scope selector paths.
+- Form validation allows billing-only/payment-only and rejects both-empty.
+- Profit display avoids fake 0-based calculation when one side is missing.
+- Negative-profit warning text is shown only when both values exist and payment exceeds billing.

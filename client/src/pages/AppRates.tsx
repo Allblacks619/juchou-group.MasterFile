@@ -36,6 +36,10 @@ function formatYen(n: number | null | undefined): string {
   return `\u00a5${n.toLocaleString()}`;
 }
 
+function hasRate(value: number | null | undefined): value is number {
+  return typeof value === "number";
+}
+
 // ═══════════════════════════════════════════════════════
 // CLIENTS TAB
 // ═══════════════════════════════════════════════════════
@@ -391,6 +395,7 @@ function RatesTab() {
   const [search, setSearch] = useState("");
   const [rateType, setRateType] = useState<"individual" | "uniform">("individual");
   const [uniformScope, setUniformScope] = useState<"project" | "client">("project");
+  const [individualScope, setIndividualScope] = useState<"project" | "client">("project");
   const [form, setForm] = useState({
     employeeId: "", projectId: "", clientId: "", shiftType: "day" as "day" | "night",
     clientRate: "", workerRate: "", effectiveFrom: "", effectiveUntil: "", notes: "",
@@ -428,7 +433,7 @@ function RatesTab() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="作業員名・現場名で検索..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
-        <Dialog open={showCreate} onOpenChange={(o) => { setShowCreate(o); if (!o) { resetForm(); setRateType("individual"); setUniformScope("project"); } }}>
+        <Dialog open={showCreate} onOpenChange={(o) => { setShowCreate(o); if (!o) { resetForm(); setRateType("individual"); setUniformScope("project"); setIndividualScope("project"); } }}>
           <DialogTrigger asChild>
             <Button className="bg-gold text-background hover:bg-gold/90"><Plus className="h-4 w-4 mr-1" />単価登録</Button>
           </DialogTrigger>
@@ -478,6 +483,18 @@ function RatesTab() {
                   </Select>
                 </div>
               )}
+              {rateType === "individual" && (
+                <div>
+                  <Label>適用範囲</Label>
+                  <Select value={individualScope} onValueChange={(v) => setIndividualScope(v as "project" | "client")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="project">現場別 + 作業員</SelectItem>
+                      <SelectItem value="client">取引先別 + 作業員</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {rateType === "individual" && (
                   <div>
@@ -491,7 +508,7 @@ function RatesTab() {
                     </Select>
                   </div>
                 )}
-                {(rateType === "individual" || uniformScope === "project") && <div>
+                {((rateType === "individual" && individualScope === "project") || (rateType === "uniform" && uniformScope === "project")) && <div>
                   <Label>現場<span className="text-red-500">*</span></Label>
                   <Select value={form.projectId || "none"} onValueChange={(v) => setForm(p => ({ ...p, projectId: v === "none" ? "" : v }))}>
                     <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
@@ -501,7 +518,7 @@ function RatesTab() {
                     </SelectContent>
                   </Select>
                 </div>}
-                {rateType === "uniform" && uniformScope === "client" && <div>
+                {((rateType === "individual" && individualScope === "client") || (rateType === "uniform" && uniformScope === "client")) && <div>
                   <Label>取引先<span className="text-red-500">*</span></Label>
                   <Select value={form.clientId || "none"} onValueChange={(v) => setForm(p => ({ ...p, clientId: v === "none" ? "" : v }))}>
                     <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
@@ -548,14 +565,16 @@ function RatesTab() {
               <Button className="bg-gold text-background hover:bg-gold/90"
                 disabled={((rateType === "uniform" && uniformScope === "project" && !form.projectId)
                   || (rateType === "uniform" && uniformScope === "client" && !form.clientId)
-                  || (rateType === "individual" && (!form.employeeId || !form.projectId))
+                  || (rateType === "individual" && !form.employeeId)
+                  || (rateType === "individual" && individualScope === "project" && !form.projectId)
+                  || (rateType === "individual" && individualScope === "client" && !form.clientId)
                   || (!form.clientRate && !form.workerRate) || createRate.isPending)}
                 onClick={() => {
                   createRate.mutate({
                     employeeId: rateType === "uniform" ? null : Number(form.employeeId),
-                    scopeType: rateType === "uniform" ? uniformScope : "project",
-                    projectId: (rateType === "uniform" && uniformScope === "client") ? undefined : Number(form.projectId),
-                    clientId: (rateType === "uniform" && uniformScope === "client") ? Number(form.clientId) : undefined,
+                    scopeType: rateType === "uniform" ? uniformScope : individualScope,
+                    projectId: ((rateType === "uniform" && uniformScope === "project") || (rateType === "individual" && individualScope === "project")) ? Number(form.projectId) : undefined,
+                    clientId: ((rateType === "uniform" && uniformScope === "client") || (rateType === "individual" && individualScope === "client")) ? Number(form.clientId) : undefined,
                     shiftType: form.shiftType,
                     clientRate: form.clientRate ? Number(form.clientRate) : undefined,
                     workerRate: form.workerRate ? Number(form.workerRate) : undefined,
@@ -610,7 +629,10 @@ function RatesTab() {
               <div className="flex justify-between"><div className="font-medium">{r.employee?.nameKanji || "一律単価"}</div><Badge variant="outline">{r.scopeType === "client" ? "取引先別" : "現場別"}</Badge></div>
               <div className="text-xs text-muted-foreground">{r.project?.name || r.client?.name || "—"} / {shiftLabel(r.shiftType || "day")}</div>
               <div className="grid grid-cols-2 gap-2 text-sm"><div>売上: {formatYen(r.clientRate)}</div><div>支払: {formatYen(r.workerRate)}</div></div>
-              {r.workerRate > r.clientRate && <div className="text-xs text-red-500">⚠️ 赤字: 支払単価が売上単価を上回っています</div>}
+              <div className={`text-sm ${hasRate(r.clientRate) && hasRate(r.workerRate) && (r.clientRate - r.workerRate) < 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                粗利/日: {hasRate(r.clientRate) && hasRate(r.workerRate) ? formatYen(r.clientRate - r.workerRate) : "未設定"}
+              </div>
+              {hasRate(r.clientRate) && hasRate(r.workerRate) && r.workerRate > r.clientRate && <div className="text-xs text-red-500">支払単価が売上単価を上回っています。赤字になります。</div>}
               {r.hasOverlapWarning && <div className="text-xs text-amber-500">⚠️ 重複期間の単価があります（優先順位ルールで自動選択されます）</div>}
             </CardContent></Card>
           ))}
@@ -686,13 +708,15 @@ function RatesTab() {
                       </td>
                       <td className="py-2 px-3 text-right font-mono">{formatYen(r.clientRate)}</td>
                       <td className="py-2 px-3 text-right font-mono">{formatYen(r.workerRate)}</td>
-                      <td className={`py-2 px-3 text-right font-mono ${(r.clientRate - r.workerRate) < 0 ? "text-red-500" : "text-green-500"}`}>{formatYen(r.clientRate - r.workerRate)}</td>
+                      <td className={`py-2 px-3 text-right font-mono ${hasRate(r.clientRate) && hasRate(r.workerRate) ? ((r.clientRate - r.workerRate) < 0 ? "text-red-500" : "text-green-500") : "text-muted-foreground"}`}>
+                        {hasRate(r.clientRate) && hasRate(r.workerRate) ? formatYen(r.clientRate - r.workerRate) : "未設定"}
+                      </td>
                       <td className="py-2 px-3 text-xs text-muted-foreground">
                         {r.effectiveFrom ? toDateStr(r.effectiveFrom) : "\u2014"} \u301C {r.effectiveUntil ? toDateStr(r.effectiveUntil) : "現在"}
                       </td>
                       <td className="py-2 px-3">
                         {r.hasOverlapWarning && <div className="text-[10px] text-amber-500 mb-1">⚠️重複あり</div>}
-                        {r.workerRate > r.clientRate && <div className="text-[10px] text-red-500 mb-1">⚠️赤字単価</div>}
+                        {hasRate(r.clientRate) && hasRate(r.workerRate) && r.workerRate > r.clientRate && <div className="text-[10px] text-red-500 mb-1">⚠️支払単価が売上単価を上回っています。赤字になります。</div>}
                         <div className="flex gap-1">
                           <Button variant="ghost" size="sm" onClick={() => {
                             setEditId(r.id);
