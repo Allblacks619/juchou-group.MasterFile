@@ -40,6 +40,13 @@ function hasRate(value: number | null | undefined): value is number {
   return typeof value === "number";
 }
 
+function toOptionalNumber(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 // ═══════════════════════════════════════════════════════
 // CLIENTS TAB
 // ═══════════════════════════════════════════════════════
@@ -425,6 +432,34 @@ function RatesTab() {
   const ShiftIcon = ({ shift }: { shift: string }) => shift === "night"
     ? <Moon className="h-3 w-3" />
     : <Sun className="h-3 w-3" />;
+  const startEditRate = (r: any) => {
+    setEditId(r.id);
+    setEditForm({
+      shiftType: r.shiftType || "day",
+      clientRate: hasRate(r.clientRate) ? String(r.clientRate) : "",
+      workerRate: hasRate(r.workerRate) ? String(r.workerRate) : "",
+      effectiveFrom: toDateStr(r.effectiveFrom),
+      effectiveUntil: toDateStr(r.effectiveUntil),
+      notes: r.notes || "",
+    });
+  };
+  const submitRateUpdate = (id: number) => {
+    const clientRate = toOptionalNumber(editForm.clientRate);
+    const workerRate = toOptionalNumber(editForm.workerRate);
+    if (clientRate == null && workerRate == null) {
+      toast.error("売上単価と支払単価を両方空にはできません");
+      return;
+    }
+    updateRate.mutate({
+      id,
+      shiftType: editForm.shiftType,
+      clientRate,
+      workerRate,
+      effectiveFrom: editForm.effectiveFrom || undefined,
+      effectiveUntil: editForm.effectiveUntil || undefined,
+      notes: editForm.notes || undefined,
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -634,6 +669,31 @@ function RatesTab() {
               </div>
               {hasRate(r.clientRate) && hasRate(r.workerRate) && r.workerRate > r.clientRate && <div className="text-xs text-red-500">支払単価が売上単価を上回っています。赤字になります。</div>}
               {r.hasOverlapWarning && <div className="text-xs text-amber-500">⚠️ 重複期間の単価があります（優先順位ルールで自動選択されます）</div>}
+              {editId === r.id ? (
+                <div className="space-y-2 border-t pt-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label className="text-xs">売上単価</Label><Input type="number" value={editForm.clientRate} onChange={(e) => setEditForm(p => ({ ...p, clientRate: e.target.value }))} /></div>
+                    <div><Label className="text-xs">支払単価</Label><Input type="number" value={editForm.workerRate} onChange={(e) => setEditForm(p => ({ ...p, workerRate: e.target.value }))} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label className="text-xs">開始日</Label><Input type="date" value={editForm.effectiveFrom} onChange={(e) => setEditForm(p => ({ ...p, effectiveFrom: e.target.value }))} /></div>
+                    <div><Label className="text-xs">終了日</Label><Input type="date" value={editForm.effectiveUntil} onChange={(e) => setEditForm(p => ({ ...p, effectiveUntil: e.target.value }))} /></div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Button variant="outline" onClick={() => setEditId(null)}>キャンセル</Button>
+                    <Button className="bg-gold text-background hover:bg-gold/90" disabled={updateRate.isPending} onClick={() => submitRateUpdate(r.id)}>保存</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <Button variant="outline" className="w-full" onClick={() => startEditRate(r)}>
+                    <Pencil className="h-3.5 w-3.5 mr-1" />編集
+                  </Button>
+                  <Button variant="outline" className="w-full text-red-500 hover:text-red-600" onClick={() => { if (confirm("この単価を削除しますか？")) deleteRate.mutate({ id: r.id }); }}>
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />削除
+                  </Button>
+                </div>
+              )}
             </CardContent></Card>
           ))}
         </div>
@@ -681,15 +741,7 @@ function RatesTab() {
                         <div className="flex gap-1">
                           <Button size="sm" variant="outline" onClick={() => setEditId(null)}>取消</Button>
                           <Button size="sm" className="bg-gold text-background hover:bg-gold/90" disabled={updateRate.isPending} onClick={() => {
-                            updateRate.mutate({
-                              id: r.id,
-                              shiftType: editForm.shiftType,
-                              clientRate: Number(editForm.clientRate),
-                              workerRate: Number(editForm.workerRate),
-                              effectiveFrom: editForm.effectiveFrom || undefined,
-                              effectiveUntil: editForm.effectiveUntil || undefined,
-                              notes: editForm.notes || undefined,
-                            });
+                            submitRateUpdate(r.id);
                           }}>保存</Button>
                         </div>
                       </td>
@@ -719,15 +771,7 @@ function RatesTab() {
                         {hasRate(r.clientRate) && hasRate(r.workerRate) && r.workerRate > r.clientRate && <div className="text-[10px] text-red-500 mb-1">⚠️支払単価が売上単価を上回っています。赤字になります。</div>}
                         <div className="flex gap-1">
                           <Button variant="ghost" size="sm" onClick={() => {
-                            setEditId(r.id);
-                            setEditForm({
-                              shiftType: r.shiftType || "day",
-                              clientRate: String(r.clientRate),
-                              workerRate: String(r.workerRate),
-                              effectiveFrom: toDateStr(r.effectiveFrom),
-                              effectiveUntil: toDateStr(r.effectiveUntil),
-                              notes: r.notes || "",
-                            });
+                            startEditRate(r);
                           }}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
