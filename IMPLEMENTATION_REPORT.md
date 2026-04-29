@@ -1,41 +1,29 @@
 # IMPLEMENTATION REPORT
 
-## Locked Rule Compliance
-- Implemented deterministic priority for client billing rates:
-  1) project + employee
-  2) project + uniform
-  3) client + employee
-  4) client + uniform
-- Client scope is only considered after no project-scope match is found.
-- Overlaps are allowed; no save blocking was added.
-- Existing records are backward-compatible via schema default/backfill to `project` scope.
+## This patch (AppRates client UI)
+- Added **個別単価 適用範囲 selector** in `AppRates.tsx` so individual rates can now be created as:
+  - 現場別 + 作業員 (`scopeType=project`)
+  - 取引先別 + 作業員 (`scopeType=client`)
+- Kept existing separated rate model intact (billing and payment are still independent fields; no model rollback).
+- Updated create payload mapping for individual rates:
+  - `scopeType` now follows individual selector.
+  - `projectId` is sent only for project-scope.
+  - `clientId` is sent only for client-scope.
+- Updated required-field validation in create dialog:
+  - individual: `employeeId` required + selected scope key (`projectId` or `clientId`) required.
+  - uniform: unchanged scope-based key requirement.
+  - still allows billing-only / payment-only, and blocks only when both are empty.
+- Updated rate list profit display behavior:
+  - Shows 売上単価 / 支払単価 independently.
+  - Computes 粗利/日 **only when both are present**.
+  - Shows `未設定` for 粗利/日 when one side is missing.
+  - Red warning for negative profit:
+    - `支払単価が売上単価を上回っています。赤字になります。`
+- Mobile cards now explicitly show 粗利/日 and the same negative-profit warning logic without using zero fallback.
 
-## What changed
-- Added `scopeType` (`project`/`client`) and `clientId` to `employee_rates`.
-- Added migration `0019_rate_scope_upgrade.sql` with scope backfill and lookup index.
-- Updated resolver logic to enforce fixed deterministic priority and tie-break.
-  - `resolveClientBillingRate` now resolves **billing only** with strict order:
-    1) project + employee
-    2) project + uniform
-    3) client + employee
-    4) client + uniform
-  - `resolveWorkerPaymentRate` now resolves **payment only** with strict order:
-    1) project + employee payment
-    2) client + employee payment
-    3) employee base/fixed payment
-  - Removed implicit fallback branches that could mask unresolved billing/payment.
-- Extended rate APIs to accept scoped create for project/client uniform rates.
-- Added overlap warning flag in list API.
-- Updated rates UI:
-  - 一律単価 now supports 適用範囲 selector:
-    - 現場別
-    - 取引先別
-  - Conditional required selector behavior for project/client.
-  - Explicit wording split:
-    - 売上単価（請求側）
-    - 支払単価（支払側）
-  - Gross profit (粗利/日) coloring and red-loss warnings when `支払単価 > 売上単価`.
-  - Mobile card layout and warning visibility.
-
-## Notes
-- 個別単価 behavior remains project + employee (unchanged).
+## Explicit non-changes
+- No endpoint moves.
+- No invoice draft flow reversion.
+- No closing flow reversion.
+- No rate model separation rollback.
+- No forced dual-rate input requirement.
