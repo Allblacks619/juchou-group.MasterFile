@@ -526,7 +526,7 @@ function RatesTab() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>先方単価（日額）<span className="text-red-500">*</span></Label>
+                  <Label>売上単価（日額）<span className="text-red-500">*</span></Label>
                   <Input type="number" value={form.clientRate} onChange={(e) => setForm(p => ({ ...p, clientRate: e.target.value }))} placeholder="25000" />
                 </div>
                 <div>
@@ -579,7 +579,7 @@ function RatesTab() {
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-xs text-muted-foreground">平均先方単価</p>
+              <p className="text-xs text-muted-foreground">平均売上単価</p>
               <p className="text-2xl font-bold">{formatYen(Math.round(rates.reduce((s: number, r: any) => s + r.clientRate, 0) / rates.length))}</p>
             </CardContent>
           </Card>
@@ -606,7 +606,8 @@ function RatesTab() {
             <Card key={r.id}><CardContent className="p-3 space-y-2">
               <div className="flex justify-between"><div className="font-medium">{r.employee?.nameKanji || "一律単価"}</div><Badge variant="outline">{r.scopeType === "client" ? "取引先別" : "現場別"}</Badge></div>
               <div className="text-xs text-muted-foreground">{r.project?.name || r.client?.name || "—"} / {shiftLabel(r.shiftType || "day")}</div>
-              <div className="grid grid-cols-2 gap-2 text-sm"><div>先方: {formatYen(r.clientRate)}</div><div>支払: {formatYen(r.workerRate)}</div></div>
+              <div className="grid grid-cols-2 gap-2 text-sm"><div>売上: {formatYen(r.clientRate)}</div><div>支払: {formatYen(r.workerRate)}</div></div>
+              {r.workerRate > r.clientRate && <div className="text-xs text-red-500">⚠️ 赤字: 支払単価が売上単価を上回っています</div>}
               {r.hasOverlapWarning && <div className="text-xs text-amber-500">⚠️ 重複期間の単価があります（優先順位ルールで自動選択されます）</div>}
             </CardContent></Card>
           ))}
@@ -618,9 +619,9 @@ function RatesTab() {
                 <th className="py-2 px-3 font-medium text-muted-foreground">作業員</th>
                 <th className="py-2 px-3 font-medium text-muted-foreground">現場</th>
                 <th className="py-2 px-3 font-medium text-muted-foreground">区分</th>
-                <th className="py-2 px-3 font-medium text-muted-foreground text-right">先方単価</th>
+                <th className="py-2 px-3 font-medium text-muted-foreground text-right">売上単価</th>
                 <th className="py-2 px-3 font-medium text-muted-foreground text-right">支払単価</th>
-                <th className="py-2 px-3 font-medium text-muted-foreground text-right">差額</th>
+                <th className="py-2 px-3 font-medium text-muted-foreground text-right">粗利/日</th>
                 <th className="py-2 px-3 font-medium text-muted-foreground">期間</th>
                 <th className="py-2 px-3"></th>
               </tr>
@@ -682,12 +683,13 @@ function RatesTab() {
                       </td>
                       <td className="py-2 px-3 text-right font-mono">{formatYen(r.clientRate)}</td>
                       <td className="py-2 px-3 text-right font-mono">{formatYen(r.workerRate)}</td>
-                      <td className="py-2 px-3 text-right font-mono text-green-500">{formatYen(r.clientRate - r.workerRate)}</td>
+                      <td className={`py-2 px-3 text-right font-mono ${(r.clientRate - r.workerRate) < 0 ? "text-red-500" : "text-green-500"}`}>{formatYen(r.clientRate - r.workerRate)}</td>
                       <td className="py-2 px-3 text-xs text-muted-foreground">
                         {r.effectiveFrom ? toDateStr(r.effectiveFrom) : "\u2014"} \u301C {r.effectiveUntil ? toDateStr(r.effectiveUntil) : "現在"}
                       </td>
                       <td className="py-2 px-3">
                         {r.hasOverlapWarning && <div className="text-[10px] text-amber-500 mb-1">⚠️重複あり</div>}
+                        {r.workerRate > r.clientRate && <div className="text-[10px] text-red-500 mb-1">⚠️赤字単価</div>}
                         <div className="flex gap-1">
                           <Button variant="ghost" size="sm" onClick={() => {
                             setEditId(r.id);
