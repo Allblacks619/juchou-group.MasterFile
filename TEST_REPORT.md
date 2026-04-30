@@ -1,4 +1,4 @@
-# TEST REPORT
+# TEST REPORT (2026-04-30)
 
 ## Commands run
 - `pnpm check`
@@ -7,11 +7,8 @@
 
 ## Results
 - check: pass
-- build: pass
-- test: pass
+- build: pass (with existing non-blocking Vite warnings)
+- test: pass (85/85)
 
-## Scope checks validated in UI implementation
-- 個別単価 supports both project-scope and client-scope selector paths.
-- Form validation allows billing-only/payment-only and rejects both-empty.
-- Profit display avoids fake 0-based calculation when one side is missing.
-- Negative-profit warning text is shown only when both values exist and payment exceeds billing.
+## Notes
+- Build warnings seen were existing environment/build warnings (analytics env placeholders and bundle-size warning), not hard failures.
