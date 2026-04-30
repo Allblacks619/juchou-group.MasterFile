@@ -120,6 +120,13 @@
       "when": 1777477770485,
       "tag": "0016_complex_blacklash",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1777578238180,
+      "tag": "0017_steady_black_knight",
+      "breakpoints": true
     }
   ]
 }
