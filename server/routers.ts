@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, adminProcedure, superAdminProcedure, router, isManagerLike, isGuestRole, isSuperAdmin } from "./_core/trpc";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import * as db from "./db";
@@ -19,7 +19,7 @@ import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./r
 
 // ── Helper: check admin or leader role ──
 const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (ctx.user.appRole !== "admin" && ctx.user.appRole !== "leader") {
+  if (!isManagerLike((ctx.user as any).appRole)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "管理者または責任者権限が必要です" });
   }
   return next({ ctx });
@@ -413,19 +413,95 @@ export const appRouter = router({
     }),
   }),
 
+  superAdmin: router({
+    bulkChangeRoles: superAdminProcedure
+      .input(z.object({
+        userIds: z.array(z.number()).min(1),
+        appRole: z.enum(["super_admin", "admin", "manager", "worker", "guest"]),
+      }))
+      .mutation(async ({ input }) => {
+        if (input.appRole === "super_admin") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "super_admin への一括昇格はできません" });
+        }
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        for (const userId of input.userIds) {
+          const users = await dbInstance.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+          const user = users[0] as any;
+          if (!user) continue;
+          if (isSuperAdmin(user.appRole)) continue;
+          await dbInstance.update(schema.users).set({ appRole: input.appRole as any, role: input.appRole === "admin" ? "admin" : "user" as any }).where(eq(schema.users.id, userId));
+        }
+        return { success: true };
+      }),
+    bulkDeleteEmployees: superAdminProcedure
+      .input(z.object({ employeeIds: z.array(z.number()).min(1), confirmText: z.string() }))
+      .mutation(async ({ input }) => {
+        if (input.confirmText !== "DELETE") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "confirmText must be DELETE" });
+        }
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        for (const employeeId of input.employeeIds) {
+          const employee = await db.getEmployeeById(employeeId);
+          if (!employee) continue;
+          if (employee.userId) {
+            const users = await dbInstance.select().from(schema.users).where(eq(schema.users.id, employee.userId)).limit(1);
+            const linked = users[0] as any;
+            if (linked && isSuperAdmin((linked as any).appRole)) continue;
+          }
+          await db.deleteEmployee(employeeId);
+        }
+        return { success: true };
+      }),
+    previewBulkDeleteEmployees: superAdminProcedure
+      .input(z.object({ employeeIds: z.array(z.number()).min(1) }))
+      .query(async ({ input }) => {
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        const selected: any[] = [];
+        const missingEmployeeIds: number[] = [];
+        const superAdminTargetEmployeeIds: number[] = [];
+        const linkedUsers: any[] = [];
+        for (const employeeId of input.employeeIds) {
+          const employee = await db.getEmployeeById(employeeId);
+          if (!employee) {
+            missingEmployeeIds.push(employeeId);
+            continue;
+          }
+          selected.push(employee);
+          if (employee.userId) {
+            const users = await dbInstance.select().from(schema.users).where(eq(schema.users.id, employee.userId)).limit(1);
+            const linked = users[0] as any;
+            if (linked) {
+              linkedUsers.push({ employeeId, userId: linked.id, appRole: linked.appRole, loginId: linked.loginId });
+              if (isSuperAdmin(linked.appRole)) superAdminTargetEmployeeIds.push(employeeId);
+            }
+          }
+        }
+        return {
+          selectedEmployees: selected,
+          linkedUsers,
+          superAdminTargetEmployeeIds,
+          missingEmployeeIds,
+          relatedRecords: { detectable: false },
+        };
+      }),
+  }),
+
   // ── Invitation System ──
   invitation: router({
     create: leaderOrAdminProcedure
       .input(z.object({
         loginId: z.string().min(1),
         tempPassword: z.string().min(6),
-        assignedRole: z.enum(["admin", "leader", "worker"]),
+        assignedRole: z.enum(["super_admin", "admin", "manager", "worker", "guest", "leader"]).transform((v) => v === "leader" ? "manager" : v),
         recipientEmail: z.string().email().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        // Only admin can create admin invitations
-        if (input.assignedRole === "admin" && ctx.user.appRole !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "管理者のみが管理者招待を作成できます" });
+        // Only super_admin can create super_admin/admin invitations
+        if ((input.assignedRole === "super_admin" || input.assignedRole === "admin") && !isSuperAdmin((ctx.user as any).appRole)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "統括管理者のみが高権限招待を作成できます" });
         }
 
         const token = nanoid(32);
@@ -435,7 +511,7 @@ export const appRouter = router({
           token,
           loginId: input.loginId,
           tempPassword: input.tempPassword,
-          assignedRole: input.assignedRole,
+          assignedRole: input.assignedRole as any,
           recipientEmail: input.recipientEmail ?? null,
           status: "pending",
           emailSent: false,
@@ -2016,6 +2092,9 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (isGuestRole((ctx.user as any).appRole)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では編集できません" });
+        }
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
         if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
@@ -2053,6 +2132,9 @@ export const appRouter = router({
     submitMySubmission: protectedProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .mutation(async ({ ctx, input }) => {
+        if (isGuestRole((ctx.user as any).appRole)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では提出できません" });
+        }
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
         if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
@@ -2080,6 +2162,9 @@ export const appRouter = router({
         fileName: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (isGuestRole((ctx.user as any).appRole)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では領収書をアップロードできません" });
+        }
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
         if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
@@ -2109,6 +2194,9 @@ export const appRouter = router({
     clearMyReceipt: protectedProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .mutation(async ({ ctx, input }) => {
+        if (isGuestRole((ctx.user as any).appRole)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では領収書を解除できません" });
+        }
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
         if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         await db.updateClosingSubmission(result.submission.id, {

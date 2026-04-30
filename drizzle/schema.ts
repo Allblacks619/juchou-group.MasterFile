@@ -10,8 +10,8 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  /** App-level role: admin=統合管理者, leader=責任者, worker=作業員 */
-  appRole: mysqlEnum("appRole", ["admin", "leader", "worker"]).default("worker").notNull(),
+  /** App-level role */
+  appRole: mysqlEnum("appRole", ["super_admin", "admin", "manager", "worker", "guest"]).default("worker").notNull(),
   /** Login ID (romaji name) for invitation-based login */
   loginId: varchar("loginId", { length: 128 }).unique(),
   /** Hashed password (bcrypt) */
@@ -39,8 +39,8 @@ export const invitations = mysqlTable("invitations", {
   loginId: varchar("loginId", { length: 128 }).notNull(),
   /** Temporary password */
   tempPassword: varchar("tempPassword", { length: 256 }).notNull(),
-  /** Role to assign: admin, leader, worker */
-  assignedRole: mysqlEnum("assignedRole", ["admin", "leader", "worker"]).default("worker").notNull(),
+  /** Role to assign */
+  assignedRole: mysqlEnum("assignedRole", ["super_admin", "admin", "manager", "worker", "guest"]).default("worker").notNull(),
   /** Optional email to send invitation to */
   recipientEmail: varchar("recipientEmail", { length: 320 }),
   /** Invitation status */

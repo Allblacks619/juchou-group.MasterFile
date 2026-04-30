@@ -149,8 +149,9 @@ describe("Custom Authentication System", () => {
       expect(result.expiresAt).toBeInstanceOf(Date);
     });
 
-    it("admin can create admin invitations", async () => {
+    it("super_admin can create admin invitations", async () => {
       const { ctx } = createAdminContext();
+      (ctx.user as any).appRole = "super_admin";
       const caller = appRouter.createCaller(ctx);
       const result = await caller.invitation.create({
         loginId: "new.admin",

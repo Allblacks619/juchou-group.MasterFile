@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -48,10 +49,14 @@ export default function AppEmployees() {
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showPdfDialog, setShowPdfDialog] = useState(false);
+  const [bulkRole, setBulkRole] = useState<"admin" | "manager" | "worker" | "guest">("worker");
+  const [confirmDeleteText, setConfirmDeleteText] = useState("");
   const [pdfType, setPdfType] = useState<"list" | "individual">("list");
   const [projectName, setProjectName] = useState("");
 
   const employeesQuery = trpc.employee.list.useQuery();
+  const meQuery = trpc.auth.me.useQuery();
+  const isSuperAdmin = (meQuery.data as any)?.appRole === "super_admin";
 
   const filtered = useMemo(() => {
     return (employeesQuery.data || []).filter((emp) => {
@@ -127,6 +132,35 @@ export default function AppEmployees() {
 
   const isPending = generateRosterList.isPending || generateRosterMulti.isPending;
 
+  const bulkRoleMutation = trpc.superAdmin.bulkChangeRoles.useMutation({
+    onSuccess: () => toast.success("ロールを一括変更しました"),
+    onError: (e) => toast.error(`一括変更エラー: ${e.message}`),
+  });
+  const bulkDeleteMutation = trpc.superAdmin.bulkDeleteEmployees.useMutation({
+    onSuccess: () => {
+      toast.success("従業員を一括削除しました");
+      setConfirmDeleteText("");
+      employeesQuery.refetch();
+      setSelectedIds(new Set());
+    },
+    onError: (e) => toast.error(`一括削除エラー: ${e.message}`),
+  });
+
+  const handleBulkRoleChange = () => {
+    if (!isSuperAdmin) return;
+    const selectedEmployees = (employeesQuery.data || []).filter((e) => selectedIds.has(e.id));
+    const userIds = selectedEmployees.map((e) => e.userId).filter((id): id is number => typeof id === "number");
+    if (!userIds.length) return toast.error("ユーザー連携済み従業員を選択してください");
+    bulkRoleMutation.mutate({ userIds, appRole: bulkRole });
+  };
+
+  const handleBulkDelete = () => {
+    if (!isSuperAdmin) return;
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return toast.error("対象を選択してください");
+    bulkDeleteMutation.mutate({ employeeIds: ids, confirmText: confirmDeleteText });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -135,8 +169,36 @@ export default function AppEmployees() {
           <p className="text-muted-foreground mt-1">
             従業員のプロフィール情報を管理します
           </p>
+          <p className="text-xs text-muted-foreground mt-1">あなたの権限: {(meQuery.data as any)?.appRole || "worker"}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {isSuperAdmin && (
+            <>
+              <Select value={bulkRole} onValueChange={(v: any) => setBulkRole(v)}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="ロール選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">admin</SelectItem>
+                  <SelectItem value="manager">manager</SelectItem>
+                  <SelectItem value="worker">worker</SelectItem>
+                  <SelectItem value="guest">guest</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" onClick={handleBulkRoleChange} disabled={selectedIds.size === 0 || bulkRoleMutation.isPending}>
+                ロール一括変更
+              </Button>
+              <Input
+                value={confirmDeleteText}
+                onChange={(e) => setConfirmDeleteText(e.target.value)}
+                placeholder='DELETE'
+                className="w-[110px]"
+              />
+              <Button variant="destructive" size="sm" onClick={handleBulkDelete} disabled={selectedIds.size === 0 || bulkDeleteMutation.isPending}>
+                一括削除
+              </Button>
+            </>
+          )}
           {/* PDF dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
