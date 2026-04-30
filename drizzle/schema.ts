@@ -695,6 +695,81 @@ export const employeePayments = mysqlTable("employee_payments", {
 export type EmployeePayment = typeof employeePayments.$inferSelect;
 export type InsertEmployeePayment = typeof employeePayments.$inferInsert;
 
+export const workerInvoices = mysqlTable("worker_invoices", {
+  id: int("id").autoincrement().primaryKey(),
+  closingId: int("closingId").notNull(),
+  submissionId: int("submissionId").notNull(),
+  projectId: int("projectId").notNull(),
+  employeeId: int("employeeId").notNull(),
+  closingMonth: varchar("closingMonth", { length: 7 }).notNull(),
+  status: mysqlEnum("workerInvoiceStatus", ["draft", "submitted", "returned", "approved", "locked"]).default("draft").notNull(),
+  invoiceNumber: varchar("invoiceNumber", { length: 64 }),
+  issueDate: timestamp("issueDate"),
+  subject: text("subject"),
+  notes: text("notes"),
+  subtotalAmount: int("subtotalAmount").default(0).notNull(),
+  taxAmount: int("taxAmount").default(0).notNull(),
+  totalAmount: int("totalAmount").default(0).notNull(),
+  submittedAt: timestamp("submittedAt"),
+  approvedAt: timestamp("approvedAt"),
+  approvedBy: int("approvedBy"),
+  returnedAt: timestamp("returnedAt"),
+  returnedBy: int("returnedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("worker_invoice_unique").on(table.closingId, table.employeeId),
+]);
+export type WorkerInvoice = typeof workerInvoices.$inferSelect;
+export type InsertWorkerInvoice = typeof workerInvoices.$inferInsert;
+
+export const workerInvoiceSnapshots = mysqlTable("worker_invoice_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  workerInvoiceId: int("workerInvoiceId").notNull(),
+  snapshotVersion: int("snapshotVersion").default(1).notNull(),
+  snapshotJson: text("snapshotJson").notNull(),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type WorkerInvoiceSnapshot = typeof workerInvoiceSnapshots.$inferSelect;
+export type InsertWorkerInvoiceSnapshot = typeof workerInvoiceSnapshots.$inferInsert;
+
+export const workerInvoiceItems = mysqlTable("worker_invoice_items", {
+  id: int("id").autoincrement().primaryKey(),
+  workerInvoiceId: int("workerInvoiceId").notNull(),
+  itemType: mysqlEnum("workerInvoiceItemType", ["normal", "text"]).default("normal").notNull(),
+  label: text("label").notNull(),
+  quantity: int("quantity").default(1).notNull(),
+  unitPrice: int("unitPrice").default(0).notNull(),
+  amount: int("amount").default(0).notNull(),
+  taxRate: int("taxRate").default(10).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type WorkerInvoiceItem = typeof workerInvoiceItems.$inferSelect;
+export type InsertWorkerInvoiceItem = typeof workerInvoiceItems.$inferInsert;
+
+export const invoiceSupportingDocuments = mysqlTable("invoice_supporting_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  closingId: int("closingId"),
+  submissionId: int("submissionId"),
+  employeeId: int("employeeId"),
+  workerInvoiceId: int("workerInvoiceId"),
+  closingMonth: varchar("closingMonth", { length: 7 }).notNull(),
+  category: varchar("category", { length: 64 }),
+  fileUrl: text("fileUrl").notNull(),
+  fileKey: varchar("fileKey", { length: 512 }).notNull(),
+  originalFileName: varchar("originalFileName", { length: 512 }).notNull(),
+  mimeType: varchar("mimeType", { length: 128 }),
+  uploadedByEmployeeId: int("uploadedByEmployeeId"),
+  uploadedAt: timestamp("uploadedAt").defaultNow().notNull(),
+});
+export type InvoiceSupportingDocument = typeof invoiceSupportingDocuments.$inferSelect;
+export type InsertInvoiceSupportingDocument = typeof invoiceSupportingDocuments.$inferInsert;
+
 
 /**
  * Audit logs (監査ログ)
