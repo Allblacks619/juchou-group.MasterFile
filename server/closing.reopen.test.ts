@@ -82,6 +82,34 @@ describe("closing reopen/edit recovery", () => {
     await expect(workerB.closing.saveMySubmission({ projectId: 1, closingMonth: "2026-04", transportAmount: 900, expenseAmount: 100, notes: "not-returned" })).rejects.toThrow("この状態では編集できません");
   });
 
+
+  it("ready + non-rejected worker cannot submit", async () => {
+    closingStatus = "ready";
+    submissionStatusByEmployee = { 10: "approved", 11: "submitted" };
+    const workerA = appRouter.createCaller(createCtx(createUser()));
+    await expect(workerA.closing.submitMySubmission({ projectId: 1, closingMonth: "2026-04" })).rejects.toThrow("この状態では提出できません");
+  });
+
+  it("ready + rejected worker can resubmit", async () => {
+    closingStatus = "ready";
+    submissionStatusByEmployee = { 10: "rejected", 11: "approved" };
+    const workerA = appRouter.createCaller(createCtx(createUser()));
+    await expect(workerA.closing.submitMySubmission({ projectId: 1, closingMonth: "2026-04" })).resolves.toEqual({ success: true });
+  });
+
+  it("reopened/open worker can submit", async () => {
+    closingStatus = "open";
+    submissionStatusByEmployee = { 10: "pending", 11: "pending" };
+    const workerA = appRouter.createCaller(createCtx(createUser()));
+    await expect(workerA.closing.submitMySubmission({ projectId: 1, closingMonth: "2026-04" })).resolves.toEqual({ success: true });
+  });
+
+  it("closed/reclosed worker cannot submit", async () => {
+    closingStatus = "closed";
+    submissionStatusByEmployee = { 10: "pending", 11: "pending" };
+    const workerA = appRouter.createCaller(createCtx(createUser()));
+    await expect(workerA.closing.submitMySubmission({ projectId: 1, closingMonth: "2026-04" })).rejects.toThrow();
+  });
   it("reclose locks again after reopen", async () => {
     const adminCaller = appRouter.createCaller(createCtx(createUser({ role: "admin", appRole: "admin" })));
     closingStatus = "closed";

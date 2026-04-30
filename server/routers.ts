@@ -2055,8 +2055,8 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
         if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
-        if (isWorkerEditLockedByClosing(result.closing.status)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "締め済みデータは提出できません" });
+        if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では提出できません" });
         }
         if (result.submission.receiptRequired && !result.submission.receiptUploaded) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "領収書を添付してから提出してください" });
