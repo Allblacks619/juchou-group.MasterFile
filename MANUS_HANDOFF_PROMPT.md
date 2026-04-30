@@ -1,31 +1,33 @@
 # MANUS HANDOFF PROMPT
 
-Please verify the AppRates UI patch with this checklist:
+Please verify the **AppRates critical fix** with this checklist.
 
-1) 個別単価 create dialog
-- Confirm **適用範囲** appears for 個別単価 with options:
-  - 現場別 + 作業員
-  - 取引先別 + 作業員
-- Confirm required keys by scope:
-  - project scope: employeeId + projectId
-  - client scope: employeeId + clientId
+## 1) Edit/delete availability
+- Confirm every rate record has edit/delete actions on desktop table.
+- Confirm every rate record has visible `編集` and `削除` buttons on mobile cards.
 
-2) Payload behavior
-- Confirm individual project-scope sends `scopeType=project` + `projectId`.
-- Confirm individual client-scope sends `scopeType=client` + `clientId`.
-- Confirm billing-only / payment-only submissions are accepted.
-- Confirm both-empty billing/payment submission is rejected.
+## 2) Mutation wiring
+- Confirm delete path calls existing `trpc.rate.delete` mutation.
+- Confirm edit save calls existing `trpc.rate.update` mutation.
 
-3) Main rate list profit rendering
-- Confirm columns/cards show:
-  - 売上単価
-  - 支払単価
-  - 粗利/日
-- Confirm 粗利/日 is shown only when both rates exist.
-- Confirm missing side renders as `—`/`未設定` (no 0 fallback math).
-- Confirm negative profit is red and warning text appears:
-  - 支払単価が売上単価を上回っています。赤字になります。
+## 3) Delete behavior
+- Confirm delete prompts user confirmation first.
+- Confirm only the selected record is deleted.
 
-4) Mobile behavior
-- Confirm no horizontal overflow in create dialog/rate cards.
-- Confirm selector/inputs/buttons remain tappable and stacked vertically.
+## 4) Edit behavior (billing/payment separation)
+- Confirm existing records can be edited regardless of current shape:
+  - billing-only record can be edited without forcing payment,
+  - payment-only record can be edited without forcing billing,
+  - both present can edit both.
+- Confirm no 0-yen fallback is auto-submitted for missing side.
+
+## 5) Validation
+- Confirm both empty is rejected.
+- Confirm billing-only is accepted.
+- Confirm payment-only is accepted.
+- Confirm both is accepted.
+
+## 6) Mobile layout
+- Confirm action buttons are tappable and not clipped.
+- Confirm no horizontal overflow in card actions/edit area.
+- Confirm stacked actions layout remains visible without horizontal scroll.
