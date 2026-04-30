@@ -3164,6 +3164,50 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+  workerInvoice: router({
+    getMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
+      const me = await db.getEmployeeByUserId(ctx.user.id);
+      if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+      const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
+      const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id);
+      if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
+      let invoice = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
+      if (!invoice) {
+        const total = Number(submission.transportAmount || 0) + Number(submission.expenseAmount || 0);
+        invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: `${input.closingMonth} 作業請求`, subtotalAmount: total, taxAmount: 0, totalAmount: total });
+      }
+      return invoice;
+    }),
+    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional() })).mutation(async ({ ctx, input }) => {
+      const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+      const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
+      const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
+      await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: input.subject, notes: input.notes });
+      return { success: true };
+    }),
+    submitMyInvoice: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string() })).mutation(async ({ ctx, input }) => {
+      const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+      const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
+      const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
+      const invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "submitted", submittedAt: new Date() });
+      const docs = await db.getSupportingDocumentsBySubmission(submission.id!);
+      await db.createWorkerInvoiceSnapshot({ workerInvoiceId: invoice!.id!, snapshotVersion: 1, snapshotJson: JSON.stringify({ invoice, submission, docs }), createdBy: ctx.user.id });
+      return { success: true, id: invoice?.id };
+    }),
+    listMyInvoices: protectedProcedure.query(async ({ ctx }) => {
+      const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+      return db.getWorkerInvoicesByEmployee(me.id);
+    }),
+    listForReview: protectedProcedure.query(async ({ ctx }) => {
+      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      return db.listWorkerInvoicesForReview();
+    }),
+    getForReview: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
+      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      const all = await db.listWorkerInvoicesForReview();
+      return all.find((v: any) => v.id === input.invoiceId) || null;
+    }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
