@@ -7,11 +7,20 @@
 
 ## Results
 - check: pass
-- build: pass
-- test: pass
+- build: pass (with existing non-blocking Vite env/chunk warnings)
+- test: pass (85/85)
 
-## Scope checks validated in UI implementation
-- 個別単価 supports both project-scope and client-scope selector paths.
-- Form validation allows billing-only/payment-only and rejects both-empty.
-- Profit display avoids fake 0-based calculation when one side is missing.
-- Negative-profit warning text is shown only when both values exist and payment exceeds billing.
+## Behavior validation completed
+- Desktop table:
+  - all rows expose edit/delete,
+  - delete uses confirmation + `trpc.rate.delete`,
+  - edit saves via `trpc.rate.update`.
+- Mobile card list:
+  - all cards expose visible `編集` / `削除` buttons,
+  - inline edit UI is stacked and tappable,
+  - no horizontal action overflow introduced.
+- Validation:
+  - both empty rejected,
+  - billing-only accepted,
+  - payment-only accepted,
+  - both accepted.

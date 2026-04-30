@@ -1,4 +1,5 @@
 # KNOWN ISSUES
 
-1. Existing build-time warnings (e.g., chunk-size warnings) may still appear and are outside this patch scope.
-2. This patch updates AppRates UI behavior only; broader cross-screen UX consistency audits are still recommended after merge.
+1. `pnpm build` emits existing non-blocking warnings for missing analytics env placeholders in `index.html`; this patch does not alter analytics configuration.
+2. `pnpm build` still reports large chunk-size warnings in production bundle; this is pre-existing and out of scope.
+3. `pnpm test` prints expected stderr lines in `customAuth` invitation tests about DB unavailability while tests still pass; this is pre-existing test behavior.
