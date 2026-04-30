@@ -131,6 +131,17 @@ function canInvoiceFromClosingStatus(status?: string | null) {
   return status === "ready" || status === "closed" || status === "locked";
 }
 
+function isWorkerEditLockedByClosing(status?: string | null) {
+  return status === "closed" || status === "locked" || status === "completed";
+}
+
+
+function canWorkerEditSubmission(closingStatus?: string | null, submissionStatus?: string | null) {
+  if (isWorkerEditLockedByClosing(closingStatus)) return false;
+  if (closingStatus === "ready") return submissionStatus === "rejected";
+  return true;
+}
+
 
 function findBestWorkerRate(rates: any[], employeeId: number, shiftType: string) {
   return (
@@ -1925,7 +1936,8 @@ export const appRouter = router({
         if (nextStatus === "rejected") updateData.approvedAt = null;
 
         await db.updateClosingSubmission(input.id, updateData);
-        await safeAuditLog(ctx.user.id, "submission.update", "submission", { entityId: input.id, closingId: current.closingId, employeeId: current.employeeId, note: `提出状態を更新: ${nextStatus}` });
+        const action = nextStatus === "rejected" ? "submission.returnReject" : "submission.update";
+        await safeAuditLog(ctx.user.id, action, "submission", { entityId: input.id, closingId: current.closingId, employeeId: current.employeeId, note: `提出状態を更新: ${nextStatus}` });
         return { success: true };
       }),
 
@@ -1941,7 +1953,7 @@ export const appRouter = router({
         if (!submission) throw new TRPCError({ code: "NOT_FOUND", message: "提出行が見つかりません" });
         const closing = await db.getProjectClosingById(submission.closingId);
         if (!closing) throw new TRPCError({ code: "NOT_FOUND", message: "締めデータが見つかりません" });
-        if (closing.status === "closed" || closing.status === "locked") {
+        if (isWorkerEditLockedByClosing(closing.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "締め済みデータにはアップロードできません" });
         }
 
@@ -2006,8 +2018,8 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
         if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
-        if (result.closing.status === "closed" || result.closing.status === "locked") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "締め済みデータは編集できません" });
+        if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では編集できません" });
         }
         const receiptRequired = input.transportAmount > 0 || input.expenseAmount > 0;
         let nextStatus = result.submission.status;
@@ -2031,6 +2043,9 @@ export const appRouter = router({
           updateData.receiptMimeType = null;
         }
         await db.updateClosingSubmission(result.submission.id, updateData);
+        if (["submitted", "approved", "rejected"].includes(result.submission.status) && nextStatus === "pending") {
+          await safeAuditLog(ctx.user.id, "submission.resubmitAfterReopen", "submission", { entityId: result.submission.id, projectId: input.projectId, closingId: result.closing.id, employeeId: result.submission.employeeId, note: `${input.closingMonth} を再編集して再提出待ちに戻した` });
+        }
         await safeAuditLog(ctx.user.id, "submission.saveMySubmission", "submission", { entityId: result.submission.id, projectId: input.projectId, closingId: result.closing.id, employeeId: result.submission.employeeId, note: `${input.closingMonth} の提出内容を保存` });
         return { success: true };
       }),
@@ -2040,8 +2055,8 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
         if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
-        if (result.closing.status === "closed" || result.closing.status === "locked") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "締め済みデータは提出できません" });
+        if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では提出できません" });
         }
         if (result.submission.receiptRequired && !result.submission.receiptUploaded) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "領収書を添付してから提出してください" });
@@ -2067,8 +2082,8 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
         if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
-        if (result.closing.status === "closed" || result.closing.status === "locked") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "締め済みデータにはアップロードできません" });
+        if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "この状態ではアップロードできません" });
         }
         const buffer = Buffer.from(input.base64, "base64");
         const validationError = validateFile(input.fileName, input.mimeType, buffer.length);

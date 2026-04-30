@@ -33,6 +33,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
 
 const CLOSING_STATUS_LABELS: Record<string, { label: string; className: string }> = {
   open: { label: "開放中", className: "bg-slate-500/20 text-slate-300" },
+  reopened: { label: "再開", className: "bg-emerald-500/20 text-emerald-300" },
   ready: { label: "準備完了", className: "bg-emerald-500/20 text-emerald-400" },
   closed: { label: "締め完了", className: "bg-blue-500/20 text-blue-400" },
   locked: { label: "ロック", className: "bg-amber-500/20 text-amber-400" },
@@ -40,6 +41,12 @@ const CLOSING_STATUS_LABELS: Record<string, { label: string; className: string }
 
 function formatYen(amount: number) {
   return `¥${Number(amount || 0).toLocaleString("ja-JP")}`;
+}
+
+function canWorkerEdit(closingStatus?: string | null, submissionStatus?: string | null) {
+  if (closingStatus === "closed" || closingStatus === "locked" || closingStatus === "completed") return false;
+  if (closingStatus === "ready") return submissionStatus === "rejected";
+  return true;
 }
 
 export default function AppMyClosing() {
@@ -56,6 +63,8 @@ export default function AppMyClosing() {
     { projectId: selectedProjectId || 0, closingMonth },
     {
       enabled: !!selectedProjectId,
+      refetchOnWindowFocus: true,
+      refetchInterval: 15000,
     }
   );
 
@@ -107,7 +116,7 @@ export default function AppMyClosing() {
   const detail = detailQuery.data;
   const receiptRequired = transportAmount > 0 || expenseAmount > 0;
   const busy = saveMutation.isPending || submitMutation.isPending || uploadMutation.isPending || clearMutation.isPending;
-  const canEdit = !!detail?.eligible && detail?.closing && detail.closing.status !== "closed" && detail.closing.status !== "locked";
+  const canEdit = !!detail?.eligible && !!detail?.closing && canWorkerEdit(detail.closing.status, detail.submission?.status);
   const selectedProject = useMemo(() => projects.find((p: any) => p.id === selectedProjectId) || null, [projects, selectedProjectId]);
 
   const handleSave = () => {
