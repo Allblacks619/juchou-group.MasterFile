@@ -1,4 +1,4 @@
-# TEST REPORT
+# TEST REPORT (2026-04-30)
 
 ## Commands run
 - `pnpm check`
@@ -7,6 +7,7 @@
 
 ## Results
 - check: pass
+<<<<<<< Updated upstream
 - build: pass (with existing non-blocking Vite env/chunk warnings)
 - test: pass (85/85)
 
@@ -24,3 +25,10 @@
   - billing-only accepted,
   - payment-only accepted,
   - both accepted.
+=======
+- build: pass (with existing non-blocking Vite warnings)
+- test: pass (85/85)
+
+## Notes
+- Build warnings seen were existing environment/build warnings (analytics env placeholders and bundle-size warning), not hard failures.
+>>>>>>> Stashed changes
