@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Receipt, Upload, Link as LinkIcon, Trash2, Send, FileCheck2, CalendarDays } from "lucide-react";
+import { Loader2, Receipt, Upload, Link as LinkIcon, Trash2, Send, FileCheck2, CalendarDays, Eye, FileDown } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -113,6 +113,8 @@ export default function AppMyClosing() {
   });
 
   const projects = projectsQuery.data || [];
+  const workerInvoicesQuery = trpc.workerInvoice.listMyInvoices.useQuery();
+  const trpcUtils = trpc.useUtils();
   const detail = detailQuery.data;
   const receiptRequired = transportAmount > 0 || expenseAmount > 0;
   const busy = saveMutation.isPending || submitMutation.isPending || uploadMutation.isPending || clearMutation.isPending;
@@ -150,6 +152,16 @@ export default function AppMyClosing() {
       });
     };
     reader.readAsDataURL(file);
+  };
+
+  const downloadJson = (filename: string, payload: unknown) => {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -317,6 +329,54 @@ export default function AppMyClosing() {
               {receiptRequired && !detail.submission?.receiptUploaded && (
                 <div className="text-sm bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 text-amber-300">
                   領収書が未添付のため、このままでは提出できません。
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>作業員請求書（Phase 3B）</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                提出済みの作業員請求書をプレビュー・エクスポートできます。
+              </p>
+              {(workerInvoicesQuery.data || []).length === 0 ? (
+                <div className="text-sm text-muted-foreground">請求書データはまだありません。</div>
+              ) : (
+                <div className="space-y-2">
+                  {(workerInvoicesQuery.data || []).map((invoice: any) => (
+                    <div key={invoice.id} className="border rounded-lg p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div>
+                        <div className="font-medium">{invoice.subject || `${invoice.closingMonth} 作業請求`}</div>
+                        <div className="text-xs text-muted-foreground">#{invoice.id} / {invoice.closingMonth} / {invoice.status}</div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            const data = await trpcUtils.workerInvoice.previewMyInvoice.fetch({ invoiceId: invoice.id });
+                            downloadJson(`worker-invoice-preview-${invoice.id}.json`, data);
+                            toast.success("プレビューデータをダウンロードしました");
+                          }}
+                        >
+                          <Eye className="h-4 w-4 mr-1" /> プレビュー
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={async () => {
+                            const data = await trpcUtils.workerInvoice.exportMyInvoicePackage.fetch({ invoiceId: invoice.id });
+                            downloadJson(`worker-invoice-export-${invoice.id}.json`, data);
+                            toast.success("エクスポートパッケージをダウンロードしました");
+                          }}
+                        >
+                          <FileDown className="h-4 w-4 mr-1" /> エクスポート
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>
