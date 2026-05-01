@@ -15,6 +15,7 @@ import { TRPCError } from "@trpc/server";
 import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from "./pdfRoster";
 import { generateInvoicePdf } from "./pdfInvoice";
 import { buildInvoiceDraftFromProjects } from "./invoiceBuilder";
+import { buildWorkerInvoicePdfRenderPayload } from "./workerInvoicePdf";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 
 // ── Helper: check admin or leader role ──
@@ -3182,7 +3183,9 @@ export const appRouter = router({
       const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
-      await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: input.subject, notes: input.notes });
+      const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
+      if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "Approved invoice is read-only" });
+      await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: existing?.status === "returned" ? "returned" : "draft", subject: input.subject, notes: input.notes });
       return { success: true };
     }),
     submitMyInvoice: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string() })).mutation(async ({ ctx, input }) => {
@@ -3191,8 +3194,71 @@ export const appRouter = router({
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
       const invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "submitted", submittedAt: new Date() });
       const docs = await db.getSupportingDocumentsBySubmission(submission.id!);
-      await db.createWorkerInvoiceSnapshot({ workerInvoiceId: invoice!.id!, snapshotVersion: 1, snapshotJson: JSON.stringify({ invoice, submission, docs }), createdBy: ctx.user.id });
+      const snapshot = { invoice, submission, supportingDocuments: docs };
+      await db.createWorkerInvoiceSnapshot({ workerInvoiceId: invoice!.id!, snapshotVersion: 1, snapshotJson: JSON.stringify(snapshot), createdBy: ctx.user.id });
       return { success: true, id: invoice?.id };
+    }),
+
+    previewMyInvoice: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      const me = await db.getEmployeeByUserId(ctx.user.id);
+      const manager = isManagerLike(ctx.user.appRole) || isSuperAdmin(ctx.user.appRole);
+      if (!manager && (!me || me.id !== invoice.employeeId)) throw new TRPCError({ code: "FORBIDDEN" });
+      const submission = await db.getClosingSubmissionByClosingEmployee(invoice.closingId, invoice.employeeId);
+      const docs = submission?.id ? await db.getSupportingDocumentsBySubmission(submission.id) : [];
+      const model = {
+        invoiceId: invoice.id!,
+        invoiceNumber: invoice.invoiceNumber || null,
+        issueDate: (invoice.issueDate || invoice.submittedAt || invoice.createdAt || new Date()).toISOString().slice(0,10),
+        subject: invoice.subject || `${invoice.closingMonth} 作業請求`,
+        company: { name: 'Company', address: null, phone: null },
+        worker: { employeeId: invoice.employeeId, name: `Worker #${invoice.employeeId}`, bankInfo: null, sealImageUrl: null },
+        lineItems: [
+          { label: 'Transport', quantity: 1, unitPrice: Number(submission?.transportAmount || 0), amount: Number(submission?.transportAmount || 0), taxRate: 0 },
+          { label: 'Expense', quantity: 1, unitPrice: Number(submission?.expenseAmount || 0), amount: Number(submission?.expenseAmount || 0), taxRate: 0 },
+        ],
+        subtotal: Number(invoice.subtotalAmount || 0),
+        tax: Number(invoice.taxAmount || 0),
+        total: Number(invoice.totalAmount || 0),
+        notes: invoice.notes || null,
+        supportingDocuments: docs.map((d:any)=>({ id:d.id, fileKey:d.fileKey, originalFileName:d.originalFileName || null })),
+      };
+      return { model, pdfRenderPayload: buildWorkerInvoicePdfRenderPayload(model as any) };
+    }),
+    exportMyInvoicePackage: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      const me = await db.getEmployeeByUserId(ctx.user.id);
+      const manager = isManagerLike(ctx.user.appRole) || isSuperAdmin(ctx.user.appRole);
+      if (!manager && (!me || me.id !== invoice.employeeId)) throw new TRPCError({ code: "FORBIDDEN" });
+      const submission = await db.getClosingSubmissionByClosingEmployee(invoice.closingId, invoice.employeeId);
+      const docs = submission?.id ? await db.getSupportingDocumentsBySubmission(submission.id) : [];
+      const model = {
+        invoiceId: invoice.id!, invoiceNumber: invoice.invoiceNumber || null,
+        issueDate: (invoice.issueDate || invoice.submittedAt || invoice.createdAt || new Date()).toISOString().slice(0,10),
+        subject: invoice.subject || `${invoice.closingMonth} 作業請求`, company: { name: 'Company' },
+        worker: { employeeId: invoice.employeeId, name: `Worker #${invoice.employeeId}` },
+        lineItems: [], subtotal: Number(invoice.subtotalAmount || 0), tax: Number(invoice.taxAmount || 0), total: Number(invoice.totalAmount || 0),
+        notes: invoice.notes || null,
+        supportingDocuments: docs.map((d:any)=>({ id:d.id, fileKey:d.fileKey, originalFileName:d.originalFileName || null })),
+      };
+      return {
+        invoiceId: input.invoiceId,
+        grouped: [{ invoiceId: input.invoiceId, pdf: buildWorkerInvoicePdfRenderPayload(model as any), supportingDocuments: model.supportingDocuments }],
+      };
+    }),
+    returnInvoice: protectedProcedure.input(z.object({ invoiceId: z.number(), reason: z.string().min(1) })).mutation(async ({ ctx, input }) => {
+      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId); if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      await db.updateWorkerInvoice(input.invoiceId, { status: "returned", returnedAt: new Date(), returnedBy: ctx.user.id, notes: `${invoice.notes || ''}
+[RETURN] ${input.reason}` });
+      return { success: true };
+    }),
+    approveInvoice: protectedProcedure.input(z.object({ invoiceId: z.number() })).mutation(async ({ ctx, input }) => {
+      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      await db.updateWorkerInvoice(input.invoiceId, { status: "approved", approvedAt: new Date(), approvedBy: ctx.user.id });
+      return { success: true };
     }),
     listMyInvoices: protectedProcedure.query(async ({ ctx }) => {
       const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
