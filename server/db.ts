@@ -977,6 +977,21 @@ export async function getWorkerInvoiceByClosingEmployee(closingId: number, emplo
   return result[0];
 }
 
+
+export async function getWorkerInvoiceById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(workerInvoices).where(eq(workerInvoices.id, id)).limit(1);
+  return result[0];
+}
+
+export async function updateWorkerInvoice(id: number, data: Partial<InsertWorkerInvoice>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(workerInvoices).set({ ...data, updatedAt: new Date() }).where(eq(workerInvoices.id, id));
+  return getWorkerInvoiceById(id);
+}
+
 export async function getWorkerInvoicesByEmployee(employeeId: number) {
   const db = await getDb();
   if (!db) return [];
