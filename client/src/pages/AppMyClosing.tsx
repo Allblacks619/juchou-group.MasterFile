@@ -154,15 +154,6 @@ export default function AppMyClosing() {
     reader.readAsDataURL(file);
   };
 
-  const downloadJson = (filename: string, payload: unknown) => {
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <div className="space-y-6">
@@ -358,8 +349,7 @@ export default function AppMyClosing() {
                           variant="outline"
                           onClick={async () => {
                             const data = await trpcUtils.workerInvoice.previewMyInvoice.fetch({ invoiceId: invoice.id });
-                            downloadJson(`worker-invoice-preview-${invoice.id}.json`, data);
-                            toast.success("プレビューデータをダウンロードしました");
+                            toast.success(`プレビュー: ${data.model.subject}`);
                           }}
                         >
                           <Eye className="h-4 w-4 mr-1" /> プレビュー
@@ -367,9 +357,19 @@ export default function AppMyClosing() {
                         <Button
                           size="sm"
                           onClick={async () => {
+                            const pdf = await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch({ invoiceId: invoice.id });
+                            window.open(pdf.url, "_blank");
+                          }}
+                        >
+                          <FileDown className="h-4 w-4 mr-1" /> PDFダウンロード
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
                             const data = await trpcUtils.workerInvoice.exportMyInvoicePackage.fetch({ invoiceId: invoice.id });
-                            downloadJson(`worker-invoice-export-${invoice.id}.json`, data);
-                            toast.success("エクスポートパッケージをダウンロードしました");
+                            if (data.invoicePdf?.url) window.open(data.invoicePdf.url, "_blank");
+                            toast.success(`エクスポート準備完了（添付資料 ${data.documents?.length || 0}件）`);
                           }}
                         >
                           <FileDown className="h-4 w-4 mr-1" /> エクスポート

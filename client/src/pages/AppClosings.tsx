@@ -197,15 +197,6 @@ export default function AppClosings() {
     );
   };
 
-  const downloadJson = (filename: string, payload: unknown) => {
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <div className="space-y-6 max-w-full overflow-x-hidden">
@@ -239,15 +230,28 @@ export default function AppClosings() {
                     <div className="flex flex-wrap gap-2">
                       <Button size="sm" variant="outline" onClick={async () => {
                         const data = await trpcUtils.workerInvoice.previewMyInvoice.fetch({ invoiceId: invoice.id });
-                        downloadJson(`worker-invoice-preview-${invoice.id}.json`, data);
+                        toast.success(`プレビュー: ${data.model.subject}`);
                       }}>
                         <Eye className="h-4 w-4 mr-1" /> プレビュー
                       </Button>
                       <Button size="sm" variant="outline" onClick={async () => {
-                        const data = await trpcUtils.workerInvoice.exportMyInvoicePackage.fetch({ invoiceId: invoice.id });
-                        downloadJson(`worker-invoice-export-${invoice.id}.json`, data);
+                        const pdf = await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch({ invoiceId: invoice.id });
+                        window.open(pdf.url, "_blank");
                       }}>
-                        <FileDown className="h-4 w-4 mr-1" /> エクスポート
+                        <FileDown className="h-4 w-4 mr-1" /> PDFダウンロード
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={async () => {
+                        const data = await trpcUtils.workerInvoice.exportMyInvoicePackage.fetch({ invoiceId: invoice.id });
+                        const docs = data.documents || [];
+                        if (docs.length === 0) {
+                          toast.info("添付資料はありません");
+                        } else if (docs.length === 1) {
+                          window.open(docs[0].url, "_blank");
+                        } else {
+                          toast.info(`添付資料が${docs.length}件あります。エクスポート情報から個別ダウンロードしてください。`);
+                        }
+                      }}>
+                        <FileDown className="h-4 w-4 mr-1" /> 添付資料
                       </Button>
                       <Button size="sm" onClick={() => workerApproveMutation.mutate({ invoiceId: invoice.id })} disabled={workerApproveMutation.isPending || invoice.status === "approved"}>
                         承認
