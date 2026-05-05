@@ -3164,6 +3164,110 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+  workerInvoice: router({
+    getMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
+      const me = await db.getEmployeeByUserId(ctx.user.id);
+      if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+      const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
+      const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id);
+      if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
+      let invoice = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
+      if (!invoice) {
+        const total = Number(submission.transportAmount || 0) + Number(submission.expenseAmount || 0);
+        invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: `${input.closingMonth} 作業請求`, subtotalAmount: total, taxAmount: 0, totalAmount: total });
+      }
+      return invoice;
+    }),
+    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional() })).mutation(async ({ ctx, input }) => {
+      const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+      const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
+      const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
+      await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: input.subject, notes: input.notes });
+      return { success: true };
+    }),
+    submitMyInvoice: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string() })).mutation(async ({ ctx, input }) => {
+      const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+      const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
+      const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
+      const invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "submitted", submittedAt: new Date() });
+      const docs = await db.getSupportingDocumentsBySubmission(submission.id!);
+      await db.createWorkerInvoiceSnapshot({ workerInvoiceId: invoice!.id!, snapshotVersion: 1, snapshotJson: JSON.stringify({ invoice, submission, docs }), createdBy: ctx.user.id });
+      return { success: true, id: invoice?.id };
+    }),
+    listMyInvoices: protectedProcedure.query(async ({ ctx }) => {
+      const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+      return db.getWorkerInvoicesByEmployee(me.id);
+    }),
+    listForReview: protectedProcedure.query(async ({ ctx }) => {
+      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      return db.listWorkerInvoicesForReview();
+    }),
+    getForReview: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
+      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      const all = await db.listWorkerInvoicesForReview();
+      return all.find((v: any) => v.id === input.invoiceId) || null;
+    }),
+    approve: protectedProcedure.input(z.object({ invoiceId: z.number() })).mutation(async ({ ctx, input }) => {
+      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      if (invoice.status !== "submitted") throw new TRPCError({ code: "BAD_REQUEST", message: "提出済みの請求書のみ承認できます" });
+      await db.updateWorkerInvoice(input.invoiceId, { status: "approved", approvedAt: new Date(), approvedBy: ctx.user.id });
+      await safeAuditLog(ctx.user.id, "workerInvoice.approve", "workerInvoice", { entityId: input.invoiceId });
+      return { success: true };
+    }),
+    returnInvoice: protectedProcedure.input(z.object({ invoiceId: z.number(), reason: z.string().min(1) })).mutation(async ({ ctx, input }) => {
+      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      if (invoice.status !== "submitted") throw new TRPCError({ code: "BAD_REQUEST", message: "提出済みの請求書のみ差戻しできます" });
+      await db.updateWorkerInvoice(input.invoiceId, { status: "returned", returnedAt: new Date(), returnedBy: ctx.user.id, returnReason: input.reason });
+      await safeAuditLog(ctx.user.id, "workerInvoice.return", "workerInvoice", { entityId: input.invoiceId, note: input.reason });
+      return { success: true };
+    }),
+    getPreviewData: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      const me = await db.getEmployeeByUserId(ctx.user.id);
+      if (me && invoice.employeeId !== me.id && !isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      const items = await db.getWorkerInvoiceItems(invoice.id);
+      const employee = await db.getEmployeeById(invoice.employeeId);
+      const project = await db.getProjectById(invoice.projectId);
+      const company = await db.getCompanyProfile();
+      const submission = await db.getClosingSubmissionByClosingEmployee(invoice.closingId, invoice.employeeId);
+      const docs = submission ? await db.getSupportingDocumentsBySubmission(submission.id!) : [];
+      return { invoice, items, employee, project, company, submission, docs };
+    }),
+    getSupportingDocs: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      const me = await db.getEmployeeByUserId(ctx.user.id);
+      if (me && invoice.employeeId !== me.id && !isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      const submission = await db.getClosingSubmissionByClosingEmployee(invoice.closingId, invoice.employeeId);
+      if (!submission) return [];
+      return db.getSupportingDocumentsBySubmission(submission.id!);
+    }),
+    downloadPdf: protectedProcedure.input(z.object({ invoiceId: z.number() })).mutation(async ({ ctx, input }) => {
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      if (invoice.status === "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "下書き状態ではPDFを生成できません" });
+      const me = await db.getEmployeeByUserId(ctx.user.id);
+      if (me && invoice.employeeId !== me.id && !isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      const snapshots = await db.getWorkerInvoiceSnapshots(invoice.id);
+      if (snapshots.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "スナップショットがありません" });
+      const latestSnapshot = snapshots.sort((a: any, b: any) => b.snapshotVersion - a.snapshotVersion)[0];
+      const snapshotData = JSON.parse(latestSnapshot.snapshotJson);
+      const employee = await db.getEmployeeById(invoice.employeeId);
+      const project = await db.getProjectById(invoice.projectId);
+      const company = await db.getCompanyProfile();
+      const items = await db.getWorkerInvoiceItems(invoice.id);
+      const { generateWorkerInvoicePdf } = await import("./pdfWorkerInvoice");
+      const pdfBuffer = await generateWorkerInvoicePdf({ invoice, items, employee, project, company, snapshotData });
+      const fileKey = `worker-invoices/${invoice.id}-${Date.now()}.pdf`;
+      const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
+      return { url };
+    }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

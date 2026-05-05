@@ -23,7 +23,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2, FileDown, Clock, CheckCircle, AlertCircle, XCircle } from "lucide-react";
+import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2, FileDown, Clock, CheckCircle, AlertCircle, XCircle, Receipt, Send, RotateCcw } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   open: { label: "開放中", className: "bg-slate-500/20 text-slate-300" },
@@ -399,7 +407,117 @@ export default function AppClosings() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Worker Invoice Review Section ── */}
+      <WorkerInvoiceReviewSection />
     </div>
+  );
+}
+
+const INVOICE_STATUS_MAP: Record<string, { label: string; className: string }> = {
+  draft: { label: "下書き", className: "bg-slate-500/20 text-slate-300" },
+  submitted: { label: "提出済", className: "bg-blue-500/20 text-blue-400" },
+  returned: { label: "差戻し", className: "bg-red-500/20 text-red-400" },
+  approved: { label: "承認済", className: "bg-emerald-500/20 text-emerald-400" },
+  locked: { label: "ロック", className: "bg-amber-500/20 text-amber-400" },
+};
+
+function WorkerInvoiceReviewSection() {
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
+  const [returnInvoiceId, setReturnInvoiceId] = useState<number | null>(null);
+  const [returnReason, setReturnReason] = useState("");
+
+  const reviewQuery = trpc.workerInvoice.listForReview.useQuery();
+  const approveMutation = trpc.workerInvoice.approve.useMutation({
+    onSuccess: () => { toast.success("請求書を承認しました"); reviewQuery.refetch(); },
+    onError: (e) => toast.error(`承認エラー: ${e.message}`),
+  });
+  const returnMutation = trpc.workerInvoice.returnInvoice.useMutation({
+    onSuccess: () => { toast.success("請求書を差戻しました"); reviewQuery.refetch(); setReturnDialogOpen(false); setReturnReason(""); },
+    onError: (e) => toast.error(`差戻しエラー: ${e.message}`),
+  });
+  const downloadPdfMutation = trpc.workerInvoice.downloadPdf.useMutation({
+    onSuccess: (data) => { window.open(data.url, "_blank"); },
+    onError: (e) => toast.error(`PDFエラー: ${e.message}`),
+  });
+
+  const invoices = reviewQuery.data || [];
+  if (invoices.length === 0 && !reviewQuery.isLoading) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Receipt className="h-5 w-5 text-gold" />
+          作業員請求書レビュー
+          {invoices.length > 0 && <span className="text-sm font-normal text-muted-foreground">({invoices.length}件)</span>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {reviewQuery.isLoading ? (
+          <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin" /></div>
+        ) : (
+          <div className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+            {invoices.map((inv: any) => {
+              const statusInfo = INVOICE_STATUS_MAP[inv.status] || INVOICE_STATUS_MAP.draft;
+              return (
+                <div key={inv.id} className="rounded-lg border border-border bg-card p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-sm truncate">{inv.employeeName || `従業員${inv.employeeId}`}</span>
+                    <span className={`px-2 py-0.5 rounded text-xs ${statusInfo.className}`}>{statusInfo.label}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                    <div>対象月: <span className="text-foreground">{inv.closingMonth}</span></div>
+                    <div>現場: <span className="text-foreground truncate">{inv.projectName || "-"}</span></div>
+                    <div>合計: <span className="text-foreground font-medium">¥{Number(inv.totalAmount || 0).toLocaleString()}</span></div>
+                    <div>添付: <span className="text-foreground">{inv.docsCount != null ? `${inv.docsCount}件` : "なし"}</span></div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(inv.status === "submitted" || inv.status === "approved") && (
+                      <Button size="sm" variant="outline" onClick={() => downloadPdfMutation.mutate({ invoiceId: inv.id })} disabled={downloadPdfMutation.isPending}>
+                        <FileDown className="h-3.5 w-3.5 mr-1" />PDF
+                      </Button>
+                    )}
+                    {inv.status === "submitted" && (
+                      <>
+                        <Button size="sm" onClick={() => approveMutation.mutate({ invoiceId: inv.id })} disabled={approveMutation.isPending}>
+                          <CheckCircle className="h-3.5 w-3.5 mr-1" />承認
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-red-400 border-red-400/30" onClick={() => { setReturnInvoiceId(inv.id); setReturnDialogOpen(true); }}>
+                          <RotateCcw className="h-3.5 w-3.5 mr-1" />差戻し
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Return dialog */}
+        <Dialog open={returnDialogOpen} onOpenChange={setReturnDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>請求書差戻し</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Label>差戻し理由</Label>
+              <Textarea value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="差戻し理由を入力してください" rows={3} />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setReturnDialogOpen(false)}>キャンセル</Button>
+              <Button
+                onClick={() => { if (returnInvoiceId) returnMutation.mutate({ invoiceId: returnInvoiceId, reason: returnReason }); }}
+                disabled={!returnReason.trim() || returnMutation.isPending}
+              >
+                差戻し実行
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardContent>
+    </Card>
   );
 }
 

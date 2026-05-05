@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Receipt, Upload, Link as LinkIcon, Trash2, Send, FileCheck2, CalendarDays } from "lucide-react";
+import { Loader2, Receipt, Upload, Link as LinkIcon, Trash2, Send, FileCheck2, CalendarDays, FileDown } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -334,6 +334,11 @@ export default function AppMyClosing() {
             </CardContent>
           </Card>
 
+          {/* ── Worker Invoice Section ── */}
+          {detail?.submission?.status === "submitted" || detail?.submission?.status === "approved" ? (
+            <WorkerInvoiceSection projectId={selectedProjectId!} closingMonth={closingMonth} />
+          ) : null}
+
           <Dialog open={showReview} onOpenChange={setShowReview}>
             <DialogContent>
               <DialogHeader>
@@ -405,5 +410,127 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="text-xl font-bold flex items-center gap-2"><FileCheck2 className="h-4 w-4 text-gold" />{value}</div>
     </div>
+  );
+}
+
+const INVOICE_STATUS_LABELS: Record<string, { label: string; className: string }> = {
+  draft: { label: "下書き", className: "bg-slate-500/20 text-slate-300" },
+  submitted: { label: "提出済", className: "bg-blue-500/20 text-blue-400" },
+  returned: { label: "差戻し", className: "bg-red-500/20 text-red-400" },
+  approved: { label: "承認済", className: "bg-emerald-500/20 text-emerald-400" },
+  locked: { label: "ロック", className: "bg-amber-500/20 text-amber-400" },
+};
+
+function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; closingMonth: string }) {
+  const draftQuery = trpc.workerInvoice.getMyDraft.useQuery({ projectId, closingMonth });
+  const submitInvoiceMutation = trpc.workerInvoice.submitMyInvoice.useMutation({
+    onSuccess: () => { toast.success("請求書を提出しました"); draftQuery.refetch(); },
+    onError: (e) => toast.error(`提出エラー: ${e.message}`),
+  });
+  const downloadPdfMutation = trpc.workerInvoice.downloadPdf.useMutation({
+    onSuccess: (data) => { window.open(data.url, "_blank"); },
+    onError: (e) => toast.error(`PDFエラー: ${e.message}`),
+  });
+  const docsQuery = trpc.workerInvoice.getSupportingDocs.useQuery(
+    { invoiceId: draftQuery.data?.id || 0 },
+    { enabled: !!draftQuery.data?.id }
+  );
+
+  const invoice = draftQuery.data;
+  if (draftQuery.isLoading) return <Card><CardContent className="py-6 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></CardContent></Card>;
+  if (!invoice) return null;
+
+  const status = invoice.status || "draft";
+  const statusInfo = INVOICE_STATUS_LABELS[status] || INVOICE_STATUS_LABELS.draft;
+  const isApproved = status === "approved" || status === "locked";
+  const isReturned = status === "returned";
+  const canSubmitInvoice = status === "draft" || status === "returned";
+  const docs = docsQuery.data || [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-3 flex-wrap">
+          <span className="flex items-center gap-2">
+            <Receipt className="h-5 w-5 text-gold" />
+            作業員請求書
+          </span>
+          <span className={`px-2 py-1 rounded text-xs ${statusInfo.className}`}>
+            {statusInfo.label}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isApproved && (
+          <div className="text-sm bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3 text-emerald-300">
+            この請求書は承認済みです。内容の変更はできません。
+          </div>
+        )}
+        {isReturned && (
+          <div className="text-sm bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-300 space-y-2">
+            <div className="font-medium">差戻し理由:</div>
+            <div>{(invoice as any).returnReason || "理由が記載されていません"}</div>
+            <div className="text-xs text-red-400">内容を修正して再提出してください。</div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="rounded-md border p-3">
+            <div className="text-xs text-muted-foreground">小計</div>
+            <div className="font-medium">{formatYen(invoice.subtotalAmount)}</div>
+          </div>
+          <div className="rounded-md border p-3">
+            <div className="text-xs text-muted-foreground">消費税</div>
+            <div className="font-medium">{formatYen(invoice.taxAmount)}</div>
+          </div>
+          <div className="rounded-md border p-3">
+            <div className="text-xs text-muted-foreground">合計</div>
+            <div className="font-bold text-lg">{formatYen(invoice.totalAmount)}</div>
+          </div>
+          <div className="rounded-md border p-3">
+            <div className="text-xs text-muted-foreground">添付資料</div>
+            <div className="font-medium">{docs.length > 0 ? `${docs.length}件` : "添付資料なし"}</div>
+          </div>
+        </div>
+
+        {/* Supporting documents list */}
+        {docs.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-xs text-muted-foreground font-medium">添付資料一覧:</div>
+            {docs.map((doc: any) => (
+              <a key={doc.id} href={doc.fileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm text-blue-400 hover:underline">
+                <LinkIcon className="h-3 w-3 shrink-0" />
+                <span className="truncate">{doc.originalFileName || "資料"}</span>
+              </a>
+            ))}
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex flex-wrap gap-2">
+          {canSubmitInvoice && (
+            <Button
+              onClick={() => submitInvoiceMutation.mutate({ projectId, closingMonth })}
+              disabled={submitInvoiceMutation.isPending}
+              size="sm"
+            >
+              {submitInvoiceMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
+              {isReturned ? "再提出" : "請求書を提出"}
+            </Button>
+          )}
+          {(status === "submitted" || status === "approved" || status === "locked") && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadPdfMutation.mutate({ invoiceId: invoice.id })}
+              disabled={downloadPdfMutation.isPending}
+            >
+              {downloadPdfMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileDown className="h-4 w-4 mr-1" />}
+              PDFダウンロード
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

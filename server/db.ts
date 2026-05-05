@@ -18,6 +18,10 @@ import {
   InsertClosingSubmission, closingSubmissions,
   InsertEmployeePayment, employeePayments,
   InsertAuditLog, auditLogs,
+  workerInvoices, InsertWorkerInvoice,
+  workerInvoiceItems, InsertWorkerInvoiceItem,
+  workerInvoiceSnapshots, InsertWorkerInvoiceSnapshot,
+  invoiceSupportingDocuments, InsertInvoiceSupportingDocument,
   workerBaseRates,
   InsertWorkerBaseRate,
 } from "../drizzle/schema";
@@ -957,4 +961,70 @@ export async function getAuditLogsByMonth(monthKey: string) {
   const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
   const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
   return db.select().from(auditLogs).where(and(gte(auditLogs.performedAt, start), lte(auditLogs.performedAt, end)));
+}
+
+export async function upsertWorkerInvoice(data: InsertWorkerInvoice) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(workerInvoices).values(data).onDuplicateKeyUpdate({ set: { ...data, updatedAt: new Date() } });
+  return getWorkerInvoiceByClosingEmployee(data.closingId, data.employeeId);
+}
+
+export async function getWorkerInvoiceByClosingEmployee(closingId: number, employeeId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(workerInvoices).where(and(eq(workerInvoices.closingId, closingId), eq(workerInvoices.employeeId, employeeId))).limit(1);
+  return result[0];
+}
+
+export async function getWorkerInvoicesByEmployee(employeeId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(workerInvoices).where(eq(workerInvoices.employeeId, employeeId));
+}
+
+export async function listWorkerInvoicesForReview() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(workerInvoices);
+}
+
+export async function replaceWorkerInvoiceItems(workerInvoiceId: number, items: InsertWorkerInvoiceItem[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(workerInvoiceItems).where(eq(workerInvoiceItems.workerInvoiceId, workerInvoiceId));
+  if (items.length > 0) await db.insert(workerInvoiceItems).values(items);
+}
+
+export async function getWorkerInvoiceItems(workerInvoiceId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(workerInvoiceItems).where(eq(workerInvoiceItems.workerInvoiceId, workerInvoiceId));
+}
+
+export async function createWorkerInvoiceSnapshot(data: InsertWorkerInvoiceSnapshot) { const db = await getDb(); if (!db) throw new Error("Database not available"); const r = await db.insert(workerInvoiceSnapshots).values(data); return { id: r[0].insertId, ...data }; }
+export async function getWorkerInvoiceSnapshots(workerInvoiceId: number) { const db = await getDb(); if (!db) return []; return db.select().from(workerInvoiceSnapshots).where(eq(workerInvoiceSnapshots.workerInvoiceId, workerInvoiceId)); }
+
+export async function upsertInvoiceSupportingDocument(data: InsertInvoiceSupportingDocument) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const r = await db.insert(invoiceSupportingDocuments).values(data);
+  return { id: r[0].insertId, ...data };
+}
+
+export async function getSupportingDocumentsBySubmission(submissionId: number) { const db = await getDb(); if (!db) return []; return db.select().from(invoiceSupportingDocuments).where(eq(invoiceSupportingDocuments.submissionId, submissionId)); }
+export async function getSupportingDocumentsByProjectMonth(projectId: number, closingMonth: string) { const db = await getDb(); if (!db) return []; return db.select().from(invoiceSupportingDocuments).where(and(eq(invoiceSupportingDocuments.projectId, projectId), eq(invoiceSupportingDocuments.closingMonth, closingMonth))); }
+
+export async function getWorkerInvoiceById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(workerInvoices).where(eq(workerInvoices.id, id)).limit(1);
+  return result[0];
+}
+
+export async function updateWorkerInvoice(id: number, data: Partial<InsertWorkerInvoice>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(workerInvoices).set({ ...data, updatedAt: new Date() }).where(eq(workerInvoices.id, id));
+  return getWorkerInvoiceById(id);
 }

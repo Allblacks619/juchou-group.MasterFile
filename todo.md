@@ -462,3 +462,14 @@
 - [x] 領収書添付状況を確認
 - [x] 「戻る」「この内容で提出」ボタン
 - [x] 提出前に内容を確認・修正可能
+
+# Phase 3D - Worker Invoice UX / PDF Finishing Pass
+
+- [x] Worker side AppMyClosing: clear invoice status display (draft/submitted/returned/approved)
+- [x] Worker side AppMyClosing: Preview, PDF download, Supporting docs buttons
+- [x] Worker side AppMyClosing: Read-only view when approved
+- [x] Worker side AppMyClosing: Return reason display with edit/resubmit guidance
+- [x] Admin side AppClosings: Worker Invoice Review card UI (name, month, project, total, status, doc count)
+- [x] Admin side AppClosings: Preview, PDF download, Supporting docs, Approve, Return buttons
+- [x] Supporting documents UX: 0 docs → "添付資料なし", 1 doc → direct open, multiple → list
+- [x] PDF visual polish: invoice number, date, company, worker, project/month, line items, subtotal/tax/total, bank info, registration number, notes, supporting doc list

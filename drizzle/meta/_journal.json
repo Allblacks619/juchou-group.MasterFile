@@ -127,6 +127,13 @@
       "when": 1777578238180,
       "tag": "0017_steady_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1777961959832,
+      "tag": "0018_nosy_celestials",
+      "breakpoints": true
     }
   ]
 }
