@@ -93,7 +93,7 @@ function calculateInvoiceTotals(items: NormalizedInvoiceLineItem[]) {
 }
 
 function isInvoiceReadOnly(invoice?: { status?: string | null } | null) {
-  return invoice?.status === "approved";
+  return invoice?.status === "approved" || invoice?.status === "submitted";
 }
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
@@ -156,6 +156,7 @@ export default function AppMyClosing() {
   const [invoiceItems, setInvoiceItems] = useState<InvoiceLineItemDraft[]>([
     { ...DEFAULT_INVOICE_ITEM },
   ]);
+  const loadedInvoiceDraftKeyRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const projectsQuery = trpc.attendance.myProjects.useQuery();
@@ -166,6 +167,10 @@ export default function AppMyClosing() {
       refetchOnWindowFocus: true,
       refetchInterval: 15000,
     }
+  );
+  const workerInvoiceDraftQuery = trpc.workerInvoice.getMyDraft.useQuery(
+    { projectId: selectedProjectId || 0, closingMonth },
+    { enabled: !!selectedProjectId && !!detailQuery.data?.eligible }
   );
 
   React.useEffect(() => {
@@ -179,6 +184,34 @@ export default function AppMyClosing() {
       setNotes("");
     }
   }, [detailQuery.data]);
+
+  React.useEffect(() => {
+    loadedInvoiceDraftKeyRef.current = null;
+    setInvoiceSubject("");
+    setInvoiceItems([{ ...DEFAULT_INVOICE_ITEM }]);
+  }, [selectedProjectId, closingMonth]);
+
+  React.useEffect(() => {
+    if (!selectedProjectId || !workerInvoiceDraftQuery.data) return;
+    const draftKey = `${selectedProjectId}:${closingMonth}`;
+    if (loadedInvoiceDraftKeyRef.current === draftKey) return;
+
+    const draft = workerInvoiceDraftQuery.data as any;
+    const draftItems = Array.isArray(draft.items) ? draft.items : [];
+    setInvoiceSubject(draft.subject || "");
+    setInvoiceItems(
+      draftItems.length > 0
+        ? draftItems.map((item: any) => ({
+            label: item.label || "",
+            quantity: item.quantity ?? 1,
+            unitPrice: item.unitPrice ?? 0,
+            unit: item.unit || "式",
+            category: item.category || "",
+          }))
+        : [{ ...DEFAULT_INVOICE_ITEM }]
+    );
+    loadedInvoiceDraftKeyRef.current = draftKey;
+  }, [workerInvoiceDraftQuery.data, selectedProjectId, closingMonth]);
 
   const saveMutation = trpc.closing.saveMySubmission.useMutation({
     onSuccess: () => {
@@ -240,8 +273,13 @@ export default function AppMyClosing() {
         (invoice: any) =>
           invoice.projectId === selectedProjectId &&
           invoice.closingMonth === closingMonth
-      ) || null,
-    [workerInvoicesQuery.data, selectedProjectId, closingMonth]
+      ) || (workerInvoiceDraftQuery.data as any) || null,
+    [
+      workerInvoicesQuery.data,
+      workerInvoiceDraftQuery.data,
+      selectedProjectId,
+      closingMonth,
+    ]
   );
   const invoiceReadOnly = isInvoiceReadOnly(currentWorkerInvoice);
   const invoiceBusy =
@@ -631,9 +669,15 @@ export default function AppMyClosing() {
                   <CardTitle className="text-lg">作業員請求書を作成</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {invoiceReadOnly && (
+                  {currentWorkerInvoice?.status === "approved" && (
                     <div className="text-sm bg-blue-500/10 border border-blue-500/30 rounded-lg px-4 py-3 text-blue-300">
                       承認済みの請求書は編集できません。内容確認やPDF出力は下の請求書一覧から行ってください。
+                    </div>
+                  )}
+
+                  {currentWorkerInvoice?.status === "submitted" && (
+                    <div className="text-sm bg-blue-500/10 border border-blue-500/30 rounded-lg px-4 py-3 text-blue-300">
+                      提出済みの請求書は、差戻しされるまで編集できません。
                     </div>
                   )}
 
@@ -809,7 +853,7 @@ export default function AppMyClosing() {
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">消費税</span>
+                      <span className="text-muted-foreground">消費税（現在は0円固定）</span>
                       <span className="font-medium">
                         {formatYen(invoiceTotals.tax)}
                       </span>
@@ -880,11 +924,11 @@ export default function AppMyClosing() {
 
           <Card>
             <CardHeader>
-              <CardTitle>作業員請求書（Phase 3B）</CardTitle>
+              <CardTitle>請求書一覧</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                提出済みの作業員請求書をプレビュー・エクスポートできます。
+                作成済みの請求書をプレビュー・エクスポートできます。
               </p>
               {(workerInvoicesQuery.data || []).length === 0 ? (
                 <div className="text-sm text-muted-foreground">
@@ -1041,7 +1085,7 @@ export default function AppMyClosing() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">消費税</span>
+                    <span className="text-muted-foreground">消費税（現在は0円固定）</span>
                     <span className="font-medium">
                       {formatYen(invoiceTotals.tax)}
                     </span>

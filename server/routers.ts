@@ -3325,7 +3325,8 @@ export const appRouter = router({
         const total = Number(submission.transportAmount || 0) + Number(submission.expenseAmount || 0);
         invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: `${input.closingMonth} 作業請求`, subtotalAmount: total, taxAmount: 0, totalAmount: total });
       }
-      return invoice;
+      const items = invoice?.id ? await db.getWorkerInvoiceItems(invoice.id) : [];
+      return { ...invoice, items };
     }),
     saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional() })).optional() })).mutation(async ({ ctx, input }) => {
       const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
