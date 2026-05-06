@@ -2,6 +2,10 @@
  * Worker Invoice PDF Generator (作業員請求書PDF)
  * Generates A4 portrait PDF with Japanese text support using PDFKit.
  * Uses snapshot data only — never generates from draft.
+ * 
+ * Invoice party rules:
+ * - Worker invoices: recipient (宛先) is always 充寵グループ / JYUCHOU GROUP
+ * - Worker is the issuer
  */
 import PDFDocument from "pdfkit";
 import fs from "fs";
@@ -37,6 +41,30 @@ async function downloadFile(url: string, dest: string): Promise<string> {
   });
 }
 
+async function downloadImage(url: string): Promise<Buffer | null> {
+  try {
+    return new Promise((resolve, reject) => {
+      const get = url.startsWith("https") ? https.get : http.get;
+      get(url, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          const loc = res.headers.location;
+          if (!loc) return resolve(null);
+          const get2 = loc.startsWith("https") ? https.get : http.get;
+          get2(loc, (res2) => {
+            const chunks: Buffer[] = [];
+            res2.on("data", (c: Buffer) => chunks.push(c));
+            res2.on("end", () => resolve(Buffer.concat(chunks)));
+          }).on("error", () => resolve(null));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => resolve(Buffer.concat(chunks)));
+      }).on("error", () => resolve(null));
+    });
+  } catch { return null; }
+}
+
 async function ensureFont(): Promise<string> {
   if (fontPath && fs.existsSync(fontPath)) return fontPath;
   const tmpDir = os.tmpdir();
@@ -56,6 +84,15 @@ function formatDate(d: Date | string | null | undefined): string {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
+interface ImageSettings {
+  x?: number;
+  y?: number;
+  scale?: number;
+  opacity?: number;
+  width?: number;
+  height?: number;
+}
+
 interface PdfInput {
   invoice: any;
   items: any[];
@@ -63,6 +100,20 @@ interface PdfInput {
   project: any;
   company: any;
   snapshotData: any;
+}
+
+const RECIPIENT_NAME = "充寵グループ";
+const RECIPIENT_SUFFIX = "御中";
+
+export function buildWorkerInvoicePdfRenderPayload(model: any) {
+  return {
+    renderVersion: 1,
+    format: 'worker-invoice-v1',
+    previewOnly: true,
+    printablePdfAvailable: true,
+    message: 'UI preview metadata. Use workerInvoice.downloadMyInvoicePdf for the printable PDF.',
+    model,
+  };
 }
 
 export async function generateWorkerInvoicePdf(input: PdfInput): Promise<Buffer> {
@@ -81,6 +132,25 @@ export async function generateWorkerInvoicePdf(input: PdfInput): Promise<Buffer>
   const rightX = doc.page.width - 40;
   let y = 40;
 
+  // ── Logo (top-left or configured position) ──
+  const logoSettings: ImageSettings = (company?.logoSettings as ImageSettings) || {};
+  if (company?.logoUrl) {
+    try {
+      const logoBuffer = await downloadImage(company.logoUrl);
+      if (logoBuffer) {
+        const logoX = logoSettings.x ?? leftX;
+        const logoY = logoSettings.y ?? y;
+        const logoW = (logoSettings.width ?? 80) * (logoSettings.scale ?? 1);
+        const logoH = (logoSettings.height ?? 40) * (logoSettings.scale ?? 1);
+        const logoOpacity = logoSettings.opacity ?? 1;
+        doc.save();
+        doc.opacity(logoOpacity);
+        doc.image(logoBuffer, logoX, logoY, { width: logoW, height: logoH, fit: [logoW, logoH] });
+        doc.restore();
+      }
+    } catch { /* skip logo on error */ }
+  }
+
   // ── Title ──
   doc.fontSize(18).text("請求書", leftX, y, { align: "center", width: pageWidth });
   y += 35;
@@ -93,17 +163,22 @@ export async function generateWorkerInvoicePdf(input: PdfInput): Promise<Buffer>
   doc.text(`発行日: ${formatDate(invoice.issueDate || invoice.submittedAt)}`, rightX - 200, y, { width: 200, align: "right" });
   y += 20;
 
-  // ── Company (recipient) ──
-  doc.fontSize(11).text(company?.companyName || "御中", leftX, y);
-  y += 16;
-  doc.fontSize(9).text("御中", leftX, y);
-  y += 20;
+  // ── Recipient (always JYUCHOU GROUP for worker invoices) ──
+  doc.fontSize(12).text(RECIPIENT_NAME, leftX, y);
+  y += 18;
+  doc.fontSize(9).text(RECIPIENT_SUFFIX, leftX, y);
+  y += 6;
+  if (company?.address) {
+    doc.fontSize(8).text(company.address, leftX, y + 6);
+    y += 12;
+  }
+  y += 15;
 
   // ── Separator ──
   doc.moveTo(leftX, y).lineTo(rightX, y).stroke();
   y += 15;
 
-  // ── Worker info (right side) ──
+  // ── Worker info (issuer, right side) ──
   const workerName = employee?.nameKanji || "作業員";
   doc.fontSize(10).text(workerName, rightX - 250, y, { width: 250, align: "right" });
   y += 14;
@@ -120,6 +195,25 @@ export async function generateWorkerInvoicePdf(input: PdfInput): Promise<Buffer>
     y += 12;
   }
   y += 10;
+
+  // ── Seal/Stamp (near worker info) ──
+  const sealSettings: ImageSettings = (company?.sealSettings as ImageSettings) || {};
+  if (company?.sealUrl) {
+    try {
+      const sealBuffer = await downloadImage(company.sealUrl);
+      if (sealBuffer) {
+        const sealX = sealSettings.x ?? (rightX - 80);
+        const sealY = sealSettings.y ?? (y - 50);
+        const sealW = (sealSettings.width ?? 60) * (sealSettings.scale ?? 1);
+        const sealH = (sealSettings.height ?? 60) * (sealSettings.scale ?? 1);
+        const sealOpacity = sealSettings.opacity ?? 0.8;
+        doc.save();
+        doc.opacity(sealOpacity);
+        doc.image(sealBuffer, sealX, sealY, { width: sealW, height: sealH, fit: [sealW, sealH] });
+        doc.restore();
+      }
+    } catch { /* skip seal on error */ }
+  }
 
   // ── Subject ──
   doc.fontSize(10).text(`件名: ${invoice.subject || `${invoice.closingMonth} 作業請求`}`, leftX, y);
@@ -143,18 +237,22 @@ export async function generateWorkerInvoicePdf(input: PdfInput): Promise<Buffer>
   // ── Items table ──
   if (items.length > 0) {
     doc.fontSize(9);
-    const colWidths = [200, 50, 80, 80, 60];
-    const headers = ["摘要", "数量", "単価", "金額", "税率"];
+    const colWidths = [30, 170, 40, 30, 70, 70, 50];
+    const headers = ["分類", "摘要", "数量", "単位", "単価", "金額", "税率"];
     let tableX = leftX;
 
     // Header row
     doc.rect(leftX, y, pageWidth, 18).fill("#f0f0f0").stroke("#ccc");
     doc.fillColor("#000");
     for (let i = 0; i < headers.length; i++) {
-      doc.text(headers[i], tableX + 4, y + 4, { width: colWidths[i] - 8, align: i === 0 ? "left" : "right" });
+      doc.text(headers[i], tableX + 3, y + 4, { width: colWidths[i] - 6, align: i <= 1 ? "left" : "right" });
       tableX += colWidths[i];
     }
     y += 18;
+
+    const categoryLabels: Record<string, string> = {
+      labor: "労務", transport: "交通", expense: "経費", materials: "材料", misc: "他"
+    };
 
     // Data rows
     for (const item of items) {
@@ -165,17 +263,21 @@ export async function generateWorkerInvoicePdf(input: PdfInput): Promise<Buffer>
       tableX = leftX;
       doc.rect(leftX, y, pageWidth, 16).stroke("#eee");
       if (item.itemType === "text") {
-        doc.text(item.label || "", tableX + 4, y + 3, { width: pageWidth - 8 });
+        doc.text(item.label || "", tableX + 3, y + 3, { width: pageWidth - 6 });
       } else {
-        doc.text(item.label || "", tableX + 4, y + 3, { width: colWidths[0] - 8 });
+        doc.text(categoryLabels[item.category] || "", tableX + 3, y + 3, { width: colWidths[0] - 6 });
         tableX += colWidths[0];
-        doc.text(String(item.quantity || 1), tableX + 4, y + 3, { width: colWidths[1] - 8, align: "right" });
+        doc.text(item.label || "", tableX + 3, y + 3, { width: colWidths[1] - 6 });
         tableX += colWidths[1];
-        doc.text(formatYen(item.unitPrice || 0), tableX + 4, y + 3, { width: colWidths[2] - 8, align: "right" });
+        doc.text(String(item.quantity || 1), tableX + 3, y + 3, { width: colWidths[2] - 6, align: "right" });
         tableX += colWidths[2];
-        doc.text(formatYen(item.amount || 0), tableX + 4, y + 3, { width: colWidths[3] - 8, align: "right" });
+        doc.text(item.unit || "式", tableX + 3, y + 3, { width: colWidths[3] - 6, align: "right" });
         tableX += colWidths[3];
-        doc.text(`${item.taxRate || 10}%`, tableX + 4, y + 3, { width: colWidths[4] - 8, align: "right" });
+        doc.text(formatYen(item.unitPrice || 0), tableX + 3, y + 3, { width: colWidths[4] - 6, align: "right" });
+        tableX += colWidths[4];
+        doc.text(formatYen(item.amount || 0), tableX + 3, y + 3, { width: colWidths[5] - 6, align: "right" });
+        tableX += colWidths[5];
+        doc.text(`${item.taxRate || 10}%`, tableX + 3, y + 3, { width: colWidths[6] - 6, align: "right" });
       }
       y += 16;
     }

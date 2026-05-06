@@ -96,6 +96,8 @@ export const companyProfile = mysqlTable("company_profile", {
   sealUrl: text("sealUrl"),
   /** Watermark URL (S3) */
   watermarkUrl: text("watermarkUrl"),
+  /** Logo position/size settings as JSON */
+  logoSettings: json("logoSettings"),
   /** Seal position/size settings as JSON */
   sealSettings: json("sealSettings"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -739,8 +741,10 @@ export const workerInvoiceItems = mysqlTable("worker_invoice_items", {
   id: int("id").autoincrement().primaryKey(),
   workerInvoiceId: int("workerInvoiceId").notNull(),
   itemType: mysqlEnum("workerInvoiceItemType", ["normal", "text"]).default("normal").notNull(),
+  category: mysqlEnum("workerInvoiceItemCategory", ["labor", "transport", "expense", "materials", "misc"]).default("labor").notNull(),
   label: text("label").notNull(),
   quantity: int("quantity").default(1).notNull(),
+  unit: varchar("unit", { length: 32 }).default("式").notNull(),
   unitPrice: int("unitPrice").default(0).notNull(),
   amount: int("amount").default(0).notNull(),
   taxRate: int("taxRate").default(10).notNull(),

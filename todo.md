@@ -473,3 +473,18 @@
 - [x] Admin side AppClosings: Preview, PDF download, Supporting docs, Approve, Return buttons
 - [x] Supporting documents UX: 0 docs → "添付資料なし", 1 doc → direct open, multiple → list
 - [x] PDF visual polish: invoice number, date, company, worker, project/month, line items, subtotal/tax/total, bank info, registration number, notes, supporting doc list
+
+# Phase 4A - Worker Invoice Practical Completion
+
+- [ ] Schema: add unit and category columns to worker_invoice_items
+- [ ] Backend: extend saveMyDraft to accept items array and recalculate totals
+- [ ] Backend: one-click invoice generation from closing submission
+- [ ] Frontend: line item editor in AppMyClosing (mobile-first)
+- [ ] Frontend: category support (labor/transport/expense/materials/misc)
+- [ ] Frontend: tax rate selector (0%, 8%, 10%)
+- [ ] PDF: apply logo/seal from sealSettings
+- [ ] PDF: logo position/scale/opacity controls
+- [ ] PDF: seal position/scale/opacity controls
+- [ ] Invoice party: worker invoice recipient fixed as JYUCHOU GROUP
+- [ ] Access control: worker sees only own invoices (already implemented)
+- [ ] Safety: do not break monthly closing logic

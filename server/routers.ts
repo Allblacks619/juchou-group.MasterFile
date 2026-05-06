@@ -7,7 +7,7 @@ import { nanoid } from "nanoid";
 import * as db from "./db";
 import { parseDateString, parseDateRange } from "./dateHelpers";
 import { isWorkedType } from "@shared/attendanceStatus";
-import { storagePut } from "./storage";
+import { storageGet, storagePut } from "./storage";
 import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "../shared/uploadValidation";
 import * as schema from "../drizzle/schema";
 import { eq } from "drizzle-orm";
@@ -16,6 +16,7 @@ import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from
 import { generateInvoicePdf } from "./pdfInvoice";
 import { buildInvoiceDraftFromProjects } from "./invoiceBuilder";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
+import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./pdfWorkerInvoice";
 
 // ── Helper: check admin or leader role ──
 const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -385,6 +386,129 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
   };
 }
 
+function toYmd(value: unknown): string {
+  if (!value) return new Date().toISOString().slice(0, 10);
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10);
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeWorkerTaxRate(value: unknown): 0 | 8 | 10 {
+  const rate = Number(value);
+  return rate === 8 ? 8 : rate === 10 ? 10 : 0;
+}
+
+function formatWorkerBankInfo(worker: any): string | null {
+  const parts = [worker?.bankName, worker?.branchName, worker?.accountType, worker?.accountNumber, worker?.accountHolder]
+    .filter((v) => v !== undefined && v !== null && String(v).trim() !== "")
+    .map((v) => String(v));
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
+function parseWorkerInvoiceSnapshot(snapshot: any): any {
+  try {
+    return JSON.parse(snapshot?.snapshotJson || "{}");
+  } catch {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "請求書スナップショットを読み込めません。管理者に確認してください。" });
+  }
+}
+
+async function getLatestWorkerInvoiceSnapshot(workerInvoiceId: number) {
+  const snapshots = await db.getWorkerInvoiceSnapshots(workerInvoiceId);
+  const latest = [...snapshots].sort((a: any, b: any) => {
+    const aTime = new Date(a.createdAt || 0).getTime();
+    const bTime = new Date(b.createdAt || 0).getTime();
+    return bTime - aTime || Number(b.id || 0) - Number(a.id || 0);
+  })[0];
+  if (!latest) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "提出済みスナップショットがありません。提出後にPDFを出力してください。" });
+  }
+  return latest;
+}
+
+async function buildWorkerInvoicePreviewModelFromSnapshot(invoice: any) {
+  const snapshotRow = await getLatestWorkerInvoiceSnapshot(invoice.id!);
+  const snapshot = parseWorkerInvoiceSnapshot(snapshotRow);
+  const snapInvoice = snapshot.invoice || {};
+  const snapSubmission = snapshot.submission || {};
+  const snapProject = snapshot.project || {};
+  const snapCompany = snapshot.company || {};
+  const snapWorker = snapshot.worker || {};
+  const snapItems = Array.isArray(snapshot.items) ? snapshot.items : [];
+  const supportingDocuments = Array.isArray(snapshot.supportingDocuments) ? snapshot.supportingDocuments : [];
+  const lineItems = snapItems.length > 0
+    ? snapItems
+        .filter((item: any) => item?.itemType !== "text")
+        .map((item: any) => ({
+          label: String(item?.label || "請求明細"),
+          quantity: Number(item?.quantity || 1),
+          unitPrice: Number(item?.unitPrice || 0),
+          amount: Number(item?.amount || 0),
+          taxRate: normalizeWorkerTaxRate(item?.taxRate),
+        }))
+    : [
+        { label: "交通費", quantity: 1, unitPrice: Number(snapSubmission.transportAmount || 0), amount: Number(snapSubmission.transportAmount || 0), taxRate: 0 as const },
+        { label: "経費", quantity: 1, unitPrice: Number(snapSubmission.expenseAmount || 0), amount: Number(snapSubmission.expenseAmount || 0), taxRate: 0 as const },
+      ].filter((item) => item.amount !== 0);
+  const model = {
+    invoiceId: Number(snapInvoice.id || invoice.id),
+    invoiceNumber: snapInvoice.invoiceNumber || null,
+    issueDate: toYmd(snapInvoice.issueDate || snapInvoice.submittedAt || snapInvoice.createdAt),
+    closingMonth: snapInvoice.closingMonth || undefined,
+    projectName: snapProject.name || null,
+    subject: snapInvoice.subject || (snapInvoice.closingMonth ? `${snapInvoice.closingMonth} 作業請求` : "作業請求"),
+    company: {
+      name: snapCompany.companyName || "充寵グループ",
+      address: snapCompany.address || null,
+      phone: snapCompany.phone || null,
+      email: snapCompany.email || null,
+    },
+    worker: {
+      employeeId: Number(snapWorker.id || snapInvoice.employeeId || invoice.employeeId),
+      name: snapWorker.nameKanji || `Worker #${snapInvoice.employeeId || invoice.employeeId}`,
+      address: snapWorker.address || null,
+      phone: snapWorker.phone || null,
+      email: snapWorker.email || null,
+      invoiceRegistrationNumber: snapWorker.invoiceIssuerNumber || null,
+      bankInfo: formatWorkerBankInfo(snapWorker),
+      sealImageUrl: snapWorker.stampUrl || null,
+    },
+    lineItems,
+    subtotal: Number(snapInvoice.subtotalAmount || 0),
+    tax: Number(snapInvoice.taxAmount || 0),
+    total: Number(snapInvoice.totalAmount || 0),
+    notes: snapInvoice.notes || null,
+    supportingDocuments: supportingDocuments
+      .filter((doc: any) => doc?.id && doc?.fileKey)
+      .map((doc: any) => ({
+        id: Number(doc.id),
+        fileKey: String(doc.fileKey),
+        originalFileName: doc.originalFileName || null,
+        mimeType: doc.mimeType || null,
+      })),
+  };
+  return { model, snapshot, snapshotRow };
+}
+
+async function ensureWorkerInvoiceAccess(ctx: any, invoice: any) {
+  const me = await db.getEmployeeByUserId(ctx.user.id);
+  const manager = isManagerLike(ctx.user.appRole) || isSuperAdmin(ctx.user.appRole);
+  if (!manager && (!me || me.id !== invoice.employeeId)) throw new TRPCError({ code: "FORBIDDEN" });
+  return { me, manager };
+}
+
+async function getOrCreateWorkerInvoicePdfDownload(model: any, invoiceId: number) {
+  const key = `worker-invoices/${invoiceId}/invoice.pdf`;
+  try {
+    const existing = await storageGet(key);
+    return { fileName: `worker-invoice-${invoiceId}.pdf`, key: existing.key, url: existing.url, mimeType: "application/pdf", generated: false };
+  } catch {
+    const pdf = await generateWorkerInvoicePdf(model);
+    const stored = await storagePut(key, pdf, "application/pdf");
+    return { fileName: `worker-invoice-${invoiceId}.pdf`, key: stored.key, url: stored.url, mimeType: "application/pdf", generated: true };
+  }
+}
+
 export const appRouter = router({
   system: systemRouter,
 
@@ -588,6 +712,7 @@ export const appRouter = router({
         accountType: z.enum(["ordinary", "checking"]).optional(),
         accountNumber: z.string().optional(),
         accountHolder: z.string().optional(),
+        logoSettings: z.any().optional(),
         sealSettings: z.any().optional(),
       }))
       .mutation(async ({ input }) => {
@@ -3176,13 +3301,41 @@ export const appRouter = router({
         const total = Number(submission.transportAmount || 0) + Number(submission.expenseAmount || 0);
         invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: `${input.closingMonth} 作業請求`, subtotalAmount: total, taxAmount: 0, totalAmount: total });
       }
-      return invoice;
+      const items = await db.getWorkerInvoiceItems(invoice!.id!);
+      return { ...invoice!, items };
     }),
-    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional() })).mutation(async ({ ctx, input }) => {
+    saveMyDraft: protectedProcedure.input(z.object({
+      projectId: z.number(),
+      closingMonth: z.string(),
+      subject: z.string().optional(),
+      notes: z.string().optional(),
+      items: z.array(z.object({
+        category: z.enum(["labor", "transport", "expense", "materials", "misc"]).default("labor"),
+        label: z.string().min(1),
+        quantity: z.number().min(0).default(1),
+        unit: z.string().default("式"),
+        unitPrice: z.number().min(0).default(0),
+        taxRate: z.number().default(10),
+      })).optional(),
+    })).mutation(async ({ ctx, input }) => {
       const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
-      await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: input.subject, notes: input.notes });
+      // Calculate totals from items
+      let subtotalAmount = 0;
+      let taxAmount = 0;
+      const itemsData = (input.items || []).map((item, idx) => {
+        const amount = item.quantity * item.unitPrice;
+        const tax = Math.floor(amount * item.taxRate / 100);
+        subtotalAmount += amount;
+        taxAmount += tax;
+        return { ...item, amount, sortOrder: idx, itemType: "normal" as const, workerInvoiceId: 0 };
+      });
+      const totalAmount = subtotalAmount + taxAmount;
+      const invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: input.subject, notes: input.notes, subtotalAmount, taxAmount, totalAmount });
+      if (invoice && input.items) {
+        await db.replaceWorkerInvoiceItems(invoice.id!, itemsData.map(i => ({ ...i, workerInvoiceId: invoice.id! })));
+      }
       return { success: true };
     }),
     submitMyInvoice: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string() })).mutation(async ({ ctx, input }) => {
@@ -3191,7 +3344,11 @@ export const appRouter = router({
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
       const invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "submitted", submittedAt: new Date() });
       const docs = await db.getSupportingDocumentsBySubmission(submission.id!);
-      await db.createWorkerInvoiceSnapshot({ workerInvoiceId: invoice!.id!, snapshotVersion: 1, snapshotJson: JSON.stringify({ invoice, submission, docs }), createdBy: ctx.user.id });
+      const items = await db.getWorkerInvoiceItems(invoice!.id!);
+      const employee = await db.getEmployeeById(me.id);
+      const project = await db.getProjectById(input.projectId);
+      const company = await db.getCompanyProfile();
+      await db.createWorkerInvoiceSnapshot({ workerInvoiceId: invoice!.id!, snapshotVersion: 1, snapshotJson: JSON.stringify({ invoice, items, submission, docs, employee, project, company }), createdBy: ctx.user.id });
       return { success: true, id: invoice?.id };
     }),
     listMyInvoices: protectedProcedure.query(async ({ ctx }) => {
@@ -3237,6 +3394,48 @@ export const appRouter = router({
       const submission = await db.getClosingSubmissionByClosingEmployee(invoice.closingId, invoice.employeeId);
       const docs = submission ? await db.getSupportingDocumentsBySubmission(submission.id!) : [];
       return { invoice, items, employee, project, company, submission, docs };
+    }),
+    previewMyInvoice: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      await ensureWorkerInvoiceAccess(ctx, invoice);
+      const { model } = await buildWorkerInvoicePreviewModelFromSnapshot(invoice);
+      return { model, pdfRenderPayload: buildWorkerInvoicePdfRenderPayload(model) };
+    }),
+    downloadMyInvoicePdf: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      await ensureWorkerInvoiceAccess(ctx, invoice);
+      const { model } = await buildWorkerInvoicePreviewModelFromSnapshot(invoice);
+      return getOrCreateWorkerInvoicePdfDownload(model, input.invoiceId);
+    }),
+    downloadSupportingDocument: protectedProcedure.input(z.object({ invoiceId: z.number(), documentId: z.number() })).query(async ({ ctx, input }) => {
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      await ensureWorkerInvoiceAccess(ctx, invoice);
+      const { model } = await buildWorkerInvoicePreviewModelFromSnapshot(invoice);
+      const doc = model.supportingDocuments.find((d: any) => d.id === input.documentId);
+      if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "指定された添付資料はこの請求書に含まれていません。" });
+      const out = await storageGet(doc.fileKey);
+      return { documentId: doc.id, fileKey: doc.fileKey, url: out.url, originalFileName: doc.originalFileName || null, mimeType: doc.mimeType || null };
+    }),
+    exportMyInvoicePackage: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
+      const invoice = await db.getWorkerInvoiceById(input.invoiceId);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      await ensureWorkerInvoiceAccess(ctx, invoice);
+      const { model } = await buildWorkerInvoicePreviewModelFromSnapshot(invoice);
+      const invoicePdf = await getOrCreateWorkerInvoicePdfDownload(model, input.invoiceId);
+      const documents = await Promise.all(model.supportingDocuments.map(async (doc: any) => {
+        const out = await storageGet(doc.fileKey);
+        return { id: doc.id, fileKey: doc.fileKey, originalFileName: doc.originalFileName || null, mimeType: doc.mimeType || null, url: out.url };
+      }));
+      return {
+        invoiceId: input.invoiceId,
+        invoicePdf,
+        documents,
+        zipPackage: null,
+        grouped: [{ invoiceId: input.invoiceId, pdfPreview: buildWorkerInvoicePdfRenderPayload(model), supportingDocuments: model.supportingDocuments }],
+      };
     }),
     getSupportingDocs: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
       const invoice = await db.getWorkerInvoiceById(input.invoiceId);

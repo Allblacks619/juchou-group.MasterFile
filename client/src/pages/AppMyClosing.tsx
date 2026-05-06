@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Receipt, Upload, Link as LinkIcon, Trash2, Send, FileCheck2, CalendarDays, FileDown } from "lucide-react";
+import { Loader2, Receipt, Upload, Link as LinkIcon, Trash2, Send, FileCheck2, CalendarDays, FileDown, Plus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -421,8 +421,31 @@ const INVOICE_STATUS_LABELS: Record<string, { label: string; className: string }
   locked: { label: "ロック", className: "bg-amber-500/20 text-amber-400" },
 };
 
+type LineItem = {
+  category: "labor" | "transport" | "expense" | "materials" | "misc";
+  label: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  taxRate: number;
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  labor: "労務",
+  transport: "交通費",
+  expense: "経費",
+  materials: "材料",
+  misc: "その他",
+};
+
+const TAX_RATES = [0, 8, 10];
+
 function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; closingMonth: string }) {
   const draftQuery = trpc.workerInvoice.getMyDraft.useQuery({ projectId, closingMonth });
+  const saveDraftMutation = trpc.workerInvoice.saveMyDraft.useMutation({
+    onSuccess: () => { toast.success("下書きを保存しました"); draftQuery.refetch(); },
+    onError: (e) => toast.error(`保存エラー: ${e.message}`),
+  });
   const submitInvoiceMutation = trpc.workerInvoice.submitMyInvoice.useMutation({
     onSuccess: () => { toast.success("請求書を提出しました"); draftQuery.refetch(); },
     onError: (e) => toast.error(`提出エラー: ${e.message}`),
@@ -437,6 +460,30 @@ function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; 
   );
 
   const invoice = draftQuery.data;
+  const [items, setItems] = useState<LineItem[]>([]);
+  const [subject, setSubject] = useState("");
+  const [notes, setNotes] = useState("");
+  const [initialized, setInitialized] = useState(false);
+
+  // Initialize local state from server data
+  React.useEffect(() => {
+    if (invoice && !initialized) {
+      setSubject(invoice.subject || `${closingMonth} 作業請求`);
+      setNotes(invoice.notes || "");
+      if (invoice.items && invoice.items.length > 0) {
+        setItems(invoice.items.map((i: any) => ({
+          category: i.category || "labor",
+          label: i.label || "",
+          quantity: i.quantity || 1,
+          unit: i.unit || "式",
+          unitPrice: i.unitPrice || 0,
+          taxRate: i.taxRate ?? 10,
+        })));
+      }
+      setInitialized(true);
+    }
+  }, [invoice, initialized, closingMonth]);
+
   if (draftQuery.isLoading) return <Card><CardContent className="py-6 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></CardContent></Card>;
   if (!invoice) return null;
 
@@ -444,8 +491,47 @@ function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; 
   const statusInfo = INVOICE_STATUS_LABELS[status] || INVOICE_STATUS_LABELS.draft;
   const isApproved = status === "approved" || status === "locked";
   const isReturned = status === "returned";
-  const canSubmitInvoice = status === "draft" || status === "returned";
+  const canEdit = status === "draft" || status === "returned";
+  const canSubmitInvoice = canEdit;
   const docs = docsQuery.data || [];
+
+  // Calculate totals
+  const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+  const tax = items.reduce((sum, i) => sum + Math.floor(i.quantity * i.unitPrice * i.taxRate / 100), 0);
+  const total = subtotal + tax;
+
+  const addItem = () => {
+    setItems([...items, { category: "labor", label: "", quantity: 1, unit: "式", unitPrice: 0, taxRate: 10 }]);
+  };
+
+  const removeItem = (idx: number) => {
+    setItems(items.filter((_, i) => i !== idx));
+  };
+
+  const updateItem = (idx: number, field: keyof LineItem, value: any) => {
+    setItems(items.map((item, i) => i === idx ? { ...item, [field]: value } : item));
+  };
+
+  const handleSaveDraft = () => {
+    saveDraftMutation.mutate({ projectId, closingMonth, subject, notes, items });
+  };
+
+  const handleSubmit = () => {
+    if (items.length === 0) {
+      toast.error("明細行を1つ以上追加してください");
+      return;
+    }
+    if (items.some(i => !i.label.trim())) {
+      toast.error("すべての明細行に摘要を入力してください");
+      return;
+    }
+    // Save first, then submit
+    saveDraftMutation.mutate({ projectId, closingMonth, subject, notes, items }, {
+      onSuccess: () => {
+        submitInvoiceMutation.mutate({ projectId, closingMonth });
+      },
+    });
+  };
 
   return (
     <Card>
@@ -474,44 +560,177 @@ function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; 
           </div>
         )}
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="rounded-md border p-3">
-            <div className="text-xs text-muted-foreground">小計</div>
-            <div className="font-medium">{formatYen(invoice.subtotalAmount)}</div>
+        {/* Subject & Notes (editable in draft/returned) */}
+        {canEdit && (
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">件名</Label>
+              <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="請求件名" className="mt-1" />
+            </div>
+            <div>
+              <Label className="text-xs">備考</Label>
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="備考（任意）" rows={2} className="mt-1" />
+            </div>
           </div>
-          <div className="rounded-md border p-3">
-            <div className="text-xs text-muted-foreground">消費税</div>
-            <div className="font-medium">{formatYen(invoice.taxAmount)}</div>
-          </div>
-          <div className="rounded-md border p-3">
-            <div className="text-xs text-muted-foreground">合計</div>
-            <div className="font-bold text-lg">{formatYen(invoice.totalAmount)}</div>
-          </div>
-          <div className="rounded-md border p-3">
-            <div className="text-xs text-muted-foreground">添付資料</div>
-            <div className="font-medium">{docs.length > 0 ? `${docs.length}件` : "添付資料なし"}</div>
-          </div>
-        </div>
+        )}
 
-        {/* Supporting documents list */}
-        {docs.length > 0 && (
-          <div className="space-y-1">
-            <div className="text-xs text-muted-foreground font-medium">添付資料一覧:</div>
-            {docs.map((doc: any) => (
-              <a key={doc.id} href={doc.fileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm text-blue-400 hover:underline">
-                <LinkIcon className="h-3 w-3 shrink-0" />
-                <span className="truncate">{doc.originalFileName || "資料"}</span>
-              </a>
+        {/* Line items editor (mobile-first stacked cards) */}
+        {canEdit && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">明細行</Label>
+              <Button size="sm" variant="outline" onClick={addItem}>
+                <Plus className="h-3.5 w-3.5 mr-1" />追加
+              </Button>
+            </div>
+            {items.length === 0 && (
+              <div className="text-sm text-muted-foreground border border-dashed rounded-lg p-4 text-center">
+                明細行がありません。「追加」ボタンで項目を追加してください。
+              </div>
+            )}
+            {items.map((item, idx) => (
+              <div key={idx} className="border rounded-lg p-3 space-y-2 bg-card">
+                <div className="flex items-center justify-between gap-2">
+                  <Select value={item.category} onValueChange={(v) => updateItem(idx, "category", v)}>
+                    <SelectTrigger className="w-[100px] h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>{v}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => removeItem(idx)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <Input
+                  value={item.label}
+                  onChange={(e) => updateItem(idx, "label", e.target.value)}
+                  placeholder="摘要（例: 電気工事作業）"
+                  className="h-8 text-sm"
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">数量</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={item.quantity}
+                      onChange={(e) => updateItem(idx, "quantity", Number(e.target.value) || 0)}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">単位</Label>
+                    <Input
+                      value={item.unit}
+                      onChange={(e) => updateItem(idx, "unit", e.target.value)}
+                      className="h-8 text-sm"
+                      placeholder="式"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">税率</Label>
+                    <Select value={String(item.taxRate)} onValueChange={(v) => updateItem(idx, "taxRate", Number(v))}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TAX_RATES.map(r => (
+                          <SelectItem key={r} value={String(r)}>{r}%</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-[10px] text-muted-foreground">単価 (円)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={item.unitPrice}
+                    onChange={(e) => updateItem(idx, "unitPrice", Number(e.target.value) || 0)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="text-right text-xs text-muted-foreground">
+                  金額: <span className="font-medium text-foreground">{formatYen(item.quantity * item.unitPrice)}</span>
+                </div>
+              </div>
             ))}
           </div>
         )}
 
+        {/* Read-only items display (for submitted/approved) */}
+        {!canEdit && invoice.items && invoice.items.length > 0 && (
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">明細行</Label>
+            {invoice.items.map((item: any, idx: number) => (
+              <div key={idx} className="border rounded-lg p-3 bg-card text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-muted">{CATEGORY_LABELS[item.category] || item.category}</span>
+                  <span className="text-xs text-muted-foreground">{item.taxRate}%</span>
+                </div>
+                <div className="mt-1 font-medium">{item.label}</div>
+                <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+                  <span>{item.quantity} {item.unit} × {formatYen(item.unitPrice)}</span>
+                  <span className="font-medium text-foreground">{formatYen(item.amount || item.quantity * item.unitPrice)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Totals summary */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-md border p-3">
+            <div className="text-xs text-muted-foreground">小計</div>
+            <div className="font-medium">{formatYen(canEdit ? subtotal : invoice.subtotalAmount)}</div>
+          </div>
+          <div className="rounded-md border p-3">
+            <div className="text-xs text-muted-foreground">消費税</div>
+            <div className="font-medium">{formatYen(canEdit ? tax : invoice.taxAmount)}</div>
+          </div>
+          <div className="rounded-md border p-3">
+            <div className="text-xs text-muted-foreground">合計</div>
+            <div className="font-bold text-lg">{formatYen(canEdit ? total : invoice.totalAmount)}</div>
+          </div>
+        </div>
+
+        {/* Supporting documents list */}
+        <div className="space-y-1">
+          <div className="text-xs text-muted-foreground font-medium">添付資料:</div>
+          {docs.length === 0 ? (
+            <div className="text-sm text-muted-foreground">添付資料なし</div>
+          ) : (
+            docs.map((doc: any) => (
+              <a key={doc.id} href={doc.fileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm text-blue-400 hover:underline">
+                <LinkIcon className="h-3 w-3 shrink-0" />
+                <span className="truncate">{doc.originalFileName || "資料"}</span>
+              </a>
+            ))
+          )}
+        </div>
+
         {/* Action buttons */}
         <div className="flex flex-wrap gap-2">
+          {canEdit && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSaveDraft}
+              disabled={saveDraftMutation.isPending}
+            >
+              {saveDraftMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileCheck2 className="h-4 w-4 mr-1" />}
+              下書き保存
+            </Button>
+          )}
           {canSubmitInvoice && (
             <Button
-              onClick={() => submitInvoiceMutation.mutate({ projectId, closingMonth })}
-              disabled={submitInvoiceMutation.isPending}
+              onClick={handleSubmit}
+              disabled={submitInvoiceMutation.isPending || saveDraftMutation.isPending}
               size="sm"
             >
               {submitInvoiceMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
