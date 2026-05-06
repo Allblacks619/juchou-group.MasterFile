@@ -242,13 +242,13 @@ export default function AppEmployees() {
 
       {/* Selection info bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 bg-gold/10 border border-gold/20 rounded-md px-4 py-2">
-          <CheckSquare className="h-4 w-4 text-gold" />
+        <div className="flex flex-wrap items-center gap-2 bg-gold/10 border border-gold/20 rounded-md px-3 py-2 sm:gap-3 sm:px-4">
+          <CheckSquare className="h-4 w-4 shrink-0 text-gold" />
           <span className="text-sm font-medium">{selectedIds.size}名選択中</span>
           <Button
             variant="ghost"
             size="sm"
-            className="text-xs"
+            className="h-8 text-xs"
             onClick={() => setSelectedIds(new Set())}
           >
             選択解除
@@ -282,8 +282,44 @@ export default function AppEmployees() {
               </p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
+            <>
+              <div className="space-y-2 md:hidden">
+                {filtered.map((emp) => (
+                  <Card key={emp.id} className="overflow-hidden">
+                    <CardContent className="p-3">
+                      <div className="flex items-start gap-3">
+                        <Checkbox
+                          className="mt-1 shrink-0"
+                          aria-label={`${emp.nameKanji}を選択`}
+                          checked={selectedIds.has(emp.id)}
+                          onCheckedChange={() => toggleOne(emp.id)}
+                        />
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 text-left"
+                          onClick={() => setLocation(`/app/employees/${emp.id}`)}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate font-medium">{emp.nameKanji}</p>
+                              <p className="truncate text-xs text-muted-foreground">{emp.nameKana || "フリガナ未登録"}</p>
+                            </div>
+                            <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                          </div>
+                          <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+                            <span className="truncate">国籍: {emp.nationality || "日本"}</span>
+                            <span className="truncate">電話: {emp.phone || "未登録"}</span>
+                          </div>
+                        </button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
+                <Table>
+                  <TableHeader>
                 <TableRow>
                   <TableHead className="w-10">
                     <Checkbox
@@ -336,8 +372,10 @@ export default function AppEmployees() {
                     </TableCell>
                   </TableRow>
                 ))}
-              </TableBody>
-            </Table>
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

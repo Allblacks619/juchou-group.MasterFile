@@ -61,7 +61,8 @@ export default function AppEmployeeDetail() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { user: authUser } = useAuth();
-  const isAdmin = (authUser as any)?.appRole === "admin" || (authUser as any)?.appRole === "leader";
+  const appRole = (authUser as any)?.appRole;
+  const isAdmin = appRole === "super_admin" || appRole === "admin" || appRole === "manager" || appRole === "leader";
   const isNew = params.id === "new";
   const employeeId = isNew ? undefined : parseInt(params.id!);
 
