@@ -15,6 +15,7 @@ import { TRPCError } from "@trpc/server";
 import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from "./pdfRoster";
 import { generateInvoicePdf } from "./pdfInvoice";
 import { buildInvoiceDraftFromProjects } from "./invoiceBuilder";
+import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./workerInvoicePdf";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./pdfWorkerInvoice";
 
@@ -386,6 +387,7 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
   };
 }
 
+
 function toYmd(value: unknown): string {
   if (!value) return new Date().toISOString().slice(0, 10);
   const date = value instanceof Date ? value : new Date(String(value));
@@ -450,6 +452,7 @@ async function buildWorkerInvoicePreviewModelFromSnapshot(invoice: any) {
         { label: "交通費", quantity: 1, unitPrice: Number(snapSubmission.transportAmount || 0), amount: Number(snapSubmission.transportAmount || 0), taxRate: 0 as const },
         { label: "経費", quantity: 1, unitPrice: Number(snapSubmission.expenseAmount || 0), amount: Number(snapSubmission.expenseAmount || 0), taxRate: 0 as const },
       ].filter((item) => item.amount !== 0);
+
   const model = {
     invoiceId: Number(snapInvoice.id || invoice.id),
     invoiceNumber: snapInvoice.invoiceNumber || null,
@@ -487,6 +490,7 @@ async function buildWorkerInvoicePreviewModelFromSnapshot(invoice: any) {
         mimeType: doc.mimeType || null,
       })),
   };
+
   return { model, snapshot, snapshotRow };
 }
 
@@ -507,6 +511,27 @@ async function getOrCreateWorkerInvoicePdfDownload(model: any, invoiceId: number
     const stored = await storagePut(key, pdf, "application/pdf");
     return { fileName: `worker-invoice-${invoiceId}.pdf`, key: stored.key, url: stored.url, mimeType: "application/pdf", generated: true };
   }
+}
+
+function isDuplicateKeyError(error: any) {
+  const code = String(error?.code || error?.errno || "");
+  const message = String(error?.message || "");
+  return code.includes("ER_DUP_ENTRY") || message.includes("Duplicate entry") || message.includes("duplicate");
+}
+
+async function generateWorkerInvoiceNumber(projectId: number, closingMonth: string) {
+  const project = await db.getProjectById(projectId);
+  const scopeClientId = project?.clientId ? `C${String(project.clientId).padStart(5, "0")}` : `P${String(projectId).padStart(5, "0")}`;
+  const monthPart = closingMonth.replace(/-/g, "");
+  const all = await db.listWorkerInvoicesForReview();
+  const prefix = `WI-${monthPart}-${scopeClientId}-`;
+  const seqs = all
+    .map((v: any) => String(v.invoiceNumber || ""))
+    .filter((num: string) => num.startsWith(prefix))
+    .map((num: string) => Number(num.split("-").pop() || 0))
+    .filter((n: number) => Number.isFinite(n));
+  const next = (seqs.length ? Math.max(...seqs) : 0) + 1;
+  return `${prefix}${String(next).padStart(4, "0")}`;
 }
 
 export const appRouter = router({
@@ -3289,6 +3314,7 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
   workerInvoice: router({
     getMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
       const me = await db.getEmployeeByUserId(ctx.user.id);
@@ -3301,40 +3327,29 @@ export const appRouter = router({
         const total = Number(submission.transportAmount || 0) + Number(submission.expenseAmount || 0);
         invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: `${input.closingMonth} 作業請求`, subtotalAmount: total, taxAmount: 0, totalAmount: total });
       }
-      const items = await db.getWorkerInvoiceItems(invoice!.id!);
-      return { ...invoice!, items };
+      const items = invoice?.id ? await db.getWorkerInvoiceItems(invoice.id) : [];
+      return { ...invoice, items };
     }),
-    saveMyDraft: protectedProcedure.input(z.object({
-      projectId: z.number(),
-      closingMonth: z.string(),
-      subject: z.string().optional(),
-      notes: z.string().optional(),
-      items: z.array(z.object({
-        category: z.enum(["labor", "transport", "expense", "materials", "misc"]).default("labor"),
-        label: z.string().min(1),
-        quantity: z.number().min(0).default(1),
-        unit: z.string().default("式"),
-        unitPrice: z.number().min(0).default(0),
-        taxRate: z.number().default(10),
-      })).optional(),
-    })).mutation(async ({ ctx, input }) => {
+    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional() })).optional() })).mutation(async ({ ctx, input }) => {
       const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
-      // Calculate totals from items
-      let subtotalAmount = 0;
-      let taxAmount = 0;
-      const itemsData = (input.items || []).map((item, idx) => {
-        const amount = item.quantity * item.unitPrice;
-        const tax = Math.floor(amount * item.taxRate / 100);
-        subtotalAmount += amount;
-        taxAmount += tax;
-        return { ...item, amount, sortOrder: idx, itemType: "normal" as const, workerInvoiceId: 0 };
-      });
-      const totalAmount = subtotalAmount + taxAmount;
-      const invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "draft", subject: input.subject, notes: input.notes, subtotalAmount, taxAmount, totalAmount });
-      if (invoice && input.items) {
-        await db.replaceWorkerInvoiceItems(invoice.id!, itemsData.map(i => ({ ...i, workerInvoiceId: invoice.id! })));
+      const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
+      if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "Approved invoice is read-only" });
+      const saved = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: existing?.status === "returned" ? "returned" : "draft", subject: input.subject, notes: input.notes });
+      if (saved?.id && input.items) {
+        await db.replaceWorkerInvoiceItems(saved.id, input.items.map((item, index) => ({
+          workerInvoiceId: saved.id!,
+          itemType: "normal",
+          label: item.label,
+          description: item.label,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          amount: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
+          unit: item.unit || "式",
+          category: item.category || null,
+          sortOrder: index,
+        })));
       }
       return { success: true };
     }),
@@ -3395,6 +3410,42 @@ export const appRouter = router({
       const docs = submission ? await db.getSupportingDocumentsBySubmission(submission.id!) : [];
       return { invoice, items, employee, project, company, submission, docs };
     }),
+      const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
+      if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "Approved invoice is read-only" });
+      let invoice: any = null;
+      const fixedInvoiceNumber = existing?.invoiceNumber || null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const candidateInvoiceNumber = fixedInvoiceNumber || await generateWorkerInvoiceNumber(input.projectId, input.closingMonth);
+        try {
+          invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "submitted", submittedAt: new Date(), invoiceNumber: candidateInvoiceNumber });
+          break;
+        } catch (error: any) {
+          if (!fixedInvoiceNumber && isDuplicateKeyError(error) && attempt < 4) continue;
+          throw error;
+        }
+      }
+      if (!invoice) throw new TRPCError({ code: "CONFLICT", message: "請求書番号の採番に失敗しました。再試行してください。" });
+      const [docs, items, project, company, worker] = await Promise.all([
+        db.getSupportingDocumentsBySubmission(submission.id!),
+        invoice?.id ? db.getWorkerInvoiceItems(invoice.id) : Promise.resolve([]),
+        db.getProjectById(input.projectId),
+        db.getCompanyProfile(),
+        db.getEmployeeById(me.id),
+      ]);
+      const snapshot = {
+        invoice,
+        submission,
+        items,
+        project: project ? { id: project.id, name: project.name } : null,
+        company: company ? { companyName: company.companyName, address: company.address, phone: company.phone, email: company.email } : null,
+        worker: worker ? { id: worker.id, nameKanji: worker.nameKanji, address: worker.address, phone: worker.phone, email: worker.email, invoiceIssuerNumber: worker.invoiceIssuerNumber, bankName: worker.bankName, branchName: worker.branchName, accountType: worker.accountType, accountNumber: worker.accountNumber, accountHolder: worker.accountHolder, stampUrl: worker.stampUrl } : null,
+        supportingDocuments: docs,
+      };
+      const prevSnapshots = await db.getWorkerInvoiceSnapshots(invoice!.id!);
+      await db.createWorkerInvoiceSnapshot({ workerInvoiceId: invoice!.id!, snapshotVersion: (prevSnapshots?.length || 0) + 1, snapshotJson: JSON.stringify(snapshot), createdBy: ctx.user.id });
+      return { success: true, id: invoice?.id };
+    }),
+
     previewMyInvoice: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
       const invoice = await db.getWorkerInvoiceById(input.invoiceId);
       if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });

@@ -722,6 +722,7 @@ export const workerInvoices = mysqlTable("worker_invoices", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("worker_invoice_unique").on(table.closingId, table.employeeId),
+  uniqueIndex("worker_invoice_number_unique").on(table.invoiceNumber),
 ]);
 export type WorkerInvoice = typeof workerInvoices.$inferSelect;
 export type InsertWorkerInvoice = typeof workerInvoices.$inferInsert;

@@ -47,6 +47,10 @@ export default function AppCompany() {
   const [accountType, setAccountType] = useState<"ordinary" | "checking">("ordinary");
   const [accountNumber, setAccountNumber] = useState("");
   const [accountHolder, setAccountHolder] = useState("");
+  const [sealX, setSealX] = useState(0);
+  const [sealY, setSealY] = useState(0);
+  const [sealScale, setSealScale] = useState(1);
+  const [sealOpacity, setSealOpacity] = useState(1);
 
   // Initialize form when data loads
   const [initialized, setInitialized] = useState(false);
@@ -63,6 +67,11 @@ export default function AppCompany() {
     setAccountType((company.accountType as any) || "ordinary");
     setAccountNumber(company.accountNumber || "");
     setAccountHolder(company.accountHolder || "");
+    const ss = (company.sealSettings || {}) as any;
+    setSealX(Number(ss.x || 0));
+    setSealY(Number(ss.y || 0));
+    setSealScale(Number(ss.scale || 1));
+    setSealOpacity(Number(ss.opacity || 1));
     setInitialized(true);
   }
 
@@ -80,6 +89,7 @@ export default function AppCompany() {
       accountType: accountType || undefined,
       accountNumber: accountNumber || undefined,
       accountHolder: accountHolder || undefined,
+      sealSettings: { x: sealX, y: sealY, scale: sealScale, opacity: sealOpacity },
     });
   };
 
@@ -178,6 +188,12 @@ export default function AppCompany() {
                   <Label>適格請求書発行事業者番号</Label>
                   <Input value={invoiceIssuerNumber} onChange={(e) => setInvoiceIssuerNumber(e.target.value)} placeholder="T6810341010660" />
                 </div>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="space-y-2"><Label>社印X</Label><Input type="number" value={sealX} onChange={(e)=>setSealX(Number(e.target.value))} /></div>
+                <div className="space-y-2"><Label>社印Y</Label><Input type="number" value={sealY} onChange={(e)=>setSealY(Number(e.target.value))} /></div>
+                <div className="space-y-2"><Label>社印Scale</Label><Input type="number" step="0.1" value={sealScale} onChange={(e)=>setSealScale(Number(e.target.value))} /></div>
+                <div className="space-y-2"><Label>社印Opacity</Label><Input type="number" min="0" max="1" step="0.1" value={sealOpacity} onChange={(e)=>setSealOpacity(Number(e.target.value))} /></div>
               </div>
               <Button
                 onClick={handleSave}
