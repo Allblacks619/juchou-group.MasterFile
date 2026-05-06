@@ -94,7 +94,7 @@ export default function AppClosings() {
       listQuery.refetch();
       detailQuery.refetch();
     },
-    onError: (e) => toast.error(`初期化エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`初期化エラー: ${e.message}`),
   });
 
   const updateSubmissionMutation = trpc.closing.updateSubmission.useMutation({
@@ -103,7 +103,7 @@ export default function AppClosings() {
       detailQuery.refetch();
       listQuery.refetch();
     },
-    onError: (e) => toast.error(`更新エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`更新エラー: ${e.message}`),
   });
 
   const markReadyMutation = trpc.closing.markReady.useMutation({
@@ -112,7 +112,7 @@ export default function AppClosings() {
       detailQuery.refetch();
       listQuery.refetch();
     },
-    onError: (e) => toast.error(`ready化エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`ready化エラー: ${e.message}`),
   });
 
   const closeMutation = trpc.closing.close.useMutation({
@@ -121,7 +121,7 @@ export default function AppClosings() {
       detailQuery.refetch();
       listQuery.refetch();
     },
-    onError: (e) => toast.error(`締め完了エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`締め完了エラー: ${e.message}`),
   });
 
   const reopenMutation = trpc.closing.reopen.useMutation({
@@ -130,7 +130,7 @@ export default function AppClosings() {
       detailQuery.refetch();
       listQuery.refetch();
     },
-    onError: (e) => toast.error(`再開エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`再開エラー: ${e.message}`),
   });
 
   const [, setLocation] = useLocation();
@@ -157,7 +157,7 @@ export default function AppClosings() {
       detailQuery.refetch();
       listQuery.refetch();
     },
-    onError: (e) => toast.error(`領収書アップロードエラー: ${e.message}`),
+    onError: (e: any) => toast.error(`領収書アップロードエラー: ${e.message}`),
   });
 
   const clearReceiptMutation = trpc.closing.clearReceipt.useMutation({
@@ -166,7 +166,7 @@ export default function AppClosings() {
       detailQuery.refetch();
       listQuery.refetch();
     },
-    onError: (e) => toast.error(`領収書解除エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`領収書解除エラー: ${e.message}`),
   });
 
   const rows = listQuery.data || [];
@@ -177,14 +177,14 @@ export default function AppClosings() {
       toast.success("差戻ししました");
       workerInvoiceReviewQuery.refetch();
     },
-    onError: (e) => toast.error(`差戻しエラー: ${e.message}`),
+    onError: (e: any) => toast.error(`差戻しエラー: ${e.message}`),
   });
-  const workerApproveMutation = trpc.workerInvoice.approveInvoice.useMutation({
+  const workerApproveMutation = trpc.workerInvoice.approve.useMutation({
     onSuccess: () => {
       toast.success("承認しました");
       workerInvoiceReviewQuery.refetch();
     },
-    onError: (e) => toast.error(`承認エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`承認エラー: ${e.message}`),
   });
   const selectedRow = useMemo(
     () => rows.find((row: any) => row.project.id === selectedProjectId) || null,
@@ -520,15 +520,15 @@ function WorkerInvoiceReviewSection() {
   const reviewQuery = trpc.workerInvoice.listForReview.useQuery();
   const approveMutation = trpc.workerInvoice.approve.useMutation({
     onSuccess: () => { toast.success("請求書を承認しました"); reviewQuery.refetch(); },
-    onError: (e) => toast.error(`承認エラー: ${e.message}`),
+    onError: (e: any) => toast.error(`承認エラー: ${e.message}`),
   });
   const returnMutation = trpc.workerInvoice.returnInvoice.useMutation({
     onSuccess: () => { toast.success("請求書を差戻しました"); reviewQuery.refetch(); setReturnDialogOpen(false); setReturnReason(""); },
-    onError: (e) => toast.error(`差戻しエラー: ${e.message}`),
+    onError: (e: any) => toast.error(`差戻しエラー: ${e.message}`),
   });
   const downloadPdfMutation = trpc.workerInvoice.downloadPdf.useMutation({
     onSuccess: (data) => { window.open(data.url, "_blank"); },
-    onError: (e) => toast.error(`PDFエラー: ${e.message}`),
+    onError: (e: any) => toast.error(`PDFエラー: ${e.message}`),
   });
 
   const invoices = reviewQuery.data || [];

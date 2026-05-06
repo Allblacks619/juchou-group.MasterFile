@@ -1493,15 +1493,15 @@ function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; 
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-md border p-3">
             <div className="text-xs text-muted-foreground">小計</div>
-            <div className="font-medium">{formatYen(canEdit ? subtotal : invoice.subtotalAmount)}</div>
+            <div className="font-medium">{formatYen(canEdit ? subtotal : (invoice.subtotalAmount ?? 0))}</div>
           </div>
           <div className="rounded-md border p-3">
             <div className="text-xs text-muted-foreground">消費税</div>
-            <div className="font-medium">{formatYen(canEdit ? tax : invoice.taxAmount)}</div>
+            <div className="font-medium">{formatYen(canEdit ? tax : (invoice.taxAmount ?? 0))}</div>
           </div>
           <div className="rounded-md border p-3">
             <div className="text-xs text-muted-foreground">合計</div>
-            <div className="font-bold text-lg">{formatYen(canEdit ? total : invoice.totalAmount)}</div>
+            <div className="font-bold text-lg">{formatYen(canEdit ? total : (invoice.totalAmount ?? 0))}</div>
           </div>
         </div>
 
@@ -1547,7 +1547,7 @@ function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; 
             <Button
               variant="outline"
               size="sm"
-              onClick={() => downloadPdfMutation.mutate({ invoiceId: invoice.id })}
+              onClick={() => downloadPdfMutation.mutate({ invoiceId: invoice.id! })}
               disabled={downloadPdfMutation.isPending}
             >
               {downloadPdfMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileDown className="h-4 w-4 mr-1" />}

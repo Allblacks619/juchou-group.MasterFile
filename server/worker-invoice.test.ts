@@ -49,6 +49,7 @@ vi.mock('./db', () => ({
   getCompanyProfile: vi.fn(async ()=>({companyName:'Juchou',address:'Tokyo',phone:'03',email:'billing@example.com'})),
   getEmployeeById: vi.fn(async (id:number)=>({id,nameKanji:`W${id}`,invoiceIssuerNumber:'T1234567890123',bankName:'Bank',branchName:'Main',accountType:'ordinary',accountNumber:'123',accountHolder:'W',stampUrl:null})),
   updateWorkerInvoice: vi.fn(async (id:number,data:any)=>{ const i=invoices.findIndex(v=>v.id===id); if(i>=0) invoices[i]={...invoices[i],...data}; return invoices[i]; }),
+  createAuditLog: vi.fn(async ()=>({id:1})),
 }));
 vi.mock('./storage', () => ({
   storagePut: vi.fn(async (k:string)=>{ storageState.putCalls.push(k); storageState.stored.add(k); return {key:k,url:`https://example.com/${k}`}; }),
@@ -85,7 +86,7 @@ describe('worker invoice access/snapshot',()=>{
     expect(invoices.find(v=>v.id===8)?.status).toBe('returned');
     const worker=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
     await worker.workerInvoice.saveMyDraft({projectId:1,closingMonth:'2026-04',subject:'x',notes:'y'});
-    await admin.workerInvoice.approveInvoice({invoiceId:8});
+    await admin.workerInvoice.approve({invoiceId:8});
     await expect(worker.workerInvoice.saveMyDraft({projectId:1,closingMonth:'2026-04',subject:'x',notes:'y'})).rejects.toThrow();
   });
   it('downloadMyInvoicePdf returns real PDF metadata and generates when missing', async()=>{
