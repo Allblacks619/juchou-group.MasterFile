@@ -14,7 +14,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Receipt, Upload, Link as LinkIcon, Trash2, Send, FileCheck2, CalendarDays, Eye, FileDown } from "lucide-react";
+import {
+  Loader2,
+  Receipt,
+  Upload,
+  Link as LinkIcon,
+  Trash2,
+  Send,
+  FileCheck2,
+  CalendarDays,
+  Eye,
+  FileDown,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,15 +34,86 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
+type InvoiceLineItemDraft = {
+  label: string;
+  quantity: number | string;
+  unitPrice: number | string;
+  unit: string;
+  category: string;
+};
+
+type NormalizedInvoiceLineItem = {
+  label: string;
+  quantity: number;
+  unitPrice: number;
+  unit: string;
+  category: string;
+  amount: number;
+};
+
+const DEFAULT_INVOICE_ITEM: InvoiceLineItemDraft = {
+  label: "",
+  quantity: 1,
+  unitPrice: 0,
+  unit: "式",
+  category: "",
+};
+
+function toFiniteNumber(value: number | string | null | undefined) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function normalizeInvoiceItems(
+  items: InvoiceLineItemDraft[]
+): NormalizedInvoiceLineItem[] {
+  return items
+    .map(item => {
+      const label = String(item.label || "").trim();
+      const quantity = toFiniteNumber(item.quantity);
+      const unitPrice = toFiniteNumber(item.unitPrice);
+      const amount = Math.round(quantity * unitPrice);
+
+      return {
+        label,
+        quantity,
+        unitPrice,
+        unit: String(item.unit || "").trim() || "式",
+        category: String(item.category || "").trim(),
+        amount,
+      };
+    })
+    .filter(item => item.label && item.amount > 0);
+}
+
+function calculateInvoiceTotals(items: NormalizedInvoiceLineItem[]) {
+  const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+  const tax = 0;
+  return { subtotal, tax, total: subtotal + tax };
+}
+
+function isInvoiceReadOnly(invoice?: { status?: string | null } | null) {
+  return invoice?.status === "approved";
+}
+
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
-  not_required: { label: "対象外", className: "bg-slate-500/20 text-slate-300" },
+  not_required: {
+    label: "対象外",
+    className: "bg-slate-500/20 text-slate-300",
+  },
   pending: { label: "未提出", className: "bg-amber-500/20 text-amber-400" },
   submitted: { label: "提出済", className: "bg-blue-500/20 text-blue-400" },
-  approved: { label: "確認済", className: "bg-emerald-500/20 text-emerald-400" },
+  approved: {
+    label: "確認済",
+    className: "bg-emerald-500/20 text-emerald-400",
+  },
   rejected: { label: "差戻し", className: "bg-red-500/20 text-red-400" },
 };
 
-const CLOSING_STATUS_LABELS: Record<string, { label: string; className: string }> = {
+const CLOSING_STATUS_LABELS: Record<
+  string,
+  { label: string; className: string }
+> = {
   open: { label: "開放中", className: "bg-slate-500/20 text-slate-300" },
   reopened: { label: "再開", className: "bg-emerald-500/20 text-emerald-300" },
   ready: { label: "準備完了", className: "bg-emerald-500/20 text-emerald-400" },
@@ -43,21 +125,37 @@ function formatYen(amount: number) {
   return `¥${Number(amount || 0).toLocaleString("ja-JP")}`;
 }
 
-function canWorkerEdit(closingStatus?: string | null, submissionStatus?: string | null) {
-  if (closingStatus === "closed" || closingStatus === "locked" || closingStatus === "completed") return false;
+function canWorkerEdit(
+  closingStatus?: string | null,
+  submissionStatus?: string | null
+) {
+  if (
+    closingStatus === "closed" ||
+    closingStatus === "locked" ||
+    closingStatus === "completed"
+  )
+    return false;
   if (closingStatus === "ready") return submissionStatus === "rejected";
   return true;
 }
 
 export default function AppMyClosing() {
-  const [closingMonth, setClosingMonth] = useState(format(new Date(), "yyyy-MM"));
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [closingMonth, setClosingMonth] = useState(
+    format(new Date(), "yyyy-MM")
+  );
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
+    null
+  );
   const [transportAmount, setTransportAmount] = useState(0);
   const [expenseAmount, setExpenseAmount] = useState(0);
   const [notes, setNotes] = useState("");
   const [showReview, setShowReview] = useState(false);
+  const [showInvoiceReview, setShowInvoiceReview] = useState(false);
+  const [isCreatingInvoice, setIsCreatingInvoice] = useState(false);
   const [invoiceSubject, setInvoiceSubject] = useState("");
-  const [invoiceItems, setInvoiceItems] = useState<any[]>([{ label: "", quantity: 1, unitPrice: 0, unit: "式", category: "" }]);
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceLineItemDraft[]>([
+    { ...DEFAULT_INVOICE_ITEM },
+  ]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const projectsQuery = trpc.attendance.myProjects.useQuery();
@@ -87,18 +185,19 @@ export default function AppMyClosing() {
       toast.success("月締め内容を保存しました");
       detailQuery.refetch();
     },
-    onError: (e) => toast.error(`保存エラー: ${e.message}`),
+    onError: e => toast.error(`保存エラー: ${e.message}`),
   });
 
   const saveWorkerDraftMutation = trpc.workerInvoice.saveMyDraft.useMutation();
-  const submitWorkerInvoiceMutation = trpc.workerInvoice.submitMyInvoice.useMutation();
+  const submitWorkerInvoiceMutation =
+    trpc.workerInvoice.submitMyInvoice.useMutation();
 
   const submitMutation = trpc.closing.submitMySubmission.useMutation({
     onSuccess: () => {
       toast.success("月締めを提出しました");
       detailQuery.refetch();
     },
-    onError: (e) => toast.error(`提出エラー: ${e.message}`),
+    onError: e => toast.error(`提出エラー: ${e.message}`),
   });
 
   const uploadMutation = trpc.closing.uploadMyReceipt.useMutation({
@@ -106,7 +205,7 @@ export default function AppMyClosing() {
       toast.success("領収書をアップロードしました");
       detailQuery.refetch();
     },
-    onError: (e) => toast.error(`アップロードエラー: ${e.message}`),
+    onError: e => toast.error(`アップロードエラー: ${e.message}`),
   });
 
   const clearMutation = trpc.closing.clearMyReceipt.useMutation({
@@ -114,7 +213,7 @@ export default function AppMyClosing() {
       toast.success("領収書を解除しました");
       detailQuery.refetch();
     },
-    onError: (e) => toast.error(`解除エラー: ${e.message}`),
+    onError: e => toast.error(`解除エラー: ${e.message}`),
   });
 
   const projects = projectsQuery.data || [];
@@ -122,9 +221,96 @@ export default function AppMyClosing() {
   const trpcUtils = trpc.useUtils();
   const detail = detailQuery.data;
   const receiptRequired = transportAmount > 0 || expenseAmount > 0;
-  const busy = saveMutation.isPending || submitMutation.isPending || uploadMutation.isPending || clearMutation.isPending;
-  const canEdit = !!detail?.eligible && !!detail?.closing && canWorkerEdit(detail.closing.status, detail.submission?.status);
-  const selectedProject = useMemo(() => projects.find((p: any) => p.id === selectedProjectId) || null, [projects, selectedProjectId]);
+  const busy =
+    saveMutation.isPending ||
+    submitMutation.isPending ||
+    uploadMutation.isPending ||
+    clearMutation.isPending;
+  const canEdit =
+    !!detail?.eligible &&
+    !!detail?.closing &&
+    canWorkerEdit(detail.closing.status, detail.submission?.status);
+  const selectedProject = useMemo(
+    () => projects.find((p: any) => p.id === selectedProjectId) || null,
+    [projects, selectedProjectId]
+  );
+  const currentWorkerInvoice = useMemo(
+    () =>
+      (workerInvoicesQuery.data || []).find(
+        (invoice: any) =>
+          invoice.projectId === selectedProjectId &&
+          invoice.closingMonth === closingMonth
+      ) || null,
+    [workerInvoicesQuery.data, selectedProjectId, closingMonth]
+  );
+  const invoiceReadOnly = isInvoiceReadOnly(currentWorkerInvoice);
+  const invoiceBusy =
+    isCreatingInvoice ||
+    saveWorkerDraftMutation.isPending ||
+    submitWorkerInvoiceMutation.isPending;
+  const normalizedInvoiceItems = useMemo(
+    () => normalizeInvoiceItems(invoiceItems),
+    [invoiceItems]
+  );
+  const invoiceTotals = useMemo(
+    () => calculateInvoiceTotals(normalizedInvoiceItems),
+    [normalizedInvoiceItems]
+  );
+  const invoiceSubjectPreview =
+    invoiceSubject.trim() || `${closingMonth} 作業請求`;
+  const supportingDocumentStatus = receiptRequired
+    ? detail?.submission?.receiptUploaded
+      ? "添付済"
+      : "未添付"
+    : "不要";
+  const canEditInvoice =
+    !!detail?.eligible &&
+    !!detail?.closing &&
+    !["closed", "locked", "completed"].includes(detail.closing.status || "") &&
+    !invoiceReadOnly;
+
+  const buildWorkerDraftInput = () => ({
+    projectId: selectedProjectId!,
+    closingMonth,
+    subject: invoiceSubject.trim() || undefined,
+    items: normalizedInvoiceItems.map(item => ({
+      label: item.label,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      unit: item.unit,
+      category: item.category,
+    })),
+  });
+
+  const updateInvoiceItem = (
+    idx: number,
+    patch: Partial<InvoiceLineItemDraft>
+  ) => {
+    setInvoiceItems(prev =>
+      prev.map((item, itemIdx) =>
+        itemIdx === idx ? { ...item, ...patch } : item
+      )
+    );
+  };
+
+  const removeInvoiceItem = (idx: number) => {
+    setInvoiceItems(prev =>
+      prev.length === 1
+        ? [{ ...DEFAULT_INVOICE_ITEM }]
+        : prev.filter((_, itemIdx) => itemIdx !== idx)
+    );
+  };
+
+  const openInvoiceConfirmation = () => {
+    if (!selectedProjectId || !canEditInvoice || invoiceBusy) return;
+    if (normalizedInvoiceItems.length === 0) {
+      toast.error(
+        "請求書に作成できる明細がありません。明細名・数量・単価を確認してください。"
+      );
+      return;
+    }
+    setShowInvoiceReview(true);
+  };
 
   const handleSave = () => {
     if (!selectedProjectId) return;
@@ -135,7 +321,7 @@ export default function AppMyClosing() {
       expenseAmount,
       notes,
     });
-    saveWorkerDraftMutation.mutate({ projectId: selectedProjectId, closingMonth, subject: invoiceSubject || undefined, items: invoiceItems.filter((i) => i.label?.trim()).map((i) => ({ label: i.label, quantity: Number(i.quantity||0), unitPrice: Number(i.unitPrice||0), unit: i.unit, category: i.category })) });
+    if (canEditInvoice) saveWorkerDraftMutation.mutate(buildWorkerDraftInput());
   };
 
   const handleSubmit = () => {
@@ -143,21 +329,62 @@ export default function AppMyClosing() {
     submitMutation.mutate({ projectId: selectedProjectId, closingMonth });
   };
 
-
   const handleOneClickInvoice = async () => {
-    if (!selectedProjectId) return;
+    if (!selectedProjectId || invoiceBusy) return;
+    if (normalizedInvoiceItems.length === 0) {
+      toast.error(
+        "請求書に作成できる明細がありません。明細名・数量・単価を確認してください。"
+      );
+      return;
+    }
+
+    setIsCreatingInvoice(true);
     try {
-      await saveWorkerDraftMutation.mutateAsync({ projectId: selectedProjectId, closingMonth, subject: invoiceSubject || undefined, items: invoiceItems.filter((i) => i.label?.trim()).map((i) => ({ label: i.label, quantity: Number(i.quantity||0), unitPrice: Number(i.unitPrice||0), unit: i.unit, category: i.category })) });
-      await submitWorkerInvoiceMutation.mutateAsync({ projectId: selectedProjectId, closingMonth });
-      const list = await trpcUtils.workerInvoice.listMyInvoices.fetch();
-      const match = [...(list||[])].reverse().find((v:any)=>v.projectId===selectedProjectId && v.closingMonth===closingMonth);
-      if (match?.id) {
-        const pdf = await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch({ invoiceId: match.id });
-        window.open(pdf.url, "_blank");
+      await saveWorkerDraftMutation.mutateAsync(buildWorkerDraftInput());
+      const submitted = await submitWorkerInvoiceMutation.mutateAsync({
+        projectId: selectedProjectId,
+        closingMonth,
+      });
+
+      let invoiceId = (submitted as any)?.id;
+      if (!invoiceId) {
+        const list = await trpcUtils.workerInvoice.listMyInvoices.fetch();
+        const match = [...(list || [])]
+          .reverse()
+          .find(
+            (v: any) =>
+              v.projectId === selectedProjectId &&
+              v.closingMonth === closingMonth
+          );
+        invoiceId = match?.id;
       }
-      toast.success("請求書を作成しました");
-      workerInvoicesQuery.refetch();
-    } catch (e:any) { toast.error(`請求書作成エラー: ${e.message}`); }
+
+      toast.success("請求書を作成しました。PDFを準備しています。");
+
+      if (invoiceId) {
+        try {
+          const pdf = await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch({
+            invoiceId,
+          });
+          window.open(pdf.url, "_blank");
+        } catch (pdfError: any) {
+          toast.error(
+            `請求書は作成済みですが、PDFを開けませんでした: ${pdfError.message}`
+          );
+        }
+      } else {
+        toast.error(
+          "請求書は作成済みですが、PDF用の請求書IDを取得できませんでした。請求書一覧からPDFを開いてください。"
+        );
+      }
+
+      setShowInvoiceReview(false);
+      await workerInvoicesQuery.refetch();
+    } catch (e: any) {
+      toast.error(`請求書作成エラー: ${e.message}`);
+    } finally {
+      setIsCreatingInvoice(false);
+    }
   };
 
   const handleReceiptFile = async (file?: File | null) => {
@@ -177,31 +404,38 @@ export default function AppMyClosing() {
     reader.readAsDataURL(file);
   };
 
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground">月締め提出</h1>
-          <p className="text-sm text-muted-foreground">交通費・経費・領収書を提出して、月締めを完了します。</p>
+          <p className="text-sm text-muted-foreground">
+            交通費・経費・領収書を提出して、月締めを完了します。
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="w-[180px]">
             <Label className="text-xs text-muted-foreground">対象月</Label>
-            <Input type="month" value={closingMonth} onChange={(e) => setClosingMonth(e.target.value)} />
+            <Input
+              type="month"
+              value={closingMonth}
+              onChange={e => setClosingMonth(e.target.value)}
+            />
           </div>
           <div className="w-[260px]">
             <Label className="text-xs text-muted-foreground">現場</Label>
             <Select
               value={selectedProjectId?.toString() || ""}
-              onValueChange={(v) => setSelectedProjectId(Number(v))}
+              onValueChange={v => setSelectedProjectId(Number(v))}
             >
               <SelectTrigger>
                 <SelectValue placeholder="現場を選択" />
               </SelectTrigger>
               <SelectContent>
                 {projects.map((p: any) => (
-                  <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -227,7 +461,8 @@ export default function AppMyClosing() {
           <CardContent className="py-10 space-y-3">
             <div className="text-lg font-medium">提出対象外です</div>
             <p className="text-sm text-muted-foreground">
-              {selectedProject?.name || "この現場"} の {closingMonth} は、まだあなたの提出対象として初期化されていません。
+              {selectedProject?.name || "この現場"} の {closingMonth}{" "}
+              は、まだあなたの提出対象として初期化されていません。
             </p>
             <p className="text-sm text-muted-foreground">
               まず出面表を保存してから、もう一度この画面を開いてください。対象外のままなら管理者に確認してください。
@@ -239,16 +474,25 @@ export default function AppMyClosing() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-3 flex-wrap">
-                <span>{detail.project?.name || selectedProject?.name} / {closingMonth}</span>
+                <span>
+                  {detail.project?.name || selectedProject?.name} /{" "}
+                  {closingMonth}
+                </span>
                 <div className="flex items-center gap-2 flex-wrap">
                   {detail.closing?.status && (
-                    <span className={`px-2 py-1 rounded text-xs ${CLOSING_STATUS_LABELS[detail.closing.status]?.className || "bg-muted"}`}>
-                      {CLOSING_STATUS_LABELS[detail.closing.status]?.label || detail.closing.status}
+                    <span
+                      className={`px-2 py-1 rounded text-xs ${CLOSING_STATUS_LABELS[detail.closing.status]?.className || "bg-muted"}`}
+                    >
+                      {CLOSING_STATUS_LABELS[detail.closing.status]?.label ||
+                        detail.closing.status}
                     </span>
                   )}
                   {detail.submission?.status && (
-                    <span className={`px-2 py-1 rounded text-xs ${STATUS_LABELS[detail.submission.status]?.className || "bg-muted"}`}>
-                      {STATUS_LABELS[detail.submission.status]?.label || detail.submission.status}
+                    <span
+                      className={`px-2 py-1 rounded text-xs ${STATUS_LABELS[detail.submission.status]?.className || "bg-muted"}`}
+                    >
+                      {STATUS_LABELS[detail.submission.status]?.label ||
+                        detail.submission.status}
                     </span>
                   )}
                 </div>
@@ -262,27 +506,58 @@ export default function AppMyClosing() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <SummaryCard label="交通費" value={formatYen(transportAmount)} />
+                <SummaryCard
+                  label="交通費"
+                  value={formatYen(transportAmount)}
+                />
                 <SummaryCard label="経費" value={formatYen(expenseAmount)} />
-                <SummaryCard label="領収書" value={receiptRequired ? (detail.submission?.receiptUploaded ? "添付済" : "必要") : "不要"} />
+                <SummaryCard
+                  label="領収書"
+                  value={
+                    receiptRequired
+                      ? detail.submission?.receiptUploaded
+                        ? "添付済"
+                        : "必要"
+                      : "不要"
+                  }
+                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>交通費（円）</Label>
-                  <Input type="number" value={transportAmount} onChange={(e) => setTransportAmount(Number(e.target.value))} disabled={!canEdit} />
-                  <p className="text-xs text-muted-foreground">往復交通費や事後報告分を入力します。</p>
+                  <Input
+                    type="number"
+                    value={transportAmount}
+                    onChange={e => setTransportAmount(Number(e.target.value))}
+                    disabled={!canEdit}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    往復交通費や事後報告分を入力します。
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label>経費（円）</Label>
-                  <Input type="number" value={expenseAmount} onChange={(e) => setExpenseAmount(Number(e.target.value))} disabled={!canEdit} />
-                  <p className="text-xs text-muted-foreground">材料立替やその他経費があれば入力します。</p>
+                  <Input
+                    type="number"
+                    value={expenseAmount}
+                    onChange={e => setExpenseAmount(Number(e.target.value))}
+                    disabled={!canEdit}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    材料立替やその他経費があれば入力します。
+                  </p>
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label>メモ</Label>
-                <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!canEdit} placeholder="補足があれば入力" />
+                <Textarea
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  disabled={!canEdit}
+                  placeholder="補足があれば入力"
+                />
               </div>
 
               <div className="rounded-lg border border-border p-4 space-y-3">
@@ -298,64 +573,299 @@ export default function AppMyClosing() {
                   type="file"
                   className="hidden"
                   accept="image/*,.pdf"
-                  onChange={(e) => handleReceiptFile(e.target.files?.[0] || null)}
+                  onChange={e => handleReceiptFile(e.target.files?.[0] || null)}
                 />
                 <div className="flex items-center gap-2 flex-wrap">
-                  <Button variant={detail.submission?.receiptUploaded ? "default" : "outline"} disabled={!canEdit || !receiptRequired || busy} onClick={() => fileInputRef.current?.click()}>
+                  <Button
+                    variant={
+                      detail.submission?.receiptUploaded ? "default" : "outline"
+                    }
+                    disabled={!canEdit || !receiptRequired || busy}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
                     <Upload className="h-4 w-4 mr-1" />
-                    {detail.submission?.receiptUploaded ? "領収書を差し替え" : "領収書をアップロード"}
+                    {detail.submission?.receiptUploaded
+                      ? "領収書を差し替え"
+                      : "領収書をアップロード"}
                   </Button>
                   {detail.submission?.receiptFileUrl ? (
                     <>
-                      <a href={detail.submission.receiptFileUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate">
+                      <a
+                        href={detail.submission.receiptFileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate"
+                      >
                         <LinkIcon className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">{detail.submission.receiptFileName || "領収書"}</span>
+                        <span className="truncate">
+                          {detail.submission.receiptFileName || "領収書"}
+                        </span>
                       </a>
-                      <Button variant="ghost" size="icon" className="text-red-400" disabled={!canEdit || busy} onClick={() => clearMutation.mutate({ projectId: selectedProjectId, closingMonth })}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-red-400"
+                        disabled={!canEdit || busy}
+                        onClick={() =>
+                          clearMutation.mutate({
+                            projectId: selectedProjectId,
+                            closingMonth,
+                          })
+                        }
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </>
                   ) : (
-                    <span className={`text-sm ${receiptRequired ? "text-amber-400" : "text-muted-foreground"}`}>
+                    <span
+                      className={`text-sm ${receiptRequired ? "text-amber-400" : "text-muted-foreground"}`}
+                    >
                       {receiptRequired ? "未添付" : "不要"}
                     </span>
                   )}
                 </div>
               </div>
 
-
               <Card className="border-dashed">
-                <CardContent className="pt-4 space-y-3">
-                  <Label>作業員請求書 件名</Label>
-                  <Input value={invoiceSubject} onChange={(e)=>setInvoiceSubject(e.target.value)} placeholder={`${closingMonth} 作業請求`} />
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">作業員請求書を作成</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {invoiceReadOnly && (
+                    <div className="text-sm bg-blue-500/10 border border-blue-500/30 rounded-lg px-4 py-3 text-blue-300">
+                      承認済みの請求書は編集できません。内容確認やPDF出力は下の請求書一覧から行ってください。
+                    </div>
+                  )}
+
+                  {currentWorkerInvoice?.status === "returned" && (
+                    <div className="text-sm bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 text-amber-300">
+                      差戻し中の請求書です。明細を修正して再度作成できます。
+                    </div>
+                  )}
+
                   <div className="space-y-2">
-                    {invoiceItems.map((item, idx)=>(<div key={idx} className="grid grid-cols-2 md:grid-cols-6 gap-2">
-                      <Input placeholder="label" value={item.label} onChange={(e)=>setInvoiceItems((prev)=>prev.map((v,i)=>i===idx?{...v,label:e.target.value}:v))} />
-                      <Input type="number" placeholder="qty" value={item.quantity} onChange={(e)=>setInvoiceItems((prev)=>prev.map((v,i)=>i===idx?{...v,quantity:Number(e.target.value)}:v))} />
-                      <Input type="number" placeholder="unitPrice" value={item.unitPrice} onChange={(e)=>setInvoiceItems((prev)=>prev.map((v,i)=>i===idx?{...v,unitPrice:Number(e.target.value)}:v))} />
-                      <Input value={item.unit} onChange={(e)=>setInvoiceItems((prev)=>prev.map((v,i)=>i===idx?{...v,unit:e.target.value}:v))} placeholder="unit" />
-                      <Input value={item.category} onChange={(e)=>setInvoiceItems((prev)=>prev.map((v,i)=>i===idx?{...v,category:e.target.value}:v))} placeholder="category" />
-                      <Input value={String(Math.round(Number(item.quantity||0)*Number(item.unitPrice||0)))} readOnly placeholder="amount" />
-                    </div>))}
-                    <Button variant="outline" size="sm" onClick={()=>setInvoiceItems((p)=>[...p,{ label:'', quantity:1, unitPrice:0, unit:'式', category:'' }])}>行追加</Button>
+                    <Label>請求書 件名</Label>
+                    <Input
+                      value={invoiceSubject}
+                      onChange={e => setInvoiceSubject(e.target.value)}
+                      placeholder={`${closingMonth} 作業請求`}
+                      disabled={!canEditInvoice || invoiceBusy}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      PDFに表示する請求内容の見出しです。未入力の場合は対象月から自動設定します。
+                    </p>
                   </div>
-                  <Button onClick={handleOneClickInvoice} className="w-full md:w-auto">請求書を作成</Button>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div>
+                        <Label>請求明細</Label>
+                        <p className="text-xs text-muted-foreground">
+                          スマートフォンでは1明細ずつ確認できます。明細名が空、または金額が0円の行は請求書に含めません。
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setInvoiceItems(prev => [
+                            ...prev,
+                            { ...DEFAULT_INVOICE_ITEM },
+                          ])
+                        }
+                        disabled={!canEditInvoice || invoiceBusy}
+                      >
+                        行追加
+                      </Button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {invoiceItems.map((item, idx) => {
+                        const rowAmount = Math.round(
+                          toFiniteNumber(item.quantity) *
+                            toFiniteNumber(item.unitPrice)
+                        );
+                        return (
+                          <div
+                            key={idx}
+                            className="rounded-lg border border-border bg-card/60 p-3 space-y-3 md:grid md:grid-cols-12 md:gap-3 md:space-y-0 md:items-end"
+                          >
+                            <div className="space-y-1 md:col-span-3">
+                              <Label className="text-xs text-muted-foreground">
+                                明細名
+                              </Label>
+                              <Input
+                                placeholder="例：現場作業費"
+                                value={item.label}
+                                onChange={e =>
+                                  updateInvoiceItem(idx, {
+                                    label: e.target.value,
+                                  })
+                                }
+                                disabled={!canEditInvoice || invoiceBusy}
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 md:contents">
+                              <div className="space-y-1 md:col-span-1">
+                                <Label className="text-xs text-muted-foreground">
+                                  数量
+                                </Label>
+                                <Input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  step="0.01"
+                                  value={item.quantity}
+                                  onChange={e =>
+                                    updateInvoiceItem(idx, {
+                                      quantity: e.target.value,
+                                    })
+                                  }
+                                  disabled={!canEditInvoice || invoiceBusy}
+                                />
+                              </div>
+                              <div className="space-y-1 md:col-span-2">
+                                <Label className="text-xs text-muted-foreground">
+                                  単価
+                                </Label>
+                                <Input
+                                  type="number"
+                                  inputMode="numeric"
+                                  min="0"
+                                  step="1"
+                                  value={item.unitPrice}
+                                  onChange={e =>
+                                    updateInvoiceItem(idx, {
+                                      unitPrice: e.target.value,
+                                    })
+                                  }
+                                  disabled={!canEditInvoice || invoiceBusy}
+                                />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 md:contents">
+                              <div className="space-y-1 md:col-span-1">
+                                <Label className="text-xs text-muted-foreground">
+                                  単位
+                                </Label>
+                                <Input
+                                  value={item.unit}
+                                  onChange={e =>
+                                    updateInvoiceItem(idx, {
+                                      unit: e.target.value,
+                                    })
+                                  }
+                                  placeholder="式"
+                                  disabled={!canEditInvoice || invoiceBusy}
+                                />
+                              </div>
+                              <div className="space-y-1 md:col-span-2">
+                                <Label className="text-xs text-muted-foreground">
+                                  区分
+                                </Label>
+                                <Input
+                                  value={item.category}
+                                  onChange={e =>
+                                    updateInvoiceItem(idx, {
+                                      category: e.target.value,
+                                    })
+                                  }
+                                  placeholder="例：作業費"
+                                  disabled={!canEditInvoice || invoiceBusy}
+                                />
+                              </div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 px-3 py-2 md:col-span-2">
+                              <div className="text-xs text-muted-foreground">
+                                金額
+                              </div>
+                              <div className="font-semibold text-right md:text-left">
+                                {formatYen(rowAmount)}
+                              </div>
+                            </div>
+                            <div className="flex justify-end md:col-span-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-red-400"
+                                onClick={() => removeInvoiceItem(idx)}
+                                disabled={!canEditInvoice || invoiceBusy}
+                                aria-label="明細行を削除"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">小計</span>
+                      <span className="font-medium">
+                        {formatYen(invoiceTotals.subtotal)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">消費税</span>
+                      <span className="font-medium">
+                        {formatYen(invoiceTotals.tax)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-border pt-2 text-base">
+                      <span className="font-semibold">合計</span>
+                      <span className="font-bold text-gold">
+                        {formatYen(invoiceTotals.total)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <Button
+                    onClick={openInvoiceConfirmation}
+                    className="w-full md:w-auto"
+                    disabled={!canEditInvoice || invoiceBusy}
+                  >
+                    {invoiceBusy && (
+                      <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                    )}
+                    請求書作成前確認
+                  </Button>
                 </CardContent>
               </Card>
 
               <div className="flex flex-wrap gap-2 justify-end">
-                <Button variant="outline" disabled={!canEdit || busy} onClick={handleSave}>
-                  {saveMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+                <Button
+                  variant="outline"
+                  disabled={!canEdit || busy}
+                  onClick={handleSave}
+                >
+                  {saveMutation.isPending && (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  )}
                   保存
                 </Button>
-                <Button disabled={!canEdit || busy} onClick={() => {
-                  if (receiptRequired && !detail.submission?.receiptUploaded) {
-                    toast.error("領収書が必要です。提出前にアップロードしてください。");
-                    return;
-                  }
-                  setShowReview(true);
-                }}>
-                  {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
+                <Button
+                  disabled={!canEdit || busy}
+                  onClick={() => {
+                    if (
+                      receiptRequired &&
+                      !detail.submission?.receiptUploaded
+                    ) {
+                      toast.error(
+                        "領収書が必要です。提出前にアップロードしてください。"
+                      );
+                      return;
+                    }
+                    setShowReview(true);
+                  }}
+                >
+                  {submitMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : (
+                    <Send className="h-4 w-4 mr-1" />
+                  )}
                   提出前確認
                 </Button>
               </div>
@@ -377,21 +887,35 @@ export default function AppMyClosing() {
                 提出済みの作業員請求書をプレビュー・エクスポートできます。
               </p>
               {(workerInvoicesQuery.data || []).length === 0 ? (
-                <div className="text-sm text-muted-foreground">請求書データはまだありません。</div>
+                <div className="text-sm text-muted-foreground">
+                  請求書データはまだありません。
+                </div>
               ) : (
                 <div className="space-y-2">
                   {(workerInvoicesQuery.data || []).map((invoice: any) => (
-                    <div key={invoice.id} className="border rounded-lg p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div
+                      key={invoice.id}
+                      className="border rounded-lg p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+                    >
                       <div>
-                        <div className="font-medium">{invoice.subject || `${invoice.closingMonth} 作業請求`}</div>
-                        <div className="text-xs text-muted-foreground">#{invoice.id} / {invoice.closingMonth} / {invoice.status}</div>
+                        <div className="font-medium">
+                          {invoice.subject ||
+                            `${invoice.closingMonth} 作業請求`}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          #{invoice.id} / {invoice.closingMonth} /{" "}
+                          {invoice.status}
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={async () => {
-                            const data = await trpcUtils.workerInvoice.previewMyInvoice.fetch({ invoiceId: invoice.id });
+                            const data =
+                              await trpcUtils.workerInvoice.previewMyInvoice.fetch(
+                                { invoiceId: invoice.id }
+                              );
                             toast.success(`プレビュー: ${data.model.subject}`);
                           }}
                         >
@@ -400,7 +924,10 @@ export default function AppMyClosing() {
                         <Button
                           size="sm"
                           onClick={async () => {
-                            const pdf = await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch({ invoiceId: invoice.id });
+                            const pdf =
+                              await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch(
+                                { invoiceId: invoice.id }
+                              );
                             window.open(pdf.url, "_blank");
                           }}
                         >
@@ -410,9 +937,15 @@ export default function AppMyClosing() {
                           size="sm"
                           variant="outline"
                           onClick={async () => {
-                            const data = await trpcUtils.workerInvoice.exportMyInvoicePackage.fetch({ invoiceId: invoice.id });
-                            if (data.invoicePdf?.url) window.open(data.invoicePdf.url, "_blank");
-                            toast.success(`エクスポート準備完了（添付資料 ${data.documents?.length || 0}件）`);
+                            const data =
+                              await trpcUtils.workerInvoice.exportMyInvoicePackage.fetch(
+                                { invoiceId: invoice.id }
+                              );
+                            if (data.invoicePdf?.url)
+                              window.open(data.invoicePdf.url, "_blank");
+                            toast.success(
+                              `エクスポート準備完了（添付資料 ${data.documents?.length || 0}件）`
+                            );
                           }}
                         >
                           <FileDown className="h-4 w-4 mr-1" /> エクスポート
@@ -437,6 +970,116 @@ export default function AppMyClosing() {
             </CardContent>
           </Card>
 
+          <Dialog
+            open={showInvoiceReview}
+            onOpenChange={open => {
+              if (!invoiceBusy) setShowInvoiceReview(open);
+            }}
+          >
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>請求書作成前確認</DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-4 text-sm">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="rounded-md border p-3">
+                    <div className="text-muted-foreground text-xs">現場</div>
+                    <div className="font-medium">
+                      {detail?.project?.name || selectedProject?.name}
+                    </div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-muted-foreground text-xs">対象月</div>
+                    <div className="font-medium">{closingMonth}</div>
+                  </div>
+                  <div className="rounded-md border p-3 md:col-span-2">
+                    <div className="text-muted-foreground text-xs">
+                      請求書 件名
+                    </div>
+                    <div className="font-medium">{invoiceSubjectPreview}</div>
+                  </div>
+                  <div className="rounded-md border p-3 md:col-span-2">
+                    <div className="text-muted-foreground text-xs">
+                      添付資料・領収書
+                    </div>
+                    <div className="font-medium">
+                      {supportingDocumentStatus}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-md border">
+                  <div className="border-b px-3 py-2 font-medium">請求明細</div>
+                  <div className="divide-y">
+                    {normalizedInvoiceItems.map((item, idx) => (
+                      <div
+                        key={`${item.label}-${idx}`}
+                        className="p-3 space-y-1 md:flex md:items-center md:justify-between md:gap-3 md:space-y-0"
+                      >
+                        <div>
+                          <div className="font-medium">{item.label}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {item.category || "区分なし"} /{" "}
+                            {item.quantity.toLocaleString("ja-JP")} {item.unit}{" "}
+                            × {formatYen(item.unitPrice)}
+                          </div>
+                        </div>
+                        <div className="font-semibold text-right">
+                          {formatYen(item.amount)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">小計</span>
+                    <span className="font-medium">
+                      {formatYen(invoiceTotals.subtotal)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">消費税</span>
+                    <span className="font-medium">
+                      {formatYen(invoiceTotals.tax)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-border pt-2 text-base">
+                    <span className="font-semibold">合計</span>
+                    <span className="font-bold text-gold">
+                      {formatYen(invoiceTotals.total)}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  「この内容で請求書を作成」を押すと、下書きを保存して請求書を提出し、PDFを開きます。
+                </p>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowInvoiceReview(false)}
+                  disabled={invoiceBusy}
+                >
+                  戻る
+                </Button>
+                <Button
+                  onClick={handleOneClickInvoice}
+                  disabled={invoiceBusy || normalizedInvoiceItems.length === 0}
+                >
+                  {invoiceBusy && (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  )}
+                  この内容で請求書を作成
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <Dialog open={showReview} onOpenChange={setShowReview}>
             <DialogContent>
               <DialogHeader>
@@ -446,7 +1089,9 @@ export default function AppMyClosing() {
               <div className="space-y-3 text-sm">
                 <div className="rounded-md border p-3">
                   <div className="text-muted-foreground text-xs">現場</div>
-                  <div className="font-medium">{detail?.project?.name || selectedProject?.name}</div>
+                  <div className="font-medium">
+                    {detail?.project?.name || selectedProject?.name}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -457,16 +1102,24 @@ export default function AppMyClosing() {
                   <div className="rounded-md border p-3">
                     <div className="text-muted-foreground text-xs">領収書</div>
                     <div className="font-medium">
-                      {receiptRequired ? (detail?.submission?.receiptUploaded ? "添付済" : "未添付") : "不要"}
+                      {receiptRequired
+                        ? detail?.submission?.receiptUploaded
+                          ? "添付済"
+                          : "未添付"
+                        : "不要"}
                     </div>
                   </div>
                   <div className="rounded-md border p-3">
                     <div className="text-muted-foreground text-xs">交通費</div>
-                    <div className="font-medium">{formatYen(transportAmount)}</div>
+                    <div className="font-medium">
+                      {formatYen(transportAmount)}
+                    </div>
                   </div>
                   <div className="rounded-md border p-3">
                     <div className="text-muted-foreground text-xs">経費</div>
-                    <div className="font-medium">{formatYen(expenseAmount)}</div>
+                    <div className="font-medium">
+                      {formatYen(expenseAmount)}
+                    </div>
                   </div>
                 </div>
 
@@ -483,7 +1136,9 @@ export default function AppMyClosing() {
               </div>
 
               <DialogFooter>
-                <Button variant="outline" onClick={() => setShowReview(false)}>戻る</Button>
+                <Button variant="outline" onClick={() => setShowReview(false)}>
+                  戻る
+                </Button>
                 <Button
                   onClick={() => {
                     setShowReview(false);
@@ -506,7 +1161,10 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-border bg-card p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-xl font-bold flex items-center gap-2"><FileCheck2 className="h-4 w-4 text-gold" />{value}</div>
+      <div className="text-xl font-bold flex items-center gap-2">
+        <FileCheck2 className="h-4 w-4 text-gold" />
+        {value}
+      </div>
     </div>
   );
 }
