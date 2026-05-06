@@ -56,6 +56,8 @@ export default function AppMyClosing() {
   const [expenseAmount, setExpenseAmount] = useState(0);
   const [notes, setNotes] = useState("");
   const [showReview, setShowReview] = useState(false);
+  const [invoiceSubject, setInvoiceSubject] = useState("");
+  const [invoiceItems, setInvoiceItems] = useState<any[]>([{ label: "", quantity: 1, unitPrice: 0, unit: "式", category: "" }]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const projectsQuery = trpc.attendance.myProjects.useQuery();
@@ -87,6 +89,9 @@ export default function AppMyClosing() {
     },
     onError: (e) => toast.error(`保存エラー: ${e.message}`),
   });
+
+  const saveWorkerDraftMutation = trpc.workerInvoice.saveMyDraft.useMutation();
+  const submitWorkerInvoiceMutation = trpc.workerInvoice.submitMyInvoice.useMutation();
 
   const submitMutation = trpc.closing.submitMySubmission.useMutation({
     onSuccess: () => {
@@ -130,11 +135,29 @@ export default function AppMyClosing() {
       expenseAmount,
       notes,
     });
+    saveWorkerDraftMutation.mutate({ projectId: selectedProjectId, closingMonth, subject: invoiceSubject || undefined, items: invoiceItems.filter((i) => i.label?.trim()).map((i) => ({ label: i.label, quantity: Number(i.quantity||0), unitPrice: Number(i.unitPrice||0), unit: i.unit, category: i.category })) });
   };
 
   const handleSubmit = () => {
     if (!selectedProjectId) return;
     submitMutation.mutate({ projectId: selectedProjectId, closingMonth });
+  };
+
+
+  const handleOneClickInvoice = async () => {
+    if (!selectedProjectId) return;
+    try {
+      await saveWorkerDraftMutation.mutateAsync({ projectId: selectedProjectId, closingMonth, subject: invoiceSubject || undefined, items: invoiceItems.filter((i) => i.label?.trim()).map((i) => ({ label: i.label, quantity: Number(i.quantity||0), unitPrice: Number(i.unitPrice||0), unit: i.unit, category: i.category })) });
+      await submitWorkerInvoiceMutation.mutateAsync({ projectId: selectedProjectId, closingMonth });
+      const list = await trpcUtils.workerInvoice.listMyInvoices.fetch();
+      const match = [...(list||[])].reverse().find((v:any)=>v.projectId===selectedProjectId && v.closingMonth===closingMonth);
+      if (match?.id) {
+        const pdf = await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch({ invoiceId: match.id });
+        window.open(pdf.url, "_blank");
+      }
+      toast.success("請求書を作成しました");
+      workerInvoicesQuery.refetch();
+    } catch (e:any) { toast.error(`請求書作成エラー: ${e.message}`); }
   };
 
   const handleReceiptFile = async (file?: File | null) => {
@@ -299,6 +322,26 @@ export default function AppMyClosing() {
                   )}
                 </div>
               </div>
+
+
+              <Card className="border-dashed">
+                <CardContent className="pt-4 space-y-3">
+                  <Label>作業員請求書 件名</Label>
+                  <Input value={invoiceSubject} onChange={(e)=>setInvoiceSubject(e.target.value)} placeholder={`${closingMonth} 作業請求`} />
+                  <div className="space-y-2">
+                    {invoiceItems.map((item, idx)=>(<div key={idx} className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                      <Input placeholder="label" value={item.label} onChange={(e)=>setInvoiceItems((prev)=>prev.map((v,i)=>i===idx?{...v,label:e.target.value}:v))} />
+                      <Input type="number" placeholder="qty" value={item.quantity} onChange={(e)=>setInvoiceItems((prev)=>prev.map((v,i)=>i===idx?{...v,quantity:Number(e.target.value)}:v))} />
+                      <Input type="number" placeholder="unitPrice" value={item.unitPrice} onChange={(e)=>setInvoiceItems((prev)=>prev.map((v,i)=>i===idx?{...v,unitPrice:Number(e.target.value)}:v))} />
+                      <Input value={item.unit} onChange={(e)=>setInvoiceItems((prev)=>prev.map((v,i)=>i===idx?{...v,unit:e.target.value}:v))} placeholder="unit" />
+                      <Input value={item.category} onChange={(e)=>setInvoiceItems((prev)=>prev.map((v,i)=>i===idx?{...v,category:e.target.value}:v))} placeholder="category" />
+                      <Input value={String(Math.round(Number(item.quantity||0)*Number(item.unitPrice||0)))} readOnly placeholder="amount" />
+                    </div>))}
+                    <Button variant="outline" size="sm" onClick={()=>setInvoiceItems((p)=>[...p,{ label:'', quantity:1, unitPrice:0, unit:'式', category:'' }])}>行追加</Button>
+                  </div>
+                  <Button onClick={handleOneClickInvoice} className="w-full md:w-auto">請求書を作成</Button>
+                </CardContent>
+              </Card>
 
               <div className="flex flex-wrap gap-2 justify-end">
                 <Button variant="outline" disabled={!canEdit || busy} onClick={handleSave}>

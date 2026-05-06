@@ -512,6 +512,27 @@ async function getOrCreateWorkerInvoicePdfDownload(model: any, invoiceId: number
   }
 }
 
+function isDuplicateKeyError(error: any) {
+  const code = String(error?.code || error?.errno || "");
+  const message = String(error?.message || "");
+  return code.includes("ER_DUP_ENTRY") || message.includes("Duplicate entry") || message.includes("duplicate");
+}
+
+async function generateWorkerInvoiceNumber(projectId: number, closingMonth: string) {
+  const project = await db.getProjectById(projectId);
+  const scopeClientId = project?.clientId ? `C${String(project.clientId).padStart(5, "0")}` : `P${String(projectId).padStart(5, "0")}`;
+  const monthPart = closingMonth.replace(/-/g, "");
+  const all = await db.listWorkerInvoicesForReview();
+  const prefix = `WI-${monthPart}-${scopeClientId}-`;
+  const seqs = all
+    .map((v: any) => String(v.invoiceNumber || ""))
+    .filter((num: string) => num.startsWith(prefix))
+    .map((num: string) => Number(num.split("-").pop() || 0))
+    .filter((n: number) => Number.isFinite(n));
+  const next = (seqs.length ? Math.max(...seqs) : 0) + 1;
+  return `${prefix}${String(next).padStart(4, "0")}`;
+}
+
 export const appRouter = router({
   system: systemRouter,
 
@@ -3291,6 +3312,7 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
   workerInvoice: router({
     getMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
       const me = await db.getEmployeeByUserId(ctx.user.id);
@@ -3305,20 +3327,48 @@ export const appRouter = router({
       }
       return invoice;
     }),
-    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional() })).mutation(async ({ ctx, input }) => {
+    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional() })).optional() })).mutation(async ({ ctx, input }) => {
       const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
       const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
       if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "Approved invoice is read-only" });
-      await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: existing?.status === "returned" ? "returned" : "draft", subject: input.subject, notes: input.notes });
+      const saved = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: existing?.status === "returned" ? "returned" : "draft", subject: input.subject, notes: input.notes });
+      if (saved?.id && input.items) {
+        await db.replaceWorkerInvoiceItems(saved.id, input.items.map((item, index) => ({
+          workerInvoiceId: saved.id!,
+          itemType: "normal",
+          label: item.label,
+          description: item.label,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          amount: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
+          unit: item.unit || "式",
+          category: item.category || null,
+          sortOrder: index,
+        })));
+      }
       return { success: true };
     }),
     submitMyInvoice: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string() })).mutation(async ({ ctx, input }) => {
       const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
-      const invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "submitted", submittedAt: new Date() });
+      const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
+      if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "Approved invoice is read-only" });
+      let invoice: any = null;
+      const fixedInvoiceNumber = existing?.invoiceNumber || null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const candidateInvoiceNumber = fixedInvoiceNumber || await generateWorkerInvoiceNumber(input.projectId, input.closingMonth);
+        try {
+          invoice = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: "submitted", submittedAt: new Date(), invoiceNumber: candidateInvoiceNumber });
+          break;
+        } catch (error: any) {
+          if (!fixedInvoiceNumber && isDuplicateKeyError(error) && attempt < 4) continue;
+          throw error;
+        }
+      }
+      if (!invoice) throw new TRPCError({ code: "CONFLICT", message: "請求書番号の採番に失敗しました。再試行してください。" });
       const [docs, items, project, company, worker] = await Promise.all([
         db.getSupportingDocumentsBySubmission(submission.id!),
         invoice?.id ? db.getWorkerInvoiceItems(invoice.id) : Promise.resolve([]),
@@ -3335,7 +3385,8 @@ export const appRouter = router({
         worker: worker ? { id: worker.id, nameKanji: worker.nameKanji, address: worker.address, phone: worker.phone, email: worker.email, invoiceIssuerNumber: worker.invoiceIssuerNumber, bankName: worker.bankName, branchName: worker.branchName, accountType: worker.accountType, accountNumber: worker.accountNumber, accountHolder: worker.accountHolder, stampUrl: worker.stampUrl } : null,
         supportingDocuments: docs,
       };
-      await db.createWorkerInvoiceSnapshot({ workerInvoiceId: invoice!.id!, snapshotVersion: 1, snapshotJson: JSON.stringify(snapshot), createdBy: ctx.user.id });
+      const prevSnapshots = await db.getWorkerInvoiceSnapshots(invoice!.id!);
+      await db.createWorkerInvoiceSnapshot({ workerInvoiceId: invoice!.id!, snapshotVersion: (prevSnapshots?.length || 0) + 1, snapshotJson: JSON.stringify(snapshot), createdBy: ctx.user.id });
       return { success: true, id: invoice?.id };
     }),
 
