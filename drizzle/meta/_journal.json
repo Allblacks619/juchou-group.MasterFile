@@ -127,6 +127,20 @@
       "when": 1777578238180,
       "tag": "0017_steady_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1778005314896,
+      "tag": "0018_worker_invoices_v1",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1778003222137,
+      "tag": "0021_worker_invoice_number_unique",
+      "breakpoints": true
     }
   ]
 }

@@ -27,7 +27,7 @@ function addInvoiceWithSnapshot(id: number, employeeId = 10, docs: any[] = [{ id
 }
 
 vi.mock('./db', () => ({
-  getEmployeeByUserId: vi.fn(async (id:number)=> id===2?{id:10,userId:2}:{id:11,userId:3}),
+  getEmployeeByUserId: vi.fn(async (id:number)=> id===2?{id:10,userId:2}:id===3?{id:11,userId:3}:{id:12,userId:4}),
   getProjectClosingByProjectMonth: vi.fn(async ()=>({id:100,projectId:1,closingMonth:'2026-04',status:'open'})),
   createProjectClosing: vi.fn(async ()=>({id:100})),
   getProjectMembersByProject: vi.fn(async ()=>[{employeeId:10,isActive:true},{employeeId:11,isActive:true}]),
@@ -37,7 +37,7 @@ vi.mock('./db', () => ({
   getClosingSubmissionByClosingEmployee: vi.fn(async (_:number,eid:number)=> eid===10?{id:501,closingId:100,employeeId:10,transportAmount:1000,expenseAmount:500,status:'submitted'}:{id:502,closingId:100,employeeId:11,transportAmount:999,expenseAmount:1,status:'submitted'}),
   updateClosingSubmission: vi.fn(async ()=>({})),
   getWorkerInvoiceByClosingEmployee: vi.fn(async (cid:number,eid:number)=>invoices.find(v=>v.closingId===cid&&v.employeeId===eid)),
-  upsertWorkerInvoice: vi.fn(async (v:any)=>{ const i=invoices.findIndex(x=>x.closingId===v.closingId&&x.employeeId===v.employeeId); const nv={id:i>=0?invoices[i].id:invoices.length+1,...(i>=0?invoices[i]:{}),...v}; if(i>=0)invoices[i]=nv; else invoices.push(nv); return nv;}),
+  upsertWorkerInvoice: vi.fn(async (v:any)=>{ const dup=invoices.find(x=>x.invoiceNumber&&v.invoiceNumber&&x.invoiceNumber===v.invoiceNumber && !(x.closingId===v.closingId&&x.employeeId===v.employeeId)); if(dup){ const e:any=new Error('Duplicate entry'); e.code='ER_DUP_ENTRY'; throw e;} const i=invoices.findIndex(x=>x.closingId===v.closingId&&x.employeeId===v.employeeId); const nv={id:i>=0?invoices[i].id:invoices.length+1,...(i>=0?invoices[i]:{}),...v}; if(i>=0)invoices[i]=nv; else invoices.push(nv); return nv;}),
   getWorkerInvoicesByEmployee: vi.fn(async (eid:number)=>invoices.filter(v=>v.employeeId===eid)),
   listWorkerInvoicesForReview: vi.fn(async ()=>invoices),
   getSupportingDocumentsBySubmission: vi.fn(async (sid:number)=>[{id:1,submissionId:sid,fileKey:'k1',originalFileName:'receipt.pdf'}]),
@@ -45,7 +45,7 @@ vi.mock('./db', () => ({
   createWorkerInvoiceSnapshot: vi.fn(async (s:any)=>{ snapshots.push(s); return {id:snapshots.length,...s}; }),
   getWorkerInvoiceById: vi.fn(async (id:number)=>invoices.find(v=>v.id===id)),
   getWorkerInvoiceSnapshots: vi.fn(async (id:number)=>snapshots.filter((s:any)=>s.workerInvoiceId===id)),
-  getProjectById: vi.fn(async ()=>({id:1,name:'P1'})),
+  getProjectById: vi.fn(async ()=>({id:1,name:'P1',clientId:77})),
   getCompanyProfile: vi.fn(async ()=>({companyName:'Juchou',address:'Tokyo',phone:'03',email:'billing@example.com'})),
   getEmployeeById: vi.fn(async (id:number)=>({id,nameKanji:`W${id}`,invoiceIssuerNumber:'T1234567890123',bankName:'Bank',branchName:'Main',accountType:'ordinary',accountNumber:'123',accountHolder:'W',stampUrl:null})),
   updateWorkerInvoice: vi.fn(async (id:number,data:any)=>{ const i=invoices.findIndex(v=>v.id===id); if(i>=0) invoices[i]={...invoices[i],...data}; return invoices[i]; }),
@@ -134,6 +134,48 @@ describe('worker invoice access/snapshot',()=>{
     const worker=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
     await expect(worker.workerInvoice.downloadSupportingDocument({invoiceId:15,documentId:999})).rejects.toThrow('指定された添付資料');
   });
+
+  it('submit generates client-scoped invoice number and keeps existing number', async()=>{
+    const caller=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
+    await caller.workerInvoice.submitMyInvoice({projectId:1,closingMonth:'2026-04'});
+    const first=invoices.find(v=>v.employeeId===10)!;
+    expect(first.invoiceNumber).toMatch(/^WI-202604-C00077-\d{4}$/);
+    const keep=first.invoiceNumber;
+    await caller.workerInvoice.submitMyInvoice({projectId:1,closingMonth:'2026-04'});
+    expect(invoices.find(v=>v.employeeId===10)!.invoiceNumber).toBe(keep);
+  });
+
+  it('invoice number sequence is client scoped unique', async()=>{
+    invoices.push({id:30,closingId:100,submissionId:501,projectId:1,employeeId:99,closingMonth:'2026-04',status:'submitted',invoiceNumber:'WI-202604-C00077-0001'});
+    const caller=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
+    await caller.workerInvoice.submitMyInvoice({projectId:1,closingMonth:'2026-04'});
+    expect(invoices.find(v=>v.employeeId===10)!.invoiceNumber).toBe('WI-202604-C00077-0002');
+  });
+
+  it('approved invoice blocks worker resubmit and returned invoice can resubmit with new snapshot version', async()=>{
+    invoices.push({id:40,closingId:100,submissionId:501,projectId:1,employeeId:10,closingMonth:'2026-04',status:'approved',invoiceNumber:'WI-202604-C00077-0009'});
+    const worker=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
+    await expect(worker.workerInvoice.submitMyInvoice({projectId:1,closingMonth:'2026-04'})).rejects.toThrow();
+    const admin=appRouter.createCaller(ctx(mkUser(9,'admin',99)));
+    await admin.workerInvoice.returnInvoice({invoiceId:40,reason:'correction'});
+    await worker.workerInvoice.saveMyDraft({projectId:1,closingMonth:'2026-04',subject:'re'});
+    await worker.workerInvoice.submitMyInvoice({projectId:1,closingMonth:'2026-04'});
+    const mine=snapshots.filter((s:any)=>s.workerInvoiceId===40);
+    expect(mine.at(-1).snapshotVersion).toBeGreaterThanOrEqual(1);
+  });
+
+
+  it('concurrent submit retries on duplicate invoice number and stays unique', async()=>{
+    const workerA=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
+    const workerB=appRouter.createCaller(ctx(mkUser(3,'worker',11)));
+    await Promise.all([
+      workerA.workerInvoice.submitMyInvoice({projectId:1,closingMonth:'2026-04'}),
+      workerB.workerInvoice.submitMyInvoice({projectId:1,closingMonth:'2026-04'})
+    ]);
+    const nums=invoices.filter(v=>v.closingMonth==='2026-04').map(v=>v.invoiceNumber).filter(Boolean);
+    expect(new Set(nums).size).toBe(nums.length);
+  });
+
   it('submit creates snapshot with attachment refs and profile fields', async()=>{
     const caller=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
     await caller.workerInvoice.submitMyInvoice({projectId:1,closingMonth:'2026-04'});
