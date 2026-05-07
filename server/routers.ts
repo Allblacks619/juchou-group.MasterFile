@@ -50,7 +50,47 @@ async function recalcInvoiceTotals(invoiceId: number) {
 }
 
 
+const CLIENT_INVOICE_ELIGIBLE_CLOSING_STATUSES = ["ready", "closed", "locked"] as const;
 
+function normalizeClosingStatusReason(status: string | null | undefined) {
+  if (!status) return "締めデータが未作成です";
+  if ((CLIENT_INVOICE_ELIGIBLE_CLOSING_STATUSES as readonly string[]).includes(status)) return null;
+  if (status === "open") return "締め準備が完了していません";
+  return `請求対象外の締め状態です: ${status}`;
+}
+
+async function buildSameClientInvoiceCandidates(projectId: number, closingMonth: string) {
+  const currentProject = await db.getProjectById(projectId);
+  if (!currentProject?.clientId) return [];
+
+  const [client, allProjects] = await Promise.all([
+    db.getClientById(Number(currentProject.clientId)),
+    db.getAllProjects(),
+  ]);
+  const sameClientProjects = allProjects.filter(
+    (project: any) => Number(project.clientId) === Number(currentProject.clientId)
+  );
+
+  const rows = [];
+  for (const project of sameClientProjects) {
+    const closing = await db.getProjectClosingByProjectMonth(project.id, closingMonth);
+    const closingStatus = closing?.status || "none";
+    const reason = normalizeClosingStatusReason(closing?.status);
+    rows.push({
+      projectId: Number(project.id),
+      projectName: project.name,
+      clientId: Number(currentProject.clientId),
+      clientName: client?.name || null,
+      closingId: closing?.id ? Number(closing.id) : null,
+      closingMonth,
+      closingStatus,
+      isEligible: !reason,
+      reason,
+    });
+  }
+
+  return rows.sort((a: any, b: any) => a.projectName.localeCompare(b.projectName, "ja"));
+}
 
 async function assertProjectMember(employeeId: number, projectId: number) {
   const memberships = await db.getProjectsByEmployee(employeeId);
@@ -2531,20 +2571,7 @@ export const appRouter = router({
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
       }))
       .query(async ({ input }) => {
-        const currentProject = await db.getProjectById(input.projectId);
-        if (!currentProject?.clientId) return [];
-        const allProjects = await db.getAllProjects();
-        const sameClientProjects = allProjects.filter(
-          (project: any) => Number(project.clientId) === Number(currentProject.clientId)
-        );
-        const rows = [];
-        for (const project of sameClientProjects) {
-          const closing = await db.getProjectClosingByProjectMonth(project.id, input.closingMonth);
-          if (closing && ["ready", "closed", "locked"].includes(closing.status)) {
-            rows.push({ project, closing });
-          }
-        }
-        return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
+        return buildSameClientInvoiceCandidates(input.projectId, input.closingMonth);
       }),
   }),
 
@@ -2911,20 +2938,7 @@ export const appRouter = router({
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
       }))
       .query(async ({ input }) => {
-        const currentProject = await db.getProjectById(input.projectId);
-        if (!currentProject?.clientId) return [];
-        const allProjects = await db.getAllProjects();
-        const sameClientProjects = allProjects.filter(
-          (project: any) => Number(project.clientId) === Number(currentProject.clientId)
-        );
-        const rows = [];
-        for (const project of sameClientProjects) {
-          const closing = await db.getProjectClosingByProjectMonth(project.id, input.closingMonth);
-          if (closing && ["ready", "closed", "locked"].includes(closing.status)) {
-            rows.push({ project, closing });
-          }
-        }
-        return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
+        return buildSameClientInvoiceCandidates(input.projectId, input.closingMonth);
       }),
   }),
   invoice: router({
