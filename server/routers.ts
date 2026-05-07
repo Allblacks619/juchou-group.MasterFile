@@ -1871,12 +1871,12 @@ export const appRouter = router({
 
     /** Get projects where the current employee has attendance records or is assigned */
     myProjects: protectedProcedure.query(async ({ ctx }) => {
-      const employee = await db.getEmployeeByUserId(ctx.user.id);
-      if (!employee) return [];
       const allProjects = await db.getAllProjects();
       if (isManagerLike((ctx.user as any).appRole)) {
         return allProjects.filter(p => p.status === "active");
       }
+      const employee = await db.getEmployeeByUserId(ctx.user.id);
+      if (!employee) return [];
       const memberships = await db.getProjectsByEmployee(employee.id);
       const projectIds = new Set(memberships.map((m: any) => m.projectId));
       return allProjects.filter(p => p.status === "active" && projectIds.has(p.id));

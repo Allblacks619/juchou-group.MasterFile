@@ -72,6 +72,10 @@ import {
   extractDateKey,
 } from "@shared/attendanceStatus";
 
+function isManagerLikeRole(role?: string | null) {
+  return role === "super_admin" || role === "admin" || role === "manager" || role === "leader";
+}
+
 function workTypeLabels(lang: AppLang): Record<WorkType, string> {
   return lang === "pt"
     ? { normal: "Presente", half_day: "Meio dia", overtime: "Hora extra", holiday: "Folga trab.", absence: "Ausente", day_off: "Folga" }
@@ -98,6 +102,7 @@ for (let i = 0; i <= 120; i += 5) {
 export default function AppDashboard() {
   const { user } = useAuth();
   const appRole = (user as any)?.appRole || "worker";
+  const isManagerLike = isManagerLikeRole(appRole);
   const { t, lang } = useAppLang();
 
   return (
@@ -113,7 +118,7 @@ export default function AppDashboard() {
 
       <WorkflowShortcuts appRole={appRole} />
 
-      {(appRole === "admin" || appRole === "leader") && <AdminStats />}
+      {isManagerLike && <AdminStats />}
 
       <AttendanceCalendar />
     </div>
@@ -199,9 +204,9 @@ function ProfileCompletionAlert() {
   return null;
 }
 
-function WorkflowShortcuts({ appRole }: { appRole: "admin" | "leader" | "worker" }) {
+function WorkflowShortcuts({ appRole }: { appRole: string }) {
   const [, setLocation] = useLocation();
-  const isAdminOrLeader = appRole === "admin" || appRole === "leader";
+  const isAdminOrLeader = isManagerLikeRole(appRole);
 
   const items = isAdminOrLeader
     ? [
@@ -282,7 +287,7 @@ function AttendanceCalendar() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const appRole = (user as any)?.appRole || "worker";
-  const isAdminOrLeader = appRole === "admin" || appRole === "leader";
+  const isAdminOrLeader = isManagerLikeRole(appRole);
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [projectInitialized, setProjectInitialized] = useState(false);

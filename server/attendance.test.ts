@@ -121,7 +121,9 @@ vi.mock("./db", () => ({
       ? { id: 10, nameKanji: "テスト太郎", nameRomaji: "test-taro" }
       : userId === 3
         ? { id: 20, nameKanji: "佐藤花子", nameRomaji: "sato-hanako" }
-        : { id: 1, nameKanji: "管理者", nameRomaji: "admin" }
+        : userId === 4
+          ? null
+          : { id: 1, nameKanji: "管理者", nameRomaji: "admin" }
   )),
   getProjectsByEmployee: vi.fn(async (employeeId: number) => (
     employeeId === 10
@@ -150,6 +152,32 @@ function createAdminContext(): TrpcContext {
     loginMethod: "manus",
     role: "admin",
     appRole: "admin",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastSignedIn: new Date(),
+  } as any;
+
+  return {
+    user,
+    req: {
+      protocol: "https",
+      headers: {},
+    } as TrpcContext["req"],
+    res: {
+      clearCookie: vi.fn(),
+    } as unknown as TrpcContext["res"],
+  };
+}
+
+function createManagerContext(): TrpcContext {
+  const user: AuthenticatedUser = {
+    id: 4,
+    openId: "manager-user",
+    email: "manager@example.com",
+    name: "Manager User",
+    loginMethod: "manus",
+    role: "user",
+    appRole: "manager",
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
@@ -199,6 +227,7 @@ beforeEach(() => {
   vi.mocked(db.getAttendanceByDateRange).mockClear();
   vi.mocked(db.getAttendanceByProject).mockClear();
   vi.mocked(db.getProjectsByEmployee).mockClear();
+  vi.mocked(db.getEmployeeByUserId).mockClear();
 });
 
 describe("attendance", () => {
@@ -240,6 +269,16 @@ describe("attendance", () => {
       for (const p of result) {
         expect(p.status).toBe("active");
       }
+    });
+
+    it("returns active projects for manager-like users without requiring an employee profile", async () => {
+      const ctx = createManagerContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const result = await caller.attendance.myProjects();
+
+      expect(result.map((project) => project.id).sort()).toEqual([1, 2]);
+      expect(db.getEmployeeByUserId).not.toHaveBeenCalled();
     });
   });
 
