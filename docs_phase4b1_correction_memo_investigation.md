@@ -37,3 +37,8 @@ Scope: smartphone UI cleanup in `AppMyClosing` / `AppClosings` plus current-code
 3. Remove worker names from client-invoice item notes or introduce internal-only item memo storage.
 4. Add multi-file receipt/supporting document support for closing submissions.
 5. Design client-level attendance export aggregation and highlighting.
+
+## Final readiness note
+
+- Final intended changed files are limited to `AppMyClosing`, `AppClosings`, and this investigation memo.
+- No server logic, endpoint names, save/submit behavior, or PDF behavior is changed in this PR.
