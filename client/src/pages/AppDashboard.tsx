@@ -63,6 +63,7 @@ import {
 import { ja } from "date-fns/locale";
 import { useAppLang } from "@/contexts/AppLanguageContext";
 import type { AppLang } from "@/lib/appTranslations";
+import { isManagerLikeAppRole } from "@/lib/appRoles";
 import {
   type WorkType,
   type ShiftType,
@@ -72,9 +73,6 @@ import {
   extractDateKey,
 } from "@shared/attendanceStatus";
 
-function isManagerLikeRole(role?: string | null) {
-  return role === "super_admin" || role === "admin" || role === "manager" || role === "leader";
-}
 
 function workTypeLabels(lang: AppLang): Record<WorkType, string> {
   return lang === "pt"
@@ -102,7 +100,7 @@ for (let i = 0; i <= 120; i += 5) {
 export default function AppDashboard() {
   const { user } = useAuth();
   const appRole = (user as any)?.appRole || "worker";
-  const isManagerLike = isManagerLikeRole(appRole);
+  const isManagerLike = isManagerLikeAppRole(appRole);
   const { t, lang } = useAppLang();
 
   return (
@@ -206,7 +204,7 @@ function ProfileCompletionAlert() {
 
 function WorkflowShortcuts({ appRole }: { appRole: string }) {
   const [, setLocation] = useLocation();
-  const isAdminOrLeader = isManagerLikeRole(appRole);
+  const isAdminOrLeader = isManagerLikeAppRole(appRole);
 
   const items = isAdminOrLeader
     ? [
@@ -287,7 +285,7 @@ function AttendanceCalendar() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const appRole = (user as any)?.appRole || "worker";
-  const isAdminOrLeader = isManagerLikeRole(appRole);
+  const isAdminOrLeader = isManagerLikeAppRole(appRole);
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [projectInitialized, setProjectInitialized] = useState(false);
