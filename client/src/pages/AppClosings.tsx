@@ -23,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2, FileDown, Clock, CheckCircle, AlertCircle, XCircle, Receipt, Send, RotateCcw, Eye } from "lucide-react";
+import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2, FileDown, Clock, CheckCircle, AlertCircle, XCircle, Receipt, Send, RotateCcw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -62,7 +62,6 @@ export default function AppClosings() {
   const [closingMonth, setClosingMonth] = useState(format(new Date(), "yyyy-MM"));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [invoiceProjectIds, setInvoiceProjectIds] = useState<number[]>([]);
-  const [returnReasonMap, setReturnReasonMap] = useState<Record<number, string>>({});
 
   // Read deep-link query params on mount
   useEffect(() => {
@@ -170,22 +169,6 @@ export default function AppClosings() {
   });
 
   const rows = listQuery.data || [];
-  const workerInvoiceReviewQuery = trpc.workerInvoice.listForReview.useQuery();
-  const trpcUtils = trpc.useUtils();
-  const workerReturnMutation = trpc.workerInvoice.returnInvoice.useMutation({
-    onSuccess: () => {
-      toast.success("差戻ししました");
-      workerInvoiceReviewQuery.refetch();
-    },
-    onError: (e: any) => toast.error(`差戻しエラー: ${e.message}`),
-  });
-  const workerApproveMutation = trpc.workerInvoice.approve.useMutation({
-    onSuccess: () => {
-      toast.success("承認しました");
-      workerInvoiceReviewQuery.refetch();
-    },
-    onError: (e: any) => toast.error(`承認エラー: ${e.message}`),
-  });
   const selectedRow = useMemo(
     () => rows.find((row: any) => row.project.id === selectedProjectId) || null,
     [rows, selectedProjectId]
@@ -218,78 +201,6 @@ export default function AppClosings() {
           <Input type="month" value={closingMonth} onChange={(e) => setClosingMonth(e.target.value)} />
         </div>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>作業員請求書レビュー（Phase 3B）</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {(workerInvoiceReviewQuery.data || []).length === 0 ? (
-            <div className="text-sm text-muted-foreground">レビュー対象の作業員請求書はありません。</div>
-          ) : (
-            <div className="space-y-3">
-              {(workerInvoiceReviewQuery.data || []).map((invoice: any) => (
-                <div key={invoice.id} className="border rounded-lg p-3 space-y-2">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                    <div>
-                      <div className="font-medium">{invoice.subject || `${invoice.closingMonth} 作業請求`}</div>
-                      <div className="text-xs text-muted-foreground">#{invoice.id} / worker:{invoice.employeeId} / status:{invoice.status}</div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={async () => {
-                        const data = await trpcUtils.workerInvoice.previewMyInvoice.fetch({ invoiceId: invoice.id });
-                        toast.success(`プレビュー: ${data.model.subject}`);
-                      }}>
-                        <Eye className="h-4 w-4 mr-1" /> プレビュー
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={async () => {
-                        const pdf = await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch({ invoiceId: invoice.id });
-                        window.open(pdf.url, "_blank");
-                      }}>
-                        <FileDown className="h-4 w-4 mr-1" /> PDFダウンロード
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={async () => {
-                        const data = await trpcUtils.workerInvoice.exportMyInvoicePackage.fetch({ invoiceId: invoice.id });
-                        const docs = data.documents || [];
-                        if (docs.length === 0) {
-                          toast.info("添付資料はありません");
-                        } else if (docs.length === 1) {
-                          window.open(docs[0].url, "_blank");
-                        } else {
-                          toast.info(`添付資料が${docs.length}件あります。エクスポート情報から個別ダウンロードしてください。`);
-                        }
-                      }}>
-                        <FileDown className="h-4 w-4 mr-1" /> 添付資料
-                      </Button>
-                      <Button size="sm" onClick={() => workerApproveMutation.mutate({ invoiceId: invoice.id })} disabled={workerApproveMutation.isPending || invoice.status === "approved"}>
-                        承認
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="flex flex-col md:flex-row gap-2">
-                    <Input
-                      value={returnReasonMap[invoice.id] || ""}
-                      onChange={(e) => setReturnReasonMap((prev) => ({ ...prev, [invoice.id]: e.target.value }))}
-                      placeholder="差戻し理由"
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        const reason = (returnReasonMap[invoice.id] || "").trim();
-                        if (!reason) return toast.error("差戻し理由を入力してください");
-                        workerReturnMutation.mutate({ invoiceId: invoice.id, reason });
-                      }}
-                      disabled={workerReturnMutation.isPending}
-                    >
-                      差戻し
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
