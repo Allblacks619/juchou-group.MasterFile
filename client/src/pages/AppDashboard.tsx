@@ -293,6 +293,7 @@ function AttendanceCalendar() {
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
 
+  const utils = trpc.useUtils();
   const projectsQuery = trpc.attendance.myProjects.useQuery();
   const lastProjectQuery = trpc.attendance.lastProject.useQuery();
   const myInfoQuery = trpc.attendance.myEmployeeInfo.useQuery();
@@ -302,10 +303,20 @@ function AttendanceCalendar() {
     { enabled: !!selectedProjectId }
   );
 
+  const refreshAttendanceQueries = useCallback(() => {
+    utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId!, startDate, endDate });
+    utils.attendance.list.invalidate({ projectId: selectedProjectId || undefined, startDate, endDate });
+    utils.attendance.myAttendance.invalidate({ projectId: selectedProjectId || undefined, startDate, endDate });
+    teamDataQuery.refetch();
+  }, [utils, selectedProjectId, startDate, endDate, teamDataQuery]);
+
   const upsertMutation = trpc.attendance.upsert.useMutation({
-    onSuccess: () => {
-      teamDataQuery.refetch();
-    },
+    onSuccess: refreshAttendanceQueries,
+    onError: (e) => toast.error(`${lang === "pt" ? "Erro ao salvar" : "保存エラー"}: ${e.message}`),
+  });
+
+  const myBatchUpsertMutation = trpc.attendance.myBatchUpsert.useMutation({
+    onSuccess: refreshAttendanceQueries,
     onError: (e) => toast.error(`${lang === "pt" ? "Erro ao salvar" : "保存エラー"}: ${e.message}`),
   });
 
@@ -371,6 +382,24 @@ function AttendanceCalendar() {
       notes?: string;
     }) => {
       if (!selectedProjectId || isLocked) return;
+      if (!isAdminOrLeader) {
+        if (!myEmployeeId || params.employeeId !== myEmployeeId || params.guestName) {
+          toast.error(lang === "pt" ? "Você só pode editar sua própria presença." : "自分の出面のみ編集できます。");
+          return;
+        }
+        myBatchUpsertMutation.mutate({
+          records: [{
+            projectId: selectedProjectId,
+            workDate: params.workDate,
+            hoursWorked: params.hoursWorked,
+            overtimeHours: params.overtimeHours,
+            workType: params.workType,
+            shiftType: params.shiftType,
+            notes: params.notes,
+          }],
+        });
+        return;
+      }
       upsertMutation.mutate({
         employeeId: params.employeeId,
         guestName: params.guestName || undefined,
@@ -383,7 +412,7 @@ function AttendanceCalendar() {
         notes: params.notes,
       });
     },
-    [selectedProjectId, upsertMutation, isLocked]
+    [selectedProjectId, isLocked, isAdminOrLeader, myEmployeeId, lang, myBatchUpsertMutation, upsertMutation]
   );
 
   const quickToggle = useCallback(

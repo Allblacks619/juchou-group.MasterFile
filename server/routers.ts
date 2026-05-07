@@ -52,6 +52,14 @@ async function recalcInvoiceTotals(invoiceId: number) {
 
 
 
+async function assertProjectMember(employeeId: number, projectId: number) {
+  const memberships = await db.getProjectsByEmployee(employeeId);
+  const isMember = memberships.some((member: any) => member.projectId === projectId && member.isActive !== false);
+  if (!isMember) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "この現場のメンバーではありません" });
+  }
+}
+
 async function safeAuditLog(userId: number | null | undefined, action: string, entityType: string, meta: {
   entityId?: number | null;
   projectId?: number | null;
@@ -1724,10 +1732,10 @@ export const appRouter = router({
         records: z.array(z.object({
           employeeId: z.number().nullable().optional(),
           guestName: z.string().optional(),
-          projectId: z.number(),
-          workDate: z.string(),
-          hoursWorked: z.number().default(80),
-          overtimeHours: z.number().default(0),
+          projectId: z.number().int().positive(),
+          workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          hoursWorked: z.number().min(0).max(240).default(80),
+          overtimeHours: z.number().min(0).max(240).default(0),
           workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence", "day_off"]).default("normal"),
           shiftType: z.enum(["day", "night"]).default("day"),
           notes: z.string().optional(),
@@ -1785,22 +1793,29 @@ export const appRouter = router({
     myBatchUpsert: protectedProcedure
       .input(z.object({
         records: z.array(z.object({
-          projectId: z.number(),
-          workDate: z.string(),
-          hoursWorked: z.number().default(80),
-          overtimeHours: z.number().default(0),
+          projectId: z.number().int().positive(),
+          workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          hoursWorked: z.number().min(0).max(240).default(80),
+          overtimeHours: z.number().min(0).max(240).default(0),
           workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence", "day_off"]).default("normal"),
           shiftType: z.enum(["day", "night"]).default("day"),
           notes: z.string().optional(),
         })),
         deletes: z.array(z.object({
-          projectId: z.number(),
-          workDate: z.string(),
+          projectId: z.number().int().positive(),
+          workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         })).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const employee = await db.getEmployeeByUserId(ctx.user.id);
         if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+        const projectIds = new Set([
+          ...input.records.map((rec) => rec.projectId),
+          ...(input.deletes || []).map((del) => del.projectId),
+        ]);
+        for (const projectId of Array.from(projectIds)) {
+          await assertProjectMember(employee.id, projectId);
+        }
         const results = [];
         for (const rec of input.records) {
           const result = await db.upsertAttendance({
@@ -1858,12 +1873,13 @@ export const appRouter = router({
     myProjects: protectedProcedure.query(async ({ ctx }) => {
       const employee = await db.getEmployeeByUserId(ctx.user.id);
       if (!employee) return [];
-      // Get all projects and filter to those where this employee has records
       const allProjects = await db.getAllProjects();
-      const allRecords = await db.getAttendanceByEmployee(employee.id);
-      const projectIds = new Set(allRecords.map(r => r.projectId));
-      // Return all active projects (employees can input for any active project)
-      return allProjects.filter(p => p.status === "active");
+      if (isManagerLike((ctx.user as any).appRole)) {
+        return allProjects.filter(p => p.status === "active");
+      }
+      const memberships = await db.getProjectsByEmployee(employee.id);
+      const projectIds = new Set(memberships.map((m: any) => m.projectId));
+      return allProjects.filter(p => p.status === "active" && projectIds.has(p.id));
     }),
 
     /** Get last used project for current employee */
@@ -1892,7 +1908,12 @@ export const appRouter = router({
         startDate: z.string(),
         endDate: z.string(),
       }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        if (!isManagerLike((ctx.user as any).appRole)) {
+          const employee = await db.getEmployeeByUserId(ctx.user.id);
+          if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+          await assertProjectMember(employee.id, input.projectId);
+        }
         const records = await db.getAttendanceByProject(
           input.projectId,
           parseDateRange(input.startDate).start,
