@@ -452,8 +452,8 @@ export default function AppMyClosing() {
             交通費・経費・領収書を提出して、月締めを完了します。
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="w-[180px]">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="w-full sm:w-[180px]">
             <Label className="text-xs text-muted-foreground">対象月</Label>
             <Input
               type="month"
@@ -461,7 +461,7 @@ export default function AppMyClosing() {
               onChange={e => setClosingMonth(e.target.value)}
             />
           </div>
-          <div className="w-[260px]">
+          <div className="w-full sm:w-[260px]">
             <Label className="text-xs text-muted-foreground">現場</Label>
             <Select
               value={selectedProjectId?.toString() || ""}
@@ -567,6 +567,7 @@ export default function AppMyClosing() {
                   <Label>交通費（円）</Label>
                   <Input
                     type="number"
+                    inputMode="numeric"
                     value={transportAmount}
                     onChange={e => setTransportAmount(Number(e.target.value))}
                     disabled={!canEdit}
@@ -579,6 +580,7 @@ export default function AppMyClosing() {
                   <Label>経費（円）</Label>
                   <Input
                     type="number"
+                    inputMode="numeric"
                     value={expenseAmount}
                     onChange={e => setExpenseAmount(Number(e.target.value))}
                     disabled={!canEdit}
@@ -605,7 +607,7 @@ export default function AppMyClosing() {
                   <span className="font-medium">領収書</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  交通費または経費を入力した場合は、領収書の添付が必須です。
+                  交通費・経費が0円の場合でも、会社カード・ETCなどの証憑を添付できます。
                 </p>
                 <input
                   ref={fileInputRef}
@@ -619,7 +621,7 @@ export default function AppMyClosing() {
                     variant={
                       detail.submission?.receiptUploaded ? "default" : "outline"
                     }
-                    disabled={!canEdit || !receiptRequired || busy}
+                    disabled={!canEdit || busy}
                     onClick={() => fileInputRef.current?.click()}
                   >
                     <Upload className="h-4 w-4 mr-1" />
@@ -949,10 +951,10 @@ export default function AppMyClosing() {
                         </div>
                         <div className="text-xs text-muted-foreground">
                           #{invoice.id} / {invoice.closingMonth} /{" "}
-                          {invoice.status}
+                          {INVOICE_STATUS_LABELS[invoice.status]?.label || invoice.status}
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <Button
                           size="sm"
                           variant="outline"
