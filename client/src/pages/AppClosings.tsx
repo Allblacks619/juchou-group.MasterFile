@@ -146,9 +146,6 @@ export default function AppClosings() {
     onError: (e: any) => toast.error(`請求書ドラフト作成エラー: ${e.message}`),
   });
 
-  useEffect(() => {
-    if (selectedProjectId) setInvoiceProjectIds([selectedProjectId]);
-  }, [selectedProjectId]);
 
   const uploadReceiptMutation = trpc.closing.uploadReceipt.useMutation({
     onSuccess: () => {
@@ -175,12 +172,38 @@ export default function AppClosings() {
   );
   const detail = detailQuery.data;
   const sameClientProjects = sameClientCandidatesQuery.data || [];
+  const eligibleSameClientProjects = useMemo(
+    () => sameClientProjects.filter((project: any) => project.isEligible),
+    [sameClientProjects]
+  );
+  const ineligibleSameClientProjects = useMemo(
+    () => sameClientProjects.filter((project: any) => !project.isEligible),
+    [sameClientProjects]
+  );
+  const autoSelectionKeyRef = useRef("");
 
   useEffect(() => {
-    if (selectedProjectId) setInvoiceProjectIds([selectedProjectId]);
-  }, [selectedProjectId]);
+    if (!selectedProjectId) {
+      setInvoiceProjectIds([]);
+      autoSelectionKeyRef.current = "";
+      return;
+    }
+
+    const eligibleProjectIds = eligibleSameClientProjects.map((project: any) => Number(project.projectId));
+    const nextProjectIds = eligibleProjectIds.includes(selectedProjectId)
+      ? eligibleProjectIds
+      : [selectedProjectId, ...eligibleProjectIds];
+    const selectionKey = `${selectedProjectId}:${closingMonth}:${nextProjectIds.join(",")}`;
+    if (autoSelectionKeyRef.current === selectionKey) return;
+
+    setInvoiceProjectIds(nextProjectIds);
+    autoSelectionKeyRef.current = selectionKey;
+  }, [selectedProjectId, closingMonth, eligibleSameClientProjects]);
 
   const toggleInvoiceProject = (projectId: number) => {
+    const project = eligibleSameClientProjects.find((candidate: any) => Number(candidate.projectId) === Number(projectId));
+    if (!project) return;
+
     setInvoiceProjectIds((prev) =>
       prev.includes(projectId)
         ? (prev.length > 1 ? prev.filter((id) => id !== projectId) : prev)
@@ -342,13 +365,13 @@ export default function AppClosings() {
                 {detail.closing.status === "closed" && sameClientProjects.length > 0 && (
                   <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 space-y-3">
                     <div>
-                      <p className="text-sm font-medium text-blue-300">請求書に含める案件</p>
+                      <p className="text-sm font-medium text-blue-300">同一取引先・同月の締め準備済み現場をまとめて請求します</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        初期状態は現在の案件のみです。同一取引先の締め完了案件だけを選択して、1枚の請求書にまとめられます。
+                        選択中: {invoiceProjectIds.length}件。同一取引先・同月で ready / closed / locked の案件を初期選択しています。
                       </p>
                     </div>
                     <div className="grid gap-2 grid-cols-1 md:grid-cols-2">
-                      {sameClientProjects.map((project: any) => (
+                      {eligibleSameClientProjects.map((project: any) => (
                         <label key={project.projectId} className="flex items-center gap-2 rounded border border-border px-3 py-2 text-sm cursor-pointer hover:bg-muted/30">
                           <input
                             type="checkbox"
@@ -356,10 +379,23 @@ export default function AppClosings() {
                             onChange={() => toggleInvoiceProject(project.projectId)}
                           />
                           <span>{project.projectName}</span>
+                          <span className="text-xs text-muted-foreground">{STATUS_LABELS[project.closingStatus]?.label || project.closingStatus}</span>
                           {project.projectId === selectedProjectId && <span className="text-xs text-gold">現在の案件</span>}
                         </label>
                       ))}
                     </div>
+                    {ineligibleSameClientProjects.length > 0 && (
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                        <p className="font-medium">同じ取引先の未準備現場は請求対象外です</p>
+                        <ul className="mt-2 list-disc pl-5 space-y-1">
+                          {ineligibleSameClientProjects.map((project: any) => (
+                            <li key={project.projectId}>
+                              {project.projectName}（{STATUS_LABELS[project.closingStatus]?.label || project.closingStatus}）{project.reason ? `: ${project.reason}` : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
 
