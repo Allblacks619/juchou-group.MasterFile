@@ -43,18 +43,14 @@ function toYearMonth(date: Date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function sourceToInvoiceSuffix(source: string, shiftType: string) {
-  const shiftLabel = shiftType === "night" ? " 夜勤" : "";
-  if (source === "project_uniform") return `一律${shiftLabel}`;
-  if (source === "employee_individual") return `個別${shiftLabel}`;
-  return shiftLabel.trim() || "通常";
+function shiftTypeLabel(shiftType: string) {
+  return shiftType === "night" ? "夜勤" : "日勤";
 }
 
-function lineDescriptionForBucket(bucketIndex: number, source: string, shiftType: string) {
+function lineDescriptionForBucket(bucketIndex: number) {
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   const letter = letters[bucketIndex] || String(bucketIndex + 1);
-  const suffix = sourceToInvoiceSuffix(source, shiftType);
-  return `電気工事業 ${letter}${suffix ? `（${suffix}）` : ""}`;
+  return `電気工事業${letter}`;
 }
 
 /**
@@ -254,11 +250,11 @@ export async function buildInvoiceDraftFromProjects(args: {
 
     projectBuckets.forEach((bucket, index) => {
       const amount = Math.round((bucket.totalDaysTimes10 / 10) * bucket.clientRate);
-      const description = lineDescriptionForBucket(index, bucket.rateSource, bucket.shiftType);
+      const description = lineDescriptionForBucket(index);
       subtotal += amount;
 
       internalRateMemoLines.push(
-        `${bucket.projectName} / ${description} / ${rateSourceLabel(bucket.rateSource as any)} / 単価: ${bucket.clientRate.toLocaleString("ja-JP")}円 / 対象: ${Array.from(bucket.employeeNames).join("、")}`
+        `${bucket.projectName} / ${description} / ${rateSourceLabel(bucket.rateSource as any)} / ${shiftTypeLabel(bucket.shiftType)} / 単価: ${bucket.clientRate.toLocaleString("ja-JP")}円 / 対象: ${Array.from(bucket.employeeNames).join("、")}`
       );
 
       items.push({
