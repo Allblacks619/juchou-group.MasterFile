@@ -32,6 +32,7 @@ export type InvoiceDraft = {
   totalAmount: number;
   withholdingAmount: number;
   subject: string;
+  internalRateMemo: string | null;
 };
 
 function isAllowedClosingStatus(status: string | null | undefined, allowed: InvoiceableClosingStatus[]) {
@@ -115,6 +116,7 @@ export async function buildInvoiceDraftFromProjects(args: {
   const taxRate = Number(args.taxRate ?? 10);
   const includeProjectSectionHeaders = args.includeProjectSectionHeaders ?? projectIds.length > 1;
   const missingRateMessages: string[] = [];
+  const internalRateMemoLines: string[] = [];
 
   for (const project of resolvedProjects) {
     const closing = await db.getProjectClosingByProjectMonth(project.id, closingMonth);
@@ -252,18 +254,23 @@ export async function buildInvoiceDraftFromProjects(args: {
 
     projectBuckets.forEach((bucket, index) => {
       const amount = Math.round((bucket.totalDaysTimes10 / 10) * bucket.clientRate);
+      const description = lineDescriptionForBucket(index, bucket.rateSource, bucket.shiftType);
       subtotal += amount;
+
+      internalRateMemoLines.push(
+        `${bucket.projectName} / ${description} / ${rateSourceLabel(bucket.rateSource as any)} / 単価: ${bucket.clientRate.toLocaleString("ja-JP")}円 / 対象: ${Array.from(bucket.employeeNames).join("、")}`
+      );
 
       items.push({
         employeeId: null,
         itemType: "normal",
-        description: lineDescriptionForBucket(index, bucket.rateSource, bucket.shiftType),
+        description,
         quantity: bucket.totalDaysTimes10,
         unit: "日",
         unitPrice: bucket.clientRate,
         amount,
         itemTaxRate: taxRate,
-        notes: `${rateSourceLabel(bucket.rateSource as any)} / 対象: ${Array.from(bucket.employeeNames).join("、")}`,
+        notes: null,
         sortOrder: items.length,
       });
     });
@@ -300,5 +307,6 @@ export async function buildInvoiceDraftFromProjects(args: {
     totalAmount,
     withholdingAmount,
     subject,
+    internalRateMemo: internalRateMemoLines.length ? [`社内メモ: 請求単価の対象者内訳（外部請求書には表示されません）`, ...internalRateMemoLines].join("\n") : null,
   };
 }

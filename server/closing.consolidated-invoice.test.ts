@@ -142,13 +142,23 @@ describe("same-client same-month consolidated client invoice", () => {
     expect(db.createInvoice).toHaveBeenCalledWith(expect.objectContaining({
       clientId: 10,
       projectId: null,
-      internalMemo: "closing draft / projectIds=1,2",
+      internalMemo: expect.stringContaining("closing draft / projectIds=1,2"),
       subtotal: 37000,
       taxAmount: 3700,
       totalAmount: 40700,
     }));
 
     const itemCalls = vi.mocked(db.createInvoiceItem).mock.calls.map(([item]) => item);
+    const invoiceInput = vi.mocked(db.createInvoice).mock.calls[0][0] as any;
+    const serializedExternalItems = JSON.stringify(itemCalls);
+    expect(serializedExternalItems).not.toContain("山田太郎");
+    expect(serializedExternalItems).not.toContain("佐藤花子");
+    expect(serializedExternalItems).not.toContain("対象:");
+    expect(itemCalls.filter((item: any) => item.itemType === "normal").map((item: any) => item.notes)).toEqual([null, null, null]);
+    expect(invoiceInput.internalMemo).toContain("社内メモ: 請求単価の対象者内訳（外部請求書には表示されません）");
+    expect(invoiceInput.internalMemo).toContain("山田太郎");
+    expect(invoiceInput.internalMemo).toContain("佐藤花子");
+    expect(invoiceInput.internalMemo).toContain("対象:");
     expect(itemCalls).toHaveLength(5);
     expect(itemCalls).toEqual([
       expect.objectContaining({ itemType: "text", description: "【品川A現場】", amount: 0, sortOrder: 0 }),
