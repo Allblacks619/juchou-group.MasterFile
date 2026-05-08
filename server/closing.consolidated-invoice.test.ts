@@ -40,6 +40,7 @@ vi.mock("./db", () => ({
   getAllEmployees: vi.fn().mockResolvedValue([
     { id: 10, nameKanji: "山田太郎" },
     { id: 20, nameKanji: "佐藤花子" },
+    { id: 30, nameKanji: "鈴木次郎" },
   ]),
   getProjectClosingByProjectMonth: vi.fn().mockImplementation(async (projectId: number, closingMonth: string) => {
     const closing = closingsByProject.get(projectId);
@@ -47,12 +48,15 @@ vi.mock("./db", () => ({
   }),
   getClosingSubmissionsByClosing: vi.fn().mockImplementation(async (closingId: number) => {
     if (closingId === 101) return [{ id: 1001, closingId, employeeId: 10, status: "approved" }];
-    if (closingId === 102) return [{ id: 1002, closingId, employeeId: 20, status: "submitted" }];
+    if (closingId === 102) return [
+      { id: 1002, closingId, employeeId: 20, status: "submitted" },
+      { id: 1003, closingId, employeeId: 30, status: "submitted" },
+    ];
     return [];
   }),
   getProjectMembers: vi.fn().mockImplementation(async (projectId: number) => {
     if (projectId === 1) return [{ employeeId: 10, isActive: true }];
-    if (projectId === 2) return [{ employeeId: 20, isActive: true }];
+    if (projectId === 2) return [{ employeeId: 20, isActive: true }, { employeeId: 30, isActive: true }];
     return [];
   }),
   getAttendanceByDateRange: vi.fn().mockImplementation(async (_start: Date, _end: Date, projectId: number) => {
@@ -62,6 +66,7 @@ vi.mock("./db", () => ({
     ];
     if (projectId === 2) return [
       { employeeId: 20, projectId, workDate: new Date("2026-04-03"), hoursWorked: 80, workType: "normal", shiftType: "day" },
+      { employeeId: 30, projectId, workDate: new Date("2026-04-03"), hoursWorked: 80, workType: "normal", shiftType: "day" },
     ];
     return [];
   }),
@@ -143,9 +148,9 @@ describe("same-client same-month consolidated client invoice", () => {
       clientId: 10,
       projectId: null,
       internalMemo: expect.stringContaining("closing draft / projectIds=1,2"),
-      subtotal: 37000,
-      taxAmount: 3700,
-      totalAmount: 40700,
+      subtotal: 49000,
+      taxAmount: 4900,
+      totalAmount: 53900,
     }));
 
     const itemCalls = vi.mocked(db.createInvoiceItem).mock.calls.map(([item]) => item);
@@ -153,19 +158,28 @@ describe("same-client same-month consolidated client invoice", () => {
     const serializedExternalItems = JSON.stringify(itemCalls);
     expect(serializedExternalItems).not.toContain("山田太郎");
     expect(serializedExternalItems).not.toContain("佐藤花子");
+    expect(serializedExternalItems).not.toContain("鈴木次郎");
     expect(serializedExternalItems).not.toContain("対象:");
-    expect(itemCalls.filter((item: any) => item.itemType === "normal").map((item: any) => item.notes)).toEqual([null, null, null]);
+    expect(serializedExternalItems).not.toContain("一律");
+    expect(serializedExternalItems).not.toContain("個別");
+    const normalItems = itemCalls.filter((item: any) => item.itemType === "normal");
+    expect(normalItems.map((item: any) => item.description)).toEqual(["電気工事業A", "電気工事業B", "電気工事業A"]);
+    expect(normalItems.map((item: any) => item.notes)).toEqual([null, null, null]);
     expect(invoiceInput.internalMemo).toContain("社内メモ: 請求単価の対象者内訳（外部請求書には表示されません）");
     expect(invoiceInput.internalMemo).toContain("山田太郎");
     expect(invoiceInput.internalMemo).toContain("佐藤花子");
+    expect(invoiceInput.internalMemo).toContain("鈴木次郎");
     expect(invoiceInput.internalMemo).toContain("対象:");
+    expect(invoiceInput.internalMemo).toContain("案件一律");
+    expect(invoiceInput.internalMemo).toContain("個別単価");
+    expect(invoiceInput.internalMemo).toContain("夜勤");
     expect(itemCalls).toHaveLength(5);
     expect(itemCalls).toEqual([
       expect.objectContaining({ itemType: "text", description: "【品川A現場】", amount: 0, sortOrder: 0 }),
-      expect.objectContaining({ itemType: "normal", unitPrice: 15000, amount: 15000, sortOrder: 1 }),
-      expect.objectContaining({ itemType: "normal", unitPrice: 10000, amount: 10000, sortOrder: 2 }),
+      expect.objectContaining({ itemType: "normal", description: "電気工事業A", unitPrice: 15000, quantity: 10, amount: 15000, sortOrder: 1 }),
+      expect.objectContaining({ itemType: "normal", description: "電気工事業B", unitPrice: 10000, quantity: 10, amount: 10000, sortOrder: 2 }),
       expect.objectContaining({ itemType: "text", description: "【品川B現場】", amount: 0, sortOrder: 3 }),
-      expect.objectContaining({ itemType: "normal", unitPrice: 12000, amount: 12000, sortOrder: 4 }),
+      expect.objectContaining({ itemType: "normal", description: "電気工事業A", unitPrice: 12000, quantity: 20, amount: 24000, sortOrder: 4 }),
     ]);
     expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(expect.any(Date), expect.any(Date), 1);
     expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(expect.any(Date), expect.any(Date), 2);
