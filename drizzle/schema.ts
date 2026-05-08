@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex, index } from "drizzle-orm/mysql-core";
 /**
  * Core user table backing auth flow.
  * Extended with role hierarchy: admin (統合管理者), leader (責任者), worker (作業員)
@@ -656,6 +656,29 @@ export const closingSubmissions = mysqlTable("closing_submissions", {
 
 export type ClosingSubmission = typeof closingSubmissions.$inferSelect;
 export type InsertClosingSubmission = typeof closingSubmissions.$inferInsert;
+
+export const closingSubmissionDocuments = mysqlTable("closing_submission_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  submissionId: int("submissionId").notNull(),
+  projectId: int("projectId").notNull(),
+  employeeId: int("employeeId").notNull(),
+  closingMonth: varchar("closingMonth", { length: 7 }).notNull(),
+  fileName: varchar("fileName", { length: 512 }).notNull(),
+  fileUrl: text("fileUrl").notNull(),
+  fileKey: varchar("fileKey", { length: 512 }).notNull(),
+  mimeType: varchar("mimeType", { length: 128 }).notNull(),
+  fileSize: int("fileSize").notNull(),
+  documentType: mysqlEnum("closingDocumentType", ["receipt", "company_card", "etc", "other"]).default("receipt").notNull(),
+  uploadedByUserId: int("uploadedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ([
+  index("closing_submission_documents_submission_idx").on(table.submissionId),
+  index("closing_submission_documents_project_month_idx").on(table.projectId, table.closingMonth),
+  index("closing_submission_documents_employee_idx").on(table.employeeId),
+]));
+
+export type ClosingSubmissionDocument = typeof closingSubmissionDocuments.$inferSelect;
+export type InsertClosingSubmissionDocument = typeof closingSubmissionDocuments.$inferInsert;
 
 
 /**

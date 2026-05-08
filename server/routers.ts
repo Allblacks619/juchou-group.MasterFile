@@ -149,8 +149,8 @@ async function buildClosingDetail(projectId: number, closingMonth: string) {
   ]);
 
   const employeeMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
-  const enrichedSubmissions = submissions
-    .map((submission) => ({ ...submission, employee: employeeMap.get(submission.employeeId) || null }))
+  const enrichedSubmissions = (await Promise.all(submissions
+    .map(async (submission) => ({ ...submission, employee: employeeMap.get(submission.employeeId) || null, documents: await db.listClosingSubmissionDocuments(submission.id) }))))
     .sort((a, b) => (a.employee?.nameKanji || "").localeCompare(b.employee?.nameKanji || "", "ja"));
 
   const targetSubmissions = enrichedSubmissions.filter((s) => s.status !== "not_required");
@@ -2252,7 +2252,6 @@ export const appRouter = router({
 
         await db.updateClosingSubmission(input.submissionId, {
           receiptUploaded: true,
-          receiptRequired: true,
           receiptFileUrl: url,
           receiptFileName: input.fileName,
           receiptFileKey: fileKey,
@@ -2288,7 +2287,7 @@ export const appRouter = router({
           closing: result.detail?.closing || result.closing,
           project: result.detail?.project || null,
           client: result.detail?.client || null,
-          submission: result.submission || null,
+          submission: result.submission ? { ...result.submission, documents: await db.listClosingSubmissionDocuments(result.submission.id) } : null,
           summary: result.detail?.summary || null,
         };
       }),
@@ -2388,7 +2387,6 @@ export const appRouter = router({
         const { url } = await storagePut(fileKey, buffer, input.mimeType);
         await db.updateClosingSubmission(result.submission.id, {
           receiptUploaded: true,
-          receiptRequired: true,
           receiptFileUrl: url,
           receiptFileName: input.fileName,
           receiptFileKey: fileKey,
@@ -2399,6 +2397,47 @@ export const appRouter = router({
         } as any);
         await safeAuditLog(ctx.user.id, "submission.uploadMyReceipt", "submission", { entityId: result.submission.id, projectId: input.projectId, closingId: result.closing.id, employeeId: result.submission.employeeId, note: `自分の領収書アップロード: ${input.fileName}` });
         return { url, fileName: input.fileName };
+      }),
+
+
+    listMyReceiptDocuments: protectedProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        const docs = await db.listClosingSubmissionDocuments(result.submission.id);
+        return { documents: docs, legacyReceipt: result.submission.receiptFileUrl ? { fileUrl: result.submission.receiptFileUrl, fileName: result.submission.receiptFileName, fileKey: result.submission.receiptFileKey, mimeType: result.submission.receiptMimeType } : null };
+      }),
+
+    uploadMyReceiptDocument: protectedProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), base64: z.string(), mimeType: z.string(), fileName: z.string(), documentType: z.enum(["receipt","company_card","etc","other"]).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "この状態ではアップロードできません" });
+        const buffer = Buffer.from(input.base64, "base64");
+        const validationError = validateFile(input.fileName, input.mimeType, buffer.length);
+        if (validationError) throw new TRPCError({ code: "BAD_REQUEST", message: validationError });
+        const suffix = nanoid(8);
+        const fileKey = `closings/${result.submission.closingId}/employee-${result.submission.employeeId}/doc-${suffix}-${input.fileName}`;
+        const { url } = await storagePut(fileKey, buffer, input.mimeType);
+        const doc = await db.createClosingSubmissionDocument({ submissionId: result.submission.id, projectId: input.projectId, employeeId: result.submission.employeeId, closingMonth: input.closingMonth, fileName: input.fileName, fileUrl: url, fileKey, mimeType: input.mimeType, fileSize: buffer.length, documentType: input.documentType || "receipt", uploadedByUserId: ctx.user.id });
+        await db.updateClosingSubmission(result.submission.id, { receiptUploaded: true, receiptFileUrl: result.submission.receiptFileUrl || url, receiptFileName: result.submission.receiptFileName || input.fileName, receiptFileKey: result.submission.receiptFileKey || fileKey, receiptMimeType: result.submission.receiptMimeType || input.mimeType } as any);
+        return doc;
+      }),
+
+    deleteMyReceiptDocument: protectedProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), documentId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では削除できません" });
+        const doc = await db.getClosingSubmissionDocumentById(input.documentId);
+        if (!doc || doc.submissionId !== result.submission.id) throw new TRPCError({ code: "NOT_FOUND", message: "書類が見つかりません" });
+        await db.deleteClosingSubmissionDocument(input.documentId);
+        const rest = await db.listClosingSubmissionDocuments(result.submission.id);
+        if (rest.length === 0 && !result.submission.receiptFileUrl) await db.updateClosingSubmission(result.submission.id, { receiptUploaded: false } as any);
+        return { success: true };
       }),
 
     clearMyReceipt: protectedProcedure

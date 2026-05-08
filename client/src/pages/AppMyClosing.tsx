@@ -234,7 +234,7 @@ export default function AppMyClosing() {
     onError: e => toast.error(`提出エラー: ${e.message}`),
   });
 
-  const uploadMutation = trpc.closing.uploadMyReceipt.useMutation({
+  const uploadMutation = trpc.closing.uploadMyReceiptDocument.useMutation({
     onSuccess: () => {
       toast.success("領収書をアップロードしました");
       detailQuery.refetch();
@@ -242,7 +242,7 @@ export default function AppMyClosing() {
     onError: e => toast.error(`アップロードエラー: ${e.message}`),
   });
 
-  const clearMutation = trpc.closing.clearMyReceipt.useMutation({
+  const clearMutation = trpc.closing.deleteMyReceiptDocument.useMutation({
     onSuccess: () => {
       toast.success("領収書を解除しました");
       detailQuery.refetch();
@@ -607,13 +607,14 @@ export default function AppMyClosing() {
                   <span className="font-medium">領収書</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  交通費・経費が0円の場合でも、会社カード・ETCなどの証憑を添付できます。
+                  領収書・ETC・会社カード利用明細などを添付できます。
+                  交通費・経費が0円でも証憑として提出できます。
                 </p>
                 <input
                   ref={fileInputRef}
                   type="file"
                   className="hidden"
-                  accept="image/*,.pdf"
+                  accept=".pdf,.jpeg,.jpg,.png,image/jpeg,image/png,application/pdf"
                   onChange={e => handleReceiptFile(e.target.files?.[0] || null)}
                 />
                 <div className="flex items-center gap-2 flex-wrap">
@@ -629,41 +630,24 @@ export default function AppMyClosing() {
                       ? "領収書を差し替え"
                       : "領収書をアップロード"}
                   </Button>
-                  {detail.submission?.receiptFileUrl ? (
-                    <>
-                      <a
-                        href={detail.submission.receiptFileUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate"
-                      >
-                        <LinkIcon className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">
-                          {detail.submission.receiptFileName || "領収書"}
-                        </span>
+                  <div className="w-full space-y-2">
+                    {detail.submission?.documents?.map((doc: any) => (
+                      <div key={doc.id} className="flex items-center gap-2">
+                        <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate">
+                          <LinkIcon className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{doc.fileName}</span>
+                        </a>
+                        <Button variant="ghost" size="icon" className="text-red-400" disabled={!canEdit || busy} onClick={() => clearMutation.mutate({ projectId: selectedProjectId, closingMonth, documentId: doc.id })}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    {detail.submission?.receiptFileUrl && (
+                      <a href={detail.submission.receiptFileUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate">
+                        <LinkIcon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{detail.submission.receiptFileName || "領収書(旧)"}</span>
                       </a>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-red-400"
-                        disabled={!canEdit || busy}
-                        onClick={() =>
-                          clearMutation.mutate({
-                            projectId: selectedProjectId,
-                            closingMonth,
-                          })
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </>
-                  ) : (
-                    <span
-                      className={`text-sm ${receiptRequired ? "text-amber-400" : "text-muted-foreground"}`}
-                    >
-                      {receiptRequired ? "未添付" : "不要"}
-                    </span>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
 
