@@ -16,6 +16,7 @@ import {
   projectMembers, InsertProjectMember,
   InsertProjectClosing, projectClosings,
   InsertClosingSubmission, closingSubmissions,
+  InsertClosingSubmissionDocument, closingSubmissionDocuments,
   InsertEmployeePayment, employeePayments,
   InsertAuditLog, auditLogs,
   workerInvoices, InsertWorkerInvoice,
@@ -899,6 +900,33 @@ export async function updateClosingSubmission(id: number, data: Partial<InsertCl
 }
 
 
+
+
+export async function listClosingSubmissionDocuments(submissionId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(closingSubmissionDocuments).where(eq(closingSubmissionDocuments.submissionId, submissionId));
+}
+
+export async function createClosingSubmissionDocument(data: InsertClosingSubmissionDocument) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(closingSubmissionDocuments).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function getClosingSubmissionDocumentById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(closingSubmissionDocuments).where(eq(closingSubmissionDocuments.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function deleteClosingSubmissionDocument(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(closingSubmissionDocuments).where(eq(closingSubmissionDocuments.id, id));
+}
 // ── Employee Payments ──
 
 export async function getEmployeePaymentsByClosing(closingId: number) {

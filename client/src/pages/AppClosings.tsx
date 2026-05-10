@@ -23,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2, FileDown, Clock, CheckCircle, AlertCircle, XCircle, Receipt, Send, RotateCcw, Eye } from "lucide-react";
+import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2, FileDown, Clock, CheckCircle, AlertCircle, XCircle, Receipt, Send, RotateCcw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -62,7 +62,6 @@ export default function AppClosings() {
   const [closingMonth, setClosingMonth] = useState(format(new Date(), "yyyy-MM"));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [invoiceProjectIds, setInvoiceProjectIds] = useState<number[]>([]);
-  const [returnReasonMap, setReturnReasonMap] = useState<Record<number, string>>({});
 
   // Read deep-link query params on mount
   useEffect(() => {
@@ -147,9 +146,6 @@ export default function AppClosings() {
     onError: (e: any) => toast.error(`請求書ドラフト作成エラー: ${e.message}`),
   });
 
-  useEffect(() => {
-    if (selectedProjectId) setInvoiceProjectIds([selectedProjectId]);
-  }, [selectedProjectId]);
 
   const uploadReceiptMutation = trpc.closing.uploadReceipt.useMutation({
     onSuccess: () => {
@@ -170,34 +166,44 @@ export default function AppClosings() {
   });
 
   const rows = listQuery.data || [];
-  const workerInvoiceReviewQuery = trpc.workerInvoice.listForReview.useQuery();
-  const trpcUtils = trpc.useUtils();
-  const workerReturnMutation = trpc.workerInvoice.returnInvoice.useMutation({
-    onSuccess: () => {
-      toast.success("差戻ししました");
-      workerInvoiceReviewQuery.refetch();
-    },
-    onError: (e: any) => toast.error(`差戻しエラー: ${e.message}`),
-  });
-  const workerApproveMutation = trpc.workerInvoice.approve.useMutation({
-    onSuccess: () => {
-      toast.success("承認しました");
-      workerInvoiceReviewQuery.refetch();
-    },
-    onError: (e: any) => toast.error(`承認エラー: ${e.message}`),
-  });
   const selectedRow = useMemo(
     () => rows.find((row: any) => row.project.id === selectedProjectId) || null,
     [rows, selectedProjectId]
   );
   const detail = detailQuery.data;
   const sameClientProjects = sameClientCandidatesQuery.data || [];
+  const eligibleSameClientProjects = useMemo(
+    () => sameClientProjects.filter((project: any) => project.isEligible),
+    [sameClientProjects]
+  );
+  const ineligibleSameClientProjects = useMemo(
+    () => sameClientProjects.filter((project: any) => !project.isEligible),
+    [sameClientProjects]
+  );
+  const autoSelectionKeyRef = useRef("");
 
   useEffect(() => {
-    if (selectedProjectId) setInvoiceProjectIds([selectedProjectId]);
-  }, [selectedProjectId]);
+    if (!selectedProjectId) {
+      setInvoiceProjectIds([]);
+      autoSelectionKeyRef.current = "";
+      return;
+    }
+
+    const eligibleProjectIds = eligibleSameClientProjects.map((project: any) => Number(project.projectId));
+    const nextProjectIds = eligibleProjectIds.includes(selectedProjectId)
+      ? eligibleProjectIds
+      : [selectedProjectId, ...eligibleProjectIds];
+    const selectionKey = `${selectedProjectId}:${closingMonth}:${nextProjectIds.join(",")}`;
+    if (autoSelectionKeyRef.current === selectionKey) return;
+
+    setInvoiceProjectIds(nextProjectIds);
+    autoSelectionKeyRef.current = selectionKey;
+  }, [selectedProjectId, closingMonth, eligibleSameClientProjects]);
 
   const toggleInvoiceProject = (projectId: number) => {
+    const project = eligibleSameClientProjects.find((candidate: any) => Number(candidate.projectId) === Number(projectId));
+    if (!project) return;
+
     setInvoiceProjectIds((prev) =>
       prev.includes(projectId)
         ? (prev.length > 1 ? prev.filter((id) => id !== projectId) : prev)
@@ -218,78 +224,6 @@ export default function AppClosings() {
           <Input type="month" value={closingMonth} onChange={(e) => setClosingMonth(e.target.value)} />
         </div>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>作業員請求書レビュー（Phase 3B）</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {(workerInvoiceReviewQuery.data || []).length === 0 ? (
-            <div className="text-sm text-muted-foreground">レビュー対象の作業員請求書はありません。</div>
-          ) : (
-            <div className="space-y-3">
-              {(workerInvoiceReviewQuery.data || []).map((invoice: any) => (
-                <div key={invoice.id} className="border rounded-lg p-3 space-y-2">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                    <div>
-                      <div className="font-medium">{invoice.subject || `${invoice.closingMonth} 作業請求`}</div>
-                      <div className="text-xs text-muted-foreground">#{invoice.id} / worker:{invoice.employeeId} / status:{invoice.status}</div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={async () => {
-                        const data = await trpcUtils.workerInvoice.previewMyInvoice.fetch({ invoiceId: invoice.id });
-                        toast.success(`プレビュー: ${data.model.subject}`);
-                      }}>
-                        <Eye className="h-4 w-4 mr-1" /> プレビュー
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={async () => {
-                        const pdf = await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch({ invoiceId: invoice.id });
-                        window.open(pdf.url, "_blank");
-                      }}>
-                        <FileDown className="h-4 w-4 mr-1" /> PDFダウンロード
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={async () => {
-                        const data = await trpcUtils.workerInvoice.exportMyInvoicePackage.fetch({ invoiceId: invoice.id });
-                        const docs = data.documents || [];
-                        if (docs.length === 0) {
-                          toast.info("添付資料はありません");
-                        } else if (docs.length === 1) {
-                          window.open(docs[0].url, "_blank");
-                        } else {
-                          toast.info(`添付資料が${docs.length}件あります。エクスポート情報から個別ダウンロードしてください。`);
-                        }
-                      }}>
-                        <FileDown className="h-4 w-4 mr-1" /> 添付資料
-                      </Button>
-                      <Button size="sm" onClick={() => workerApproveMutation.mutate({ invoiceId: invoice.id })} disabled={workerApproveMutation.isPending || invoice.status === "approved"}>
-                        承認
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="flex flex-col md:flex-row gap-2">
-                    <Input
-                      value={returnReasonMap[invoice.id] || ""}
-                      onChange={(e) => setReturnReasonMap((prev) => ({ ...prev, [invoice.id]: e.target.value }))}
-                      placeholder="差戻し理由"
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        const reason = (returnReasonMap[invoice.id] || "").trim();
-                        if (!reason) return toast.error("差戻し理由を入力してください");
-                        workerReturnMutation.mutate({ invoiceId: invoice.id, reason });
-                      }}
-                      disabled={workerReturnMutation.isPending}
-                    >
-                      差戻し
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -431,13 +365,13 @@ export default function AppClosings() {
                 {detail.closing.status === "closed" && sameClientProjects.length > 0 && (
                   <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 space-y-3">
                     <div>
-                      <p className="text-sm font-medium text-blue-300">請求書に含める案件</p>
+                      <p className="text-sm font-medium text-blue-300">同一取引先・同月の締め準備済み現場をまとめて請求します</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        初期状態は現在の案件のみです。同一取引先の締め完了案件だけを選択して、1枚の請求書にまとめられます。
+                        選択中: {invoiceProjectIds.length}件。同一取引先・同月で ready / closed / locked の案件を初期選択しています。
                       </p>
                     </div>
                     <div className="grid gap-2 grid-cols-1 md:grid-cols-2">
-                      {sameClientProjects.map((project: any) => (
+                      {eligibleSameClientProjects.map((project: any) => (
                         <label key={project.projectId} className="flex items-center gap-2 rounded border border-border px-3 py-2 text-sm cursor-pointer hover:bg-muted/30">
                           <input
                             type="checkbox"
@@ -445,10 +379,23 @@ export default function AppClosings() {
                             onChange={() => toggleInvoiceProject(project.projectId)}
                           />
                           <span>{project.projectName}</span>
+                          <span className="text-xs text-muted-foreground">{STATUS_LABELS[project.closingStatus]?.label || project.closingStatus}</span>
                           {project.projectId === selectedProjectId && <span className="text-xs text-gold">現在の案件</span>}
                         </label>
                       ))}
                     </div>
+                    {ineligibleSameClientProjects.length > 0 && (
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                        <p className="font-medium">同じ取引先の未準備現場は請求対象外です</p>
+                        <ul className="mt-2 list-disc pl-5 space-y-1">
+                          {ineligibleSameClientProjects.map((project: any) => (
+                            <li key={project.projectId}>
+                              {project.projectName}（{STATUS_LABELS[project.closingStatus]?.label || project.closingStatus}）{project.reason ? `: ${project.reason}` : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
 

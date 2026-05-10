@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex, index } from "drizzle-orm/mysql-core";
 /**
  * Core user table backing auth flow.
  * Extended with role hierarchy: admin (統合管理者), leader (責任者), worker (作業員)
@@ -11,7 +11,7 @@ export const users = mysqlTable("users", {
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   /** App-level role */
-  appRole: mysqlEnum("appRole", ["super_admin", "admin", "manager", "worker", "guest"]).default("worker").notNull(),
+  appRole: mysqlEnum("appRole", ["super_admin", "admin", "manager", "leader", "worker", "guest"]).default("worker").notNull(),
   /** Login ID (romaji name) for invitation-based login */
   loginId: varchar("loginId", { length: 128 }).unique(),
   /** Hashed password (bcrypt) */
@@ -40,7 +40,7 @@ export const invitations = mysqlTable("invitations", {
   /** Temporary password */
   tempPassword: varchar("tempPassword", { length: 256 }).notNull(),
   /** Role to assign */
-  assignedRole: mysqlEnum("assignedRole", ["super_admin", "admin", "manager", "worker", "guest"]).default("worker").notNull(),
+  assignedRole: mysqlEnum("assignedRole", ["super_admin", "admin", "manager", "leader", "worker", "guest"]).default("worker").notNull(),
   /** Optional email to send invitation to */
   recipientEmail: varchar("recipientEmail", { length: 320 }),
   /** Invitation status */
@@ -656,6 +656,29 @@ export const closingSubmissions = mysqlTable("closing_submissions", {
 
 export type ClosingSubmission = typeof closingSubmissions.$inferSelect;
 export type InsertClosingSubmission = typeof closingSubmissions.$inferInsert;
+
+export const closingSubmissionDocuments = mysqlTable("closing_submission_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  submissionId: int("submissionId").notNull(),
+  projectId: int("projectId").notNull(),
+  employeeId: int("employeeId").notNull(),
+  closingMonth: varchar("closingMonth", { length: 7 }).notNull(),
+  fileName: varchar("fileName", { length: 512 }).notNull(),
+  fileUrl: text("fileUrl").notNull(),
+  fileKey: varchar("fileKey", { length: 512 }).notNull(),
+  mimeType: varchar("mimeType", { length: 128 }).notNull(),
+  fileSize: int("fileSize").notNull(),
+  documentType: mysqlEnum("closingDocumentType", ["receipt", "company_card", "etc", "other"]).default("receipt").notNull(),
+  uploadedByUserId: int("uploadedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ([
+  index("closing_submission_documents_submission_idx").on(table.submissionId),
+  index("closing_submission_documents_project_month_idx").on(table.projectId, table.closingMonth),
+  index("closing_submission_documents_employee_idx").on(table.employeeId),
+]));
+
+export type ClosingSubmissionDocument = typeof closingSubmissionDocuments.$inferSelect;
+export type InsertClosingSubmissionDocument = typeof closingSubmissionDocuments.$inferInsert;
 
 
 /**

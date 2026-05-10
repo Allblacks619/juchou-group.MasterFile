@@ -32,6 +32,7 @@ export type InvoiceDraft = {
   totalAmount: number;
   withholdingAmount: number;
   subject: string;
+  internalRateMemo: string | null;
 };
 
 function isAllowedClosingStatus(status: string | null | undefined, allowed: InvoiceableClosingStatus[]) {
@@ -42,18 +43,14 @@ function toYearMonth(date: Date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function sourceToInvoiceSuffix(source: string, shiftType: string) {
-  const shiftLabel = shiftType === "night" ? " 夜勤" : "";
-  if (source === "project_uniform") return `一律${shiftLabel}`;
-  if (source === "employee_individual") return `個別${shiftLabel}`;
-  return shiftLabel.trim() || "通常";
+function shiftTypeLabel(shiftType: string) {
+  return shiftType === "night" ? "夜勤" : "日勤";
 }
 
-function lineDescriptionForBucket(bucketIndex: number, source: string, shiftType: string) {
+function lineDescriptionForBucket(bucketIndex: number) {
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   const letter = letters[bucketIndex] || String(bucketIndex + 1);
-  const suffix = sourceToInvoiceSuffix(source, shiftType);
-  return `電気工事業 ${letter}${suffix ? `（${suffix}）` : ""}`;
+  return `電気工事業${letter}`;
 }
 
 /**
@@ -115,6 +112,7 @@ export async function buildInvoiceDraftFromProjects(args: {
   const taxRate = Number(args.taxRate ?? 10);
   const includeProjectSectionHeaders = args.includeProjectSectionHeaders ?? projectIds.length > 1;
   const missingRateMessages: string[] = [];
+  const internalRateMemoLines: string[] = [];
 
   for (const project of resolvedProjects) {
     const closing = await db.getProjectClosingByProjectMonth(project.id, closingMonth);
@@ -252,18 +250,23 @@ export async function buildInvoiceDraftFromProjects(args: {
 
     projectBuckets.forEach((bucket, index) => {
       const amount = Math.round((bucket.totalDaysTimes10 / 10) * bucket.clientRate);
+      const description = lineDescriptionForBucket(index);
       subtotal += amount;
+
+      internalRateMemoLines.push(
+        `${bucket.projectName} / ${description} / ${rateSourceLabel(bucket.rateSource as any)} / ${shiftTypeLabel(bucket.shiftType)} / 単価: ${bucket.clientRate.toLocaleString("ja-JP")}円 / 対象: ${Array.from(bucket.employeeNames).join("、")}`
+      );
 
       items.push({
         employeeId: null,
         itemType: "normal",
-        description: lineDescriptionForBucket(index, bucket.rateSource, bucket.shiftType),
+        description,
         quantity: bucket.totalDaysTimes10,
         unit: "日",
         unitPrice: bucket.clientRate,
         amount,
         itemTaxRate: taxRate,
-        notes: `${rateSourceLabel(bucket.rateSource as any)} / 対象: ${Array.from(bucket.employeeNames).join("、")}`,
+        notes: null,
         sortOrder: items.length,
       });
     });
@@ -300,5 +303,6 @@ export async function buildInvoiceDraftFromProjects(args: {
     totalAmount,
     withholdingAmount,
     subject,
+    internalRateMemo: internalRateMemoLines.length ? [`社内メモ: 請求単価の対象者内訳（外部請求書には表示されません）`, ...internalRateMemoLines].join("\n") : null,
   };
 }

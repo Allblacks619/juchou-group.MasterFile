@@ -50,7 +50,55 @@ async function recalcInvoiceTotals(invoiceId: number) {
 }
 
 
+const CLIENT_INVOICE_ELIGIBLE_CLOSING_STATUSES = ["ready", "closed", "locked"] as const;
 
+function normalizeClosingStatusReason(status: string | null | undefined) {
+  if (!status) return "締めデータが未作成です";
+  if ((CLIENT_INVOICE_ELIGIBLE_CLOSING_STATUSES as readonly string[]).includes(status)) return null;
+  if (status === "open") return "締め準備が完了していません";
+  return `請求対象外の締め状態です: ${status}`;
+}
+
+async function buildSameClientInvoiceCandidates(projectId: number, closingMonth: string) {
+  const currentProject = await db.getProjectById(projectId);
+  if (!currentProject?.clientId) return [];
+
+  const [client, allProjects] = await Promise.all([
+    db.getClientById(Number(currentProject.clientId)),
+    db.getAllProjects(),
+  ]);
+  const sameClientProjects = allProjects.filter(
+    (project: any) => Number(project.clientId) === Number(currentProject.clientId)
+  );
+
+  const rows = [];
+  for (const project of sameClientProjects) {
+    const closing = await db.getProjectClosingByProjectMonth(project.id, closingMonth);
+    const closingStatus = closing?.status || "none";
+    const reason = normalizeClosingStatusReason(closing?.status);
+    rows.push({
+      projectId: Number(project.id),
+      projectName: project.name,
+      clientId: Number(currentProject.clientId),
+      clientName: client?.name || null,
+      closingId: closing?.id ? Number(closing.id) : null,
+      closingMonth,
+      closingStatus,
+      isEligible: !reason,
+      reason,
+    });
+  }
+
+  return rows.sort((a: any, b: any) => a.projectName.localeCompare(b.projectName, "ja"));
+}
+
+async function assertProjectMember(employeeId: number, projectId: number) {
+  const memberships = await db.getProjectsByEmployee(employeeId);
+  const isMember = memberships.some((member: any) => member.projectId === projectId && member.isActive !== false);
+  if (!isMember) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "この現場のメンバーではありません" });
+  }
+}
 
 async function safeAuditLog(userId: number | null | undefined, action: string, entityType: string, meta: {
   entityId?: number | null;
@@ -101,8 +149,8 @@ async function buildClosingDetail(projectId: number, closingMonth: string) {
   ]);
 
   const employeeMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
-  const enrichedSubmissions = submissions
-    .map((submission) => ({ ...submission, employee: employeeMap.get(submission.employeeId) || null }))
+  const enrichedSubmissions = (await Promise.all(submissions
+    .map(async (submission) => ({ ...submission, employee: employeeMap.get(submission.employeeId) || null, documents: await db.listClosingSubmissionDocuments(submission.id) }))))
     .sort((a, b) => (a.employee?.nameKanji || "").localeCompare(b.employee?.nameKanji || "", "ja"));
 
   const targetSubmissions = enrichedSubmissions.filter((s) => s.status !== "not_required");
@@ -1724,10 +1772,10 @@ export const appRouter = router({
         records: z.array(z.object({
           employeeId: z.number().nullable().optional(),
           guestName: z.string().optional(),
-          projectId: z.number(),
-          workDate: z.string(),
-          hoursWorked: z.number().default(80),
-          overtimeHours: z.number().default(0),
+          projectId: z.number().int().positive(),
+          workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          hoursWorked: z.number().min(0).max(240).default(80),
+          overtimeHours: z.number().min(0).max(240).default(0),
           workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence", "day_off"]).default("normal"),
           shiftType: z.enum(["day", "night"]).default("day"),
           notes: z.string().optional(),
@@ -1785,22 +1833,29 @@ export const appRouter = router({
     myBatchUpsert: protectedProcedure
       .input(z.object({
         records: z.array(z.object({
-          projectId: z.number(),
-          workDate: z.string(),
-          hoursWorked: z.number().default(80),
-          overtimeHours: z.number().default(0),
+          projectId: z.number().int().positive(),
+          workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          hoursWorked: z.number().min(0).max(240).default(80),
+          overtimeHours: z.number().min(0).max(240).default(0),
           workType: z.enum(["normal", "half_day", "overtime", "holiday", "absence", "day_off"]).default("normal"),
           shiftType: z.enum(["day", "night"]).default("day"),
           notes: z.string().optional(),
         })),
         deletes: z.array(z.object({
-          projectId: z.number(),
-          workDate: z.string(),
+          projectId: z.number().int().positive(),
+          workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         })).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const employee = await db.getEmployeeByUserId(ctx.user.id);
         if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+        const projectIds = new Set([
+          ...input.records.map((rec) => rec.projectId),
+          ...(input.deletes || []).map((del) => del.projectId),
+        ]);
+        for (const projectId of Array.from(projectIds)) {
+          await assertProjectMember(employee.id, projectId);
+        }
         const results = [];
         for (const rec of input.records) {
           const result = await db.upsertAttendance({
@@ -1856,14 +1911,15 @@ export const appRouter = router({
 
     /** Get projects where the current employee has attendance records or is assigned */
     myProjects: protectedProcedure.query(async ({ ctx }) => {
+      const allProjects = await db.getAllProjects();
+      if (isManagerLike((ctx.user as any).appRole)) {
+        return allProjects.filter(p => p.status === "active");
+      }
       const employee = await db.getEmployeeByUserId(ctx.user.id);
       if (!employee) return [];
-      // Get all projects and filter to those where this employee has records
-      const allProjects = await db.getAllProjects();
-      const allRecords = await db.getAttendanceByEmployee(employee.id);
-      const projectIds = new Set(allRecords.map(r => r.projectId));
-      // Return all active projects (employees can input for any active project)
-      return allProjects.filter(p => p.status === "active");
+      const memberships = await db.getProjectsByEmployee(employee.id);
+      const projectIds = new Set(memberships.map((m: any) => m.projectId));
+      return allProjects.filter(p => p.status === "active" && projectIds.has(p.id));
     }),
 
     /** Get last used project for current employee */
@@ -1892,7 +1948,12 @@ export const appRouter = router({
         startDate: z.string(),
         endDate: z.string(),
       }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        if (!isManagerLike((ctx.user as any).appRole)) {
+          const employee = await db.getEmployeeByUserId(ctx.user.id);
+          if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+          await assertProjectMember(employee.id, input.projectId);
+        }
         const records = await db.getAttendanceByProject(
           input.projectId,
           parseDateRange(input.startDate).start,
@@ -2191,7 +2252,6 @@ export const appRouter = router({
 
         await db.updateClosingSubmission(input.submissionId, {
           receiptUploaded: true,
-          receiptRequired: true,
           receiptFileUrl: url,
           receiptFileName: input.fileName,
           receiptFileKey: fileKey,
@@ -2227,7 +2287,7 @@ export const appRouter = router({
           closing: result.detail?.closing || result.closing,
           project: result.detail?.project || null,
           client: result.detail?.client || null,
-          submission: result.submission || null,
+          submission: result.submission ? { ...result.submission, documents: await db.listClosingSubmissionDocuments(result.submission.id) } : null,
           summary: result.detail?.summary || null,
         };
       }),
@@ -2327,7 +2387,6 @@ export const appRouter = router({
         const { url } = await storagePut(fileKey, buffer, input.mimeType);
         await db.updateClosingSubmission(result.submission.id, {
           receiptUploaded: true,
-          receiptRequired: true,
           receiptFileUrl: url,
           receiptFileName: input.fileName,
           receiptFileKey: fileKey,
@@ -2338,6 +2397,47 @@ export const appRouter = router({
         } as any);
         await safeAuditLog(ctx.user.id, "submission.uploadMyReceipt", "submission", { entityId: result.submission.id, projectId: input.projectId, closingId: result.closing.id, employeeId: result.submission.employeeId, note: `自分の領収書アップロード: ${input.fileName}` });
         return { url, fileName: input.fileName };
+      }),
+
+
+    listMyReceiptDocuments: protectedProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        const docs = await db.listClosingSubmissionDocuments(result.submission.id);
+        return { documents: docs, legacyReceipt: result.submission.receiptFileUrl ? { fileUrl: result.submission.receiptFileUrl, fileName: result.submission.receiptFileName, fileKey: result.submission.receiptFileKey, mimeType: result.submission.receiptMimeType } : null };
+      }),
+
+    uploadMyReceiptDocument: protectedProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), base64: z.string(), mimeType: z.string(), fileName: z.string(), documentType: z.enum(["receipt","company_card","etc","other"]).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "この状態ではアップロードできません" });
+        const buffer = Buffer.from(input.base64, "base64");
+        const validationError = validateFile(input.fileName, input.mimeType, buffer.length);
+        if (validationError) throw new TRPCError({ code: "BAD_REQUEST", message: validationError });
+        const suffix = nanoid(8);
+        const fileKey = `closings/${result.submission.closingId}/employee-${result.submission.employeeId}/doc-${suffix}-${input.fileName}`;
+        const { url } = await storagePut(fileKey, buffer, input.mimeType);
+        const doc = await db.createClosingSubmissionDocument({ submissionId: result.submission.id, projectId: input.projectId, employeeId: result.submission.employeeId, closingMonth: input.closingMonth, fileName: input.fileName, fileUrl: url, fileKey, mimeType: input.mimeType, fileSize: buffer.length, documentType: input.documentType || "receipt", uploadedByUserId: ctx.user.id });
+        await db.updateClosingSubmission(result.submission.id, { receiptUploaded: true, receiptFileUrl: result.submission.receiptFileUrl || url, receiptFileName: result.submission.receiptFileName || input.fileName, receiptFileKey: result.submission.receiptFileKey || fileKey, receiptMimeType: result.submission.receiptMimeType || input.mimeType } as any);
+        return doc;
+      }),
+
+    deleteMyReceiptDocument: protectedProcedure
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), documentId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では削除できません" });
+        const doc = await db.getClosingSubmissionDocumentById(input.documentId);
+        if (!doc || doc.submissionId !== result.submission.id) throw new TRPCError({ code: "NOT_FOUND", message: "書類が見つかりません" });
+        await db.deleteClosingSubmissionDocument(input.documentId);
+        const rest = await db.listClosingSubmissionDocuments(result.submission.id);
+        if (rest.length === 0 && !result.submission.receiptFileUrl) await db.updateClosingSubmission(result.submission.id, { receiptUploaded: false } as any);
+        return { success: true };
       }),
 
     clearMyReceipt: protectedProcedure
@@ -2451,7 +2551,7 @@ export const appRouter = router({
           taxRate: 10,
           status: "draft",
           notes: null,
-          internalMemo: `closing draft / projectIds=${draft.projectIds.join(",")}`,
+          internalMemo: [`closing draft / projectIds=${draft.projectIds.join(",")}`, draft.internalRateMemo].filter(Boolean).join("\n\n"),
           pdfUrl: null,
           receivedAmount: 0,
           receivedAt: null,
@@ -2510,20 +2610,7 @@ export const appRouter = router({
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
       }))
       .query(async ({ input }) => {
-        const currentProject = await db.getProjectById(input.projectId);
-        if (!currentProject?.clientId) return [];
-        const allProjects = await db.getAllProjects();
-        const sameClientProjects = allProjects.filter(
-          (project: any) => Number(project.clientId) === Number(currentProject.clientId)
-        );
-        const rows = [];
-        for (const project of sameClientProjects) {
-          const closing = await db.getProjectClosingByProjectMonth(project.id, input.closingMonth);
-          if (closing && ["ready", "closed", "locked"].includes(closing.status)) {
-            rows.push({ project, closing });
-          }
-        }
-        return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
+        return buildSameClientInvoiceCandidates(input.projectId, input.closingMonth);
       }),
   }),
 
@@ -2832,7 +2919,7 @@ export const appRouter = router({
           taxRate: 10,
           status: "draft",
           notes: null,
-          internalMemo: `closing draft / projectIds=${draft.projectIds.join(",")}`,
+          internalMemo: [`closing draft / projectIds=${draft.projectIds.join(",")}`, draft.internalRateMemo].filter(Boolean).join("\n\n"),
           pdfUrl: null,
           receivedAmount: 0,
           receivedAt: null,
@@ -2890,20 +2977,7 @@ export const appRouter = router({
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
       }))
       .query(async ({ input }) => {
-        const currentProject = await db.getProjectById(input.projectId);
-        if (!currentProject?.clientId) return [];
-        const allProjects = await db.getAllProjects();
-        const sameClientProjects = allProjects.filter(
-          (project: any) => Number(project.clientId) === Number(currentProject.clientId)
-        );
-        const rows = [];
-        for (const project of sameClientProjects) {
-          const closing = await db.getProjectClosingByProjectMonth(project.id, input.closingMonth);
-          if (closing && ["ready", "closed", "locked"].includes(closing.status)) {
-            rows.push({ project, closing });
-          }
-        }
-        return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
+        return buildSameClientInvoiceCandidates(input.projectId, input.closingMonth);
       }),
   }),
   invoice: router({
@@ -2974,7 +3048,7 @@ export const appRouter = router({
           taxRate: input.taxRate,
           status: "draft",
           notes: input.notes || null,
-          internalMemo: null,
+          internalMemo: [`attendance draft / projectIds=${draft.projectIds.join(",")}`, draft.internalRateMemo].filter(Boolean).join("\n\n"),
           pdfUrl: null,
           receivedAmount: 0,
           receivedAt: null,

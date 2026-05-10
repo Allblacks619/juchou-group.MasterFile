@@ -1,0 +1,16 @@
+{
+  "query": "SELECT id, loginId, role, appRole FROM users WHERE loginId = 'Mitsuro Oki';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4J7tUJfFB9qLpnj.df8ac853eb6a --database Zmx5PsySMYEq8fnTQEF9bk --execute SELECT id, loginId, role, appRole FROM users WHERE loginId = 'Mitsuro Oki';",
+  "rows": [
+    {
+      "id": "60005",
+      "loginId": "Mitsuro Oki",
+      "role": "admin",
+      "appRole": "super_admin"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tloginId\trole\tappRole\n60005\tMitsuro Oki\tadmin\tsuper_admin\n",
+  "stderr": "",
+  "execution_time_ms": 1724
+}

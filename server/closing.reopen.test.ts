@@ -28,6 +28,7 @@ vi.mock("./db", () => ({
   getEmployeePaymentByClosingEmployee: vi.fn().mockResolvedValue(null),
   upsertEmployeePayment: vi.fn().mockResolvedValue({ id: 1 }),
   createAuditLog: vi.fn().mockResolvedValue({ id: 1 }),
+  listClosingSubmissionDocuments: vi.fn().mockResolvedValue([]),
 }));
 
 function createUser(overrides: Partial<User> = {}): User {

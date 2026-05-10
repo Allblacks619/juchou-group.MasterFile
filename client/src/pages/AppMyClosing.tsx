@@ -234,7 +234,7 @@ export default function AppMyClosing() {
     onError: e => toast.error(`提出エラー: ${e.message}`),
   });
 
-  const uploadMutation = trpc.closing.uploadMyReceipt.useMutation({
+  const uploadMutation = trpc.closing.uploadMyReceiptDocument.useMutation({
     onSuccess: () => {
       toast.success("領収書をアップロードしました");
       detailQuery.refetch();
@@ -242,7 +242,7 @@ export default function AppMyClosing() {
     onError: e => toast.error(`アップロードエラー: ${e.message}`),
   });
 
-  const clearMutation = trpc.closing.clearMyReceipt.useMutation({
+  const clearMutation = trpc.closing.deleteMyReceiptDocument.useMutation({
     onSuccess: () => {
       toast.success("領収書を解除しました");
       detailQuery.refetch();
@@ -452,8 +452,8 @@ export default function AppMyClosing() {
             交通費・経費・領収書を提出して、月締めを完了します。
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="w-[180px]">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="w-full sm:w-[180px]">
             <Label className="text-xs text-muted-foreground">対象月</Label>
             <Input
               type="month"
@@ -461,7 +461,7 @@ export default function AppMyClosing() {
               onChange={e => setClosingMonth(e.target.value)}
             />
           </div>
-          <div className="w-[260px]">
+          <div className="w-full sm:w-[260px]">
             <Label className="text-xs text-muted-foreground">現場</Label>
             <Select
               value={selectedProjectId?.toString() || ""}
@@ -567,6 +567,7 @@ export default function AppMyClosing() {
                   <Label>交通費（円）</Label>
                   <Input
                     type="number"
+                    inputMode="numeric"
                     value={transportAmount}
                     onChange={e => setTransportAmount(Number(e.target.value))}
                     disabled={!canEdit}
@@ -579,6 +580,7 @@ export default function AppMyClosing() {
                   <Label>経費（円）</Label>
                   <Input
                     type="number"
+                    inputMode="numeric"
                     value={expenseAmount}
                     onChange={e => setExpenseAmount(Number(e.target.value))}
                     disabled={!canEdit}
@@ -605,13 +607,14 @@ export default function AppMyClosing() {
                   <span className="font-medium">領収書</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  交通費または経費を入力した場合は、領収書の添付が必須です。
+                  領収書・ETC・会社カード利用明細などを添付できます。
+                  交通費・経費が0円でも証憑として提出できます。
                 </p>
                 <input
                   ref={fileInputRef}
                   type="file"
                   className="hidden"
-                  accept="image/*,.pdf"
+                  accept=".pdf,.jpeg,.jpg,.png,image/jpeg,image/png,application/pdf"
                   onChange={e => handleReceiptFile(e.target.files?.[0] || null)}
                 />
                 <div className="flex items-center gap-2 flex-wrap">
@@ -619,7 +622,7 @@ export default function AppMyClosing() {
                     variant={
                       detail.submission?.receiptUploaded ? "default" : "outline"
                     }
-                    disabled={!canEdit || !receiptRequired || busy}
+                    disabled={!canEdit || busy}
                     onClick={() => fileInputRef.current?.click()}
                   >
                     <Upload className="h-4 w-4 mr-1" />
@@ -627,41 +630,24 @@ export default function AppMyClosing() {
                       ? "領収書を差し替え"
                       : "領収書をアップロード"}
                   </Button>
-                  {detail.submission?.receiptFileUrl ? (
-                    <>
-                      <a
-                        href={detail.submission.receiptFileUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate"
-                      >
-                        <LinkIcon className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">
-                          {detail.submission.receiptFileName || "領収書"}
-                        </span>
+                  <div className="w-full space-y-2">
+                    {detail.submission?.documents?.map((doc: any) => (
+                      <div key={doc.id} className="flex items-center gap-2">
+                        <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate">
+                          <LinkIcon className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{doc.fileName}</span>
+                        </a>
+                        <Button variant="ghost" size="icon" className="text-red-400" disabled={!canEdit || busy} onClick={() => clearMutation.mutate({ projectId: selectedProjectId, closingMonth, documentId: doc.id })}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    {detail.submission?.receiptFileUrl && (
+                      <a href={detail.submission.receiptFileUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate">
+                        <LinkIcon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{detail.submission.receiptFileName || "領収書(旧)"}</span>
                       </a>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-red-400"
-                        disabled={!canEdit || busy}
-                        onClick={() =>
-                          clearMutation.mutate({
-                            projectId: selectedProjectId,
-                            closingMonth,
-                          })
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </>
-                  ) : (
-                    <span
-                      className={`text-sm ${receiptRequired ? "text-amber-400" : "text-muted-foreground"}`}
-                    >
-                      {receiptRequired ? "未添付" : "不要"}
-                    </span>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -949,10 +935,10 @@ export default function AppMyClosing() {
                         </div>
                         <div className="text-xs text-muted-foreground">
                           #{invoice.id} / {invoice.closingMonth} /{" "}
-                          {invoice.status}
+                          {INVOICE_STATUS_LABELS[invoice.status]?.label || invoice.status}
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <Button
                           size="sm"
                           variant="outline"

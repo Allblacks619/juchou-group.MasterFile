@@ -1,10 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import * as db from "./db";
 
-// Mock db module
-vi.mock("./db", () => {
-  const mockRecords = [
+const mockDbState = vi.hoisted(() => ({
+  records: [] as any[],
+  nextId: 100,
+  reset() {
+    this.nextId = 100;
+    this.records = [
     {
       id: 1,
       employeeId: 10,
@@ -50,30 +54,92 @@ vi.mock("./db", () => {
       createdAt: new Date(),
       updatedAt: new Date("2026-04-02T10:00:00Z"),
     },
-  ];
+    ];
+  },
+}));
 
-  return {
-    getAttendanceByDateRange: vi.fn().mockResolvedValue(mockRecords),
-    getAttendanceByEmployee: vi.fn().mockResolvedValue([mockRecords[0], mockRecords[2]]),
-    getAttendanceByProject: vi.fn().mockResolvedValue(mockRecords),
-    upsertAttendance: vi.fn().mockImplementation(async (data: any) => ({
-      id: 99,
+mockDbState.reset();
+
+function sameDate(a: Date, b: Date) {
+  return a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10);
+}
+
+// Mock db module
+vi.mock("./db", () => ({
+  getAttendanceByDateRange: vi.fn(async (start: Date, end: Date, projectId?: number) =>
+    mockDbState.records.filter((record) =>
+      record.workDate >= start &&
+      record.workDate <= end &&
+      (!projectId || record.projectId === projectId)
+    )
+  ),
+  getAttendanceByEmployee: vi.fn(async (employeeId: number, start?: Date, end?: Date) =>
+    mockDbState.records.filter((record) =>
+      record.employeeId === employeeId &&
+      (!start || record.workDate >= start) &&
+      (!end || record.workDate <= end)
+    )
+  ),
+  getAttendanceByProject: vi.fn(async (projectId: number, start?: Date, end?: Date) =>
+    mockDbState.records.filter((record) =>
+      record.projectId === projectId &&
+      (!start || record.workDate >= start) &&
+      (!end || record.workDate <= end)
+    )
+  ),
+  upsertAttendance: vi.fn(async (data: any) => {
+    const existing = mockDbState.records.find((record) =>
+      record.projectId === data.projectId &&
+      record.employeeId === data.employeeId &&
+      record.guestName === data.guestName &&
+      sameDate(record.workDate, data.workDate)
+    );
+    if (existing) {
+      Object.assign(existing, data, { updatedAt: new Date() });
+      return existing;
+    }
+    const inserted = {
+      id: mockDbState.nextId++,
       ...data,
       createdAt: new Date(),
       updatedAt: new Date(),
-    })),
-    deleteAttendance: vi.fn().mockResolvedValue(undefined),
-    getEmployeeByUserId: vi.fn().mockResolvedValue({ id: 10, nameKanji: "テスト太郎", nameRomaji: "test-taro" }),
-    getAllProjects: vi.fn().mockResolvedValue([
-      { id: 1, name: "テスト現場", status: "active" },
-      { id: 2, name: "完了現場", status: "completed" },
-    ]),
-    getAllEmployees: vi.fn().mockResolvedValue([
-      { id: 10, nameKanji: "テスト太郎", nameRomaji: "test-taro" },
-      { id: 20, nameKanji: "佐藤花子", nameRomaji: "sato-hanako" },
-    ]),
-  };
-});
+    };
+    mockDbState.records.push(inserted);
+    return inserted;
+  }),
+  deleteAttendance: vi.fn().mockResolvedValue(undefined),
+  deleteAttendanceByKey: vi.fn(async (data: any) => {
+    mockDbState.records = mockDbState.records.filter((record) =>
+      !(record.projectId === data.projectId &&
+        record.employeeId === data.employeeId &&
+        record.guestName === data.guestName &&
+        sameDate(record.workDate, data.workDate))
+    );
+  }),
+  getEmployeeByUserId: vi.fn(async (userId: number) => (
+    userId === 2
+      ? { id: 10, nameKanji: "テスト太郎", nameRomaji: "test-taro" }
+      : userId === 3
+        ? { id: 20, nameKanji: "佐藤花子", nameRomaji: "sato-hanako" }
+        : userId === 4
+          ? null
+          : { id: 1, nameKanji: "管理者", nameRomaji: "admin" }
+  )),
+  getProjectsByEmployee: vi.fn(async (employeeId: number) => (
+    employeeId === 10
+      ? [{ id: 1, projectId: 1, employeeId: 10, isActive: true }]
+      : [{ id: 2, projectId: 2, employeeId: 20, isActive: true }]
+  )),
+  getAllProjects: vi.fn().mockResolvedValue([
+    { id: 1, name: "テスト現場", status: "active" },
+    { id: 2, name: "別現場", status: "active" },
+    { id: 3, name: "完了現場", status: "completed" },
+  ]),
+  getAllEmployees: vi.fn().mockResolvedValue([
+    { id: 10, nameKanji: "テスト太郎", nameRomaji: "test-taro" },
+    { id: 20, nameKanji: "佐藤花子", nameRomaji: "sato-hanako" },
+  ]),
+}));
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
@@ -86,6 +152,32 @@ function createAdminContext(): TrpcContext {
     loginMethod: "manus",
     role: "admin",
     appRole: "admin",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastSignedIn: new Date(),
+  } as any;
+
+  return {
+    user,
+    req: {
+      protocol: "https",
+      headers: {},
+    } as TrpcContext["req"],
+    res: {
+      clearCookie: vi.fn(),
+    } as unknown as TrpcContext["res"],
+  };
+}
+
+function createManagerContext(): TrpcContext {
+  const user: AuthenticatedUser = {
+    id: 4,
+    openId: "manager-user",
+    email: "manager@example.com",
+    name: "Manager User",
+    loginMethod: "manus",
+    role: "user",
+    appRole: "manager",
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
@@ -129,6 +221,15 @@ function createWorkerContext(): TrpcContext {
   };
 }
 
+beforeEach(() => {
+  mockDbState.reset();
+  vi.mocked(db.upsertAttendance).mockClear();
+  vi.mocked(db.getAttendanceByDateRange).mockClear();
+  vi.mocked(db.getAttendanceByProject).mockClear();
+  vi.mocked(db.getProjectsByEmployee).mockClear();
+  vi.mocked(db.getEmployeeByUserId).mockClear();
+});
+
 describe("attendance", () => {
   describe("attendance.myAttendance", () => {
     it("returns attendance records for the logged-in employee", async () => {
@@ -168,6 +269,16 @@ describe("attendance", () => {
       for (const p of result) {
         expect(p.status).toBe("active");
       }
+    });
+
+    it("returns active projects for manager-like users without requiring an employee profile", async () => {
+      const ctx = createManagerContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const result = await caller.attendance.myProjects();
+
+      expect(result.map((project) => project.id).sort()).toEqual([1, 2]);
+      expect(db.getEmployeeByUserId).not.toHaveBeenCalled();
     });
   });
 
@@ -312,6 +423,100 @@ describe("attendance", () => {
 
       expect(result).toBeDefined();
       expect(result.overtimeHours).toBe(120);
+    });
+  });
+
+
+  describe("attendance.myBatchUpsert consistency", () => {
+    it("lets a worker save their own project attendance and admin list/projectTeamData read the same updated record", async () => {
+      const workerCaller = appRouter.createCaller(createWorkerContext());
+      const adminCaller = appRouter.createCaller(createAdminContext());
+
+      await workerCaller.attendance.myBatchUpsert({
+        records: [{
+          projectId: 1,
+          workDate: "2026-04-15",
+          hoursWorked: 80,
+          overtimeHours: 10,
+          workType: "normal",
+          shiftType: "day",
+          notes: "worker save",
+        }],
+      });
+
+      await workerCaller.attendance.myBatchUpsert({
+        records: [{
+          projectId: 1,
+          workDate: "2026-04-15",
+          hoursWorked: 40,
+          overtimeHours: 0,
+          workType: "half_day",
+          shiftType: "day",
+          notes: "worker update",
+        }],
+      });
+
+      const adminList = await adminCaller.attendance.list({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+      const saved = adminList.find((record) => record.employeeId === 10 && record.projectId === 1 && new Date(record.workDate).toISOString().startsWith("2026-04-15"));
+      expect(saved).toMatchObject({
+        hoursWorked: 40,
+        overtimeHours: 0,
+        workType: "half_day",
+        notes: "worker update",
+      });
+
+      const teamData = await adminCaller.attendance.projectTeamData({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+      expect(teamData.records).toEqual(expect.arrayContaining([expect.objectContaining({
+        employeeId: 10,
+        projectId: 1,
+        hoursWorked: 40,
+        workType: "half_day",
+      })]));
+    });
+
+    it("rejects worker saves for projects where they are not a member", async () => {
+      const workerCaller = appRouter.createCaller(createWorkerContext());
+
+      await expect(workerCaller.attendance.myBatchUpsert({
+        records: [{
+          projectId: 2,
+          workDate: "2026-04-15",
+          hoursWorked: 80,
+          overtimeHours: 0,
+          workType: "normal",
+          shiftType: "day",
+        }],
+      })).rejects.toThrow("この現場のメンバーではありません");
+    });
+
+    it("uses month date filters so the worker-saved record appears only in the expected month", async () => {
+      const workerCaller = appRouter.createCaller(createWorkerContext());
+      const adminCaller = appRouter.createCaller(createAdminContext());
+
+      await workerCaller.attendance.myBatchUpsert({
+        records: [{
+          projectId: 1,
+          workDate: "2026-05-01",
+          hoursWorked: 80,
+          overtimeHours: 0,
+          workType: "normal",
+          shiftType: "day",
+        }],
+      });
+
+      const april = await adminCaller.attendance.list({ projectId: 1, startDate: "2026-04-01", endDate: "2026-04-30" });
+      const may = await adminCaller.attendance.list({ projectId: 1, startDate: "2026-05-01", endDate: "2026-05-31" });
+
+      expect(april.some((record) => record.employeeId === 10 && new Date(record.workDate).toISOString().startsWith("2026-05-01"))).toBe(false);
+      expect(may.some((record) => record.employeeId === 10 && new Date(record.workDate).toISOString().startsWith("2026-05-01"))).toBe(true);
     });
   });
 

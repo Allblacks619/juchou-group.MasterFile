@@ -71,6 +71,15 @@ function formatYen(amount: number): string {
   return `¥${amount.toLocaleString("ja-JP")}`;
 }
 
+function isInternalRateMappingNote(note: string | null | undefined): boolean {
+  if (!note) return false;
+  return /(?:^|\s)(?:対象:|対象：)/.test(note) && /(案件一律|個別単価|単価|rate|worker|employee|従業員)/i.test(note);
+}
+
+function externalItemNote(note: string | null | undefined): string {
+  return isInternalRateMappingNote(note) ? "" : (note || "");
+}
+
 interface InvoiceLineItem {
   itemType: "normal" | "text";
   description: string;
@@ -172,6 +181,7 @@ function InvoiceDetailDialog({
 
   const { invoice, items, client, company } = detailQuery.data || { invoice: null, items: [], client: null, company: null };
   if (!invoice) return <p className="text-muted-foreground">請求書が見つかりません</p>;
+  const previewItems = items.map((item: any) => ({ ...item, notes: externalItemNote(item.notes) }));
 
   const handleAddItem = () => {
     if (!newItem.description.trim()) {
@@ -245,7 +255,7 @@ function InvoiceDetailDialog({
 
       {activeTab === "preview" ? (
         <div className="max-h-[70vh] overflow-y-auto border rounded-md">
-          <InvoicePreview invoice={invoice} items={items} client={client} company={company} />
+          <InvoicePreview invoice={invoice} items={previewItems} client={client} company={company} />
         </div>
       ) : (
       <>
@@ -271,6 +281,13 @@ function InvoiceDetailDialog({
         <div>
           <span className="text-muted-foreground">消費税:</span> {formatYen(invoice.taxAmount)}
         </div>
+        {(invoice as any).internalMemo && (
+          <div className="col-span-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+            <p className="text-xs font-medium text-amber-500">社内メモ</p>
+            <p className="text-[11px] text-muted-foreground mb-1">外部請求書には表示されません</p>
+            <pre className="whitespace-pre-wrap text-xs text-foreground font-sans max-h-32 overflow-y-auto">{(invoice as any).internalMemo}</pre>
+          </div>
+        )}
       </div>
 
       {/* Items table */}
@@ -307,8 +324,11 @@ function InvoiceDetailDialog({
                       {item.itemTaxRate === 8 && item.itemType === "normal" && (
                         <span className="text-xs text-amber-400 ml-1">※</span>
                       )}
-                      {item.notes && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{item.notes}</p>
+                      {externalItemNote(item.notes) && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{externalItemNote(item.notes)}</p>
+                      )}
+                      {isInternalRateMappingNote(item.notes) && (
+                        <p className="text-xs text-amber-500 mt-0.5">社内メモ（外部請求書には表示されません）</p>
                       )}
                     </div>
                   </TableCell>
@@ -340,7 +360,7 @@ function InvoiceDetailDialog({
                             unitPrice: item.unitPrice || 0,
                             amount: item.amount || 0,
                             itemTaxRate: item.itemTaxRate || 10,
-                            notes: item.notes || "",
+                            notes: externalItemNote(item.notes),
                             sortOrder: item.sortOrder || idx,
                           });
                           setShowAddForm(false);
@@ -476,7 +496,7 @@ function InvoiceDetailDialog({
             )}
 
             <div className="space-y-1">
-              <Label className="text-xs">備考（任意）</Label>
+              <Label className="text-xs">備考（任意・外部請求書に表示）</Label>
               <Input
                 value={editItem.notes}
                 onChange={(e) => setEditItem((prev) => prev ? ({ ...prev, notes: e.target.value }) : prev)}
@@ -620,7 +640,7 @@ function InvoiceDetailDialog({
             )}
 
             <div className="space-y-1">
-              <Label className="text-xs">備考（任意）</Label>
+              <Label className="text-xs">備考（任意・外部請求書に表示）</Label>
               <Input
                 value={newItem.notes}
                 onChange={(e) => setNewItem((prev) => ({ ...prev, notes: e.target.value }))}
@@ -1114,7 +1134,7 @@ function ManualCreateDialog({
                   <Input
                     value={item.notes}
                     onChange={(e) => updateItem(idx, { notes: e.target.value })}
-                    placeholder="備考・説明（任意）"
+                    placeholder="備考・説明（任意・外部請求書に表示）"
                     className="h-7 text-xs"
                   />
                 </div>
