@@ -4,6 +4,8 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, superAdminProcedure, router, isManagerLike, isGuestRole, isSuperAdmin } from "./_core/trpc";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 import * as db from "./db";
 import { parseDateString, parseDateRange } from "./dateHelpers";
 import { isWorkedType } from "@shared/attendanceStatus";
@@ -17,6 +19,8 @@ import { generateInvoicePdf } from "./pdfInvoice";
 import { buildInvoiceDraftFromProjects } from "./invoiceBuilder";
 import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./workerInvoicePdf";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
+
+const BCRYPT_ROUNDS = 12;
 
 // ── Helper: check admin or leader role ──
 const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -610,6 +614,47 @@ export const appRouter = router({
   }),
 
   superAdmin: router({
+    resetUserPassword: superAdminProcedure
+      .input(z.object({
+        userId: z.number(),
+        newTemporaryPassword: z.string().min(6).optional(),
+        confirmResetCurrentSuperAdmin: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+        const rows = await dbInstance.select().from(schema.users).where(eq(schema.users.id, input.userId)).limit(1);
+        const targetUser = rows[0] as any;
+        if (!targetUser) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "ユーザーが見つかりません" });
+        }
+        if (targetUser.id === ctx.user.id && !input.confirmResetCurrentSuperAdmin) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "現在ログイン中の統括管理者を再発行するには確認が必要です" });
+        }
+
+        const temporaryPassword = input.newTemporaryPassword ?? randomBytes(18).toString("base64url");
+        const passwordHash = await bcrypt.hash(temporaryPassword, BCRYPT_ROUNDS);
+
+        await dbInstance.update(schema.users)
+          .set({ passwordHash, mustChangePassword: true })
+          .where(eq(schema.users.id, input.userId));
+
+        await safeAuditLog(ctx.user.id, "password_reset_by_super_admin", "user", {
+          entityId: targetUser.id,
+          employeeId: targetUser.employeeId ?? null,
+          note: "super_admin reset user password",
+          payload: { loginId: targetUser.loginId ?? null, appRole: targetUser.appRole ?? null },
+        });
+
+        return {
+          success: true,
+          userId: targetUser.id,
+          loginId: targetUser.loginId ?? targetUser.name ?? "",
+          temporaryPassword,
+          mustChangePassword: true,
+        };
+      }),
     bulkChangeRoles: superAdminProcedure
       .input(z.object({
         userIds: z.array(z.number()).min(1),

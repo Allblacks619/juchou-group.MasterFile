@@ -7,6 +7,7 @@ const mockDb = vi.hoisted(() => ({
   getDb: vi.fn(),
   getEmployeeById: vi.fn(),
   deleteEmployee: vi.fn(),
+  createAuditLog: vi.fn(),
 }));
 
 vi.mock("./db", async () => {
@@ -53,6 +54,7 @@ describe("role access controls", () => {
   it("manager and admin cannot perform super_admin operations", async () => {
     const managerCaller = appRouter.createCaller(ctx(createUser({ appRole: "manager" as any })));
     await expect(managerCaller.superAdmin.bulkChangeRoles({ userIds: [2], appRole: "worker" })).rejects.toThrow();
+    await expect(managerCaller.superAdmin.resetUserPassword({ userId: 2 })).rejects.toThrow();
 
     const adminCaller = appRouter.createCaller(ctx(createUser({ appRole: "admin" as any, role: "admin" })));
     await expect(adminCaller.superAdmin.bulkDeleteEmployees({ employeeIds: [10], confirmText: "DELETE" })).rejects.toThrow();
@@ -78,4 +80,24 @@ describe("role access controls", () => {
     expect(mockDb.deleteEmployee).not.toHaveBeenCalled();
     await expect(superCaller.superAdmin.bulkDeleteEmployees({ employeeIds: [10], confirmText: "NOPE" })).rejects.toThrow("confirmText must be DELETE");
   });
+
+  it("super_admin can reset a user password and requires confirmation for self-reset", async () => {
+    const superUser = createUser({ id: 1, appRole: "super_admin" as any, role: "admin" });
+    const superCaller = appRouter.createCaller(ctx(superUser));
+    const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue({}) });
+    const update = vi.fn().mockReturnValue({ set });
+    const select = vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([{ id: 2, appRole: "worker", loginId: "worker1", employeeId: 10 }]) }) }) });
+    mockDb.getDb.mockResolvedValue({ update, select });
+
+    const result = await superCaller.superAdmin.resetUserPassword({ userId: 2, newTemporaryPassword: "TempPass123" });
+
+    expect(result).toMatchObject({ success: true, userId: 2, loginId: "worker1", temporaryPassword: "TempPass123", mustChangePassword: true });
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ mustChangePassword: true, passwordHash: expect.any(String) }));
+    expect(set.mock.calls[0][0].passwordHash).not.toBe("TempPass123");
+
+    const selfSelect = vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([{ id: 1, appRole: "super_admin", loginId: "root" }]) }) }) });
+    mockDb.getDb.mockResolvedValue({ update, select: selfSelect });
+    await expect(superCaller.superAdmin.resetUserPassword({ userId: 1 })).rejects.toThrow("確認が必要です");
+  });
+
 });

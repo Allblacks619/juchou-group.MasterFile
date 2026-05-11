@@ -26,9 +26,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Upload, Plus, Trash2, User, Shield, Heart, Banknote, Award, FileText, FileDown, Loader2, DollarSign } from "lucide-react";
+import { ArrowLeft, Upload, Plus, Trash2, User, Shield, Heart, Banknote, Award, FileText, FileDown, Loader2, DollarSign, KeyRound, Copy } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation, useParams } from "wouter";
 import { format } from "date-fns";
@@ -61,7 +63,8 @@ export default function AppEmployeeDetail() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { user: authUser } = useAuth();
-  const isAdmin = (authUser as any)?.appRole === "admin" || (authUser as any)?.appRole === "leader";
+  const isSuperAdmin = (authUser as any)?.appRole === "super_admin";
+  const isAdmin = isSuperAdmin || (authUser as any)?.appRole === "admin" || (authUser as any)?.appRole === "leader";
   const isNew = params.id === "new";
   const employeeId = isNew ? undefined : parseInt(params.id!);
 
@@ -114,6 +117,38 @@ export default function AppEmployeeDetail() {
     },
     onError: (e) => toast.error(e.message),
   });
+
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetResultOpen, setResetResultOpen] = useState(false);
+  const [resetResult, setResetResult] = useState<{ loginId: string; temporaryPassword: string } | null>(null);
+
+  const resetPasswordMutation = trpc.superAdmin.resetUserPassword.useMutation({
+    onSuccess: (data) => {
+      setResetResult({ loginId: data.loginId, temporaryPassword: data.temporaryPassword });
+      setResetDialogOpen(false);
+      setResetResultOpen(true);
+      toast.success("仮パスワードを再発行しました");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label}をコピーしました`);
+  };
+
+  const handleResetPassword = () => {
+    const userId = employeeQuery.data?.userId;
+    if (!userId) {
+      toast.error("この従業員にはログインユーザーが連携されていません");
+      return;
+    }
+    const isCurrentSuperAdmin = userId === (authUser as any)?.id;
+    resetPasswordMutation.mutate({
+      userId,
+      confirmResetCurrentSuperAdmin: isCurrentSuperAdmin,
+    });
+  };
 
   // Form state
   const [form, setForm] = useState({
@@ -318,7 +353,15 @@ export default function AppEmployeeDetail() {
             </h1>
           </div>
         </div>
-        {!isNew && employeeId && <RosterPdfButton employeeId={employeeId} />}
+        <div className="flex gap-2">
+          {!isNew && isSuperAdmin && employeeQuery.data?.userId && (
+            <Button variant="outline" onClick={() => setResetDialogOpen(true)} className="gap-1.5">
+              <KeyRound className="h-4 w-4" />
+              パスワード再発行
+            </Button>
+          )}
+          {!isNew && employeeId && <RosterPdfButton employeeId={employeeId} />}
+        </div>
       </div>
 
       <Tabs defaultValue="basic" className="space-y-4">
@@ -888,6 +931,70 @@ export default function AppEmployeeDetail() {
           </TabsContent>
         )}
       </Tabs>
+
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>パスワード再発行</DialogTitle>
+            <DialogDescription>
+              既存のパスワードは表示されません。新しい仮パスワードを発行し、次回ログイン時にパスワード変更を必須にします。
+              {employeeQuery.data?.userId === (authUser as any)?.id && " 現在ログイン中の統括管理者アカウントを対象にしています。"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetDialogOpen(false)}>
+              キャンセル
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleResetPassword}
+              disabled={resetPasswordMutation.isPending}
+            >
+              {resetPasswordMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              パスワード再発行
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resetResultOpen} onOpenChange={setResetResultOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>仮パスワードを発行しました</DialogTitle>
+            <DialogDescription>
+              注意: この仮パスワードは一度だけ表示されます
+            </DialogDescription>
+          </DialogHeader>
+          {resetResult && (
+            <div className="space-y-4 pt-2">
+              <div className="bg-muted/50 p-4 rounded-lg space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted-foreground">ログインID</span>
+                  <div className="flex items-center gap-2">
+                    <code className="text-sm font-mono break-all">{resetResult.loginId}</code>
+                    <Button variant="ghost" size="sm" onClick={() => copyToClipboard(resetResult.loginId, "ログインID")}>
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted-foreground">仮パスワード</span>
+                  <div className="flex items-center gap-2">
+                    <code className="text-sm font-mono break-all">{resetResult.temporaryPassword}</code>
+                    <Button variant="ghost" size="sm" onClick={() => copyToClipboard(resetResult.temporaryPassword, "仮パスワード")}>
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <p className="text-sm text-destructive">注意: この仮パスワードは一度だけ表示されます</p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setResetResultOpen(false)}>閉じる</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
