@@ -18,6 +18,7 @@ import {
   FileCheck2,
   Wallet,
   ClipboardList,
+  ChevronDown,
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -28,6 +29,12 @@ import type { TranslationKey } from "@/lib/appTranslations";
 
 type NavAudience = "manager" | "worker";
 type NavItem = { path: string; labelKey: TranslationKey; icon: any; roles: NavAudience[] };
+
+interface NavGroup {
+  groupKey: string;
+  items: NavItem[];
+  icon: any;
+}
 
 const navItems: NavItem[] = [
   { path: "/app", labelKey: "nav_dashboard", icon: LayoutDashboard, roles: ["manager", "worker"] },
@@ -47,10 +54,38 @@ const navItems: NavItem[] = [
   { path: "/app/support", labelKey: "nav_support", icon: HelpCircle, roles: ["manager", "worker"] },
 ];
 
+// Group menu items by category
+function getNavGroups(): NavGroup[] {
+  return [
+    {
+      groupKey: "nav_basicInfo",
+      icon: Building2,
+      items: navItems.filter(item => 
+        ["nav_invitations", "nav_company", "nav_employees"].includes(item.labelKey)
+      ),
+    },
+    {
+      groupKey: "nav_siteManagement",
+      icon: FolderOpen,
+      items: navItems.filter(item => 
+        ["nav_projects", "nav_rates", "nav_attendance"].includes(item.labelKey)
+      ),
+    },
+    {
+      groupKey: "nav_finance",
+      icon: DollarSign,
+      items: navItems.filter(item => 
+        ["nav_invoices", "nav_closings", "nav_payments", "nav_receivables"].includes(item.labelKey)
+      ),
+    },
+  ];
+}
+
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [location, navigate] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["nav_basicInfo", "nav_siteManagement", "nav_finance"]));
   const { lang, toggleLang, t } = useAppLang();
 
   // Check if user must change password
@@ -86,6 +121,18 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     window.location.href = "/app/login";
   };
 
+  const toggleGroup = (groupKey: string) => {
+    const newExpanded = new Set(expandedGroups);
+    if (newExpanded.has(groupKey)) {
+      newExpanded.delete(groupKey);
+    } else {
+      newExpanded.add(groupKey);
+    }
+    setExpandedGroups(newExpanded);
+  };
+
+  const navGroups = getNavGroups();
+
   return (
     <div className="min-h-screen bg-background flex">
       {/* Mobile overlay */}
@@ -117,11 +164,87 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
 
           {/* Nav */}
-          <nav className="flex-1 p-4 space-y-1">
+          <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+            {/* Dashboard and Profile - Always visible at top */}
             {navItems
-              .filter((item) => isNavItemVisible(item, appRole))
+              .filter((item) => ["nav_dashboard", "nav_myProfile", "nav_myClosing"].includes(item.labelKey) && isNavItemVisible(item, appRole))
               .map((item) => {
                 const isActive = location === item.path || (item.path !== "/app" && location.startsWith(item.path));
+                return (
+                  <Link
+                    key={item.path}
+                    href={item.path}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors no-underline ${
+                      isActive
+                        ? "bg-gold/10 text-gold"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    }`}
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {t(item.labelKey)}
+                  </Link>
+                );
+              })}
+
+            {/* Separator */}
+            {isManagerLikeAppRole(appRole) && (
+              <div className="my-2 border-t border-border" />
+            )}
+
+            {/* Grouped menu items */}
+            {isManagerLikeAppRole(appRole) && navGroups.map((group) => {
+              const visibleItems = group.items.filter((item) => isNavItemVisible(item, appRole));
+              if (visibleItems.length === 0) return null;
+
+              const isExpanded = expandedGroups.has(group.groupKey);
+
+              return (
+                <div key={group.groupKey}>
+                  <button
+                    onClick={() => toggleGroup(group.groupKey)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <group.icon className="h-4 w-4" />
+                      <span>{t(group.groupKey as TranslationKey)}</span>
+                    </div>
+                    <ChevronDown
+                      className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                    />
+                  </button>
+
+                  {isExpanded && (
+                    <div className="ml-4 space-y-1 mt-1">
+                      {visibleItems.map((item) => {
+                        const isActive = location === item.path || (item.path !== "/app" && location.startsWith(item.path));
+                        return (
+                          <Link
+                            key={item.path}
+                            href={item.path}
+                            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors no-underline ${
+                              isActive
+                                ? "bg-gold/10 text-gold"
+                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                            }`}
+                            onClick={() => setSidebarOpen(false)}
+                          >
+                            <item.icon className="h-4 w-4" />
+                            {t(item.labelKey)}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Support - Always at bottom of menu */}
+            {navItems
+              .filter((item) => item.labelKey === "nav_support" && isNavItemVisible(item, appRole))
+              .map((item) => {
+                const isActive = location === item.path;
                 return (
                   <Link
                     key={item.path}
