@@ -23,27 +23,28 @@ import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useAppLang } from "@/contexts/AppLanguageContext";
+import { isManagerLikeAppRole } from "@/lib/appRoles";
 import type { TranslationKey } from "@/lib/appTranslations";
 
-type AppRole = "admin" | "leader" | "worker";
-type NavItem = { path: string; labelKey: TranslationKey; icon: any; roles: AppRole[] };
+type NavAudience = "manager" | "worker";
+type NavItem = { path: string; labelKey: TranslationKey; icon: any; roles: NavAudience[] };
 
 const navItems: NavItem[] = [
-  { path: "/app", labelKey: "nav_dashboard", icon: LayoutDashboard, roles: ["admin", "leader", "worker"] },
-  { path: "/app/my-profile", labelKey: "nav_myProfile", icon: UserCircle, roles: ["admin", "leader", "worker"] },
+  { path: "/app", labelKey: "nav_dashboard", icon: LayoutDashboard, roles: ["manager", "worker"] },
+  { path: "/app/my-profile", labelKey: "nav_myProfile", icon: UserCircle, roles: ["manager", "worker"] },
   { path: "/app/my-closing", labelKey: "nav_myClosing", icon: FileCheck2, roles: ["worker"] },
-  { path: "/app/invitations", labelKey: "nav_invitations", icon: UserPlus, roles: ["admin", "leader"] },
-  { path: "/app/company", labelKey: "nav_company", icon: Building2, roles: ["admin", "leader"] },
-  { path: "/app/employees", labelKey: "nav_employees", icon: Users, roles: ["admin", "leader"] },
-  { path: "/app/projects", labelKey: "nav_projects", icon: FolderOpen, roles: ["admin", "leader"] },
-  { path: "/app/rates", labelKey: "nav_rates", icon: DollarSign, roles: ["admin", "leader"] },
-  { path: "/app/attendance", labelKey: "nav_attendance", icon: CalendarDays, roles: ["admin", "leader"] },
-  { path: "/app/invoices", labelKey: "nav_invoices", icon: FileText, roles: ["admin", "leader"] },
-  { path: "/app/closings", labelKey: "nav_closings", icon: FileCheck2, roles: ["admin", "leader"] },
-  { path: "/app/payments", labelKey: "nav_payments", icon: Wallet, roles: ["admin", "leader"] },
-  { path: "/app/receivables", labelKey: "nav_receivables", icon: FileText, roles: ["admin", "leader"] },
-  { path: "/app/audit", labelKey: "nav_audit", icon: ClipboardList, roles: ["admin", "leader"] },
-  { path: "/app/support", labelKey: "nav_support", icon: HelpCircle, roles: ["admin", "leader", "worker"] },
+  { path: "/app/invitations", labelKey: "nav_invitations", icon: UserPlus, roles: ["manager"] },
+  { path: "/app/company", labelKey: "nav_company", icon: Building2, roles: ["manager"] },
+  { path: "/app/employees", labelKey: "nav_employees", icon: Users, roles: ["manager"] },
+  { path: "/app/projects", labelKey: "nav_projects", icon: FolderOpen, roles: ["manager"] },
+  { path: "/app/rates", labelKey: "nav_rates", icon: DollarSign, roles: ["manager"] },
+  { path: "/app/attendance", labelKey: "nav_attendance", icon: CalendarDays, roles: ["manager"] },
+  { path: "/app/invoices", labelKey: "nav_invoices", icon: FileText, roles: ["manager"] },
+  { path: "/app/closings", labelKey: "nav_closings", icon: FileCheck2, roles: ["manager"] },
+  { path: "/app/payments", labelKey: "nav_payments", icon: Wallet, roles: ["manager"] },
+  { path: "/app/receivables", labelKey: "nav_receivables", icon: FileText, roles: ["manager"] },
+  { path: "/app/audit", labelKey: "nav_audit", icon: ClipboardList, roles: ["manager"] },
+  { path: "/app/support", labelKey: "nav_support", icon: HelpCircle, roles: ["manager", "worker"] },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -118,7 +119,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           {/* Nav */}
           <nav className="flex-1 p-4 space-y-1">
             {navItems
-              .filter((item) => item.roles.includes(appRole as AppRole))
+              .filter((item) => isNavItemVisible(item, appRole))
               .map((item) => {
                 const isActive = location === item.path || (item.path !== "/app" && location.startsWith(item.path));
                 return (
@@ -212,4 +213,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </div>
     </div>
   );
+}
+
+function isNavItemVisible(item: NavItem, appRole: string) {
+  if (item.roles.includes("worker") && appRole === "worker") {
+    return true;
+  }
+
+  return item.roles.includes("manager") && isManagerLikeAppRole(appRole);
 }
