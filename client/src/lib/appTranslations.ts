@@ -51,6 +51,7 @@ const dict = {
   nav_payments: { ja: "支払管理", pt: "Pagamentos" },
   nav_receivables: { ja: "入金管理", pt: "Recebimentos" },
   nav_audit: { ja: "監査ログ", pt: "Auditoria" },
+  nav_passwordResets: { ja: "パスワード再発行", pt: "Reemitir senha" },
   nav_support: { ja: "サポート", pt: "Suporte" },
   nav_corporateSite: { ja: "コーポレートサイトへ", pt: "Site corporativo" },
   nav_password: { ja: "パスワード", pt: "Senha" },

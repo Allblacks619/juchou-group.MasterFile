@@ -5,7 +5,7 @@ import { publicProcedure, protectedProcedure, adminProcedure, superAdminProcedur
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import bcrypt from "bcryptjs";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import * as db from "./db";
 import { parseDateString, parseDateRange } from "./dateHelpers";
 import { isWorkedType } from "@shared/attendanceStatus";
@@ -21,6 +21,32 @@ import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 
 const BCRYPT_ROUNDS = 12;
+const RESET_LINK_TTL_MS = 60 * 60 * 1000;
+
+function hashResetToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function buildResetLink(req: any, token: string) {
+  const protocol = req?.protocol || "https";
+  const host = req?.headers?.host || "__ORIGIN__";
+  return `${protocol}://${host}/app/reset-password/${token}`;
+}
+
+function normalizePhoneForMatch(phone: string | null | undefined) {
+  return (phone || "").replace(/\D/g, "");
+}
+
+function formatDateForMatch(date: Date | string | null | undefined) {
+  if (!date) return "";
+  const parsed = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function isPrivilegedAppRole(role: unknown) {
+  return role === "super_admin" || role === "admin";
+}
 
 // ── Helper: check admin or leader role ──
 const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -613,12 +639,237 @@ export const appRouter = router({
     }),
   }),
 
+
+  passwordRecovery: router({
+    request: publicProcedure
+      .input(z.object({
+        loginId: z.string().min(1),
+        birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        phone: z.string().min(1),
+      }))
+      .mutation(async ({ input }) => {
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+        const user = await db.getUserByLoginId(input.loginId);
+        const employee = user?.id ? await db.getEmployeeByUserId(user.id) : undefined;
+        const verificationMatched = Boolean(
+          user && employee
+          && formatDateForMatch((employee as any).dateOfBirth) === input.birthDate
+          && normalizePhoneForMatch((employee as any).phone) === normalizePhoneForMatch(input.phone)
+        );
+
+        const result = await dbInstance.insert(schema.passwordResetRequests).values({
+          userId: user?.id ?? null,
+          employeeId: (employee as any)?.id ?? null,
+          loginId: input.loginId,
+          status: "pending",
+          verificationMatched,
+          requestedAt: new Date(),
+        } as any);
+        const requestId = result?.[0]?.insertId ?? null;
+
+        await safeAuditLog(null, "password_recovery_request_created", "password_reset_request", {
+          entityId: requestId,
+          employeeId: (employee as any)?.id ?? null,
+          note: "password recovery request created",
+          payload: { loginId: input.loginId, verificationMatched },
+        });
+
+        return { success: true, message: "復旧依頼を送信しました。管理者の確認をお待ちください。" };
+      }),
+
+    resetWithToken: publicProcedure
+      .input(z.object({
+        token: z.string().min(32),
+        newPassword: z.string().min(6),
+        confirmPassword: z.string().min(6),
+      }))
+      .mutation(async ({ input }) => {
+        if (input.newPassword !== input.confirmPassword) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "確認用パスワードが一致しません" });
+        }
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+        const tokenHash = hashResetToken(input.token);
+        const rows = await dbInstance.select().from(schema.passwordResetRequests).where(eq(schema.passwordResetRequests.tokenHash, tokenHash)).limit(1);
+        const request = rows[0] as any;
+        const now = new Date();
+        if (!request || !request.userId || request.status === "completed" || request.status === "rejected" || request.tokenUsedAt || !request.tokenExpiresAt || new Date(request.tokenExpiresAt) <= now) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "再設定リンクが無効または期限切れです" });
+        }
+
+        const passwordHash = await bcrypt.hash(input.newPassword, BCRYPT_ROUNDS);
+        await dbInstance.update(schema.users)
+          .set({ passwordHash, mustChangePassword: false })
+          .where(eq(schema.users.id, request.userId));
+        await dbInstance.update(schema.passwordResetRequests)
+          .set({ status: "completed", tokenUsedAt: now, completedAt: now })
+          .where(eq(schema.passwordResetRequests.id, request.id));
+
+        await safeAuditLog(request.userId, "password_reset_completed", "password_reset_request", {
+          entityId: request.id,
+          employeeId: request.employeeId ?? null,
+          note: "password reset completed with one-time link",
+          payload: { loginId: request.loginId },
+        });
+
+        return { success: true };
+      }),
+  }),
+
   superAdmin: router({
+    listPasswordRecoveryRequests: superAdminProcedure.query(async () => {
+      const dbInstance = await db.getDb();
+      if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      const [requests, employees, users] = await Promise.all([
+        dbInstance.select().from(schema.passwordResetRequests),
+        db.getAllEmployees(),
+        db.getAllUsers(),
+      ]);
+      const employeeMap = new Map((employees as any[]).map((employee) => [employee.id, employee]));
+      const userMap = new Map((users as any[]).map((user) => [user.id, user]));
+      return (requests as any[])
+        .sort((a, b) => new Date(b.requestedAt ?? b.createdAt).getTime() - new Date(a.requestedAt ?? a.createdAt).getTime())
+        .map(({ tokenHash, ...request }) => {
+          const employee = employeeMap.get(request.employeeId);
+          const user = userMap.get(request.userId);
+          return {
+            ...request,
+            appRole: user?.appRole ?? null,
+            hasActiveToken: Boolean(request.tokenExpiresAt && !request.tokenUsedAt && new Date(request.tokenExpiresAt) > new Date()),
+            employeeName: employee?.nameKanji ?? employee?.nameRomaji ?? null,
+          };
+        });
+    }),
+
+    listUsersForPasswordReset: superAdminProcedure.query(async () => {
+      const [users, employees] = await Promise.all([db.getAllUsers(), db.getAllEmployees()]);
+      const employeeMap = new Map((employees as any[]).map((employee) => [employee.userId, employee]));
+      return (users as any[])
+        .filter((user) => user.loginId)
+        .map(({ passwordHash, ...user }) => {
+          const employee = employeeMap.get(user.id);
+          return {
+            id: user.id,
+            loginId: user.loginId,
+            name: user.name,
+            appRole: user.appRole,
+            employeeId: employee?.id ?? user.employeeId ?? null,
+            employeeName: employee?.nameKanji ?? employee?.nameRomaji ?? user.name ?? null,
+          };
+        });
+    }),
+
+    approvePasswordRecoveryRequest: superAdminProcedure
+      .input(z.object({ requestId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        const rows = await dbInstance.select().from(schema.passwordResetRequests).where(eq(schema.passwordResetRequests.id, input.requestId)).limit(1);
+        const request = rows[0] as any;
+        if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "復旧依頼が見つかりません" });
+        await dbInstance.update(schema.passwordResetRequests)
+          .set({ status: "approved", approvedByUserId: ctx.user.id })
+          .where(eq(schema.passwordResetRequests.id, input.requestId));
+        await safeAuditLog(ctx.user.id, "password_recovery_request_approved", "password_reset_request", {
+          entityId: input.requestId,
+          employeeId: request.employeeId ?? null,
+          note: "password recovery request approved",
+          payload: { loginId: request.loginId, verificationMatched: request.verificationMatched },
+        });
+        return { success: true };
+      }),
+
+    rejectPasswordRecoveryRequest: superAdminProcedure
+      .input(z.object({ requestId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        const rows = await dbInstance.select().from(schema.passwordResetRequests).where(eq(schema.passwordResetRequests.id, input.requestId)).limit(1);
+        const request = rows[0] as any;
+        if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "復旧依頼が見つかりません" });
+        await dbInstance.update(schema.passwordResetRequests)
+          .set({ status: "rejected", rejectedByUserId: ctx.user.id })
+          .where(eq(schema.passwordResetRequests.id, input.requestId));
+        await safeAuditLog(ctx.user.id, "password_recovery_request_rejected", "password_reset_request", {
+          entityId: input.requestId,
+          employeeId: request.employeeId ?? null,
+          note: "password recovery request rejected",
+          payload: { loginId: request.loginId, verificationMatched: request.verificationMatched },
+        });
+        return { success: true };
+      }),
+
+    generateResetLinkForRequest: superAdminProcedure
+      .input(z.object({ requestId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        const rows = await dbInstance.select().from(schema.passwordResetRequests).where(eq(schema.passwordResetRequests.id, input.requestId)).limit(1);
+        const request = rows[0] as any;
+        if (!request || !request.userId) throw new TRPCError({ code: "BAD_REQUEST", message: "有効なユーザーに紐づく復旧依頼が見つかりません" });
+        if (request.status === "rejected" || request.status === "completed") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "この復旧依頼ではリンクを発行できません" });
+        }
+        const token = randomBytes(32).toString("base64url");
+        const tokenHash = hashResetToken(token);
+        const expiresAt = new Date(Date.now() + RESET_LINK_TTL_MS);
+        await dbInstance.update(schema.passwordResetRequests)
+          .set({ status: "approved", tokenHash, tokenExpiresAt: expiresAt, tokenUsedAt: null, approvedByUserId: ctx.user.id })
+          .where(eq(schema.passwordResetRequests.id, input.requestId));
+        await safeAuditLog(ctx.user.id, "password_reset_link_generated", "password_reset_request", {
+          entityId: input.requestId,
+          employeeId: request.employeeId ?? null,
+          note: "one-time reset link generated",
+          payload: { loginId: request.loginId, expiresAt: expiresAt.toISOString() },
+        });
+        return { loginId: request.loginId, resetLink: buildResetLink(ctx.req, token), expiresAt, warning: "このリンクは一度だけ使用できます" };
+      }),
+
+    generateUserResetLink: superAdminProcedure
+      .input(z.object({ userId: z.number(), confirmPrivilegedReset: z.boolean().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        const userRows = await dbInstance.select().from(schema.users).where(eq(schema.users.id, input.userId)).limit(1);
+        const targetUser = userRows[0] as any;
+        if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "ユーザーが見つかりません" });
+        if (isPrivilegedAppRole(targetUser.appRole) && !input.confirmPrivilegedReset) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "管理者以上のアカウントを再発行するには確認が必要です" });
+        }
+        const employee = await db.getEmployeeByUserId(targetUser.id);
+        const token = randomBytes(32).toString("base64url");
+        const tokenHash = hashResetToken(token);
+        const expiresAt = new Date(Date.now() + RESET_LINK_TTL_MS);
+        const result = await dbInstance.insert(schema.passwordResetRequests).values({
+          userId: targetUser.id,
+          employeeId: (employee as any)?.id ?? targetUser.employeeId ?? null,
+          loginId: targetUser.loginId ?? targetUser.name ?? String(targetUser.id),
+          status: "approved",
+          verificationMatched: true,
+          tokenHash,
+          tokenExpiresAt: expiresAt,
+          approvedByUserId: ctx.user.id,
+          requestedAt: new Date(),
+        } as any);
+        const requestId = result?.[0]?.insertId ?? null;
+        await safeAuditLog(ctx.user.id, "password_reset_link_generated", "password_reset_request", {
+          entityId: requestId,
+          employeeId: (employee as any)?.id ?? targetUser.employeeId ?? null,
+          note: "admin-initiated one-time reset link generated",
+          payload: { loginId: targetUser.loginId ?? null, targetUserId: targetUser.id, expiresAt: expiresAt.toISOString() },
+        });
+        return { loginId: targetUser.loginId ?? targetUser.name ?? "", resetLink: buildResetLink(ctx.req, token), expiresAt, warning: "このリンクは一度だけ使用できます" };
+      }),
+
     resetUserPassword: superAdminProcedure
       .input(z.object({
         userId: z.number(),
         newTemporaryPassword: z.string().min(6).optional(),
         confirmResetCurrentSuperAdmin: z.boolean().optional(),
+        confirmPrivilegedReset: z.boolean().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const dbInstance = await db.getDb();
@@ -632,6 +883,9 @@ export const appRouter = router({
         if (targetUser.id === ctx.user.id && !input.confirmResetCurrentSuperAdmin) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "現在ログイン中の統括管理者を再発行するには確認が必要です" });
         }
+        if (isPrivilegedAppRole(targetUser.appRole) && !input.confirmPrivilegedReset && targetUser.id !== ctx.user.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "管理者以上のアカウントを再発行するには確認が必要です" });
+        }
 
         const temporaryPassword = input.newTemporaryPassword ?? randomBytes(18).toString("base64url");
         const passwordHash = await bcrypt.hash(temporaryPassword, BCRYPT_ROUNDS);
@@ -640,7 +894,7 @@ export const appRouter = router({
           .set({ passwordHash, mustChangePassword: true })
           .where(eq(schema.users.id, input.userId));
 
-        await safeAuditLog(ctx.user.id, "password_reset_by_super_admin", "user", {
+        await safeAuditLog(ctx.user.id, "temporary_password_generated", "user", {
           entityId: targetUser.id,
           employeeId: targetUser.employeeId ?? null,
           note: "super_admin reset user password",

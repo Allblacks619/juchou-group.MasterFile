@@ -147,6 +147,7 @@ export default function AppEmployeeDetail() {
     resetPasswordMutation.mutate({
       userId,
       confirmResetCurrentSuperAdmin: isCurrentSuperAdmin,
+      confirmPrivilegedReset: true,
     });
   };
 

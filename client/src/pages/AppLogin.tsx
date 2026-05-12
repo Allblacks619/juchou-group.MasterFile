@@ -5,6 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Lock, User, AlertCircle, Eye, EyeOff, Globe } from "lucide-react";
 import { useAppLang } from "@/contexts/AppLanguageContext";
+import { trpc } from "@/lib/trpc";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export default function AppLogin() {
   const [loginId, setLoginId] = useState("");
@@ -13,6 +15,28 @@ export default function AppLogin() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { lang, toggleLang, t } = useAppLang();
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryLoginId, setRecoveryLoginId] = useState("");
+  const [recoveryBirthDate, setRecoveryBirthDate] = useState("");
+  const [recoveryPhone, setRecoveryPhone] = useState("");
+  const [recoverySubmitted, setRecoverySubmitted] = useState(false);
+
+  const recoveryMutation = trpc.passwordRecovery.request.useMutation({
+    onSuccess: () => {
+      setRecoverySubmitted(true);
+      setRecoveryLoginId("");
+      setRecoveryBirthDate("");
+      setRecoveryPhone("");
+    },
+    onError: () => {
+      setRecoverySubmitted(true);
+    },
+  });
+
+  const handleRecoverySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    recoveryMutation.mutate({ loginId: recoveryLoginId, birthDate: recoveryBirthDate, phone: recoveryPhone });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,6 +169,19 @@ export default function AppLogin() {
               </Button>
             </form>
 
+            <div className="mt-4 text-center">
+              <button
+                type="button"
+                className="text-sm text-gold hover:text-gold-dim transition-colors"
+                onClick={() => {
+                  setRecoverySubmitted(false);
+                  setRecoveryOpen(true);
+                }}
+              >
+                パスワードを忘れた方はこちら
+              </button>
+            </div>
+
             <div className="mt-6 text-center">
               <a
                 href="/"
@@ -162,6 +199,48 @@ export default function AppLogin() {
             : "招待リンクをお持ちの方は、リンクからアカウントを作成してください"}
         </p>
       </div>
+
+      <Dialog open={recoveryOpen} onOpenChange={setRecoveryOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>パスワード復旧依頼</DialogTitle>
+            <DialogDescription>
+              ログインID、生年月日、電話番号を入力してください。結果にかかわらず、確認後に管理者が対応します。
+            </DialogDescription>
+          </DialogHeader>
+          {recoverySubmitted ? (
+            <div className="py-4 text-sm">
+              復旧依頼を送信しました。管理者の確認をお待ちください。
+            </div>
+          ) : (
+            <form onSubmit={handleRecoverySubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="recovery-loginId">ログインID</Label>
+                <Input id="recovery-loginId" value={recoveryLoginId} onChange={(e) => setRecoveryLoginId(e.target.value)} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="recovery-birthDate">生年月日</Label>
+                <Input id="recovery-birthDate" type="date" value={recoveryBirthDate} onChange={(e) => setRecoveryBirthDate(e.target.value)} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="recovery-phone">電話番号</Label>
+                <Input id="recovery-phone" value={recoveryPhone} onChange={(e) => setRecoveryPhone(e.target.value)} required />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setRecoveryOpen(false)}>キャンセル</Button>
+                <Button type="submit" disabled={recoveryMutation.isPending}>
+                  {recoveryMutation.isPending ? "送信中..." : "復旧依頼を送信"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+          {recoverySubmitted && (
+            <DialogFooter>
+              <Button onClick={() => setRecoveryOpen(false)}>閉じる</Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

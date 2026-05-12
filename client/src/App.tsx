@@ -33,6 +33,8 @@ const AppPayments = lazy(() => import("./pages/AppPayments"));
 const AppReceivables = lazy(() => import("./pages/AppReceivables"));
 const AppAuditLogs = lazy(() => import("./pages/AppAuditLogs"));
 const AppSupport = lazy(() => import("./pages/AppSupport"));
+const AppPasswordResets = lazy(() => import("./pages/AppPasswordResets"));
+const AppResetPassword = lazy(() => import("./pages/AppResetPassword"));
 
 function ScrollToTop() {
   const [location] = useLocation();
@@ -51,8 +53,8 @@ function AppFallback() {
 }
 
 /** Admin/Leader only pages */
-const ADMIN_LEADER: ("admin" | "leader")[] = ["admin", "leader"];
-const WORKER_ONLY: ("worker")[] = ["worker"];
+const ADMIN_LEADER: ("super_admin" | "admin" | "leader")[] = ["super_admin", "admin", "leader"];
+const SUPER_ADMIN: ("super_admin")[] = ["super_admin"];
 
 /** Protected app routes wrapped in AppLayout with role guards */
 function AppRoutes() {
@@ -105,6 +107,9 @@ function AppRoutes() {
           <Route path="/app/audit">
             <RoleGuard allowed={ADMIN_LEADER}><AppAuditLogs /></RoleGuard>
           </Route>
+          <Route path="/app/password-resets">
+            <RoleGuard allowed={SUPER_ADMIN}><AppPasswordResets /></RoleGuard>
+          </Route>
 
           <Route component={NotFound} />
         </Switch>
@@ -137,6 +142,7 @@ function Router() {
         <Route path="/app/login" component={AppLogin} />
         <Route path="/app/change-password" component={AppChangePassword} />
         <Route path="/app/invite/:token" component={AppInviteAccept} />
+        <Route path="/app/reset-password/:token" component={AppResetPassword} />
 
         {/* Business App Routes (auth required via AppLayout) */}
         <Route path="/app" component={AppRoutes} />
