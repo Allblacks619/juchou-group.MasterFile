@@ -26,7 +26,7 @@ import { useAppLang } from "@/contexts/AppLanguageContext";
 import { isManagerLikeAppRole } from "@/lib/appRoles";
 import type { TranslationKey } from "@/lib/appTranslations";
 
-type NavAudience = "manager" | "worker";
+type NavAudience = "super_admin" | "manager" | "worker";
 type NavItem = { path: string; labelKey: TranslationKey; icon: any; roles: NavAudience[] };
 
 const navItems: NavItem[] = [
@@ -44,6 +44,7 @@ const navItems: NavItem[] = [
   { path: "/app/payments", labelKey: "nav_payments", icon: Wallet, roles: ["manager"] },
   { path: "/app/receivables", labelKey: "nav_receivables", icon: FileText, roles: ["manager"] },
   { path: "/app/audit", labelKey: "nav_audit", icon: ClipboardList, roles: ["manager"] },
+  { path: "/app/password-resets", labelKey: "nav_passwordResets", icon: KeyRound, roles: ["super_admin"] },
   { path: "/app/support", labelKey: "nav_support", icon: HelpCircle, roles: ["manager", "worker"] },
 ];
 
@@ -217,6 +218,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
 function isNavItemVisible(item: NavItem, appRole: string) {
   if (item.roles.includes("worker") && appRole === "worker") {
+    return true;
+  }
+
+  if (item.roles.includes("super_admin") && appRole === "super_admin") {
     return true;
   }
 

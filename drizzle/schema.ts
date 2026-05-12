@@ -804,6 +804,36 @@ export type InsertInvoiceSupportingDocument = typeof invoiceSupportingDocuments.
  * Audit logs (監査ログ)
  * Records important admin/leader/worker actions for traceability
  */
+
+/**
+ * Password recovery and reset requests.
+ * Public requests intentionally store only submitted loginId plus verification result;
+ * reset links store a hash of the one-time token, never the plaintext token.
+ */
+export const passwordResetRequests = mysqlTable("password_reset_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  employeeId: int("employeeId"),
+  loginId: varchar("loginId", { length: 128 }).notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected", "completed"]).default("pending").notNull(),
+  verificationMatched: boolean("verificationMatched").default(false).notNull(),
+  tokenHash: varchar("tokenHash", { length: 128 }),
+  tokenExpiresAt: timestamp("tokenExpiresAt"),
+  tokenUsedAt: timestamp("tokenUsedAt"),
+  approvedByUserId: int("approvedByUserId"),
+  rejectedByUserId: int("rejectedByUserId"),
+  requestedAt: timestamp("requestedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  tokenHashIdx: index("password_reset_requests_token_hash_idx").on(table.tokenHash),
+  statusIdx: index("password_reset_requests_status_idx").on(table.status),
+}));
+
+export type PasswordResetRequest = typeof passwordResetRequests.$inferSelect;
+export type InsertPasswordResetRequest = typeof passwordResetRequests.$inferInsert;
+
 export const auditLogs = mysqlTable("audit_logs", {
   id: int("id").autoincrement().primaryKey(),
   /** Action key (e.g. closing.markReady, payment.markPaid) */

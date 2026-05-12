@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { ReactNode, useEffect } from "react";
 
-type AllowedRole = "admin" | "leader" | "worker";
+type AllowedRole = "super_admin" | "admin" | "leader" | "worker";
 
 interface RoleGuardProps {
   /** Roles allowed to access this route */
