@@ -302,6 +302,34 @@ function getMonthKeyFromDate(value?: Date | string | null) {
   return `${y}-${m}`;
 }
 
+const EMPTY_CLOSING_SUMMARY = {
+  targetCount: 0,
+  pendingCount: 0,
+  submittedCount: 0,
+  approvedCount: 0,
+  receiptMissingCount: 0,
+  canMarkReady: false,
+};
+
+function toComparableDate(value?: Date | string | null) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function projectOverlapsMonth(project: any, monthStart: Date, monthEnd: Date) {
+  const projectStart = toComparableDate(project.startDate);
+  const projectEnd = toComparableDate(project.endDate);
+
+  if (projectStart && projectStart.getTime() > monthEnd.getTime()) return false;
+  if (projectEnd && projectEnd.getTime() < monthStart.getTime()) return false;
+  return true;
+}
+
+function isProjectActiveDuringMonth(project: any, monthStart: Date, monthEnd: Date) {
+  return (project.status || "active") === "active" && projectOverlapsMonth(project, monthStart, monthEnd);
+}
+
 function getInvoiceReceivedAmount(invoice: any) {
   const received = Number(invoice.receivedAmount || 0);
   if (received > 0) return received;
@@ -2435,6 +2463,7 @@ export const appRouter = router({
     listByMonth: leaderOrAdminProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
+        const { start, end } = getMonthDateRange(input.closingMonth);
         const [projects, clients, closings] = await Promise.all([
           db.getAllProjects(),
           db.getAllClients(),
@@ -2443,40 +2472,43 @@ export const appRouter = router({
         const clientMap = new Map<number, any>(clients.map((c: any) => [c.id, c]));
         const closingMap = new Map<number, any>(closings.map((c: any) => [c.projectId, c]));
 
-        const rows = await Promise.all(
+        const rows = (await Promise.all(
           projects.map(async (project) => {
             const closing = closingMap.get(project.id) || null;
+            const [attendanceRecords, projectMembers] = await Promise.all([
+              closing?.id ? Promise.resolve([]) : db.getAttendanceByProject(project.id, start, end),
+              closing?.id ? Promise.resolve([]) : db.getProjectMembers(project.id),
+            ]);
+            const hasMonthlyAttendance = attendanceRecords.length > 0;
+            const hasActiveMembers = projectMembers.some((member: any) => member.isActive);
+            const overlapsMonth = projectOverlapsMonth(project, start, end);
+            const relevant = Boolean(
+              closing?.id
+              || hasMonthlyAttendance
+              || (hasActiveMembers && overlapsMonth)
+              || isProjectActiveDuringMonth(project, start, end)
+            );
+
+            if (!relevant) return null;
+
             if (!closing?.id) {
               return {
                 project,
                 client: project.clientId ? clientMap.get(project.clientId) || null : null,
                 closing: null,
-                summary: {
-                  targetCount: 0,
-                  pendingCount: 0,
-                  submittedCount: 0,
-                  approvedCount: 0,
-                  receiptMissingCount: 0,
-                  canMarkReady: false,
-                },
+                summary: { ...EMPTY_CLOSING_SUMMARY },
               };
             }
+
             const detail = await buildClosingDetail(project.id, input.closingMonth);
             return {
               project,
               client: project.clientId ? clientMap.get(project.clientId) || null : null,
               closing,
-              summary: detail?.summary || {
-                targetCount: 0,
-                pendingCount: 0,
-                submittedCount: 0,
-                approvedCount: 0,
-                receiptMissingCount: 0,
-                canMarkReady: false,
-              },
+              summary: detail?.summary || { ...EMPTY_CLOSING_SUMMARY },
             };
           })
-        );
+        )).filter((row): row is NonNullable<typeof row> => row !== null);
 
         return rows.sort((a, b) => a.project.name.localeCompare(b.project.name, "ja"));
       }),
