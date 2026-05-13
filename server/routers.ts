@@ -12,7 +12,7 @@ import { isWorkedType } from "@shared/attendanceStatus";
 import { storageGet, storagePut } from "./storage";
 import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "../shared/uploadValidation";
 import * as schema from "../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from "./pdfRoster";
 import { generateInvoicePdf } from "./pdfInvoice";
@@ -723,16 +723,37 @@ export const appRouter = router({
     listPasswordRecoveryRequests: superAdminProcedure.query(async () => {
       const dbInstance = await db.getDb();
       if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
-      const [requests, employees, users] = await Promise.all([
-        dbInstance.select().from(schema.passwordResetRequests),
-        db.getAllEmployees(),
-        db.getAllUsers(),
+
+      const requests = await dbInstance.select().from(schema.passwordResetRequests);
+      if ((requests as any[]).length === 0) return [];
+
+      const employeeIds = Array.from(new Set((requests as any[])
+        .map((request) => request.employeeId)
+        .filter((id): id is number => typeof id === "number")));
+      const userIds = Array.from(new Set((requests as any[])
+        .map((request) => request.userId)
+        .filter((id): id is number => typeof id === "number")));
+
+      const [employees, users] = await Promise.all([
+        employeeIds.length > 0
+          ? dbInstance.select({
+            id: schema.employees.id,
+            nameKanji: schema.employees.nameKanji,
+            nameRomaji: schema.employees.nameRomaji,
+          }).from(schema.employees).where(inArray(schema.employees.id, employeeIds))
+          : Promise.resolve([]),
+        userIds.length > 0
+          ? dbInstance.select({
+            id: schema.users.id,
+            appRole: schema.users.appRole,
+          }).from(schema.users).where(inArray(schema.users.id, userIds))
+          : Promise.resolve([]),
       ]);
       const employeeMap = new Map((employees as any[]).map((employee) => [employee.id, employee]));
       const userMap = new Map((users as any[]).map((user) => [user.id, user]));
       return (requests as any[])
         .sort((a, b) => new Date(b.requestedAt ?? b.createdAt).getTime() - new Date(a.requestedAt ?? a.createdAt).getTime())
-        .map(({ tokenHash, ...request }) => {
+        .map(({ tokenHash, passwordHash, ...request }) => {
           const employee = employeeMap.get(request.employeeId);
           const user = userMap.get(request.userId);
           return {
