@@ -111,6 +111,65 @@ describe("password recovery workflow", () => {
     expect(stored.status).toBe("approved");
   });
 
+
+  it("returns an empty recovery request list without loading all users or employees", async () => {
+    const from = vi.fn().mockResolvedValue([]);
+    const select = vi.fn().mockReturnValue({ from });
+    mockDb.getDb.mockResolvedValue({ select });
+
+    const result = await appRouter.createCaller(ctx(superAdmin())).superAdmin.listPasswordRecoveryRequests();
+
+    expect(result).toEqual([]);
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(mockDb.getAllEmployees).not.toHaveBeenCalled();
+    expect(mockDb.getAllUsers).not.toHaveBeenCalled();
+  });
+
+  it("loads only referenced users and employees for recovery requests without exposing secrets", async () => {
+    const requestedAt = new Date("2026-01-02T00:00:00.000Z");
+    const requests = [
+      {
+        id: 1,
+        userId: 10,
+        employeeId: 20,
+        loginId: "worker1",
+        status: "pending",
+        verificationMatched: true,
+        tokenHash: "stored-token-hash",
+        tokenExpiresAt: new Date(Date.now() + 60000),
+        tokenUsedAt: null,
+        requestedAt,
+        createdAt: requestedAt,
+      },
+    ];
+    const passwordRequestFrom = vi.fn().mockResolvedValue(requests);
+    const employeeWhere = vi.fn().mockResolvedValue([{ id: 20, nameKanji: "Worker One", nameRomaji: "worker one" }]);
+    const employeeFrom = vi.fn().mockReturnValue({ where: employeeWhere });
+    const userWhere = vi.fn().mockResolvedValue([{ id: 10, appRole: "worker", passwordHash: "should-not-be-selected" }]);
+    const userFrom = vi.fn().mockReturnValue({ where: userWhere });
+    const select = vi.fn()
+      .mockReturnValueOnce({ from: passwordRequestFrom })
+      .mockReturnValueOnce({ from: employeeFrom })
+      .mockReturnValueOnce({ from: userFrom });
+    mockDb.getDb.mockResolvedValue({ select });
+
+    const result = await appRouter.createCaller(ctx(superAdmin())).superAdmin.listPasswordRecoveryRequests();
+
+    expect(select).toHaveBeenCalledTimes(3);
+    expect(mockDb.getAllEmployees).not.toHaveBeenCalled();
+    expect(mockDb.getAllUsers).not.toHaveBeenCalled();
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: 1,
+      loginId: "worker1",
+      appRole: "worker",
+      employeeName: "Worker One",
+      hasActiveToken: true,
+    });
+    expect(result[0]).not.toHaveProperty("tokenHash");
+    expect(result[0]).not.toHaveProperty("passwordHash");
+  });
+
   it("uses a valid reset token once and clears mustChangePassword", async () => {
     const token = "reset-token-abcdefghijklmnopqrstuvwxyz123456";
     const tokenHash = createHash("sha256").update(token).digest("hex");
