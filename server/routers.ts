@@ -753,7 +753,7 @@ export const appRouter = router({
       const userMap = new Map((users as any[]).map((user) => [user.id, user]));
       return (requests as any[])
         .sort((a, b) => new Date(b.requestedAt ?? b.createdAt).getTime() - new Date(a.requestedAt ?? a.createdAt).getTime())
-        .map(({ tokenHash, ...request }) => {
+        .map(({ tokenHash, passwordHash, ...request }) => {
           const employee = employeeMap.get(request.employeeId);
           const user = userMap.get(request.userId);
           return {

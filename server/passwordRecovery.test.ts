@@ -111,7 +111,6 @@ describe("password recovery workflow", () => {
     expect(stored.status).toBe("approved");
   });
 
-
   it("returns an empty recovery request list without loading all users or employees", async () => {
     const from = vi.fn().mockResolvedValue([]);
     const select = vi.fn().mockReturnValue({ from });
@@ -136,6 +135,7 @@ describe("password recovery workflow", () => {
         status: "pending",
         verificationMatched: true,
         tokenHash: "stored-token-hash",
+        passwordHash: "request-password-hash-should-not-return",
         tokenExpiresAt: new Date(Date.now() + 60000),
         tokenUsedAt: null,
         requestedAt,
@@ -156,6 +156,15 @@ describe("password recovery workflow", () => {
     const result = await appRouter.createCaller(ctx(superAdmin())).superAdmin.listPasswordRecoveryRequests();
 
     expect(select).toHaveBeenCalledTimes(3);
+    expect(select).toHaveBeenNthCalledWith(2, {
+      id: expect.anything(),
+      nameKanji: expect.anything(),
+      nameRomaji: expect.anything(),
+    });
+    expect(select).toHaveBeenNthCalledWith(3, {
+      id: expect.anything(),
+      appRole: expect.anything(),
+    });
     expect(mockDb.getAllEmployees).not.toHaveBeenCalled();
     expect(mockDb.getAllUsers).not.toHaveBeenCalled();
     expect(result).toHaveLength(1);
