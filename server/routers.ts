@@ -48,6 +48,50 @@ function isPrivilegedAppRole(role: unknown) {
   return role === "super_admin" || role === "admin";
 }
 
+const ATTENDANCE_REMOVED_GUEST_PREFIX = "__attendance_removed_guest__:";
+const ATTENDANCE_REMOVED_GUEST_DATE = "1900-01-01";
+
+function canRemoveAttendanceMember(role: unknown) {
+  return role === "super_admin" || role === "admin" || role === "manager";
+}
+
+function removedGuestMarkerName(guestName: string) {
+  return `${ATTENDANCE_REMOVED_GUEST_PREFIX}${createHash("sha256").update(guestName).digest("hex")}`;
+}
+
+function isRemovedGuestMarkerName(guestName: string | null | undefined) {
+  return !!guestName && guestName.startsWith(ATTENDANCE_REMOVED_GUEST_PREFIX);
+}
+
+function removedGuestMarkerNote(guestName: string) {
+  return `attendance_removed_guest:${guestName}`;
+}
+
+function guestNameFromRemovedMarkerNote(notes: string | null | undefined) {
+  const prefix = "attendance_removed_guest:";
+  return notes?.startsWith(prefix) ? notes.slice(prefix.length) : null;
+}
+
+async function getRemovedAttendanceGuestNames(projectId: number) {
+  const records = await db.getAttendanceByProject(projectId);
+  const removed = new Set<string>();
+  for (const record of records) {
+    if (!isRemovedGuestMarkerName(record.guestName)) continue;
+    const guestName = guestNameFromRemovedMarkerNote(record.notes);
+    if (guestName && record.hoursWorked === 0 && record.workType === "absence") {
+      removed.add(guestName);
+    }
+  }
+  return removed;
+}
+
+function filterRemovedGuestAttendanceRecords<T extends { guestName: string | null }>(records: T[], removedGuestNames: Set<string>) {
+  return records.filter((record) => {
+    if (isRemovedGuestMarkerName(record.guestName)) return false;
+    return !record.guestName || !removedGuestNames.has(record.guestName);
+  });
+}
+
 // ── Helper: check admin or leader role ──
 const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (!isManagerLike((ctx.user as any).appRole)) {
@@ -2064,11 +2108,14 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const startRange = parseDateRange(input.startDate);
         const endRange = parseDateRange(input.endDate);
-        return db.getAttendanceByDateRange(
+        const records = await db.getAttendanceByDateRange(
           startRange.start,
           endRange.end,
           input.projectId,
         );
+        if (!input.projectId) return records.filter((record) => !isRemovedGuestMarkerName(record.guestName));
+        const removedGuestNames = await getRemovedAttendanceGuestNames(input.projectId);
+        return filterRemovedGuestAttendanceRecords(records, removedGuestNames);
       }),
 
     /** List attendance for a specific employee */
@@ -2167,6 +2214,43 @@ export const appRouter = router({
           }
         }
         return { count: results.length + deletedCount };
+      }),
+
+
+    /** Remove an active attendance member without deleting historical attendance data */
+    removeMember: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        employeeId: z.number().optional(),
+        guestName: z.string().trim().min(1).max(128).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (!canRemoveAttendanceMember((ctx.user as any).appRole)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "管理者権限が必要です" });
+        }
+        if (!!input.employeeId === !!input.guestName) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "従業員またはゲストを1人指定してください" });
+        }
+
+        if (input.employeeId) {
+          await db.removeProjectMember(input.projectId, input.employeeId);
+          return { success: true };
+        }
+
+        const guestName = input.guestName!;
+        await db.upsertAttendance({
+          employeeId: null,
+          guestName: removedGuestMarkerName(guestName),
+          projectId: input.projectId,
+          workDate: parseDateString(ATTENDANCE_REMOVED_GUEST_DATE),
+          hoursWorked: 0,
+          overtimeHours: 0,
+          workType: "absence",
+          shiftType: "day",
+          notes: removedGuestMarkerNote(guestName),
+          enteredBy: ctx.user.id,
+        });
+        return { success: true };
       }),
 
     /** Delete an attendance record */
@@ -2302,11 +2386,13 @@ export const appRouter = router({
           if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
           await assertProjectMember(employee.id, input.projectId);
         }
-        const records = await db.getAttendanceByProject(
+        const rawRecords = await db.getAttendanceByProject(
           input.projectId,
           parseDateRange(input.startDate).start,
           parseDateRange(input.endDate).end,
         );
+        const removedGuestNames = await getRemovedAttendanceGuestNames(input.projectId);
+        const records = filterRemovedGuestAttendanceRecords(rawRecords, removedGuestNames);
         // Collect unique employee IDs and guest names
         const empIds = new Set<number>();
         const guestNames = new Set<string>();

@@ -203,6 +203,7 @@ export default function AppAttendance() {
   const { user } = useAuth();
   const appRole = (user as any)?.appRole || "worker";
   const canManageAttendanceMembers = isManagerLikeAppRole(appRole);
+  const canRemoveAttendanceMembers = appRole === "super_admin" || appRole === "admin" || appRole === "manager";
 
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
@@ -211,7 +212,6 @@ export default function AppAttendance() {
   const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
   const [newGuestName, setNewGuestName] = useState("");
   const [guestNames, setGuestNames] = useState<string[]>([]);
-  const [removedGuestKeys, setRemovedGuestKeys] = useState<Set<string>>(() => new Set());
   const [selectedMemberId, setSelectedMemberId] = useState<string>("");
 
   // Lock state: default LOCKED
@@ -276,14 +276,14 @@ export default function AppAttendance() {
     onError: (e) => toast.error(`追加エラー: ${e.message}`),
   });
 
-  const removeMemberMutation = trpc.project.removeMember.useMutation({
+  const removeMemberMutation = trpc.attendance.removeMember.useMutation({
     onSuccess: (_data, variables) => {
       toast.success("メンバーを現場から外しました");
       projectMembersQuery.refetch();
       attendanceQuery.refetch();
       setCellEdits((prev) => {
         const next = { ...prev };
-        const prefix = `emp-${variables.employeeId}-`;
+        const prefix = variables.employeeId ? `emp-${variables.employeeId}-` : `guest-${variables.guestName}-`;
         for (const key of Object.keys(next)) {
           if (key.startsWith(prefix)) delete next[key];
         }
@@ -294,24 +294,14 @@ export default function AppAttendance() {
   });
 
   const handleRemoveMember = (rowKey: string, label: string) => {
-    if (!selectedProjectId || isLocked || !canManageAttendanceMembers) return;
+    if (!selectedProjectId || isLocked || !canRemoveAttendanceMembers) return;
     if (!confirm("このメンバーをこの現場の出面メンバーから外します。過去の出面データは削除されません。よろしいですか？")) return;
     if (rowKey.startsWith("emp-")) {
       const empId = parseInt(rowKey.replace("emp-", ""));
       removeMemberMutation.mutate({ projectId: selectedProjectId, employeeId: empId });
     } else if (rowKey.startsWith("guest-")) {
       const gName = rowKey.replace("guest-", "");
-      setGuestNames(prev => prev.filter(n => n !== gName));
-      setRemovedGuestKeys(prev => new Set(prev).add(`${selectedProjectId}:${gName}`));
-      setCellEdits(prev => {
-        const next = { ...prev };
-        for (const k of Object.keys(next)) {
-          if (k.startsWith(`guest-${gName}-`)) delete next[k];
-        }
-        return next;
-      });
-      attendanceQuery.refetch();
-      toast.success(`${gName}（ゲスト）を出面メンバーから外しました`);
+      removeMemberMutation.mutate({ projectId: selectedProjectId, guestName: gName });
     }
   };
 
@@ -349,13 +339,8 @@ export default function AppAttendance() {
   // All guest names (existing + newly added)
   const allGuestNames = useMemo(() => {
     const names = new Set([...existingGuestNames, ...guestNames]);
-    if (selectedProjectId) {
-      for (const name of Array.from(names)) {
-        if (removedGuestKeys.has(`${selectedProjectId}:${name}`)) names.delete(name);
-      }
-    }
     return Array.from(names);
-  }, [existingGuestNames, guestNames, selectedProjectId, removedGuestKeys]);
+  }, [existingGuestNames, guestNames]);
 
   // Get cell value
   const getCellValue = useCallback(
@@ -559,13 +544,6 @@ export default function AppAttendance() {
       return;
     }
     setGuestNames((prev) => [...prev, name]);
-    if (selectedProjectId) {
-      setRemovedGuestKeys((prev) => {
-        const next = new Set(prev);
-        next.delete(`${selectedProjectId}:${name}`);
-        return next;
-      });
-    }
     setNewGuestName("");
     setShowGuestDialog(false);
     toast.success(`ゲスト「${name}」を追加しました`);
@@ -885,7 +863,7 @@ export default function AppAttendance() {
                         >
                           <div className="flex items-center gap-1">
                             <span className="truncate">{row.label}</span>
-                            {canManageAttendanceMembers && !isLocked && (
+                            {canRemoveAttendanceMembers && !isLocked && (
                               <button
                                 onClick={() => handleRemoveMember(row.key, row.label)}
                                 className="shrink-0 p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"

@@ -286,6 +286,7 @@ function AttendanceCalendar() {
   const appRole = (user as any)?.appRole || "worker";
   const isAdminOrLeader = isManagerLikeAppRole(appRole);
   const canManageAttendanceMembers = isManagerLikeAppRole(appRole);
+  const canRemoveAttendanceMembers = appRole === "super_admin" || appRole === "admin" || appRole === "manager";
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [projectInitialized, setProjectInitialized] = useState(false);
@@ -295,7 +296,6 @@ function AttendanceCalendar() {
   const [guestName, setGuestName] = useState("");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [employeeSearch, setEmployeeSearch] = useState("");
-  const [removedGuestKeys, setRemovedGuestKeys] = useState<Set<string>>(() => new Set());
 
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
@@ -345,7 +345,7 @@ function AttendanceCalendar() {
   });
 
 
-  const removeMemberMutation = trpc.project.removeMember.useMutation({
+  const removeMemberMutation = trpc.attendance.removeMember.useMutation({
     onSuccess: () => {
       toast.success(lang === "pt" ? "Membro removido da obra" : "メンバーを現場から外しました");
       refreshAttendanceQueries();
@@ -420,12 +420,11 @@ function AttendanceCalendar() {
     const seen = new Set<string>();
     return raw.filter((m) => {
       const key = m.type === "guest" ? `guest-${m.nameKanji}` : `emp-${m.id}`;
-      if (m.type === "guest" && selectedProjectId && removedGuestKeys.has(`${selectedProjectId}:${m.nameKanji}`)) return false;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-  }, [activeProjectMembers, teamDataQuery.data?.members, selectedProjectId, removedGuestKeys]);
+  }, [activeProjectMembers, teamDataQuery.data?.members]);
 
   const autoSave = useCallback(
     (params: {
@@ -545,11 +544,6 @@ function AttendanceCalendar() {
       workType: "normal",
       shiftType: "day",
     });
-    setRemovedGuestKeys((prev) => {
-      const next = new Set(prev);
-      next.delete(`${selectedProjectId}:${guestName.trim()}`);
-      return next;
-    });
     toast.success(lang === "pt" ? `Convidado "${guestName.trim()}" adicionado` : `ゲスト「${guestName.trim()}」を追加しました`);
     setGuestName("");
     setGuestDialogOpen(false);
@@ -557,7 +551,7 @@ function AttendanceCalendar() {
 
 
   const handleRemoveAttendanceMember = (member: { id: number; nameKanji: string; type: "employee" | "guest" }) => {
-    if (!selectedProjectId || isLocked || !canManageAttendanceMembers) return;
+    if (!selectedProjectId || isLocked || !canRemoveAttendanceMembers) return;
     const confirmed = confirm(
       lang === "pt"
         ? "Este membro será removido da lista de presença desta obra. Os dados de presença anteriores não serão excluídos. Deseja continuar?"
@@ -565,14 +559,11 @@ function AttendanceCalendar() {
     );
     if (!confirmed) return;
 
-    if (member.type === "guest") {
-      setRemovedGuestKeys((prev) => new Set(prev).add(`${selectedProjectId}:${member.nameKanji}`));
-      refreshAttendanceQueries();
-      toast.success(lang === "pt" ? "Convidado removido da lista de presença" : "ゲストを出面メンバーから外しました");
-      return;
-    }
-
-    removeMemberMutation.mutate({ projectId: selectedProjectId, employeeId: member.id });
+    removeMemberMutation.mutate({
+      projectId: selectedProjectId,
+      employeeId: member.type === "employee" ? member.id : undefined,
+      guestName: member.type === "guest" ? member.nameKanji : undefined,
+    });
   };
 
   const handlePdfDownload = () => {
@@ -807,7 +798,7 @@ function AttendanceCalendar() {
                                       {lang === "pt" ? "G" : "ゲ"}
                                     </Badge>
                                   )}
-                                  {canManageAttendanceMembers && !isLocked && (
+                                  {canRemoveAttendanceMembers && !isLocked && (
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveAttendanceMember(member)}
