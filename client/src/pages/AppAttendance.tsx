@@ -60,6 +60,7 @@ import {
 } from "date-fns";
 import { ja } from "date-fns/locale";
 import { useLocation } from "wouter";
+import { isManagerLikeAppRole } from "@/lib/appRoles";
 import {
   type WorkType,
   type ShiftType,
@@ -201,7 +202,7 @@ export default function AppAttendance() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const appRole = (user as any)?.appRole || "worker";
-  const isAdminOrLeader = appRole === "admin" || appRole === "leader";
+  const canManageAttendanceMembers = isManagerLikeAppRole(appRole);
 
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
@@ -210,6 +211,7 @@ export default function AppAttendance() {
   const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
   const [newGuestName, setNewGuestName] = useState("");
   const [guestNames, setGuestNames] = useState<string[]>([]);
+  const [removedGuestKeys, setRemovedGuestKeys] = useState<Set<string>>(() => new Set());
   const [selectedMemberId, setSelectedMemberId] = useState<string>("");
 
   // Lock state: default LOCKED
@@ -222,7 +224,7 @@ export default function AppAttendance() {
   // Get project members for the selected project
   const projectMembersQuery = trpc.project.members.useQuery(
     { projectId: selectedProjectId! },
-    { enabled: !!selectedProjectId && isAdminOrLeader }
+    { enabled: !!selectedProjectId && canManageAttendanceMembers }
   );
 
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
@@ -276,7 +278,7 @@ export default function AppAttendance() {
 
   const removeMemberMutation = trpc.project.removeMember.useMutation({
     onSuccess: (_data, variables) => {
-      toast.success("作業員を現場から削除しました");
+      toast.success("メンバーを現場から外しました");
       projectMembersQuery.refetch();
       attendanceQuery.refetch();
       setCellEdits((prev) => {
@@ -292,14 +294,15 @@ export default function AppAttendance() {
   });
 
   const handleRemoveMember = (rowKey: string, label: string) => {
-    if (!selectedProjectId) return;
-    if (!confirm(`${label} をこの現場から削除しますか？\n※出勤記録は削除されません`)) return;
+    if (!selectedProjectId || isLocked || !canManageAttendanceMembers) return;
+    if (!confirm("このメンバーをこの現場の出面メンバーから外します。過去の出面データは削除されません。よろしいですか？")) return;
     if (rowKey.startsWith("emp-")) {
       const empId = parseInt(rowKey.replace("emp-", ""));
       removeMemberMutation.mutate({ projectId: selectedProjectId, employeeId: empId });
     } else if (rowKey.startsWith("guest-")) {
       const gName = rowKey.replace("guest-", "");
       setGuestNames(prev => prev.filter(n => n !== gName));
+      setRemovedGuestKeys(prev => new Set(prev).add(`${selectedProjectId}:${gName}`));
       setCellEdits(prev => {
         const next = { ...prev };
         for (const k of Object.keys(next)) {
@@ -307,7 +310,8 @@ export default function AppAttendance() {
         }
         return next;
       });
-      toast.success(`${gName}（ゲスト）を削除しました`);
+      attendanceQuery.refetch();
+      toast.success(`${gName}（ゲスト）を出面メンバーから外しました`);
     }
   };
 
@@ -345,8 +349,13 @@ export default function AppAttendance() {
   // All guest names (existing + newly added)
   const allGuestNames = useMemo(() => {
     const names = new Set([...existingGuestNames, ...guestNames]);
+    if (selectedProjectId) {
+      for (const name of Array.from(names)) {
+        if (removedGuestKeys.has(`${selectedProjectId}:${name}`)) names.delete(name);
+      }
+    }
     return Array.from(names);
-  }, [existingGuestNames, guestNames]);
+  }, [existingGuestNames, guestNames, selectedProjectId, removedGuestKeys]);
 
   // Get cell value
   const getCellValue = useCallback(
@@ -550,6 +559,13 @@ export default function AppAttendance() {
       return;
     }
     setGuestNames((prev) => [...prev, name]);
+    if (selectedProjectId) {
+      setRemovedGuestKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(`${selectedProjectId}:${name}`);
+        return next;
+      });
+    }
     setNewGuestName("");
     setShowGuestDialog(false);
     toast.success(`ゲスト「${name}」を追加しました`);
@@ -647,7 +663,7 @@ export default function AppAttendance() {
             {isLocked ? <Lock className="h-5 w-5" /> : <LockOpen className="h-5 w-5" />}
           </Button>
 
-          {isAdminOrLeader && selectedProjectId && (
+          {canManageAttendanceMembers && selectedProjectId && (
             <Button
               variant="outline"
               size="sm"
@@ -692,7 +708,7 @@ export default function AppAttendance() {
             )}
             Excel出力
           </Button>
-          {isAdminOrLeader && selectedProjectId && (
+          {canManageAttendanceMembers && selectedProjectId && (
             <Button
               variant="outline"
               size="sm"
@@ -803,7 +819,7 @@ export default function AppAttendance() {
           <CardContent className="py-12 text-center text-muted-foreground">
             <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>この現場にはまだ作業員が配属されていません</p>
-            {isAdminOrLeader && (
+            {canManageAttendanceMembers && (
               <Button
                 variant="outline"
                 className="mt-4"
@@ -869,7 +885,7 @@ export default function AppAttendance() {
                         >
                           <div className="flex items-center gap-1">
                             <span className="truncate">{row.label}</span>
-                            {isAdminOrLeader && !isLocked && (
+                            {canManageAttendanceMembers && !isLocked && (
                               <button
                                 onClick={() => handleRemoveMember(row.key, row.label)}
                                 className="shrink-0 p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"

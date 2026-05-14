@@ -285,7 +285,7 @@ function AttendanceCalendar() {
   const [, setLocation] = useLocation();
   const appRole = (user as any)?.appRole || "worker";
   const isAdminOrLeader = isManagerLikeAppRole(appRole);
-  const canAddAttendanceMembers = appRole === "super_admin" || appRole === "admin" || appRole === "manager";
+  const canManageAttendanceMembers = isManagerLikeAppRole(appRole);
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [projectInitialized, setProjectInitialized] = useState(false);
@@ -295,6 +295,7 @@ function AttendanceCalendar() {
   const [guestName, setGuestName] = useState("");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [employeeSearch, setEmployeeSearch] = useState("");
+  const [removedGuestKeys, setRemovedGuestKeys] = useState<Set<string>>(() => new Set());
 
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
@@ -303,10 +304,10 @@ function AttendanceCalendar() {
   const projectsQuery = trpc.attendance.myProjects.useQuery();
   const lastProjectQuery = trpc.attendance.lastProject.useQuery();
   const myInfoQuery = trpc.attendance.myEmployeeInfo.useQuery();
-  const employeesQuery = trpc.employee.list.useQuery(undefined, { enabled: canAddAttendanceMembers });
+  const employeesQuery = trpc.employee.list.useQuery(undefined, { enabled: canManageAttendanceMembers });
   const projectMembersQuery = trpc.project.members.useQuery(
     { projectId: selectedProjectId! },
-    { enabled: !!selectedProjectId && canAddAttendanceMembers }
+    { enabled: !!selectedProjectId && canManageAttendanceMembers }
   );
 
   const teamDataQuery = trpc.attendance.projectTeamData.useQuery(
@@ -341,6 +342,15 @@ function AttendanceCalendar() {
       setEmployeeSearch("");
     },
     onError: (e) => toast.error(`${lang === "pt" ? "Erro ao adicionar" : "追加エラー"}: ${e.message}`),
+  });
+
+
+  const removeMemberMutation = trpc.project.removeMember.useMutation({
+    onSuccess: () => {
+      toast.success(lang === "pt" ? "Membro removido da obra" : "メンバーを現場から外しました");
+      refreshAttendanceQueries();
+    },
+    onError: (e) => toast.error(`${lang === "pt" ? "Erro ao remover" : "削除エラー"}: ${e.message}`),
   });
 
   const pdfMutation = trpc.attendance.generatePdf.useMutation({
@@ -410,11 +420,12 @@ function AttendanceCalendar() {
     const seen = new Set<string>();
     return raw.filter((m) => {
       const key = m.type === "guest" ? `guest-${m.nameKanji}` : `emp-${m.id}`;
+      if (m.type === "guest" && selectedProjectId && removedGuestKeys.has(`${selectedProjectId}:${m.nameKanji}`)) return false;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-  }, [activeProjectMembers, teamDataQuery.data?.members]);
+  }, [activeProjectMembers, teamDataQuery.data?.members, selectedProjectId, removedGuestKeys]);
 
   const autoSave = useCallback(
     (params: {
@@ -492,17 +503,17 @@ function AttendanceCalendar() {
   );
 
   const openEmployeeDialog = () => {
-    if (!canAddAttendanceMembers) return;
+    if (!canManageAttendanceMembers) return;
     setEmployeeDialogOpen(true);
   };
 
   const openGuestDialog = () => {
-    if (!canAddAttendanceMembers) return;
+    if (!canManageAttendanceMembers) return;
     setGuestDialogOpen(true);
   };
 
   const handleAddEmployee = () => {
-    if (isLocked || !canAddAttendanceMembers) return;
+    if (isLocked || !canManageAttendanceMembers) return;
     if (!selectedProjectId) {
       toast.error(t("attendance_selectProject"));
       return;
@@ -515,7 +526,7 @@ function AttendanceCalendar() {
   };
 
   const handleAddGuest = () => {
-    if (isLocked || !canAddAttendanceMembers) return;
+    if (isLocked || !canManageAttendanceMembers) return;
     if (!guestName.trim()) {
       toast.error(lang === "pt" ? "Digite o nome" : "名前を入力してください");
       return;
@@ -534,9 +545,34 @@ function AttendanceCalendar() {
       workType: "normal",
       shiftType: "day",
     });
+    setRemovedGuestKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(`${selectedProjectId}:${guestName.trim()}`);
+      return next;
+    });
     toast.success(lang === "pt" ? `Convidado "${guestName.trim()}" adicionado` : `ゲスト「${guestName.trim()}」を追加しました`);
     setGuestName("");
     setGuestDialogOpen(false);
+  };
+
+
+  const handleRemoveAttendanceMember = (member: { id: number; nameKanji: string; type: "employee" | "guest" }) => {
+    if (!selectedProjectId || isLocked || !canManageAttendanceMembers) return;
+    const confirmed = confirm(
+      lang === "pt"
+        ? "Este membro será removido da lista de presença desta obra. Os dados de presença anteriores não serão excluídos. Deseja continuar?"
+        : "このメンバーをこの現場の出面メンバーから外します。過去の出面データは削除されません。よろしいですか？"
+    );
+    if (!confirmed) return;
+
+    if (member.type === "guest") {
+      setRemovedGuestKeys((prev) => new Set(prev).add(`${selectedProjectId}:${member.nameKanji}`));
+      refreshAttendanceQueries();
+      toast.success(lang === "pt" ? "Convidado removido da lista de presença" : "ゲストを出面メンバーから外しました");
+      return;
+    }
+
+    removeMemberMutation.mutate({ projectId: selectedProjectId, employeeId: member.id });
   };
 
   const handlePdfDownload = () => {
@@ -613,12 +649,12 @@ function AttendanceCalendar() {
               </Button>
               {isAdminOrLeader ? (
                 <>
-                  {canAddAttendanceMembers && (
+                  {canManageAttendanceMembers && (
                     <Button variant="outline" size="sm" onClick={openEmployeeDialog} disabled={!selectedProjectId || isLocked}>
                       <UserPlus className="h-4 w-4 mr-1" /> {t("dashboard_addEmployee")}
                     </Button>
                   )}
-                  {canAddAttendanceMembers && (
+                  {canManageAttendanceMembers && (
                     <Button variant="outline" size="sm" onClick={openGuestDialog} disabled={!selectedProjectId || isLocked}>
                       <Plus className="h-4 w-4 mr-1" /> {t("dashboard_addGuest")}
                     </Button>
@@ -771,6 +807,17 @@ function AttendanceCalendar() {
                                       {lang === "pt" ? "G" : "ゲ"}
                                     </Badge>
                                   )}
+                                  {canManageAttendanceMembers && !isLocked && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveAttendanceMember(member)}
+                                      className="shrink-0 p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"
+                                      title={lang === "pt" ? "Remover da presença" : "出面メンバーから外す"}
+                                      aria-label={lang === "pt" ? `Remover ${member.nameKanji}` : `${member.nameKanji}を出面メンバーから外す`}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                               {daysInMonth.map((day) => {
@@ -892,7 +939,7 @@ function AttendanceCalendar() {
                             </tr>
                           );
                         })}
-                      {canAddAttendanceMembers && (
+                      {canManageAttendanceMembers && (
                         <tr>
                           <td colSpan={daysInMonth.length + 4} className="px-3 py-3 text-center">
                             <Popover>
