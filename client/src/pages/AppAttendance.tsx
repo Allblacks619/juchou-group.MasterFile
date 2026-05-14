@@ -60,6 +60,7 @@ import {
 } from "date-fns";
 import { ja } from "date-fns/locale";
 import { useLocation } from "wouter";
+import { isManagerLikeAppRole } from "@/lib/appRoles";
 import {
   type WorkType,
   type ShiftType,
@@ -201,7 +202,8 @@ export default function AppAttendance() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const appRole = (user as any)?.appRole || "worker";
-  const isAdminOrLeader = appRole === "admin" || appRole === "leader";
+  const canManageAttendanceMembers = isManagerLikeAppRole(appRole);
+  const canRemoveAttendanceMembers = appRole === "super_admin" || appRole === "admin" || appRole === "manager";
 
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
@@ -222,7 +224,7 @@ export default function AppAttendance() {
   // Get project members for the selected project
   const projectMembersQuery = trpc.project.members.useQuery(
     { projectId: selectedProjectId! },
-    { enabled: !!selectedProjectId && isAdminOrLeader }
+    { enabled: !!selectedProjectId && canManageAttendanceMembers }
   );
 
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
@@ -274,14 +276,14 @@ export default function AppAttendance() {
     onError: (e) => toast.error(`追加エラー: ${e.message}`),
   });
 
-  const removeMemberMutation = trpc.project.removeMember.useMutation({
+  const removeMemberMutation = trpc.attendance.removeMember.useMutation({
     onSuccess: (_data, variables) => {
-      toast.success("作業員を現場から削除しました");
+      toast.success("メンバーを現場から外しました");
       projectMembersQuery.refetch();
       attendanceQuery.refetch();
       setCellEdits((prev) => {
         const next = { ...prev };
-        const prefix = `emp-${variables.employeeId}-`;
+        const prefix = variables.employeeId ? `emp-${variables.employeeId}-` : `guest-${variables.guestName}-`;
         for (const key of Object.keys(next)) {
           if (key.startsWith(prefix)) delete next[key];
         }
@@ -292,22 +294,14 @@ export default function AppAttendance() {
   });
 
   const handleRemoveMember = (rowKey: string, label: string) => {
-    if (!selectedProjectId) return;
-    if (!confirm(`${label} をこの現場から削除しますか？\n※出勤記録は削除されません`)) return;
+    if (!selectedProjectId || isLocked || !canRemoveAttendanceMembers) return;
+    if (!confirm("このメンバーをこの現場の出面メンバーから外します。過去の出面データは削除されません。よろしいですか？")) return;
     if (rowKey.startsWith("emp-")) {
       const empId = parseInt(rowKey.replace("emp-", ""));
       removeMemberMutation.mutate({ projectId: selectedProjectId, employeeId: empId });
     } else if (rowKey.startsWith("guest-")) {
       const gName = rowKey.replace("guest-", "");
-      setGuestNames(prev => prev.filter(n => n !== gName));
-      setCellEdits(prev => {
-        const next = { ...prev };
-        for (const k of Object.keys(next)) {
-          if (k.startsWith(`guest-${gName}-`)) delete next[k];
-        }
-        return next;
-      });
-      toast.success(`${gName}（ゲスト）を削除しました`);
+      removeMemberMutation.mutate({ projectId: selectedProjectId, guestName: gName });
     }
   };
 
@@ -595,7 +589,11 @@ export default function AppAttendance() {
   // Build rows: use project members (not all employees) + guests from attendance records
   const projectMemberIds = useMemo(() => {
     if (!projectMembersQuery.data) return new Set<number>();
-    return new Set(projectMembersQuery.data.map((m: any) => m.employeeId));
+    return new Set(
+      projectMembersQuery.data
+        .filter((m: any) => m.isActive)
+        .map((m: any) => m.employeeId)
+    );
   }, [projectMembersQuery.data]);
 
 
@@ -647,7 +645,7 @@ export default function AppAttendance() {
             {isLocked ? <Lock className="h-5 w-5" /> : <LockOpen className="h-5 w-5" />}
           </Button>
 
-          {isAdminOrLeader && selectedProjectId && (
+          {canManageAttendanceMembers && selectedProjectId && (
             <Button
               variant="outline"
               size="sm"
@@ -692,7 +690,7 @@ export default function AppAttendance() {
             )}
             Excel出力
           </Button>
-          {isAdminOrLeader && selectedProjectId && (
+          {canManageAttendanceMembers && selectedProjectId && (
             <Button
               variant="outline"
               size="sm"
@@ -803,7 +801,7 @@ export default function AppAttendance() {
           <CardContent className="py-12 text-center text-muted-foreground">
             <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>この現場にはまだ作業員が配属されていません</p>
-            {isAdminOrLeader && (
+            {canManageAttendanceMembers && (
               <Button
                 variant="outline"
                 className="mt-4"
@@ -869,7 +867,7 @@ export default function AppAttendance() {
                         >
                           <div className="flex items-center gap-1">
                             <span className="truncate">{row.label}</span>
-                            {isAdminOrLeader && !isLocked && (
+                            {canRemoveAttendanceMembers && !isLocked && (
                               <button
                                 onClick={() => handleRemoveMember(row.key, row.label)}
                                 className="shrink-0 p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"

@@ -139,6 +139,14 @@ vi.mock("./db", () => ({
     { id: 10, nameKanji: "テスト太郎", nameRomaji: "test-taro" },
     { id: 20, nameKanji: "佐藤花子", nameRomaji: "sato-hanako" },
   ]),
+  getProjectMembers: vi.fn(async (projectId: number) => (
+    projectId === 1
+      ? [
+        { id: 1, projectId: 1, employeeId: 10, isActive: true },
+        { id: 2, projectId: 1, employeeId: 20, isActive: false },
+      ]
+      : []
+  )),
 }));
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
@@ -318,6 +326,34 @@ describe("attendance", () => {
       expect(empMember).toBeDefined();
       expect(guestMember).toBeDefined();
       expect(guestMember?.nameKanji).toBe("田中太郎");
+    });
+
+    it("excludes inactive project members from active member rows while keeping records", async () => {
+      mockDbState.records.push({
+        id: 50,
+        employeeId: 20,
+        guestName: null,
+        projectId: 1,
+        workDate: new Date("2026-04-03"),
+        hoursWorked: 80,
+        overtimeHours: 0,
+        workType: "normal",
+        shiftType: "day",
+        notes: null,
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const caller = appRouter.createCaller(createAdminContext());
+      const result = await caller.attendance.projectTeamData({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+
+      expect(result.members.find((m) => m.type === "employee" && m.id === 20)).toBeUndefined();
+      expect(result.records.find((record) => record.employeeId === 20)).toBeDefined();
     });
   });
 
