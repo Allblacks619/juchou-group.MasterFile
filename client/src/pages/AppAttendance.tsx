@@ -586,7 +586,8 @@ export default function AppAttendance() {
   const employees = employeesQuery.data || [];
   const projects = projectsQuery.data || [];
 
-  // Build rows: use project members (not all employees) + guests from attendance records
+  // Build rows from active project members plus employees with actual attendance
+  // in the selected month. Deactivated membership must not hide historical rows.
   const projectMemberIds = useMemo(() => {
     if (!projectMembersQuery.data) return new Set<number>();
     return new Set(
@@ -596,11 +597,24 @@ export default function AppAttendance() {
     );
   }, [projectMembersQuery.data]);
 
+  const attendanceEmployeeIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const rec of attendanceQuery.data || []) {
+      if (rec.employeeId) ids.add(rec.employeeId);
+    }
+    return ids;
+  }, [attendanceQuery.data]);
 
+  const effectiveEmployeeIds = useMemo(() => {
+    const ids = new Set<number>();
+    projectMemberIds.forEach((id) => ids.add(id));
+    attendanceEmployeeIds.forEach((id) => ids.add(id));
+    return ids;
+  }, [projectMemberIds, attendanceEmployeeIds]);
 
   const rows = useMemo(() => {
     const empRows = employees
-      .filter((emp) => projectMemberIds.has(emp.id))
+      .filter((emp) => effectiveEmployeeIds.has(emp.id))
       .map((emp) => ({
         key: `emp-${emp.id}`,
         label: emp.nameKanji || emp.nameRomaji || `ID:${emp.id}`,
@@ -612,7 +626,7 @@ export default function AppAttendance() {
       isGuest: true,
     }));
     return [...empRows, ...guestRows];
-  }, [employees, allGuestNames, projectMemberIds]);
+  }, [employees, allGuestNames, effectiveEmployeeIds]);
 
   // Employees not yet assigned to this project (for add member dialog)
   const availableEmployees = useMemo(() => {
