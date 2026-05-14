@@ -67,29 +67,8 @@ function removedGuestMarkerNote(guestName: string) {
   return `attendance_removed_guest:${guestName}`;
 }
 
-function guestNameFromRemovedMarkerNote(notes: string | null | undefined) {
-  const prefix = "attendance_removed_guest:";
-  return notes?.startsWith(prefix) ? notes.slice(prefix.length) : null;
-}
-
-async function getRemovedAttendanceGuestNames(projectId: number) {
-  const records = await db.getAttendanceByProject(projectId);
-  const removed = new Set<string>();
-  for (const record of records) {
-    if (!isRemovedGuestMarkerName(record.guestName)) continue;
-    const guestName = guestNameFromRemovedMarkerNote(record.notes);
-    if (guestName && record.hoursWorked === 0 && record.workType === "absence") {
-      removed.add(guestName);
-    }
-  }
-  return removed;
-}
-
-function filterRemovedGuestAttendanceRecords<T extends { guestName: string | null }>(records: T[], removedGuestNames: Set<string>) {
-  return records.filter((record) => {
-    if (isRemovedGuestMarkerName(record.guestName)) return false;
-    return !record.guestName || !removedGuestNames.has(record.guestName);
-  });
+function excludeRemovedGuestMarkers<T extends { guestName: string | null }>(records: T[]) {
+  return records.filter((record) => !isRemovedGuestMarkerName(record.guestName));
 }
 
 // ── Helper: check admin or leader role ──
@@ -2113,9 +2092,7 @@ export const appRouter = router({
           endRange.end,
           input.projectId,
         );
-        if (!input.projectId) return records.filter((record) => !isRemovedGuestMarkerName(record.guestName));
-        const removedGuestNames = await getRemovedAttendanceGuestNames(input.projectId);
-        return filterRemovedGuestAttendanceRecords(records, removedGuestNames);
+        return excludeRemovedGuestMarkers(records);
       }),
 
     /** List attendance for a specific employee */
@@ -2391,8 +2368,7 @@ export const appRouter = router({
           parseDateRange(input.startDate).start,
           parseDateRange(input.endDate).end,
         );
-        const removedGuestNames = await getRemovedAttendanceGuestNames(input.projectId);
-        const records = filterRemovedGuestAttendanceRecords(rawRecords, removedGuestNames);
+        const records = excludeRemovedGuestMarkers(rawRecords);
         // Collect unique employee IDs and guest names
         const empIds = new Set<number>();
         const guestNames = new Set<string>();
@@ -2400,17 +2376,12 @@ export const appRouter = router({
           if (rec.employeeId) empIds.add(rec.employeeId);
           if (rec.guestName) guestNames.add(rec.guestName);
         }
-        // Get employee info for active project members only. Historical attendance remains stored,
-        // but deactivated members should not appear in the active attendance member list.
-        const [allEmployees, projectMembers] = await Promise.all([
-          db.getAllEmployees(),
-          db.getProjectMembers(input.projectId),
-        ]);
-        const activeProjectMemberIds = new Set(
-          projectMembers.filter((member: any) => member.isActive).map((member: any) => member.employeeId)
-        );
+        // Attendance history is the source of truth for historical rows: if an
+        // employee has a record in the selected month, keep them visible even
+        // when their current project membership was deactivated.
+        const allEmployees = await db.getAllEmployees();
         const members = allEmployees
-          .filter(e => empIds.has(e.id) && activeProjectMemberIds.has(e.id))
+          .filter(e => empIds.has(e.id))
           .map(e => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}`, type: "employee" as const }));
         const guests = Array.from(guestNames).map(name => ({ id: 0, nameKanji: name, type: "guest" as const }));
         return {

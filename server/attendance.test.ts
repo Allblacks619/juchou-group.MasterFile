@@ -328,7 +328,7 @@ describe("attendance", () => {
       expect(guestMember?.nameKanji).toBe("田中太郎");
     });
 
-    it("excludes inactive project members from active member rows while keeping records", async () => {
+    it("keeps inactive project members visible when they have attendance records", async () => {
       mockDbState.records.push({
         id: 50,
         employeeId: 20,
@@ -352,8 +352,43 @@ describe("attendance", () => {
         endDate: "2026-04-30",
       });
 
-      expect(result.members.find((m) => m.type === "employee" && m.id === 20)).toBeUndefined();
+      expect(result.members.find((m) => m.type === "employee" && m.id === 20)).toBeDefined();
       expect(result.records.find((record) => record.employeeId === 20)).toBeDefined();
+    });
+
+    it("does not hide historical guest attendance after a guest removal marker exists", async () => {
+      mockDbState.records.push({
+        id: 51,
+        employeeId: null,
+        guestName: "__attendance_removed_guest__:marker",
+        projectId: 1,
+        workDate: new Date("1900-01-01"),
+        hoursWorked: 0,
+        overtimeHours: 0,
+        workType: "absence",
+        shiftType: "day",
+        notes: "attendance_removed_guest:田中太郎",
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const caller = appRouter.createCaller(createAdminContext());
+      const list = await caller.attendance.list({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+      const teamData = await caller.attendance.projectTeamData({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+
+      expect(list.find((record) => record.guestName === "田中太郎")).toBeDefined();
+      expect(list.some((record) => String(record.guestName || "").startsWith("__attendance_removed_guest__:"))).toBe(false);
+      expect(teamData.members.find((m) => m.type === "guest" && m.nameKanji === "田中太郎")).toBeDefined();
+      expect(teamData.records.find((record) => record.guestName === "田中太郎")).toBeDefined();
     });
   });
 
