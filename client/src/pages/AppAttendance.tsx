@@ -589,7 +589,11 @@ export default function AppAttendance() {
   // Build rows: use project members (not all employees) + guests from attendance records
   const projectMemberIds = useMemo(() => {
     if (!projectMembersQuery.data) return new Set<number>();
-    return new Set(projectMembersQuery.data.map((m: any) => m.employeeId));
+    return new Set(
+      projectMembersQuery.data
+        .filter((m: any) => m.isActive)
+        .map((m: any) => m.employeeId)
+    );
   }, [projectMembersQuery.data]);
 
 

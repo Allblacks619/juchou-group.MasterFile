@@ -2400,10 +2400,17 @@ export const appRouter = router({
           if (rec.employeeId) empIds.add(rec.employeeId);
           if (rec.guestName) guestNames.add(rec.guestName);
         }
-        // Get employee info
-        const allEmployees = await db.getAllEmployees();
+        // Get employee info for active project members only. Historical attendance remains stored,
+        // but deactivated members should not appear in the active attendance member list.
+        const [allEmployees, projectMembers] = await Promise.all([
+          db.getAllEmployees(),
+          db.getProjectMembers(input.projectId),
+        ]);
+        const activeProjectMemberIds = new Set(
+          projectMembers.filter((member: any) => member.isActive).map((member: any) => member.employeeId)
+        );
         const members = allEmployees
-          .filter(e => empIds.has(e.id))
+          .filter(e => empIds.has(e.id) && activeProjectMemberIds.has(e.id))
           .map(e => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}`, type: "employee" as const }));
         const guests = Array.from(guestNames).map(name => ({ id: 0, nameKanji: name, type: "guest" as const }));
         return {
