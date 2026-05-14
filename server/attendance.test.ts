@@ -236,6 +236,8 @@ beforeEach(() => {
   vi.mocked(db.getAttendanceByProject).mockClear();
   vi.mocked(db.getProjectsByEmployee).mockClear();
   vi.mocked(db.getEmployeeByUserId).mockClear();
+  vi.mocked(db.deleteAttendance).mockClear();
+  vi.mocked(db.deleteAttendanceByKey).mockClear();
 });
 
 describe("attendance", () => {
@@ -352,8 +354,17 @@ describe("attendance", () => {
         endDate: "2026-04-30",
       });
 
+      const list = await caller.attendance.list({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+
       expect(result.members.find((m) => m.type === "employee" && m.id === 20)).toBeDefined();
       expect(result.records.find((record) => record.employeeId === 20)).toBeDefined();
+      expect(list.find((record) => record.employeeId === 20)).toBeDefined();
+      expect(db.deleteAttendance).not.toHaveBeenCalled();
+      expect(db.deleteAttendanceByKey).not.toHaveBeenCalled();
     });
 
     it("does not hide historical guest attendance after a guest removal marker exists", async () => {
@@ -389,6 +400,44 @@ describe("attendance", () => {
       expect(list.some((record) => String(record.guestName || "").startsWith("__attendance_removed_guest__:"))).toBe(false);
       expect(teamData.members.find((m) => m.type === "guest" && m.nameKanji === "田中太郎")).toBeDefined();
       expect(teamData.records.find((record) => record.guestName === "田中太郎")).toBeDefined();
+    });
+
+    it("returns the same historical attendance identities through list and projectTeamData", async () => {
+      mockDbState.records.push({
+        id: 52,
+        employeeId: 20,
+        guestName: null,
+        projectId: 1,
+        workDate: new Date("2026-04-04"),
+        hoursWorked: 80,
+        overtimeHours: 0,
+        workType: "normal",
+        shiftType: "day",
+        notes: null,
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const caller = appRouter.createCaller(createAdminContext());
+      const list = await caller.attendance.list({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+      const teamData = await caller.attendance.projectTeamData({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+
+      const listIdentities = new Set(list.map((record) => record.employeeId ? `emp-${record.employeeId}` : `guest-${record.guestName}`));
+      const teamIdentities = new Set(teamData.records.map((record) => record.employeeId ? `emp-${record.employeeId}` : `guest-${record.guestName}`));
+      expect(teamIdentities).toEqual(listIdentities);
+      expect(teamData.members).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: "employee", id: 20 }),
+        expect.objectContaining({ type: "guest", nameKanji: "田中太郎" }),
+      ]));
     });
   });
 

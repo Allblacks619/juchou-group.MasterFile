@@ -453,15 +453,15 @@ async function ensureClosingInitializedForProjectMonth(projectId: number, closin
       });
 
   const { start, end } = getMonthDateRange(closingMonth);
-  const [records, projectMembers] = await Promise.all([
-    db.getAttendanceByProject(projectId, start, end),
-    db.getProjectMembers(projectId),
-  ]);
+  const records = await db.getAttendanceByProject(projectId, start, end);
 
-  const activeMemberIds = new Set(projectMembers.filter((m) => m.isActive).map((m) => m.employeeId));
+  // Monthly attendance is the source of truth for closing relevance.
+  // Removed/inactive project members with real attendance for this month must
+  // remain target submissions and must not be downgraded to not_required just
+  // because project_members.isActive is now false.
   const targetEmployeeIds = Array.from(new Set(
     records
-      .filter((rec) => !!rec.employeeId && activeMemberIds.has(rec.employeeId!))
+      .filter((rec) => !!rec.employeeId)
       .map((rec) => rec.employeeId!)
   ));
 
