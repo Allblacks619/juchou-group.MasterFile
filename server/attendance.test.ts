@@ -134,6 +134,7 @@ vi.mock("./db", () => ({
     { id: 1, name: "テスト現場", status: "active" },
     { id: 2, name: "別現場", status: "active" },
     { id: 3, name: "完了現場", status: "completed" },
+    { id: 4, name: "テスト現場", status: "completed" },
   ]),
   getAllEmployees: vi.fn().mockResolvedValue([
     { id: 10, nameKanji: "テスト太郎", nameRomaji: "test-taro" },
@@ -236,6 +237,8 @@ beforeEach(() => {
   vi.mocked(db.getAttendanceByProject).mockClear();
   vi.mocked(db.getProjectsByEmployee).mockClear();
   vi.mocked(db.getEmployeeByUserId).mockClear();
+  vi.mocked(db.deleteAttendance).mockClear();
+  vi.mocked(db.deleteAttendanceByKey).mockClear();
 });
 
 describe("attendance", () => {
@@ -304,6 +307,29 @@ describe("attendance", () => {
         expect(result.name).toBe("テスト現場");
       }
     });
+
+    it("returns the exact project id from attendance when duplicate project names exist", async () => {
+      mockDbState.records.push({
+        id: 53,
+        employeeId: 10,
+        guestName: null,
+        projectId: 4,
+        workDate: new Date("2026-05-01"),
+        hoursWorked: 80,
+        overtimeHours: 0,
+        workType: "normal",
+        shiftType: "day",
+        notes: null,
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date("2026-05-01T10:00:00Z"),
+      });
+      const caller = appRouter.createCaller(createWorkerContext());
+
+      const result = await caller.attendance.lastProject();
+
+      expect(result).toMatchObject({ id: 4, name: "テスト現場" });
+    });
   });
 
   describe("attendance.projectTeamData", () => {
@@ -352,8 +378,17 @@ describe("attendance", () => {
         endDate: "2026-04-30",
       });
 
+      const list = await caller.attendance.list({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+
       expect(result.members.find((m) => m.type === "employee" && m.id === 20)).toBeDefined();
       expect(result.records.find((record) => record.employeeId === 20)).toBeDefined();
+      expect(list.find((record) => record.employeeId === 20)).toBeDefined();
+      expect(db.deleteAttendance).not.toHaveBeenCalled();
+      expect(db.deleteAttendanceByKey).not.toHaveBeenCalled();
     });
 
     it("does not hide historical guest attendance after a guest removal marker exists", async () => {
@@ -389,6 +424,44 @@ describe("attendance", () => {
       expect(list.some((record) => String(record.guestName || "").startsWith("__attendance_removed_guest__:"))).toBe(false);
       expect(teamData.members.find((m) => m.type === "guest" && m.nameKanji === "田中太郎")).toBeDefined();
       expect(teamData.records.find((record) => record.guestName === "田中太郎")).toBeDefined();
+    });
+
+    it("returns the same historical attendance identities through list and projectTeamData", async () => {
+      mockDbState.records.push({
+        id: 52,
+        employeeId: 20,
+        guestName: null,
+        projectId: 1,
+        workDate: new Date("2026-04-04"),
+        hoursWorked: 80,
+        overtimeHours: 0,
+        workType: "normal",
+        shiftType: "day",
+        notes: null,
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const caller = appRouter.createCaller(createAdminContext());
+      const list = await caller.attendance.list({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+      const teamData = await caller.attendance.projectTeamData({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+
+      const listIdentities = new Set(list.map((record) => record.employeeId ? `emp-${record.employeeId}` : `guest-${record.guestName}`));
+      const teamIdentities = new Set(teamData.records.map((record) => record.employeeId ? `emp-${record.employeeId}` : `guest-${record.guestName}`));
+      expect(teamIdentities).toEqual(listIdentities);
+      expect(teamData.members).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: "employee", id: 20 }),
+        expect.objectContaining({ type: "guest", nameKanji: "田中太郎" }),
+      ]));
     });
   });
 
