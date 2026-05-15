@@ -134,6 +134,7 @@ vi.mock("./db", () => ({
     { id: 1, name: "テスト現場", status: "active" },
     { id: 2, name: "別現場", status: "active" },
     { id: 3, name: "完了現場", status: "completed" },
+    { id: 4, name: "テスト現場", status: "completed" },
   ]),
   getAllEmployees: vi.fn().mockResolvedValue([
     { id: 10, nameKanji: "テスト太郎", nameRomaji: "test-taro" },
@@ -305,6 +306,29 @@ describe("attendance", () => {
         expect(result.id).toBe(1);
         expect(result.name).toBe("テスト現場");
       }
+    });
+
+    it("returns the exact project id from attendance when duplicate project names exist", async () => {
+      mockDbState.records.push({
+        id: 53,
+        employeeId: 10,
+        guestName: null,
+        projectId: 4,
+        workDate: new Date("2026-05-01"),
+        hoursWorked: 80,
+        overtimeHours: 0,
+        workType: "normal",
+        shiftType: "day",
+        notes: null,
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date("2026-05-01T10:00:00Z"),
+      });
+      const caller = appRouter.createCaller(createWorkerContext());
+
+      const result = await caller.attendance.lastProject();
+
+      expect(result).toMatchObject({ id: 4, name: "テスト現場" });
     });
   });
 

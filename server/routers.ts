@@ -2528,22 +2528,25 @@ export const appRouter = router({
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const { start, end } = getMonthDateRange(input.closingMonth);
-        const [projects, clients, closings] = await Promise.all([
+        const [projects, clients, closings, monthlyAttendanceRecords] = await Promise.all([
           db.getAllProjects(),
           db.getAllClients(),
           db.getProjectClosingsByMonth(input.closingMonth),
+          db.getAttendanceByDateRange(start, end),
         ]);
         const clientMap = new Map<number, any>(clients.map((c: any) => [c.id, c]));
         const closingMap = new Map<number, any>(closings.map((c: any) => [c.projectId, c]));
+        const monthlyAttendanceProjectIds = new Set(
+          monthlyAttendanceRecords
+            .filter((record: any) => !isRemovedGuestMarkerName(record.guestName))
+            .map((record: any) => record.projectId)
+        );
 
         const rows = (await Promise.all(
           projects.map(async (project) => {
             const closing = closingMap.get(project.id) || null;
-            const [attendanceRecords, projectMembers] = await Promise.all([
-              closing?.id ? Promise.resolve([]) : db.getAttendanceByProject(project.id, start, end),
-              closing?.id ? Promise.resolve([]) : db.getProjectMembers(project.id),
-            ]);
-            const hasMonthlyAttendance = attendanceRecords.length > 0;
+            const projectMembers = closing?.id ? [] : await db.getProjectMembers(project.id);
+            const hasMonthlyAttendance = monthlyAttendanceProjectIds.has(project.id);
             const hasActiveMembers = projectMembers.some((member: any) => member.isActive);
             const overlapsMonth = projectOverlapsMonth(project, start, end);
             const relevant = Boolean(

@@ -49,6 +49,9 @@ vi.mock("./db", () => ({
     { id: 204, nameKanji: "既存提出非アクティブ" },
   ]),
   listClosingSubmissionDocuments: vi.fn(async () => []),
+  getAttendanceByDateRange: vi.fn(async () => [
+    { id: 2001, projectId: 2, employeeId: 203, workDate: new Date("2026-05-10"), hoursWorked: 80, workType: "normal" },
+  ]),
   getAttendanceByProject: vi.fn(async (projectId: number) => {
     if (projectId === 2) return [
       { id: 2001, projectId, employeeId: 203, workDate: new Date("2026-05-10"), hoursWorked: 80, workType: "normal" },
@@ -143,7 +146,8 @@ describe("closing.listByMonth", () => {
     });
 
     expect(db.getProjectClosingsByMonth).toHaveBeenCalledWith("2026-05");
-    expect(db.getAttendanceByProject).toHaveBeenCalledWith(2, expect.any(Date), expect.any(Date));
+    expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(expect.any(Date), expect.any(Date));
+    expect(db.getProjectMembers).toHaveBeenCalledWith(2);
     expect(db.getProjectMembers).toHaveBeenCalledWith(3);
   });
 

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -207,6 +207,7 @@ export default function AppAttendance() {
 
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [projectInitialized, setProjectInitialized] = useState(false);
   const [cellEdits, setCellEdits] = useState<Record<string, CellData>>({});
   const [showGuestDialog, setShowGuestDialog] = useState(false);
   const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
@@ -218,7 +219,8 @@ export default function AppAttendance() {
   const [isLocked, setIsLocked] = useState(true);
 
   // Queries
-  const projectsQuery = trpc.project.list.useQuery();
+  const projectsQuery = trpc.attendance.myProjects.useQuery();
+  const lastProjectQuery = trpc.attendance.lastProject.useQuery();
   const employeesQuery = trpc.employee.list.useQuery();
   const utils = trpc.useUtils();
 
@@ -307,6 +309,17 @@ export default function AppAttendance() {
       removeMemberMutation.mutate({ projectId: selectedProjectId, guestName: gName });
     }
   };
+
+  useEffect(() => {
+    if (projectInitialized) return;
+    if (lastProjectQuery.data && !selectedProjectId) {
+      setSelectedProjectId(lastProjectQuery.data.id);
+      setProjectInitialized(true);
+    } else if (lastProjectQuery.data === null && projectsQuery.data && projectsQuery.data.length > 0 && !selectedProjectId) {
+      setSelectedProjectId(projectsQuery.data[0].id);
+      setProjectInitialized(true);
+    }
+  }, [lastProjectQuery.data, projectsQuery.data, selectedProjectId, projectInitialized]);
 
   // Compute days of month
   const daysInMonth = useMemo(() => {
