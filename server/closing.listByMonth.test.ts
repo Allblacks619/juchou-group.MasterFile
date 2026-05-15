@@ -37,11 +37,16 @@ vi.mock("./db", () => ({
       { id: 1001, closingId, employeeId: 201, status: "pending", receiptRequired: false, receiptUploaded: false },
       { id: 1002, closingId, employeeId: 202, status: "approved", receiptRequired: true, receiptUploaded: true },
     ];
+    if (closingId === 202) return [
+      { id: 2002, closingId, employeeId: 204, status: "submitted", transportAmount: 0, expenseAmount: 0, receiptRequired: false, receiptUploaded: false },
+    ];
     return [];
   }),
   getAllEmployees: vi.fn(async () => [
     { id: 201, nameKanji: "山田太郎" },
     { id: 202, nameKanji: "佐藤花子" },
+    { id: 203, nameKanji: "出面済み非アクティブ" },
+    { id: 204, nameKanji: "既存提出非アクティブ" },
   ]),
   listClosingSubmissionDocuments: vi.fn(async () => []),
   getAttendanceByProject: vi.fn(async (projectId: number) => {
@@ -51,10 +56,18 @@ vi.mock("./db", () => ({
     return [];
   }),
   getProjectMembers: vi.fn(async (projectId: number) => {
+    if (projectId === 2) return [{ id: 3000, projectId, employeeId: 203, isActive: false }];
     if (projectId === 3) return [{ id: 3001, projectId, employeeId: 204, isActive: true }];
     if (projectId === 4) return [{ id: 3002, projectId, employeeId: 205, isActive: false }];
     return [];
   }),
+  createProjectClosing: vi.fn(async (data: any) => {
+    const closing = { id: 203, ...data };
+    closingsByProject.set(data.projectId, closing);
+    return closing;
+  }),
+  upsertClosingSubmission: vi.fn(async (data: any) => ({ id: 9000, ...data })),
+  updateClosingSubmission: vi.fn(async (id: number, patch: any) => ({ id, ...patch })),
   createAuditLog: vi.fn(async () => ({ id: 1 })),
 }));
 
@@ -86,6 +99,8 @@ function createCtx(user: User): TrpcContext {
 
 describe("closing.listByMonth", () => {
   beforeEach(() => {
+    closingsByProject.clear();
+    closingsByProject.set(1, { id: 101, projectId: 1, closingMonth: "2026-05", status: "open" });
     vi.clearAllMocks();
   });
 
@@ -130,5 +145,42 @@ describe("closing.listByMonth", () => {
     expect(db.getProjectClosingsByMonth).toHaveBeenCalledWith("2026-05");
     expect(db.getAttendanceByProject).toHaveBeenCalledWith(2, expect.any(Date), expect.any(Date));
     expect(db.getProjectMembers).toHaveBeenCalledWith(3);
+  });
+
+  it("initializes closing submissions for inactive workers with selected-month attendance", async () => {
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    const detail = await caller.closing.initialize({ projectId: 2, closingMonth: "2026-05" });
+
+    expect(detail?.closing).toMatchObject({ projectId: 2, closingMonth: "2026-05", status: "open" });
+    expect(db.upsertClosingSubmission).toHaveBeenCalledWith(expect.objectContaining({
+      closingId: 203,
+      employeeId: 203,
+      status: "pending",
+    }));
+    expect(db.updateClosingSubmission).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ status: "not_required" })
+    );
+  });
+
+  it("does not downgrade an existing inactive worker submission when monthly attendance exists", async () => {
+    closingsByProject.set(2, { id: 202, projectId: 2, closingMonth: "2026-05", status: "open" });
+    vi.mocked(db.getAttendanceByProject).mockResolvedValueOnce([
+      { id: 2002, projectId: 2, employeeId: 204, workDate: new Date("2026-05-11"), hoursWorked: 80, workType: "normal" },
+    ] as any);
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    await caller.closing.initialize({ projectId: 2, closingMonth: "2026-05" });
+
+    expect(db.upsertClosingSubmission).toHaveBeenCalledWith(expect.objectContaining({
+      closingId: 202,
+      employeeId: 204,
+      status: "submitted",
+    }));
+    expect(db.updateClosingSubmission).not.toHaveBeenCalledWith(
+      2002,
+      expect.objectContaining({ status: "not_required" })
+    );
   });
 });

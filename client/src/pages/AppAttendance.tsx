@@ -220,6 +220,7 @@ export default function AppAttendance() {
   // Queries
   const projectsQuery = trpc.project.list.useQuery();
   const employeesQuery = trpc.employee.list.useQuery();
+  const utils = trpc.useUtils();
 
   // Get project members for the selected project
   const projectMembersQuery = trpc.project.members.useQuery(
@@ -230,12 +231,8 @@ export default function AppAttendance() {
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
 
-  const attendanceQuery = trpc.attendance.list.useQuery(
-    {
-      startDate,
-      endDate,
-      projectId: selectedProjectId || undefined,
-    },
+  const teamDataQuery = trpc.attendance.projectTeamData.useQuery(
+    { projectId: selectedProjectId!, startDate, endDate },
     { enabled: !!selectedProjectId }
   );
 
@@ -243,7 +240,10 @@ export default function AppAttendance() {
     onSuccess: (data) => {
       toast.success(`${data.count}件の出勤記録を保存しました`);
       setCellEdits({});
-      attendanceQuery.refetch();
+      if (selectedProjectId) {
+        utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId, startDate, endDate });
+      }
+      teamDataQuery.refetch();
       // Auto-lock after save
       setIsLocked(true);
     },
@@ -280,7 +280,10 @@ export default function AppAttendance() {
     onSuccess: (_data, variables) => {
       toast.success("メンバーを現場から外しました");
       projectMembersQuery.refetch();
-      attendanceQuery.refetch();
+      if (selectedProjectId) {
+        utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId, startDate, endDate });
+      }
+      teamDataQuery.refetch();
       setCellEdits((prev) => {
         const next = { ...prev };
         const prefix = variables.employeeId ? `emp-${variables.employeeId}-` : `guest-${variables.guestName}-`;
@@ -316,7 +319,7 @@ export default function AppAttendance() {
   // Build attendance map
   const attendanceMap = useMemo(() => {
     const map: Record<string, any> = {};
-    for (const rec of attendanceQuery.data || []) {
+    for (const rec of teamDataQuery.data?.records || []) {
       const dateKey = extractDateKey(rec.workDate);
       if (rec.employeeId) {
         map[`emp-${rec.employeeId}-${dateKey}`] = rec;
@@ -325,16 +328,16 @@ export default function AppAttendance() {
       }
     }
     return map;
-  }, [attendanceQuery.data]);
+  }, [teamDataQuery.data?.records]);
 
   // Extract guest names from existing records
   const existingGuestNames = useMemo(() => {
     const names = new Set<string>();
-    for (const rec of attendanceQuery.data || []) {
+    for (const rec of teamDataQuery.data?.records || []) {
       if (rec.guestName) names.add(rec.guestName);
     }
     return Array.from(names);
-  }, [attendanceQuery.data]);
+  }, [teamDataQuery.data?.records]);
 
   // All guest names (existing + newly added)
   const allGuestNames = useMemo(() => {
@@ -586,52 +589,48 @@ export default function AppAttendance() {
   const employees = employeesQuery.data || [];
   const projects = projectsQuery.data || [];
 
-  // Build rows from active project members plus employees with actual attendance
-  // in the selected month. Deactivated membership must not hide historical rows.
-  const projectMemberIds = useMemo(() => {
-    if (!projectMembersQuery.data) return new Set<number>();
-    return new Set(
-      projectMembersQuery.data
-        .filter((m: any) => m.isActive)
-        .map((m: any) => m.employeeId)
-    );
-  }, [projectMembersQuery.data]);
+  // Use the same effective member source as the Dashboard: active project
+  // members for current entry plus server-computed projectTeamData members
+  // derived from selected-month attendance records. This keeps historical
+  // attendance rows visible after a worker/guest is removed from the project.
+  const activeProjectMembers = useMemo(
+    () => (projectMembersQuery.data || []).filter((m: any) => m.isActive),
+    [projectMembersQuery.data]
+  );
 
-  const attendanceEmployeeIds = useMemo(() => {
-    const ids = new Set<number>();
-    for (const rec of attendanceQuery.data || []) {
-      if (rec.employeeId) ids.add(rec.employeeId);
-    }
-    return ids;
-  }, [attendanceQuery.data]);
-
-  const effectiveEmployeeIds = useMemo(() => {
-    const ids = new Set<number>();
-    projectMemberIds.forEach((id) => ids.add(id));
-    attendanceEmployeeIds.forEach((id) => ids.add(id));
-    return ids;
-  }, [projectMemberIds, attendanceEmployeeIds]);
+  const activeProjectMemberIds = useMemo(
+    () => new Set<number>(activeProjectMembers.map((m: any) => m.employeeId)),
+    [activeProjectMembers]
+  );
 
   const rows = useMemo(() => {
-    const empRows = employees
-      .filter((emp) => effectiveEmployeeIds.has(emp.id))
-      .map((emp) => ({
-        key: `emp-${emp.id}`,
-        label: emp.nameKanji || emp.nameRomaji || `ID:${emp.id}`,
-        isGuest: false,
-      }));
-    const guestRows = allGuestNames.map((name) => ({
+    const projectMemberRows = activeProjectMembers.map((m: any) => ({
+      key: `emp-${m.employeeId}`,
+      label: m.employee?.nameKanji || m.employee?.nameRomaji || `ID:${m.employeeId}`,
+      isGuest: false,
+    }));
+    const teamRows = (teamDataQuery.data?.members || []).map((member: any) => ({
+      key: member.type === "guest" ? `guest-${member.nameKanji}` : `emp-${member.id}`,
+      label: member.type === "guest" ? `${member.nameKanji}（ゲスト）` : member.nameKanji,
+      isGuest: member.type === "guest",
+    }));
+    const localGuestRows = guestNames.map((name) => ({
       key: `guest-${name}`,
       label: `${name}（ゲスト）`,
       isGuest: true,
     }));
-    return [...empRows, ...guestRows];
-  }, [employees, allGuestNames, effectiveEmployeeIds]);
+    const seen = new Set<string>();
+    return [...projectMemberRows, ...teamRows, ...localGuestRows].filter((row) => {
+      if (seen.has(row.key)) return false;
+      seen.add(row.key);
+      return true;
+    });
+  }, [activeProjectMembers, teamDataQuery.data?.members, guestNames]);
 
   // Employees not yet assigned to this project (for add member dialog)
   const availableEmployees = useMemo(() => {
-    return employees.filter((emp) => !projectMemberIds.has(emp.id));
-  }, [employees, projectMemberIds]);
+    return employees.filter((emp) => !activeProjectMemberIds.has(emp.id));
+  }, [employees, activeProjectMemberIds]);
 
   // cellHasValue from shared module — wrapper for local CellData
   const cellHasVal = (cell: CellData) => cellHasValue(cell.hoursWorked, cell.workType);
