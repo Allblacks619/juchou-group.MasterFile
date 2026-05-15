@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 import type { User } from "../drizzle/schema";
 
-const { projects, clients, closingsByProject } = vi.hoisted(() => {
+const { projects, clients, closingsByProject, attendanceRecords } = vi.hoisted(() => {
   const projects = [
     { id: 1, name: "既存締め現場", clientId: 10, status: "completed", startDate: new Date("2026-01-01"), endDate: new Date("2026-03-31") },
     { id: 2, name: "出面あり未初期化現場", clientId: 10, status: "completed", startDate: new Date("2026-01-01"), endDate: new Date("2026-03-31") },
@@ -16,8 +16,13 @@ const { projects, clients, closingsByProject } = vi.hoisted(() => {
   const closingsByProject = new Map<number, any>([
     [1, { id: 101, projectId: 1, closingMonth: "2026-05", status: "open" }],
   ]);
+  const attendanceRecords = [
+    { id: 2000, projectId: 2, employeeId: 203, workDate: new Date("2026-04-10"), hoursWorked: 80, workType: "normal" },
+    { id: 2001, projectId: 2, employeeId: 203, workDate: new Date("2026-05-10"), hoursWorked: 80, workType: "normal" },
+    { id: 1999, projectId: 4, employeeId: 203, workDate: new Date("2025-05-10"), hoursWorked: 80, workType: "normal" },
+  ];
 
-  return { projects, clients, closingsByProject };
+  return { projects, clients, closingsByProject, attendanceRecords };
 });
 
 vi.mock("./db", () => ({
@@ -49,15 +54,20 @@ vi.mock("./db", () => ({
     { id: 204, nameKanji: "既存提出非アクティブ" },
   ]),
   listClosingSubmissionDocuments: vi.fn(async () => []),
-  getAttendanceByDateRange: vi.fn(async () => [
-    { id: 2001, projectId: 2, employeeId: 203, workDate: new Date("2026-05-10"), hoursWorked: 80, workType: "normal" },
-  ]),
-  getAttendanceByProject: vi.fn(async (projectId: number) => {
-    if (projectId === 2) return [
-      { id: 2001, projectId, employeeId: 203, workDate: new Date("2026-05-10"), hoursWorked: 80, workType: "normal" },
-    ];
-    return [];
-  }),
+  getAttendanceByDateRange: vi.fn(async (start: Date, end: Date, projectId?: number) =>
+    attendanceRecords.filter((record) =>
+      record.workDate >= start &&
+      record.workDate <= end &&
+      (!projectId || record.projectId === projectId)
+    )
+  ),
+  getAttendanceByProject: vi.fn(async (projectId: number, start?: Date, end?: Date) =>
+    attendanceRecords.filter((record) =>
+      record.projectId === projectId &&
+      (!start || record.workDate >= start) &&
+      (!end || record.workDate <= end)
+    )
+  ),
   getProjectMembers: vi.fn(async (projectId: number) => {
     if (projectId === 2) return [{ id: 3000, projectId, employeeId: 203, isActive: false }];
     if (projectId === 3) return [{ id: 3001, projectId, employeeId: 204, isActive: true }];
@@ -149,6 +159,46 @@ describe("closing.listByMonth", () => {
     expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(expect.any(Date), expect.any(Date));
     expect(db.getProjectMembers).toHaveBeenCalledWith(2);
     expect(db.getProjectMembers).toHaveBeenCalledWith(3);
+  });
+
+
+  it("includes projects with 2026-04 attendance when closingMonth is 2026-04", async () => {
+    closingsByProject.clear();
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    const rows = await caller.closing.listByMonth({ closingMonth: "2026-04" });
+
+    expect(rows.map((row: any) => row.project.id)).toContain(2);
+    expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(
+      new Date("2026-04-01T00:00:00.000Z"),
+      new Date("2026-04-30T23:59:59.999Z")
+    );
+  });
+
+  it("includes projects with 2026-05 attendance when closingMonth is 2026-05", async () => {
+    closingsByProject.clear();
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    const rows = await caller.closing.listByMonth({ closingMonth: "2026-05" });
+
+    expect(rows.map((row: any) => row.project.id)).toContain(2);
+    expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-31T23:59:59.999Z")
+    );
+  });
+
+  it("does not shift selected 2026 months to 2025 attendance", async () => {
+    closingsByProject.clear();
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    const rows = await caller.closing.listByMonth({ closingMonth: "2026-05" });
+
+    expect(rows.map((row: any) => row.project.id)).not.toContain(4);
+    expect(db.getAttendanceByDateRange).not.toHaveBeenCalledWith(
+      new Date("2025-05-01T00:00:00.000Z"),
+      new Date("2025-05-31T23:59:59.999Z")
+    );
   });
 
   it("initializes closing submissions for inactive workers with selected-month attendance", async () => {

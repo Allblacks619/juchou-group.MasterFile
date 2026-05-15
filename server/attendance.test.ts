@@ -293,6 +293,78 @@ describe("attendance", () => {
     });
   });
 
+
+  describe("attendance.monthProjectOptions", () => {
+    it("includes selected-month attendance projects for manager-like users even when the project is not active", async () => {
+      mockDbState.records.push({
+        id: 60,
+        employeeId: 20,
+        guestName: null,
+        projectId: 4,
+        workDate: new Date("2026-04-15"),
+        hoursWorked: 80,
+        overtimeHours: 0,
+        workType: "normal",
+        shiftType: "day",
+        notes: null,
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      const caller = appRouter.createCaller(createManagerContext());
+
+      const result = await caller.attendance.monthProjectOptions({
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+
+      expect(result.find((project: any) => project.id === 4)).toMatchObject({
+        id: 4,
+        name: "テスト現場",
+        status: "completed",
+        hasMonthlyAttendance: true,
+        attendanceCount: 1,
+        activeMemberCount: 0,
+      });
+      expect(db.getEmployeeByUserId).not.toHaveBeenCalled();
+    });
+
+    it("sorts duplicate project names so the selected-month attendance-backed project is preferred", async () => {
+      vi.mocked(db.getAllProjects).mockResolvedValueOnce([
+        { id: 5, name: "重複現場", status: "active" },
+        { id: 6, name: "重複現場", status: "completed" },
+      ] as any);
+      vi.mocked(db.getProjectMembers).mockImplementationOnce(async (projectId: number) => (
+        projectId === 5 ? [{ id: 50, projectId, employeeId: 10, isActive: true }] : []
+      ) as any);
+      mockDbState.records.push({
+        id: 61,
+        employeeId: 20,
+        guestName: null,
+        projectId: 6,
+        workDate: new Date("2026-05-02"),
+        hoursWorked: 80,
+        overtimeHours: 0,
+        workType: "normal",
+        shiftType: "day",
+        notes: null,
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      const caller = appRouter.createCaller(createManagerContext());
+
+      const result = await caller.attendance.monthProjectOptions({
+        startDate: "2026-05-01",
+        endDate: "2026-05-31",
+      });
+
+      expect(result.map((project: any) => project.id)).toEqual([6, 5]);
+      expect(result[0]).toMatchObject({ hasMonthlyAttendance: true, attendanceCount: 1 });
+      expect(result[1]).toMatchObject({ hasMonthlyAttendance: false, activeMemberCount: 1 });
+    });
+  });
+
   describe("attendance.lastProject", () => {
     it("returns the last project from most recent attendance", async () => {
       const ctx = createWorkerContext();
