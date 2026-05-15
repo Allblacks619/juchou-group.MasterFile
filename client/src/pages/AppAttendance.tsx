@@ -218,8 +218,11 @@ export default function AppAttendance() {
   // Lock state: default LOCKED
   const [isLocked, setIsLocked] = useState(true);
 
+  const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
+  const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
+
   // Queries
-  const projectsQuery = trpc.attendance.myProjects.useQuery();
+  const projectsQuery = trpc.attendance.monthProjectOptions.useQuery({ startDate, endDate });
   const lastProjectQuery = trpc.attendance.lastProject.useQuery();
   const employeesQuery = trpc.employee.list.useQuery();
   const utils = trpc.useUtils();
@@ -229,9 +232,6 @@ export default function AppAttendance() {
     { projectId: selectedProjectId! },
     { enabled: !!selectedProjectId && canManageAttendanceMembers }
   );
-
-  const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
-  const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
 
   const teamDataQuery = trpc.attendance.projectTeamData.useQuery(
     { projectId: selectedProjectId!, startDate, endDate },
@@ -244,6 +244,7 @@ export default function AppAttendance() {
       setCellEdits({});
       if (selectedProjectId) {
         utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId, startDate, endDate });
+        utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
       }
       teamDataQuery.refetch();
       // Auto-lock after save
@@ -272,6 +273,7 @@ export default function AppAttendance() {
     onSuccess: () => {
       toast.success("作業員を現場に追加しました");
       projectMembersQuery.refetch();
+      utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
       setShowAddMemberDialog(false);
       setSelectedMemberId("");
     },
@@ -284,6 +286,7 @@ export default function AppAttendance() {
       projectMembersQuery.refetch();
       if (selectedProjectId) {
         utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId, startDate, endDate });
+        utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
       }
       teamDataQuery.refetch();
       setCellEdits((prev) => {
@@ -311,15 +314,63 @@ export default function AppAttendance() {
   };
 
   useEffect(() => {
-    if (projectInitialized) return;
-    if (lastProjectQuery.data && !selectedProjectId) {
-      setSelectedProjectId(lastProjectQuery.data.id);
+    const projects = projectsQuery.data || [];
+    if (projects.length === 0) {
+      if (selectedProjectId !== null) setSelectedProjectId(null);
       setProjectInitialized(true);
-    } else if (lastProjectQuery.data === null && projectsQuery.data && projectsQuery.data.length > 0 && !selectedProjectId) {
-      setSelectedProjectId(projectsQuery.data[0].id);
-      setProjectInitialized(true);
+      return;
     }
-  }, [lastProjectQuery.data, projectsQuery.data, selectedProjectId, projectInitialized]);
+
+    const selectedProject = projects.find((project: any) => project.id === selectedProjectId);
+    if (!selectedProjectId) {
+      const lastProjectId = lastProjectQuery.data?.id;
+      const lastProjectOption = lastProjectId
+        ? projects.find((project: any) => project.id === lastProjectId)
+        : null;
+      setSelectedProjectId((lastProjectOption || projects[0]).id);
+      setProjectInitialized(true);
+      return;
+    }
+
+    if (!selectedProject) {
+      setSelectedProjectId(projects[0].id);
+      setProjectInitialized(true);
+      return;
+    }
+
+    const attendanceBackedSameName = projects.find((project: any) =>
+      project.id !== selectedProject.id &&
+      project.name === selectedProject.name &&
+      project.hasMonthlyAttendance &&
+      !selectedProject.hasMonthlyAttendance
+    );
+    if (attendanceBackedSameName) {
+      setSelectedProjectId(attendanceBackedSameName.id);
+      setProjectInitialized(true);
+      return;
+    }
+
+    setProjectInitialized(true);
+  }, [lastProjectQuery.data, projectsQuery.data, selectedProjectId]);
+
+  useEffect(() => {
+    const projects = projectsQuery.data || [];
+    const selectedProject = projects.find((project: any) => project.id === selectedProjectId);
+    if (!selectedProject || selectedProject.hasMonthlyAttendance) return;
+    if ((teamDataQuery.data?.records?.length || 0) > 0 || (teamDataQuery.data?.members?.length || 0) > 0) return;
+
+    const attendanceBackedSameName = projects.find((project: any) =>
+      project.id !== selectedProject.id &&
+      project.name === selectedProject.name &&
+      project.hasMonthlyAttendance
+    );
+    if (attendanceBackedSameName) {
+      setSelectedProjectId(attendanceBackedSameName.id);
+      setCellEdits({});
+      setGuestNames([]);
+      setIsLocked(true);
+    }
+  }, [projectsQuery.data, selectedProjectId, teamDataQuery.data?.records, teamDataQuery.data?.members]);
 
   // Compute days of month
   const daysInMonth = useMemo(() => {

@@ -2331,6 +2331,62 @@ export const appRouter = router({
       return allProjects.filter(p => p.status === "active" && projectIds.has(p.id));
     }),
 
+    /** Get projects relevant to the selected attendance month. */
+    monthProjectOptions: protectedProcedure
+      .input(z.object({
+        startDate: z.string(),
+        endDate: z.string(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const startDate = parseDateRange(input.startDate).start;
+        const endDate = parseDateRange(input.endDate).end;
+        const [allProjects, rawMonthlyRecords] = await Promise.all([
+          db.getAllProjects(),
+          db.getAttendanceByDateRange(startDate, endDate),
+        ]);
+        const monthlyRecords = excludeRemovedGuestMarkers(rawMonthlyRecords);
+        const attendanceCounts = new Map<number, number>();
+        for (const record of monthlyRecords) {
+          attendanceCounts.set(record.projectId, (attendanceCounts.get(record.projectId) || 0) + 1);
+        }
+
+        let candidateProjects = allProjects;
+        if (!isManagerLike((ctx.user as any).appRole)) {
+          const employee = await db.getEmployeeByUserId(ctx.user.id);
+          if (!employee) return [];
+          const memberships = await db.getProjectsByEmployee(employee.id);
+          const memberProjectIds = new Set(memberships.map((member: any) => member.projectId));
+          const ownAttendanceProjectIds = new Set(
+            monthlyRecords
+              .filter((record: any) => record.employeeId === employee.id)
+              .map((record: any) => record.projectId)
+          );
+          candidateProjects = allProjects.filter((project: any) =>
+            memberProjectIds.has(project.id) || ownAttendanceProjectIds.has(project.id)
+          );
+        }
+
+        const options = (await Promise.all(candidateProjects.map(async (project: any) => {
+          const members = await db.getProjectMembers(project.id);
+          const activeMemberCount = members.filter((member: any) => member.isActive).length;
+          const attendanceCount = attendanceCounts.get(project.id) || 0;
+          const hasMonthlyAttendance = attendanceCount > 0;
+          if (!hasMonthlyAttendance && activeMemberCount === 0) return null;
+          return {
+            ...project,
+            hasMonthlyAttendance,
+            attendanceCount,
+            activeMemberCount,
+          };
+        }))).filter((project): project is NonNullable<typeof project> => project !== null);
+
+        return options.sort((a: any, b: any) => {
+          if (a.hasMonthlyAttendance !== b.hasMonthlyAttendance) return a.hasMonthlyAttendance ? -1 : 1;
+          if (b.attendanceCount !== a.attendanceCount) return b.attendanceCount - a.attendanceCount;
+          return String(a.name || "").localeCompare(String(b.name || ""), "ja");
+        });
+      }),
+
     /** Get last used project for current employee */
     lastProject: protectedProcedure.query(async ({ ctx }) => {
       const employee = await db.getEmployeeByUserId(ctx.user.id);
