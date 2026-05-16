@@ -2629,20 +2629,12 @@ export const appRouter = router({
         const rows = (await Promise.all(
           projects.map(async (project) => {
             const closing = closingMap.get(project.id) || null;
-            const projectMembers = closing?.id ? [] : await db.getProjectMembers(project.id);
             let hasMonthlyAttendance = monthlyAttendanceProjectIds.has(project.id);
             if (!hasMonthlyAttendance) {
               const projectMonthlyRecords = excludeRemovedGuestMarkers(await db.getAttendanceByProject(project.id, start, end));
               hasMonthlyAttendance = projectMonthlyRecords.length > 0;
             }
-            const hasActiveMembers = projectMembers.some((member: any) => member.isActive);
-            const overlapsMonth = projectOverlapsMonth(project, start, end);
-            const relevant = Boolean(
-              closing?.id
-              || hasMonthlyAttendance
-              || (hasActiveMembers && overlapsMonth)
-              || isProjectActiveDuringMonth(project, start, end)
-            );
+            const relevant = Boolean(closing?.id || hasMonthlyAttendance);
 
             if (!relevant) return null;
 
