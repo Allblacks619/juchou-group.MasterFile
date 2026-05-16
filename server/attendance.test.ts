@@ -331,6 +331,81 @@ describe("attendance", () => {
       expect(db.getEmployeeByUserId).not.toHaveBeenCalled();
     });
 
+
+
+    it("includes a project when bulk month attendance is empty but project-scoped attendance exists", async () => {
+      vi.mocked(db.getAttendanceByDateRange).mockResolvedValueOnce([] as any);
+      mockDbState.records.push({
+        id: 62,
+        employeeId: 20,
+        guestName: null,
+        projectId: 4,
+        workDate: new Date("2026-05-10"),
+        hoursWorked: 80,
+        overtimeHours: 0,
+        workType: "normal",
+        shiftType: "day",
+        notes: null,
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      const caller = appRouter.createCaller(createManagerContext());
+
+      const result = await caller.attendance.monthProjectOptions({
+        startDate: "2026-05-01",
+        endDate: "2026-05-31",
+      });
+
+      expect(result.find((project: any) => project.id === 4)).toMatchObject({
+        hasMonthlyAttendance: true,
+        attendanceCount: 1,
+        activeMemberCount: 0,
+      });
+      expect(db.getAttendanceByProject).toHaveBeenCalledWith(
+        4,
+        new Date("2026-05-01T00:00:00.000Z"),
+        new Date("2026-05-31T23:59:59.999Z")
+      );
+    });
+
+    it("includes a worker's own historical month project from employee attendance when active membership is gone", async () => {
+      vi.mocked(db.getProjectsByEmployee).mockResolvedValueOnce([] as any);
+      mockDbState.records.push({
+        id: 63,
+        employeeId: 10,
+        guestName: null,
+        projectId: 4,
+        workDate: new Date("2026-05-12"),
+        hoursWorked: 80,
+        overtimeHours: 0,
+        workType: "normal",
+        shiftType: "day",
+        notes: null,
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      const caller = appRouter.createCaller(createWorkerContext());
+
+      const result = await caller.attendance.monthProjectOptions({
+        startDate: "2026-05-01",
+        endDate: "2026-05-31",
+      });
+
+      expect(result.map((project: any) => project.id)).toContain(4);
+      expect(result.find((project: any) => project.id === 4)).toMatchObject({
+        hasMonthlyAttendance: true,
+        attendanceCount: 1,
+        activeMemberCount: 0,
+      });
+      expect(db.getAttendanceByEmployee).toHaveBeenCalledWith(
+        10,
+        new Date("2026-05-01T00:00:00.000Z"),
+        new Date("2026-05-31T23:59:59.999Z")
+      );
+    });
+
     it("sorts duplicate project names so the selected-month attendance-backed project is preferred", async () => {
       vi.mocked(db.getAllProjects).mockResolvedValueOnce([
         { id: 5, name: "重複現場", status: "active" },
