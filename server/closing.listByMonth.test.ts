@@ -8,6 +8,7 @@ const { projects, clients, closingsByProject, attendanceRecords } = vi.hoisted((
     { id: 2, name: "出面あり未初期化現場", clientId: 10, status: "completed", startDate: new Date("2026-01-01"), endDate: new Date("2026-03-31") },
     { id: 3, name: "メンバーあり未初期化現場", clientId: 20, status: "active", startDate: new Date("2026-04-01"), endDate: null },
     { id: 4, name: "無関係終了現場", clientId: 20, status: "completed", startDate: new Date("2025-01-01"), endDate: new Date("2025-12-31") },
+    { id: 5, name: "期間一致アクティブ現場", clientId: 20, status: "active", startDate: new Date("2025-04-01"), endDate: null },
   ];
   const clients = [
     { id: 10, name: "取引先A" },
@@ -72,6 +73,7 @@ vi.mock("./db", () => ({
     if (projectId === 2) return [{ id: 3000, projectId, employeeId: 203, isActive: false }];
     if (projectId === 3) return [{ id: 3001, projectId, employeeId: 204, isActive: true }];
     if (projectId === 4) return [{ id: 3002, projectId, employeeId: 205, isActive: false }];
+    if (projectId === 5) return [{ id: 3003, projectId, employeeId: 206, isActive: true }];
     return [];
   }),
   createProjectClosing: vi.fn(async (data: any) => {
@@ -117,13 +119,15 @@ describe("closing.listByMonth", () => {
     vi.clearAllMocks();
   });
 
-  it("returns initialized, uninitialized relevant, and excludes unrelated inactive projects", async () => {
+  it("returns exact-month closing and attendance rows, excluding active/member-only projects", async () => {
     const caller = appRouter.createCaller(createCtx(createUser()));
 
     const rows = await caller.closing.listByMonth({ closingMonth: "2026-05" });
 
-    expect(rows.map((row: any) => row.project.id).sort()).toEqual([1, 2, 3]);
+    expect(rows.map((row: any) => row.project.id).sort()).toEqual([1, 2]);
+    expect(rows).not.toContainEqual(expect.objectContaining({ project: expect.objectContaining({ id: 3 }) }));
     expect(rows).not.toContainEqual(expect.objectContaining({ project: expect.objectContaining({ id: 4 }) }));
+    expect(rows).not.toContainEqual(expect.objectContaining({ project: expect.objectContaining({ id: 5 }) }));
 
     const initialized = rows.find((row: any) => row.project.id === 1);
     expect(initialized).toMatchObject({
@@ -147,18 +151,56 @@ describe("closing.listByMonth", () => {
       },
     });
 
-    const memberOnly = rows.find((row: any) => row.project.id === 3);
-    expect(memberOnly).toMatchObject({
-      project: expect.objectContaining({ id: 3, name: "メンバーあり未初期化現場" }),
-      client: expect.objectContaining({ id: 20, name: "取引先B" }),
-      closing: null,
-      summary: expect.objectContaining({ targetCount: 0, pendingCount: 0, submittedCount: 0 }),
-    });
-
     expect(db.getProjectClosingsByMonth).toHaveBeenCalledWith("2026-05");
     expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(expect.any(Date), expect.any(Date));
-    expect(db.getProjectMembers).toHaveBeenCalledWith(2);
-    expect(db.getProjectMembers).toHaveBeenCalledWith(3);
+    expect(db.getProjectMembers).not.toHaveBeenCalled();
+  });
+
+  it("excludes projects with no selected-month attendance or exact closing even when active and overlapping", async () => {
+    closingsByProject.clear();
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    const rows = await caller.closing.listByMonth({ closingMonth: "2025-04" });
+
+    expect(rows.map((row: any) => row.project.id)).not.toContain(5);
+    expect(rows.map((row: any) => row.project.id)).not.toContain(3);
+    expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(
+      new Date("2025-04-01T00:00:00.000Z"),
+      new Date("2025-04-30T23:59:59.999Z")
+    );
+    expect(db.getProjectMembers).not.toHaveBeenCalled();
+  });
+
+  it("includes a project with an exact selected-month closing row even without selected-month attendance", async () => {
+    closingsByProject.clear();
+    closingsByProject.set(3, { id: 303, projectId: 3, closingMonth: "2025-04", status: "open" });
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    const rows = await caller.closing.listByMonth({ closingMonth: "2025-04" });
+
+    expect(rows.map((row: any) => row.project.id)).toContain(3);
+    expect(rows.find((row: any) => row.project.id === 3)?.closing).toMatchObject({
+      id: 303,
+      projectId: 3,
+      closingMonth: "2025-04",
+    });
+  });
+
+  it("does not include a project with 2026-04 attendance for closingMonth 2025-04", async () => {
+    closingsByProject.clear();
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    const rows = await caller.closing.listByMonth({ closingMonth: "2025-04" });
+
+    expect(rows.map((row: any) => row.project.id)).not.toContain(2);
+    expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(
+      new Date("2025-04-01T00:00:00.000Z"),
+      new Date("2025-04-30T23:59:59.999Z")
+    );
+    expect(db.getAttendanceByDateRange).not.toHaveBeenCalledWith(
+      new Date("2026-04-01T00:00:00.000Z"),
+      new Date("2026-04-30T23:59:59.999Z")
+    );
   });
 
 
