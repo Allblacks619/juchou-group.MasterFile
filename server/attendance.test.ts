@@ -1,7 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
+import { buildEffectiveAttendanceRows } from "../client/src/pages/AppAttendance";
 
 const mockDbState = vi.hoisted(() => ({
   records: [] as any[],
@@ -463,6 +465,62 @@ describe("attendance", () => {
       expect(db.deleteAttendanceByKey).not.toHaveBeenCalled();
     });
 
+    it("returns fallback member rows when an attendance employee profile is missing", async () => {
+      mockDbState.records.push({
+        id: 60,
+        employeeId: 999,
+        guestName: null,
+        projectId: 1,
+        workDate: new Date("2026-04-04"),
+        hoursWorked: 80,
+        overtimeHours: 0,
+        workType: "normal",
+        shiftType: "day",
+        notes: null,
+        enteredBy: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const caller = appRouter.createCaller(createAdminContext());
+      const result = await caller.attendance.projectTeamData({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+
+      expect(result.members).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: "employee", id: 999, nameKanji: "ID:999" }),
+      ]));
+      expect(result.records).toEqual(expect.arrayContaining([
+        expect.objectContaining({ employeeId: 999, projectId: 1 }),
+      ]));
+      expect(db.deleteAttendance).not.toHaveBeenCalled();
+      expect(db.deleteAttendanceByKey).not.toHaveBeenCalled();
+    });
+
+    it("allows worker access to their own historical attendance when project membership is inactive", async () => {
+      vi.mocked(db.getProjectsByEmployee).mockResolvedValueOnce([
+        { id: 1, projectId: 1, employeeId: 10, isActive: false },
+      ] as any);
+      const caller = appRouter.createCaller(createWorkerContext());
+
+      const result = await caller.attendance.projectTeamData({
+        projectId: 1,
+        startDate: "2026-04-01",
+        endDate: "2026-04-30",
+      });
+
+      expect(result.records).toEqual(expect.arrayContaining([
+        expect.objectContaining({ employeeId: 10, projectId: 1 }),
+      ]));
+      expect(result.members).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: "employee", id: 10 }),
+      ]));
+      expect(db.deleteAttendance).not.toHaveBeenCalled();
+      expect(db.deleteAttendanceByKey).not.toHaveBeenCalled();
+    });
+
     it("does not hide historical guest attendance after a guest removal marker exists", async () => {
       mockDbState.records.push({
         id: 51,
@@ -533,6 +591,33 @@ describe("attendance", () => {
       expect(teamData.members).toEqual(expect.arrayContaining([
         expect.objectContaining({ type: "employee", id: 20 }),
         expect.objectContaining({ type: "guest", nameKanji: "田中太郎" }),
+      ]));
+    });
+  });
+
+  describe("AppAttendance effective rows", () => {
+    it("keeps loading and error states separate from the no-workers empty state", () => {
+      const source = readFileSync("client/src/pages/AppAttendance.tsx", "utf8");
+      expect(source.indexOf("teamDataQuery.isLoading")).toBeLessThan(source.indexOf("rows.length === 0"));
+      expect(source.indexOf("teamDataQuery.isError")).toBeLessThan(source.indexOf("rows.length === 0"));
+      expect(source).toContain("出面表データを読み込んでいます");
+      expect(source).toContain("出面表データを取得できませんでした");
+    });
+
+    it("includes employeeIds and guestNames from projectTeamData records when team members are empty", () => {
+      const rows = buildEffectiveAttendanceRows({
+        activeProjectMembers: [],
+        teamMembers: [],
+        records: [
+          { employeeId: 999, guestName: null },
+          { employeeId: null, guestName: "履歴ゲスト" },
+        ],
+        localGuestNames: [],
+      });
+
+      expect(rows).toEqual(expect.arrayContaining([
+        expect.objectContaining({ key: "emp-999", label: "ID:999", isGuest: false }),
+        expect.objectContaining({ key: "guest-履歴ゲスト", label: "履歴ゲスト（ゲスト）", isGuest: true }),
       ]));
     });
   });
