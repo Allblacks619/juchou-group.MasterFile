@@ -2354,13 +2354,20 @@ export const appRouter = router({
         if (!isManagerLike((ctx.user as any).appRole)) {
           const employee = await db.getEmployeeByUserId(ctx.user.id);
           if (!employee) return [];
-          const memberships = await db.getProjectsByEmployee(employee.id);
+          const [memberships, ownRawMonthlyRecords] = await Promise.all([
+            db.getProjectsByEmployee(employee.id),
+            db.getAttendanceByEmployee(employee.id, startDate, endDate),
+          ]);
+          const ownMonthlyRecords = excludeRemovedGuestMarkers(ownRawMonthlyRecords);
           const memberProjectIds = new Set(memberships.map((member: any) => member.projectId));
-          const ownAttendanceProjectIds = new Set(
-            monthlyRecords
-              .filter((record: any) => record.employeeId === employee.id)
-              .map((record: any) => record.projectId)
-          );
+          const ownAttendanceProjectIds = new Set(ownMonthlyRecords.map((record: any) => record.projectId));
+          const ownAttendanceCounts = new Map<number, number>();
+          for (const record of ownMonthlyRecords) {
+            ownAttendanceCounts.set(record.projectId, (ownAttendanceCounts.get(record.projectId) || 0) + 1);
+          }
+          for (const [projectId, count] of Array.from(ownAttendanceCounts.entries())) {
+            if (!attendanceCounts.has(projectId)) attendanceCounts.set(projectId, count);
+          }
           candidateProjects = allProjects.filter((project: any) =>
             memberProjectIds.has(project.id) || ownAttendanceProjectIds.has(project.id)
           );
@@ -2369,7 +2376,12 @@ export const appRouter = router({
         const options = (await Promise.all(candidateProjects.map(async (project: any) => {
           const members = await db.getProjectMembers(project.id);
           const activeMemberCount = members.filter((member: any) => member.isActive).length;
-          const attendanceCount = attendanceCounts.get(project.id) || 0;
+          let attendanceCount = attendanceCounts.get(project.id) || 0;
+          if (attendanceCount === 0) {
+            const fallbackRecords = excludeRemovedGuestMarkers(await db.getAttendanceByProject(project.id, startDate, endDate));
+            attendanceCount = fallbackRecords.length;
+            if (attendanceCount > 0) attendanceCounts.set(project.id, attendanceCount);
+          }
           const hasMonthlyAttendance = attendanceCount > 0;
           if (!hasMonthlyAttendance && activeMemberCount === 0) return null;
           return {
@@ -2618,7 +2630,11 @@ export const appRouter = router({
           projects.map(async (project) => {
             const closing = closingMap.get(project.id) || null;
             const projectMembers = closing?.id ? [] : await db.getProjectMembers(project.id);
-            const hasMonthlyAttendance = monthlyAttendanceProjectIds.has(project.id);
+            let hasMonthlyAttendance = monthlyAttendanceProjectIds.has(project.id);
+            if (!hasMonthlyAttendance) {
+              const projectMonthlyRecords = excludeRemovedGuestMarkers(await db.getAttendanceByProject(project.id, start, end));
+              hasMonthlyAttendance = projectMonthlyRecords.length > 0;
+            }
             const hasActiveMembers = projectMembers.some((member: any) => member.isActive);
             const overlapsMonth = projectOverlapsMonth(project, start, end);
             const relevant = Boolean(

@@ -162,6 +162,22 @@ describe("closing.listByMonth", () => {
   });
 
 
+  it("includes a project when bulk month attendance is empty but project-scoped attendance exists", async () => {
+    closingsByProject.clear();
+    vi.mocked(db.getAttendanceByDateRange).mockResolvedValueOnce([] as any);
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    const rows = await caller.closing.listByMonth({ closingMonth: "2026-05" });
+
+    expect(rows.map((row: any) => row.project.id)).toContain(2);
+    expect(db.getAttendanceByProject).toHaveBeenCalledWith(
+      2,
+      new Date("2026-05-01T00:00:00.000Z"),
+      new Date("2026-05-31T23:59:59.999Z")
+    );
+  });
+
+
   it("includes projects with 2026-04 attendance when closingMonth is 2026-04", async () => {
     closingsByProject.clear();
     const caller = appRouter.createCaller(createCtx(createUser()));
