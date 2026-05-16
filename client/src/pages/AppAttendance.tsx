@@ -74,6 +74,55 @@ import {
 
 const DAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
+export interface AttendanceRowDescriptor {
+  key: string;
+  label: string;
+  isGuest: boolean;
+}
+
+export function buildEffectiveAttendanceRows({
+  activeProjectMembers,
+  teamMembers,
+  records,
+  localGuestNames,
+}: {
+  activeProjectMembers: any[];
+  teamMembers: any[];
+  records: any[];
+  localGuestNames: string[];
+}): AttendanceRowDescriptor[] {
+  const projectMemberRows = activeProjectMembers.map((m: any) => ({
+    key: `emp-${m.employeeId}`,
+    label: m.employee?.nameKanji || m.employee?.nameRomaji || `ID:${m.employeeId}`,
+    isGuest: false,
+  }));
+  const teamRows = teamMembers.map((member: any) => ({
+    key: member.type === "guest" ? `guest-${member.nameKanji}` : `emp-${member.id}`,
+    label: member.type === "guest" ? `${member.nameKanji}（ゲスト）` : member.nameKanji,
+    isGuest: member.type === "guest",
+  }));
+  const recordIdentityRows = records.flatMap((rec: any) => {
+    if (rec.employeeId) {
+      return [{ key: `emp-${rec.employeeId}`, label: `ID:${rec.employeeId}`, isGuest: false }];
+    }
+    if (rec.guestName) {
+      return [{ key: `guest-${rec.guestName}`, label: `${rec.guestName}（ゲスト）`, isGuest: true }];
+    }
+    return [];
+  });
+  const localGuestRows = localGuestNames.map((name) => ({
+    key: `guest-${name}`,
+    label: `${name}（ゲスト）`,
+    isGuest: true,
+  }));
+  const seen = new Set<string>();
+  return [...projectMemberRows, ...teamRows, ...recordIdentityRows, ...localGuestRows].filter((row) => {
+    if (seen.has(row.key)) return false;
+    seen.add(row.key);
+    return true;
+  });
+}
+
 interface CellData {
   employeeId: number | null;
   guestName: string | null;
@@ -220,6 +269,7 @@ export default function AppAttendance() {
 
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
+  const closingMonth = format(currentMonth, "yyyy-MM");
 
   // Queries
   const projectsQuery = trpc.attendance.monthProjectOptions.useQuery({ startDate, endDate });
@@ -244,8 +294,11 @@ export default function AppAttendance() {
       setCellEdits({});
       if (selectedProjectId) {
         utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId, startDate, endDate });
-        utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
+        utils.closing.get.invalidate({ projectId: selectedProjectId, closingMonth });
       }
+      utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
+      utils.attendance.myProjects.invalidate();
+      utils.closing.listByMonth.invalidate({ closingMonth });
       teamDataQuery.refetch();
       // Auto-lock after save
       setIsLocked(true);
@@ -273,7 +326,13 @@ export default function AppAttendance() {
     onSuccess: () => {
       toast.success("作業員を現場に追加しました");
       projectMembersQuery.refetch();
+      if (selectedProjectId) {
+        utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId, startDate, endDate });
+        utils.closing.get.invalidate({ projectId: selectedProjectId, closingMonth });
+      }
       utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
+      utils.attendance.myProjects.invalidate();
+      utils.closing.listByMonth.invalidate({ closingMonth });
       setShowAddMemberDialog(false);
       setSelectedMemberId("");
     },
@@ -286,8 +345,11 @@ export default function AppAttendance() {
       projectMembersQuery.refetch();
       if (selectedProjectId) {
         utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId, startDate, endDate });
-        utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
+        utils.closing.get.invalidate({ projectId: selectedProjectId, closingMonth });
       }
+      utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
+      utils.attendance.myProjects.invalidate();
+      utils.closing.listByMonth.invalidate({ closingMonth });
       teamDataQuery.refetch();
       setCellEdits((prev) => {
         const next = { ...prev };
@@ -327,13 +389,17 @@ export default function AppAttendance() {
       const lastProjectOption = lastProjectId
         ? projects.find((project: any) => project.id === lastProjectId)
         : null;
-      setSelectedProjectId((lastProjectOption || projects[0]).id);
+      const attendanceBackedLastProjectName = lastProjectOption
+        ? projects.find((project: any) => project.name === lastProjectOption.name && project.hasMonthlyAttendance)
+        : null;
+      const attendanceBackedProject = projects.find((project: any) => project.hasMonthlyAttendance);
+      setSelectedProjectId((attendanceBackedLastProjectName || attendanceBackedProject || lastProjectOption || projects[0]).id);
       setProjectInitialized(true);
       return;
     }
 
     if (!selectedProject) {
-      setSelectedProjectId(projects[0].id);
+      setSelectedProjectId((projects.find((project: any) => project.hasMonthlyAttendance) || projects[0]).id);
       setProjectInitialized(true);
       return;
     }
@@ -356,7 +422,7 @@ export default function AppAttendance() {
   useEffect(() => {
     const projects = projectsQuery.data || [];
     const selectedProject = projects.find((project: any) => project.id === selectedProjectId);
-    if (!selectedProject || selectedProject.hasMonthlyAttendance) return;
+    if (!selectedProject || selectedProject.hasMonthlyAttendance || teamDataQuery.isLoading || teamDataQuery.isError) return;
     if ((teamDataQuery.data?.records?.length || 0) > 0 || (teamDataQuery.data?.members?.length || 0) > 0) return;
 
     const attendanceBackedSameName = projects.find((project: any) =>
@@ -370,7 +436,7 @@ export default function AppAttendance() {
       setGuestNames([]);
       setIsLocked(true);
     }
-  }, [projectsQuery.data, selectedProjectId, teamDataQuery.data?.records, teamDataQuery.data?.members]);
+  }, [projectsQuery.data, selectedProjectId, teamDataQuery.data?.records, teamDataQuery.data?.members, teamDataQuery.isLoading, teamDataQuery.isError]);
 
   // Compute days of month
   const daysInMonth = useMemo(() => {
@@ -667,29 +733,12 @@ export default function AppAttendance() {
     [activeProjectMembers]
   );
 
-  const rows = useMemo(() => {
-    const projectMemberRows = activeProjectMembers.map((m: any) => ({
-      key: `emp-${m.employeeId}`,
-      label: m.employee?.nameKanji || m.employee?.nameRomaji || `ID:${m.employeeId}`,
-      isGuest: false,
-    }));
-    const teamRows = (teamDataQuery.data?.members || []).map((member: any) => ({
-      key: member.type === "guest" ? `guest-${member.nameKanji}` : `emp-${member.id}`,
-      label: member.type === "guest" ? `${member.nameKanji}（ゲスト）` : member.nameKanji,
-      isGuest: member.type === "guest",
-    }));
-    const localGuestRows = guestNames.map((name) => ({
-      key: `guest-${name}`,
-      label: `${name}（ゲスト）`,
-      isGuest: true,
-    }));
-    const seen = new Set<string>();
-    return [...projectMemberRows, ...teamRows, ...localGuestRows].filter((row) => {
-      if (seen.has(row.key)) return false;
-      seen.add(row.key);
-      return true;
-    });
-  }, [activeProjectMembers, teamDataQuery.data?.members, guestNames]);
+  const rows = useMemo(() => buildEffectiveAttendanceRows({
+    activeProjectMembers,
+    teamMembers: teamDataQuery.data?.members || [],
+    records: teamDataQuery.data?.records || [],
+    localGuestNames: guestNames,
+  }), [activeProjectMembers, teamDataQuery.data?.members, teamDataQuery.data?.records, guestNames]);
 
   // Employees not yet assigned to this project (for add member dialog)
   const availableEmployees = useMemo(() => {
@@ -871,6 +920,20 @@ export default function AppAttendance() {
           <CardContent className="py-12 text-center text-muted-foreground">
             <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>現場を選択して出面表を表示してください</p>
+          </CardContent>
+        </Card>
+      ) : teamDataQuery.isLoading ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin opacity-50" />
+            <p>出面表データを読み込んでいます</p>
+          </CardContent>
+        </Card>
+      ) : teamDataQuery.isError ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p>出面表データを取得できませんでした。時間をおいて再度お試しください。</p>
           </CardContent>
         </Card>
       ) : rows.length === 0 ? (

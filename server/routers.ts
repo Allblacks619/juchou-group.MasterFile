@@ -2414,31 +2414,47 @@ export const appRouter = router({
         endDate: z.string(),
       }))
       .query(async ({ ctx, input }) => {
+        const startDate = parseDateRange(input.startDate).start;
+        const endDate = parseDateRange(input.endDate).end;
+        const rawRecords = await db.getAttendanceByProject(
+          input.projectId,
+          startDate,
+          endDate,
+        );
+        const records = excludeRemovedGuestMarkers(rawRecords);
+
         if (!isManagerLike((ctx.user as any).appRole)) {
           const employee = await db.getEmployeeByUserId(ctx.user.id);
           if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
-          await assertProjectMember(employee.id, input.projectId);
+          const memberships = await db.getProjectsByEmployee(employee.id);
+          const isActiveMember = memberships.some((member: any) =>
+            member.projectId === input.projectId && member.isActive !== false
+          );
+          const hasMonthlyAttendance = records.some((record: any) => record.employeeId === employee.id);
+          if (!isActiveMember && !hasMonthlyAttendance) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "この現場のメンバーではありません" });
+          }
         }
-        const rawRecords = await db.getAttendanceByProject(
-          input.projectId,
-          parseDateRange(input.startDate).start,
-          parseDateRange(input.endDate).end,
-        );
-        const records = excludeRemovedGuestMarkers(rawRecords);
-        // Collect unique employee IDs and guest names
+
+        const projectMembers = await db.getProjectMembers(input.projectId);
+        // Collect unique employee IDs and guest names from active project members
+        // plus exact selected-month attendance. Attendance history is the source
+        // of truth for historical rows after a worker/guest is removed.
         const empIds = new Set<number>();
         const guestNames = new Set<string>();
+        for (const member of projectMembers) {
+          if (member.isActive !== false && member.employeeId) empIds.add(member.employeeId);
+        }
         for (const rec of records) {
           if (rec.employeeId) empIds.add(rec.employeeId);
           if (rec.guestName) guestNames.add(rec.guestName);
         }
-        // Attendance history is the source of truth for historical rows: if an
-        // employee has a record in the selected month, keep them visible even
-        // when their current project membership was deactivated.
         const allEmployees = await db.getAllEmployees();
-        const members = allEmployees
-          .filter(e => empIds.has(e.id))
-          .map(e => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}`, type: "employee" as const }));
+        const employeeById = new Map(allEmployees.map((employee: any) => [employee.id, employee]));
+        const members = Array.from(empIds).map(id => {
+          const employee = employeeById.get(id);
+          return { id, nameKanji: employee?.nameKanji || employee?.nameRomaji || `ID:${id}`, type: "employee" as const };
+        });
         const guests = Array.from(guestNames).map(name => ({ id: 0, nameKanji: name, type: "guest" as const }));
         return {
           members: [...members, ...guests],
