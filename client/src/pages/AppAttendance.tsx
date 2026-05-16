@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,7 @@ import {
 } from "date-fns";
 import { ja } from "date-fns/locale";
 import { useLocation } from "wouter";
+import { isManagerLikeAppRole } from "@/lib/appRoles";
 import {
   type WorkType,
   type ShiftType,
@@ -201,10 +202,12 @@ export default function AppAttendance() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const appRole = (user as any)?.appRole || "worker";
-  const isAdminOrLeader = appRole === "admin" || appRole === "leader";
+  const canManageAttendanceMembers = isManagerLikeAppRole(appRole);
+  const canRemoveAttendanceMembers = appRole === "super_admin" || appRole === "admin" || appRole === "manager";
 
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [projectInitialized, setProjectInitialized] = useState(false);
   const [cellEdits, setCellEdits] = useState<Record<string, CellData>>({});
   const [showGuestDialog, setShowGuestDialog] = useState(false);
   const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
@@ -215,25 +218,23 @@ export default function AppAttendance() {
   // Lock state: default LOCKED
   const [isLocked, setIsLocked] = useState(true);
 
+  const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
+  const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
+
   // Queries
-  const projectsQuery = trpc.project.list.useQuery();
+  const projectsQuery = trpc.attendance.monthProjectOptions.useQuery({ startDate, endDate });
+  const lastProjectQuery = trpc.attendance.lastProject.useQuery();
   const employeesQuery = trpc.employee.list.useQuery();
+  const utils = trpc.useUtils();
 
   // Get project members for the selected project
   const projectMembersQuery = trpc.project.members.useQuery(
     { projectId: selectedProjectId! },
-    { enabled: !!selectedProjectId && isAdminOrLeader }
+    { enabled: !!selectedProjectId && canManageAttendanceMembers }
   );
 
-  const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
-  const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
-
-  const attendanceQuery = trpc.attendance.list.useQuery(
-    {
-      startDate,
-      endDate,
-      projectId: selectedProjectId || undefined,
-    },
+  const teamDataQuery = trpc.attendance.projectTeamData.useQuery(
+    { projectId: selectedProjectId!, startDate, endDate },
     { enabled: !!selectedProjectId }
   );
 
@@ -241,7 +242,11 @@ export default function AppAttendance() {
     onSuccess: (data) => {
       toast.success(`${data.count}件の出勤記録を保存しました`);
       setCellEdits({});
-      attendanceQuery.refetch();
+      if (selectedProjectId) {
+        utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId, startDate, endDate });
+        utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
+      }
+      teamDataQuery.refetch();
       // Auto-lock after save
       setIsLocked(true);
     },
@@ -268,20 +273,25 @@ export default function AppAttendance() {
     onSuccess: () => {
       toast.success("作業員を現場に追加しました");
       projectMembersQuery.refetch();
+      utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
       setShowAddMemberDialog(false);
       setSelectedMemberId("");
     },
     onError: (e) => toast.error(`追加エラー: ${e.message}`),
   });
 
-  const removeMemberMutation = trpc.project.removeMember.useMutation({
+  const removeMemberMutation = trpc.attendance.removeMember.useMutation({
     onSuccess: (_data, variables) => {
-      toast.success("作業員を現場から削除しました");
+      toast.success("メンバーを現場から外しました");
       projectMembersQuery.refetch();
-      attendanceQuery.refetch();
+      if (selectedProjectId) {
+        utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId, startDate, endDate });
+        utils.attendance.monthProjectOptions.invalidate({ startDate, endDate });
+      }
+      teamDataQuery.refetch();
       setCellEdits((prev) => {
         const next = { ...prev };
-        const prefix = `emp-${variables.employeeId}-`;
+        const prefix = variables.employeeId ? `emp-${variables.employeeId}-` : `guest-${variables.guestName}-`;
         for (const key of Object.keys(next)) {
           if (key.startsWith(prefix)) delete next[key];
         }
@@ -292,24 +302,75 @@ export default function AppAttendance() {
   });
 
   const handleRemoveMember = (rowKey: string, label: string) => {
-    if (!selectedProjectId) return;
-    if (!confirm(`${label} をこの現場から削除しますか？\n※出勤記録は削除されません`)) return;
+    if (!selectedProjectId || isLocked || !canRemoveAttendanceMembers) return;
+    if (!confirm("このメンバーをこの現場の出面メンバーから外します。過去の出面データは削除されません。よろしいですか？")) return;
     if (rowKey.startsWith("emp-")) {
       const empId = parseInt(rowKey.replace("emp-", ""));
       removeMemberMutation.mutate({ projectId: selectedProjectId, employeeId: empId });
     } else if (rowKey.startsWith("guest-")) {
       const gName = rowKey.replace("guest-", "");
-      setGuestNames(prev => prev.filter(n => n !== gName));
-      setCellEdits(prev => {
-        const next = { ...prev };
-        for (const k of Object.keys(next)) {
-          if (k.startsWith(`guest-${gName}-`)) delete next[k];
-        }
-        return next;
-      });
-      toast.success(`${gName}（ゲスト）を削除しました`);
+      removeMemberMutation.mutate({ projectId: selectedProjectId, guestName: gName });
     }
   };
+
+  useEffect(() => {
+    const projects = projectsQuery.data || [];
+    if (projects.length === 0) {
+      if (selectedProjectId !== null) setSelectedProjectId(null);
+      setProjectInitialized(true);
+      return;
+    }
+
+    const selectedProject = projects.find((project: any) => project.id === selectedProjectId);
+    if (!selectedProjectId) {
+      const lastProjectId = lastProjectQuery.data?.id;
+      const lastProjectOption = lastProjectId
+        ? projects.find((project: any) => project.id === lastProjectId)
+        : null;
+      setSelectedProjectId((lastProjectOption || projects[0]).id);
+      setProjectInitialized(true);
+      return;
+    }
+
+    if (!selectedProject) {
+      setSelectedProjectId(projects[0].id);
+      setProjectInitialized(true);
+      return;
+    }
+
+    const attendanceBackedSameName = projects.find((project: any) =>
+      project.id !== selectedProject.id &&
+      project.name === selectedProject.name &&
+      project.hasMonthlyAttendance &&
+      !selectedProject.hasMonthlyAttendance
+    );
+    if (attendanceBackedSameName) {
+      setSelectedProjectId(attendanceBackedSameName.id);
+      setProjectInitialized(true);
+      return;
+    }
+
+    setProjectInitialized(true);
+  }, [lastProjectQuery.data, projectsQuery.data, selectedProjectId]);
+
+  useEffect(() => {
+    const projects = projectsQuery.data || [];
+    const selectedProject = projects.find((project: any) => project.id === selectedProjectId);
+    if (!selectedProject || selectedProject.hasMonthlyAttendance) return;
+    if ((teamDataQuery.data?.records?.length || 0) > 0 || (teamDataQuery.data?.members?.length || 0) > 0) return;
+
+    const attendanceBackedSameName = projects.find((project: any) =>
+      project.id !== selectedProject.id &&
+      project.name === selectedProject.name &&
+      project.hasMonthlyAttendance
+    );
+    if (attendanceBackedSameName) {
+      setSelectedProjectId(attendanceBackedSameName.id);
+      setCellEdits({});
+      setGuestNames([]);
+      setIsLocked(true);
+    }
+  }, [projectsQuery.data, selectedProjectId, teamDataQuery.data?.records, teamDataQuery.data?.members]);
 
   // Compute days of month
   const daysInMonth = useMemo(() => {
@@ -322,7 +383,7 @@ export default function AppAttendance() {
   // Build attendance map
   const attendanceMap = useMemo(() => {
     const map: Record<string, any> = {};
-    for (const rec of attendanceQuery.data || []) {
+    for (const rec of teamDataQuery.data?.records || []) {
       const dateKey = extractDateKey(rec.workDate);
       if (rec.employeeId) {
         map[`emp-${rec.employeeId}-${dateKey}`] = rec;
@@ -331,16 +392,16 @@ export default function AppAttendance() {
       }
     }
     return map;
-  }, [attendanceQuery.data]);
+  }, [teamDataQuery.data?.records]);
 
   // Extract guest names from existing records
   const existingGuestNames = useMemo(() => {
     const names = new Set<string>();
-    for (const rec of attendanceQuery.data || []) {
+    for (const rec of teamDataQuery.data?.records || []) {
       if (rec.guestName) names.add(rec.guestName);
     }
     return Array.from(names);
-  }, [attendanceQuery.data]);
+  }, [teamDataQuery.data?.records]);
 
   // All guest names (existing + newly added)
   const allGuestNames = useMemo(() => {
@@ -592,34 +653,48 @@ export default function AppAttendance() {
   const employees = employeesQuery.data || [];
   const projects = projectsQuery.data || [];
 
-  // Build rows: use project members (not all employees) + guests from attendance records
-  const projectMemberIds = useMemo(() => {
-    if (!projectMembersQuery.data) return new Set<number>();
-    return new Set(projectMembersQuery.data.map((m: any) => m.employeeId));
-  }, [projectMembersQuery.data]);
+  // Use the same effective member source as the Dashboard: active project
+  // members for current entry plus server-computed projectTeamData members
+  // derived from selected-month attendance records. This keeps historical
+  // attendance rows visible after a worker/guest is removed from the project.
+  const activeProjectMembers = useMemo(
+    () => (projectMembersQuery.data || []).filter((m: any) => m.isActive),
+    [projectMembersQuery.data]
+  );
 
-
+  const activeProjectMemberIds = useMemo(
+    () => new Set<number>(activeProjectMembers.map((m: any) => m.employeeId)),
+    [activeProjectMembers]
+  );
 
   const rows = useMemo(() => {
-    const empRows = employees
-      .filter((emp) => projectMemberIds.has(emp.id))
-      .map((emp) => ({
-        key: `emp-${emp.id}`,
-        label: emp.nameKanji || emp.nameRomaji || `ID:${emp.id}`,
-        isGuest: false,
-      }));
-    const guestRows = allGuestNames.map((name) => ({
+    const projectMemberRows = activeProjectMembers.map((m: any) => ({
+      key: `emp-${m.employeeId}`,
+      label: m.employee?.nameKanji || m.employee?.nameRomaji || `ID:${m.employeeId}`,
+      isGuest: false,
+    }));
+    const teamRows = (teamDataQuery.data?.members || []).map((member: any) => ({
+      key: member.type === "guest" ? `guest-${member.nameKanji}` : `emp-${member.id}`,
+      label: member.type === "guest" ? `${member.nameKanji}（ゲスト）` : member.nameKanji,
+      isGuest: member.type === "guest",
+    }));
+    const localGuestRows = guestNames.map((name) => ({
       key: `guest-${name}`,
       label: `${name}（ゲスト）`,
       isGuest: true,
     }));
-    return [...empRows, ...guestRows];
-  }, [employees, allGuestNames, projectMemberIds]);
+    const seen = new Set<string>();
+    return [...projectMemberRows, ...teamRows, ...localGuestRows].filter((row) => {
+      if (seen.has(row.key)) return false;
+      seen.add(row.key);
+      return true;
+    });
+  }, [activeProjectMembers, teamDataQuery.data?.members, guestNames]);
 
   // Employees not yet assigned to this project (for add member dialog)
   const availableEmployees = useMemo(() => {
-    return employees.filter((emp) => !projectMemberIds.has(emp.id));
-  }, [employees, projectMemberIds]);
+    return employees.filter((emp) => !activeProjectMemberIds.has(emp.id));
+  }, [employees, activeProjectMemberIds]);
 
   // cellHasValue from shared module — wrapper for local CellData
   const cellHasVal = (cell: CellData) => cellHasValue(cell.hoursWorked, cell.workType);
@@ -647,7 +722,7 @@ export default function AppAttendance() {
             {isLocked ? <Lock className="h-5 w-5" /> : <LockOpen className="h-5 w-5" />}
           </Button>
 
-          {isAdminOrLeader && selectedProjectId && (
+          {canManageAttendanceMembers && selectedProjectId && (
             <Button
               variant="outline"
               size="sm"
@@ -692,7 +767,7 @@ export default function AppAttendance() {
             )}
             Excel出力
           </Button>
-          {isAdminOrLeader && selectedProjectId && (
+          {canManageAttendanceMembers && selectedProjectId && (
             <Button
               variant="outline"
               size="sm"
@@ -803,7 +878,7 @@ export default function AppAttendance() {
           <CardContent className="py-12 text-center text-muted-foreground">
             <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>この現場にはまだ作業員が配属されていません</p>
-            {isAdminOrLeader && (
+            {canManageAttendanceMembers && (
               <Button
                 variant="outline"
                 className="mt-4"
@@ -869,7 +944,7 @@ export default function AppAttendance() {
                         >
                           <div className="flex items-center gap-1">
                             <span className="truncate">{row.label}</span>
-                            {isAdminOrLeader && !isLocked && (
+                            {canRemoveAttendanceMembers && !isLocked && (
                               <button
                                 onClick={() => handleRemoveMember(row.key, row.label)}
                                 className="shrink-0 p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"

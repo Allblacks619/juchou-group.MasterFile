@@ -12,7 +12,7 @@ import { isWorkedType } from "@shared/attendanceStatus";
 import { storageGet, storagePut } from "./storage";
 import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "../shared/uploadValidation";
 import * as schema from "../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from "./pdfRoster";
 import { generateInvoicePdf } from "./pdfInvoice";
@@ -46,6 +46,29 @@ function formatDateForMatch(date: Date | string | null | undefined) {
 
 function isPrivilegedAppRole(role: unknown) {
   return role === "super_admin" || role === "admin";
+}
+
+const ATTENDANCE_REMOVED_GUEST_PREFIX = "__attendance_removed_guest__:";
+const ATTENDANCE_REMOVED_GUEST_DATE = "1900-01-01";
+
+function canRemoveAttendanceMember(role: unknown) {
+  return role === "super_admin" || role === "admin" || role === "manager";
+}
+
+function removedGuestMarkerName(guestName: string) {
+  return `${ATTENDANCE_REMOVED_GUEST_PREFIX}${createHash("sha256").update(guestName).digest("hex")}`;
+}
+
+function isRemovedGuestMarkerName(guestName: string | null | undefined) {
+  return !!guestName && guestName.startsWith(ATTENDANCE_REMOVED_GUEST_PREFIX);
+}
+
+function removedGuestMarkerNote(guestName: string) {
+  return `attendance_removed_guest:${guestName}`;
+}
+
+function excludeRemovedGuestMarkers<T extends { guestName: string | null }>(records: T[]) {
+  return records.filter((record) => !isRemovedGuestMarkerName(record.guestName));
 }
 
 // ── Helper: check admin or leader role ──
@@ -302,6 +325,34 @@ function getMonthKeyFromDate(value?: Date | string | null) {
   return `${y}-${m}`;
 }
 
+const EMPTY_CLOSING_SUMMARY = {
+  targetCount: 0,
+  pendingCount: 0,
+  submittedCount: 0,
+  approvedCount: 0,
+  receiptMissingCount: 0,
+  canMarkReady: false,
+};
+
+function toComparableDate(value?: Date | string | null) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function projectOverlapsMonth(project: any, monthStart: Date, monthEnd: Date) {
+  const projectStart = toComparableDate(project.startDate);
+  const projectEnd = toComparableDate(project.endDate);
+
+  if (projectStart && projectStart.getTime() > monthEnd.getTime()) return false;
+  if (projectEnd && projectEnd.getTime() < monthStart.getTime()) return false;
+  return true;
+}
+
+function isProjectActiveDuringMonth(project: any, monthStart: Date, monthEnd: Date) {
+  return (project.status || "active") === "active" && projectOverlapsMonth(project, monthStart, monthEnd);
+}
+
 function getInvoiceReceivedAmount(invoice: any) {
   const received = Number(invoice.receivedAmount || 0);
   if (received > 0) return received;
@@ -402,15 +453,15 @@ async function ensureClosingInitializedForProjectMonth(projectId: number, closin
       });
 
   const { start, end } = getMonthDateRange(closingMonth);
-  const [records, projectMembers] = await Promise.all([
-    db.getAttendanceByProject(projectId, start, end),
-    db.getProjectMembers(projectId),
-  ]);
+  const records = await db.getAttendanceByProject(projectId, start, end);
 
-  const activeMemberIds = new Set(projectMembers.filter((m) => m.isActive).map((m) => m.employeeId));
+  // Monthly attendance is the source of truth for closing relevance.
+  // Removed/inactive project members with real attendance for this month must
+  // remain target submissions and must not be downgraded to not_required just
+  // because project_members.isActive is now false.
   const targetEmployeeIds = Array.from(new Set(
     records
-      .filter((rec) => !!rec.employeeId && activeMemberIds.has(rec.employeeId!))
+      .filter((rec) => !!rec.employeeId)
       .map((rec) => rec.employeeId!)
   ));
 
@@ -723,16 +774,37 @@ export const appRouter = router({
     listPasswordRecoveryRequests: superAdminProcedure.query(async () => {
       const dbInstance = await db.getDb();
       if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
-      const [requests, employees, users] = await Promise.all([
-        dbInstance.select().from(schema.passwordResetRequests),
-        db.getAllEmployees(),
-        db.getAllUsers(),
+
+      const requests = await dbInstance.select().from(schema.passwordResetRequests);
+      if ((requests as any[]).length === 0) return [];
+
+      const employeeIds = Array.from(new Set((requests as any[])
+        .map((request) => request.employeeId)
+        .filter((id): id is number => typeof id === "number")));
+      const userIds = Array.from(new Set((requests as any[])
+        .map((request) => request.userId)
+        .filter((id): id is number => typeof id === "number")));
+
+      const [employees, users] = await Promise.all([
+        employeeIds.length > 0
+          ? dbInstance.select({
+            id: schema.employees.id,
+            nameKanji: schema.employees.nameKanji,
+            nameRomaji: schema.employees.nameRomaji,
+          }).from(schema.employees).where(inArray(schema.employees.id, employeeIds))
+          : Promise.resolve([]),
+        userIds.length > 0
+          ? dbInstance.select({
+            id: schema.users.id,
+            appRole: schema.users.appRole,
+          }).from(schema.users).where(inArray(schema.users.id, userIds))
+          : Promise.resolve([]),
       ]);
       const employeeMap = new Map((employees as any[]).map((employee) => [employee.id, employee]));
       const userMap = new Map((users as any[]).map((user) => [user.id, user]));
       return (requests as any[])
         .sort((a, b) => new Date(b.requestedAt ?? b.createdAt).getTime() - new Date(a.requestedAt ?? a.createdAt).getTime())
-        .map(({ tokenHash, ...request }) => {
+        .map(({ tokenHash, passwordHash, ...request }) => {
           const employee = employeeMap.get(request.employeeId);
           const user = userMap.get(request.userId);
           return {
@@ -2015,11 +2087,12 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const startRange = parseDateRange(input.startDate);
         const endRange = parseDateRange(input.endDate);
-        return db.getAttendanceByDateRange(
+        const records = await db.getAttendanceByDateRange(
           startRange.start,
           endRange.end,
           input.projectId,
         );
+        return excludeRemovedGuestMarkers(records);
       }),
 
     /** List attendance for a specific employee */
@@ -2118,6 +2191,43 @@ export const appRouter = router({
           }
         }
         return { count: results.length + deletedCount };
+      }),
+
+
+    /** Remove an active attendance member without deleting historical attendance data */
+    removeMember: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        employeeId: z.number().optional(),
+        guestName: z.string().trim().min(1).max(128).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (!canRemoveAttendanceMember((ctx.user as any).appRole)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "管理者権限が必要です" });
+        }
+        if (!!input.employeeId === !!input.guestName) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "従業員またはゲストを1人指定してください" });
+        }
+
+        if (input.employeeId) {
+          await db.removeProjectMember(input.projectId, input.employeeId);
+          return { success: true };
+        }
+
+        const guestName = input.guestName!;
+        await db.upsertAttendance({
+          employeeId: null,
+          guestName: removedGuestMarkerName(guestName),
+          projectId: input.projectId,
+          workDate: parseDateString(ATTENDANCE_REMOVED_GUEST_DATE),
+          hoursWorked: 0,
+          overtimeHours: 0,
+          workType: "absence",
+          shiftType: "day",
+          notes: removedGuestMarkerNote(guestName),
+          enteredBy: ctx.user.id,
+        });
+        return { success: true };
       }),
 
     /** Delete an attendance record */
@@ -2221,6 +2331,62 @@ export const appRouter = router({
       return allProjects.filter(p => p.status === "active" && projectIds.has(p.id));
     }),
 
+    /** Get projects relevant to the selected attendance month. */
+    monthProjectOptions: protectedProcedure
+      .input(z.object({
+        startDate: z.string(),
+        endDate: z.string(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const startDate = parseDateRange(input.startDate).start;
+        const endDate = parseDateRange(input.endDate).end;
+        const [allProjects, rawMonthlyRecords] = await Promise.all([
+          db.getAllProjects(),
+          db.getAttendanceByDateRange(startDate, endDate),
+        ]);
+        const monthlyRecords = excludeRemovedGuestMarkers(rawMonthlyRecords);
+        const attendanceCounts = new Map<number, number>();
+        for (const record of monthlyRecords) {
+          attendanceCounts.set(record.projectId, (attendanceCounts.get(record.projectId) || 0) + 1);
+        }
+
+        let candidateProjects = allProjects;
+        if (!isManagerLike((ctx.user as any).appRole)) {
+          const employee = await db.getEmployeeByUserId(ctx.user.id);
+          if (!employee) return [];
+          const memberships = await db.getProjectsByEmployee(employee.id);
+          const memberProjectIds = new Set(memberships.map((member: any) => member.projectId));
+          const ownAttendanceProjectIds = new Set(
+            monthlyRecords
+              .filter((record: any) => record.employeeId === employee.id)
+              .map((record: any) => record.projectId)
+          );
+          candidateProjects = allProjects.filter((project: any) =>
+            memberProjectIds.has(project.id) || ownAttendanceProjectIds.has(project.id)
+          );
+        }
+
+        const options = (await Promise.all(candidateProjects.map(async (project: any) => {
+          const members = await db.getProjectMembers(project.id);
+          const activeMemberCount = members.filter((member: any) => member.isActive).length;
+          const attendanceCount = attendanceCounts.get(project.id) || 0;
+          const hasMonthlyAttendance = attendanceCount > 0;
+          if (!hasMonthlyAttendance && activeMemberCount === 0) return null;
+          return {
+            ...project,
+            hasMonthlyAttendance,
+            attendanceCount,
+            activeMemberCount,
+          };
+        }))).filter((project): project is NonNullable<typeof project> => project !== null);
+
+        return options.sort((a: any, b: any) => {
+          if (a.hasMonthlyAttendance !== b.hasMonthlyAttendance) return a.hasMonthlyAttendance ? -1 : 1;
+          if (b.attendanceCount !== a.attendanceCount) return b.attendanceCount - a.attendanceCount;
+          return String(a.name || "").localeCompare(String(b.name || ""), "ja");
+        });
+      }),
+
     /** Get last used project for current employee */
     lastProject: protectedProcedure.query(async ({ ctx }) => {
       const employee = await db.getEmployeeByUserId(ctx.user.id);
@@ -2253,11 +2419,12 @@ export const appRouter = router({
           if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
           await assertProjectMember(employee.id, input.projectId);
         }
-        const records = await db.getAttendanceByProject(
+        const rawRecords = await db.getAttendanceByProject(
           input.projectId,
           parseDateRange(input.startDate).start,
           parseDateRange(input.endDate).end,
         );
+        const records = excludeRemovedGuestMarkers(rawRecords);
         // Collect unique employee IDs and guest names
         const empIds = new Set<number>();
         const guestNames = new Set<string>();
@@ -2265,7 +2432,9 @@ export const appRouter = router({
           if (rec.employeeId) empIds.add(rec.employeeId);
           if (rec.guestName) guestNames.add(rec.guestName);
         }
-        // Get employee info
+        // Attendance history is the source of truth for historical rows: if an
+        // employee has a record in the selected month, keep them visible even
+        // when their current project membership was deactivated.
         const allEmployees = await db.getAllEmployees();
         const members = allEmployees
           .filter(e => empIds.has(e.id))
@@ -2414,48 +2583,55 @@ export const appRouter = router({
     listByMonth: leaderOrAdminProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
-        const [projects, clients, closings] = await Promise.all([
+        const { start, end } = getMonthDateRange(input.closingMonth);
+        const [projects, clients, closings, monthlyAttendanceRecords] = await Promise.all([
           db.getAllProjects(),
           db.getAllClients(),
           db.getProjectClosingsByMonth(input.closingMonth),
+          db.getAttendanceByDateRange(start, end),
         ]);
         const clientMap = new Map<number, any>(clients.map((c: any) => [c.id, c]));
         const closingMap = new Map<number, any>(closings.map((c: any) => [c.projectId, c]));
+        const monthlyAttendanceProjectIds = new Set(
+          monthlyAttendanceRecords
+            .filter((record: any) => !isRemovedGuestMarkerName(record.guestName))
+            .map((record: any) => record.projectId)
+        );
 
-        const rows = await Promise.all(
+        const rows = (await Promise.all(
           projects.map(async (project) => {
             const closing = closingMap.get(project.id) || null;
+            const projectMembers = closing?.id ? [] : await db.getProjectMembers(project.id);
+            const hasMonthlyAttendance = monthlyAttendanceProjectIds.has(project.id);
+            const hasActiveMembers = projectMembers.some((member: any) => member.isActive);
+            const overlapsMonth = projectOverlapsMonth(project, start, end);
+            const relevant = Boolean(
+              closing?.id
+              || hasMonthlyAttendance
+              || (hasActiveMembers && overlapsMonth)
+              || isProjectActiveDuringMonth(project, start, end)
+            );
+
+            if (!relevant) return null;
+
             if (!closing?.id) {
               return {
                 project,
                 client: project.clientId ? clientMap.get(project.clientId) || null : null,
                 closing: null,
-                summary: {
-                  targetCount: 0,
-                  pendingCount: 0,
-                  submittedCount: 0,
-                  approvedCount: 0,
-                  receiptMissingCount: 0,
-                  canMarkReady: false,
-                },
+                summary: { ...EMPTY_CLOSING_SUMMARY },
               };
             }
+
             const detail = await buildClosingDetail(project.id, input.closingMonth);
             return {
               project,
               client: project.clientId ? clientMap.get(project.clientId) || null : null,
               closing,
-              summary: detail?.summary || {
-                targetCount: 0,
-                pendingCount: 0,
-                submittedCount: 0,
-                approvedCount: 0,
-                receiptMissingCount: 0,
-                canMarkReady: false,
-              },
+              summary: detail?.summary || { ...EMPTY_CLOSING_SUMMARY },
             };
           })
-        );
+        )).filter((row): row is NonNullable<typeof row> => row !== null);
 
         return rows.sort((a, b) => a.project.name.localeCompare(b.project.name, "ja"));
       }),

@@ -205,7 +205,6 @@ function ProfileCompletionAlert() {
 function WorkflowShortcuts({ appRole }: { appRole: string }) {
   const [, setLocation] = useLocation();
   const isAdminOrLeader = isManagerLikeAppRole(appRole);
-
   const items = isAdminOrLeader
     ? [
         { title: "締め管理", icon: FileCheck2, path: "/app/closings" },
@@ -286,12 +285,17 @@ function AttendanceCalendar() {
   const [, setLocation] = useLocation();
   const appRole = (user as any)?.appRole || "worker";
   const isAdminOrLeader = isManagerLikeAppRole(appRole);
+  const canManageAttendanceMembers = isManagerLikeAppRole(appRole);
+  const canRemoveAttendanceMembers = appRole === "super_admin" || appRole === "admin" || appRole === "manager";
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [projectInitialized, setProjectInitialized] = useState(false);
   const [isLocked, setIsLocked] = useState(true);
   const [guestDialogOpen, setGuestDialogOpen] = useState(false);
+  const [employeeDialogOpen, setEmployeeDialogOpen] = useState(false);
   const [guestName, setGuestName] = useState("");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [employeeSearch, setEmployeeSearch] = useState("");
 
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
@@ -300,6 +304,11 @@ function AttendanceCalendar() {
   const projectsQuery = trpc.attendance.myProjects.useQuery();
   const lastProjectQuery = trpc.attendance.lastProject.useQuery();
   const myInfoQuery = trpc.attendance.myEmployeeInfo.useQuery();
+  const employeesQuery = trpc.employee.list.useQuery(undefined, { enabled: canManageAttendanceMembers });
+  const projectMembersQuery = trpc.project.members.useQuery(
+    { projectId: selectedProjectId! },
+    { enabled: !!selectedProjectId && canManageAttendanceMembers }
+  );
 
   const teamDataQuery = trpc.attendance.projectTeamData.useQuery(
     { projectId: selectedProjectId!, startDate, endDate },
@@ -310,6 +319,7 @@ function AttendanceCalendar() {
     utils.attendance.projectTeamData.invalidate({ projectId: selectedProjectId!, startDate, endDate });
     utils.attendance.list.invalidate({ projectId: selectedProjectId || undefined, startDate, endDate });
     utils.attendance.myAttendance.invalidate({ projectId: selectedProjectId || undefined, startDate, endDate });
+    if (selectedProjectId) utils.project.members.invalidate({ projectId: selectedProjectId });
     teamDataQuery.refetch();
   }, [utils, selectedProjectId, startDate, endDate, teamDataQuery]);
 
@@ -321,6 +331,26 @@ function AttendanceCalendar() {
   const myBatchUpsertMutation = trpc.attendance.myBatchUpsert.useMutation({
     onSuccess: refreshAttendanceQueries,
     onError: (e) => toast.error(`${lang === "pt" ? "Erro ao salvar" : "保存エラー"}: ${e.message}`),
+  });
+
+  const addMemberMutation = trpc.project.addMember.useMutation({
+    onSuccess: () => {
+      toast.success(lang === "pt" ? "Funcionário adicionado à obra" : "従業員を現場に追加しました");
+      refreshAttendanceQueries();
+      setEmployeeDialogOpen(false);
+      setSelectedEmployeeId("");
+      setEmployeeSearch("");
+    },
+    onError: (e) => toast.error(`${lang === "pt" ? "Erro ao adicionar" : "追加エラー"}: ${e.message}`),
+  });
+
+
+  const removeMemberMutation = trpc.attendance.removeMember.useMutation({
+    onSuccess: () => {
+      toast.success(lang === "pt" ? "Membro removido da obra" : "メンバーを現場から外しました");
+      refreshAttendanceQueries();
+    },
+    onError: (e) => toast.error(`${lang === "pt" ? "Erro ao remover" : "削除エラー"}: ${e.message}`),
   });
 
   const pdfMutation = trpc.attendance.generatePdf.useMutation({
@@ -359,9 +389,34 @@ function AttendanceCalendar() {
     return map;
   }, [teamDataQuery.data]);
 
-  // Deduplicate members by type+id/name
-  const members = (() => {
-    const raw = teamDataQuery.data?.members || [];
+  const myEmployeeId = myInfoQuery.data?.id;
+  const projects = projectsQuery.data || [];
+  const allEmployees = employeesQuery.data || [];
+  const activeProjectMembers = (projectMembersQuery.data || []).filter((m: any) => m.isActive);
+  const activeProjectMemberIds = useMemo(
+    () => new Set<number>(activeProjectMembers.map((m: any) => m.employeeId)),
+    [activeProjectMembers]
+  );
+
+  const availableEmployees = useMemo(() => {
+    const q = employeeSearch.trim().toLowerCase();
+    return allEmployees.filter((emp: any) => {
+      if (activeProjectMemberIds.has(emp.id)) return false;
+      if (!q) return true;
+      return [emp.nameKanji, emp.nameKana, emp.nameRomaji]
+        .filter(Boolean)
+        .some((name: string) => name.toLowerCase().includes(q));
+    });
+  }, [allEmployees, activeProjectMemberIds, employeeSearch]);
+
+  // Deduplicate project members, attendance employees, and guests by type+id/name.
+  const members = useMemo(() => {
+    const projectMemberRows = activeProjectMembers.map((m: any) => ({
+      id: m.employeeId,
+      nameKanji: m.employee?.nameKanji || m.employee?.nameRomaji || `ID:${m.employeeId}`,
+      type: "employee" as const,
+    }));
+    const raw = [...projectMemberRows, ...(teamDataQuery.data?.members || [])];
     const seen = new Set<string>();
     return raw.filter((m) => {
       const key = m.type === "guest" ? `guest-${m.nameKanji}` : `emp-${m.id}`;
@@ -369,9 +424,7 @@ function AttendanceCalendar() {
       seen.add(key);
       return true;
     });
-  })();
-  const myEmployeeId = myInfoQuery.data?.id;
-  const projects = projectsQuery.data || [];
+  }, [activeProjectMembers, teamDataQuery.data?.members]);
 
   const autoSave = useCallback(
     (params: {
@@ -448,8 +501,31 @@ function AttendanceCalendar() {
     [attendanceMap, autoSave, isLocked]
   );
 
+  const openEmployeeDialog = () => {
+    if (!canManageAttendanceMembers) return;
+    setEmployeeDialogOpen(true);
+  };
+
+  const openGuestDialog = () => {
+    if (!canManageAttendanceMembers) return;
+    setGuestDialogOpen(true);
+  };
+
+  const handleAddEmployee = () => {
+    if (isLocked || !canManageAttendanceMembers) return;
+    if (!selectedProjectId) {
+      toast.error(t("attendance_selectProject"));
+      return;
+    }
+    if (!selectedEmployeeId) {
+      toast.error(lang === "pt" ? "Selecione um funcionário" : "従業員を選択してください");
+      return;
+    }
+    addMemberMutation.mutate({ projectId: selectedProjectId, employeeId: Number(selectedEmployeeId) });
+  };
+
   const handleAddGuest = () => {
-    if (isLocked) return;
+    if (isLocked || !canManageAttendanceMembers) return;
     if (!guestName.trim()) {
       toast.error(lang === "pt" ? "Digite o nome" : "名前を入力してください");
       return;
@@ -471,6 +547,23 @@ function AttendanceCalendar() {
     toast.success(lang === "pt" ? `Convidado "${guestName.trim()}" adicionado` : `ゲスト「${guestName.trim()}」を追加しました`);
     setGuestName("");
     setGuestDialogOpen(false);
+  };
+
+
+  const handleRemoveAttendanceMember = (member: { id: number; nameKanji: string; type: "employee" | "guest" }) => {
+    if (!selectedProjectId || isLocked || !canRemoveAttendanceMembers) return;
+    const confirmed = confirm(
+      lang === "pt"
+        ? "Este membro será removido da lista de presença desta obra. Os dados de presença anteriores não serão excluídos. Deseja continuar?"
+        : "このメンバーをこの現場の出面メンバーから外します。過去の出面データは削除されません。よろしいですか？"
+    );
+    if (!confirmed) return;
+
+    removeMemberMutation.mutate({
+      projectId: selectedProjectId,
+      employeeId: member.type === "employee" ? member.id : undefined,
+      guestName: member.type === "guest" ? member.nameKanji : undefined,
+    });
   };
 
   const handlePdfDownload = () => {
@@ -547,9 +640,16 @@ function AttendanceCalendar() {
               </Button>
               {isAdminOrLeader ? (
                 <>
-                  <Button variant="outline" size="sm" onClick={() => setGuestDialogOpen(true)} disabled={!selectedProjectId || isLocked}>
-                    <Plus className="h-4 w-4 mr-1" /> {t("dashboard_addGuest")}
-                  </Button>
+                  {canManageAttendanceMembers && (
+                    <Button variant="outline" size="sm" onClick={openEmployeeDialog} disabled={!selectedProjectId || isLocked}>
+                      <UserPlus className="h-4 w-4 mr-1" /> {t("dashboard_addEmployee")}
+                    </Button>
+                  )}
+                  {canManageAttendanceMembers && (
+                    <Button variant="outline" size="sm" onClick={openGuestDialog} disabled={!selectedProjectId || isLocked}>
+                      <Plus className="h-4 w-4 mr-1" /> {t("dashboard_addGuest")}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
@@ -698,6 +798,17 @@ function AttendanceCalendar() {
                                       {lang === "pt" ? "G" : "ゲ"}
                                     </Badge>
                                   )}
+                                  {canRemoveAttendanceMembers && !isLocked && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveAttendanceMember(member)}
+                                      className="shrink-0 p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"
+                                      title={lang === "pt" ? "Remover da presença" : "出面メンバーから外す"}
+                                      aria-label={lang === "pt" ? `Remover ${member.nameKanji}` : `${member.nameKanji}を出面メンバーから外す`}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                               {daysInMonth.map((day) => {
@@ -819,6 +930,32 @@ function AttendanceCalendar() {
                             </tr>
                           );
                         })}
+                      {canManageAttendanceMembers && (
+                        <tr>
+                          <td colSpan={daysInMonth.length + 4} className="px-3 py-3 text-center">
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button variant="outline" size="sm" disabled={!selectedProjectId || isLocked}>
+                                  <Plus className="h-4 w-4 mr-1" />
+                                  {lang === "pt" ? "Adicionar" : "追加"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-48 p-2" align="center">
+                                <div className="space-y-1">
+                                  <Button variant="ghost" className="w-full justify-start" onClick={openEmployeeDialog}>
+                                    <UserPlus className="h-4 w-4 mr-2" />
+                                    {lang === "pt" ? "Adicionar funcionário" : "従業員を追加"}
+                                  </Button>
+                                  <Button variant="ghost" className="w-full justify-start" onClick={openGuestDialog}>
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    {lang === "pt" ? "Adicionar convidado" : "ゲストを追加"}
+                                  </Button>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -847,6 +984,55 @@ function AttendanceCalendar() {
           </Card>
         </>
       )}
+
+      <Dialog open={employeeDialogOpen} onOpenChange={setEmployeeDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("dashboard_addEmployee")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              {lang === "pt"
+                ? "Selecione um funcionário registrado para adicionar à presença desta obra."
+                : "登録済みの従業員を選択して、この現場の出面メンバーに追加します。"}
+            </p>
+            <Input
+              placeholder={lang === "pt" ? "Buscar funcionário" : "従業員を検索"}
+              value={employeeSearch}
+              onChange={(e) => setEmployeeSearch(e.target.value)}
+            />
+            <div className="max-h-60 overflow-y-auto space-y-1 border rounded-md p-2">
+              {availableEmployees.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  {lang === "pt" ? "Nenhum funcionário disponível" : "追加可能な従業員がいません"}
+                </p>
+              ) : (
+                availableEmployees.map((emp: any) => (
+                  <button
+                    key={emp.id}
+                    type="button"
+                    onClick={() => setSelectedEmployeeId(String(emp.id))}
+                    className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                      selectedEmployeeId === String(emp.id)
+                        ? "bg-gold/10 text-gold border border-gold/30"
+                        : "hover:bg-muted/50"
+                    }`}
+                  >
+                    <span className="font-medium">{emp.nameKanji || emp.nameRomaji || `ID:${emp.id}`}</span>
+                    {emp.nameKana && <span className="text-xs text-muted-foreground ml-2">{emp.nameKana}</span>}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEmployeeDialogOpen(false)}>{t("cancel")}</Button>
+            <Button className="bg-gold text-background hover:bg-gold/90" onClick={handleAddEmployee} disabled={!selectedEmployeeId || addMemberMutation.isPending}>
+              {addMemberMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : t("add")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={guestDialogOpen} onOpenChange={setGuestDialogOpen}>
         <DialogContent>
