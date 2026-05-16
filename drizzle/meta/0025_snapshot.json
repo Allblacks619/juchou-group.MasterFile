@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "4cde405d-fdba-4081-9e3a-c12845418ae6",
+  "id": "c0866133-fb89-41ab-9226-acedfdd83561",
   "prevId": "0a766149-c777-42d6-b14e-43144f3bf70d",
   "tables": {
     "attendance": {
