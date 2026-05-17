@@ -498,6 +498,101 @@ async function ensureClosingInitializedForProjectMonth(projectId: number, closin
   return closing;
 }
 
+
+const CLOSING_YEAR_SHIFT_DIAGNOSTIC_MONTHS = ["2025-04", "2025-05", "2026-04", "2026-05"] as const;
+const LOW_YEAR_SHIFT_ATTENDANCE_THRESHOLD = 1;
+
+function pairYearShiftMonth(month: string) {
+  if (!/^2025-(04|05)$/.test(month)) return null;
+  return month.replace(/^2025-/, "2026-");
+}
+
+async function countProjectAttendanceForMonth(projectId: number, closingMonth: string) {
+  const { start, end } = getMonthDateRange(closingMonth);
+  const records = excludeRemovedGuestMarkers(await db.getAttendanceByProject(projectId, start, end));
+  return records.length;
+}
+
+async function buildClosingYearShiftDiagnostics() {
+  const projects = await db.getAllProjects();
+  const rowsByProjectMonth = new Map<string, any>();
+
+  for (const project of projects) {
+    for (const month of CLOSING_YEAR_SHIFT_DIAGNOSTIC_MONTHS) {
+      const [closing, attendanceCount] = await Promise.all([
+        db.getProjectClosingByProjectMonth(project.id, month),
+        countProjectAttendanceForMonth(project.id, month),
+      ]);
+      const submissionsCount = closing?.id
+        ? (await db.getClosingSubmissionsByClosing(closing.id)).length
+        : 0;
+      rowsByProjectMonth.set(`${project.id}:${month}`, {
+        projectId: Number(project.id),
+        projectName: project.name,
+        closingMonth: month,
+        closingExists: Boolean(closing?.id),
+        closingId: closing?.id ? Number(closing.id) : null,
+        closingStatus: closing?.status || null,
+        attendanceCount,
+        closingSubmissionsCount: submissionsCount,
+        isYearShiftCandidate: false,
+      });
+    }
+  }
+
+  for (const project of projects) {
+    for (const fromMonth of ["2025-04", "2025-05"] as const) {
+      const toMonth = pairYearShiftMonth(fromMonth)!;
+      const fromRow = rowsByProjectMonth.get(`${project.id}:${fromMonth}`);
+      const toRow = rowsByProjectMonth.get(`${project.id}:${toMonth}`);
+      if (!fromRow || !toRow) continue;
+      fromRow.isYearShiftCandidate = Boolean(
+        fromRow.closingExists &&
+        fromRow.attendanceCount <= LOW_YEAR_SHIFT_ATTENDANCE_THRESHOLD &&
+        toRow.attendanceCount > 0 &&
+        !toRow.closingExists
+      );
+    }
+  }
+
+  return Array.from(rowsByProjectMonth.values()).sort((a: any, b: any) =>
+    a.projectName.localeCompare(b.projectName, "ja") || a.closingMonth.localeCompare(b.closingMonth)
+  );
+}
+
+async function repairClosingYearShiftProjectMonth(projectId: number, fromMonth: string, toMonth: string) {
+  const expectedToMonth = pairYearShiftMonth(fromMonth);
+  if (!expectedToMonth || expectedToMonth !== toMonth) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "2025-04/05 から対応する 2026-04/05 への修復のみ実行できます" });
+  }
+
+  const fromClosing = await db.getProjectClosingByProjectMonth(projectId, fromMonth);
+  if (!fromClosing?.id) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `${fromMonth} の締め行が見つかりません` });
+  }
+
+  const toClosing = await db.getProjectClosingByProjectMonth(projectId, toMonth);
+  if (toClosing?.id) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `${toMonth} の締め行が既に存在するため修復できません` });
+  }
+
+  const toAttendanceCount = await countProjectAttendanceForMonth(projectId, toMonth);
+  if (toAttendanceCount <= 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `${toMonth} の出面が存在しないため修復できません` });
+  }
+
+  const updated = await db.updateProjectClosing(fromClosing.id, { closingMonth: toMonth } as any);
+  return {
+    success: true,
+    projectId,
+    closingId: Number(fromClosing.id),
+    fromMonth,
+    toMonth,
+    toAttendanceCount,
+    closing: updated,
+  };
+}
+
 async function getMyClosingSubmission(projectId: number, closingMonth: string, userId: number) {
   const employee = await db.getEmployeeByUserId(userId);
   if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
@@ -2667,6 +2762,29 @@ export const appRouter = router({
       }))
       .query(async ({ input }) => {
         return buildClosingDetail(input.projectId, input.closingMonth);
+      }),
+
+
+    diagnoseYearShift: superAdminProcedure
+      .query(async () => {
+        return buildClosingYearShiftDiagnostics();
+      }),
+
+    repairYearShift: superAdminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        fromMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        toMonth: z.string().regex(/^\d{4}-\d{2}$/),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await repairClosingYearShiftProjectMonth(input.projectId, input.fromMonth, input.toMonth);
+        await safeAuditLog(ctx.user.id, "closing.repairYearShift", "closing", {
+          entityId: result.closingId,
+          projectId: input.projectId,
+          closingId: result.closingId,
+          note: `${input.fromMonth} から ${input.toMonth} へ締め月を修復`,
+        });
+        return result;
       }),
 
     initialize: leaderOrAdminProcedure

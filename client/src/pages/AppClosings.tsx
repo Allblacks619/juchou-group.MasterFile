@@ -86,6 +86,11 @@ export default function AppClosings() {
     { projectId: selectedProjectId!, closingMonth },
     { enabled: !!selectedProjectId && !!closingMonth }
   );
+  const meQuery = trpc.auth.me.useQuery();
+  const isSuperAdmin = (meQuery.data as any)?.appRole === "super_admin";
+  const yearShiftDiagnosisQuery = trpc.closing.diagnoseYearShift.useQuery(undefined, {
+    enabled: false,
+  });
 
   const initializeMutation = trpc.closing.initialize.useMutation({
     onSuccess: () => {
@@ -132,6 +137,15 @@ export default function AppClosings() {
     onError: (e: any) => toast.error(`再開エラー: ${e.message}`),
   });
 
+  const repairYearShiftMutation = trpc.closing.repairYearShift.useMutation({
+    onSuccess: () => {
+      toast.success("締め年月ズレを修復しました");
+      yearShiftDiagnosisQuery.refetch();
+      listQuery.refetch();
+    },
+    onError: (e: any) => toast.error(`年月ズレ修復エラー: ${e.message}`),
+  });
+
   const [, setLocation] = useLocation();
 
   const generateInvoiceMutation = trpc.closing.generateForClosing.useMutation({
@@ -166,6 +180,24 @@ export default function AppClosings() {
   });
 
   const rows = listQuery.data || [];
+  const yearShiftRows = yearShiftDiagnosisQuery.data || [];
+  const yearShiftCandidates = useMemo(() => {
+    return yearShiftRows
+      .filter((row: any) => row.isYearShiftCandidate)
+      .map((row: any) => {
+        const toMonth = String(row.closingMonth || "").replace(/^2025-/, "2026-");
+        const toRow = yearShiftRows.find((candidateToRow: any) =>
+          Number(candidateToRow.projectId) === Number(row.projectId) && candidateToRow.closingMonth === toMonth
+        );
+        return {
+          ...row,
+          fromMonth: row.closingMonth,
+          toMonth,
+          fromAttendanceCount: row.attendanceCount,
+          toAttendanceCount: toRow?.attendanceCount ?? 0,
+        };
+      });
+  }, [yearShiftRows]);
   const selectedRow = useMemo(
     () => rows.find((row: any) => row.project.id === selectedProjectId) || null,
     [rows, selectedProjectId]
@@ -211,6 +243,19 @@ export default function AppClosings() {
     );
   };
 
+  const handleRepairYearShift = (candidate: any) => {
+    const confirmed = window.confirm(
+      `この操作は締めデータの年月だけを ${candidate.fromMonth} から ${candidate.toMonth} に移動します。出面・提出データ・支払いデータは削除しません。`
+    );
+    if (!confirmed) return;
+
+    repairYearShiftMutation.mutate({
+      projectId: Number(candidate.projectId),
+      fromMonth: candidate.fromMonth,
+      toMonth: candidate.toMonth,
+    });
+  };
+
 
   return (
     <div className="space-y-6 max-w-full overflow-x-hidden">
@@ -224,6 +269,84 @@ export default function AppClosings() {
           <Input type="month" value={closingMonth} onChange={(e) => setClosingMonth(e.target.value)} />
         </div>
       </div>
+
+      {isSuperAdmin && (
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardHeader>
+            <CardTitle className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <span>締め年月ズレ診断</span>
+              <Button
+                variant="outline"
+                onClick={() => yearShiftDiagnosisQuery.refetch()}
+                disabled={yearShiftDiagnosisQuery.isFetching}
+              >
+                {yearShiftDiagnosisQuery.isFetching && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                年月ズレを診断
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              2025年に作成された締め行と2026年の出面を比較し、年月がずれている可能性がある候補だけを表示します。修復は手動実行です。
+            </p>
+            {yearShiftDiagnosisQuery.isError ? (
+              <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                診断エラー: {(yearShiftDiagnosisQuery.error as any)?.message || "診断に失敗しました"}
+              </div>
+            ) : !yearShiftDiagnosisQuery.data ? (
+              <div className="text-sm text-muted-foreground">「年月ズレを診断」を押して候補を確認してください。</div>
+            ) : yearShiftCandidates.length === 0 ? (
+              <div className="rounded-md border border-border bg-card px-3 py-4 text-center text-sm text-muted-foreground">
+                年月ズレ候補はありません
+              </div>
+            ) : (
+              <div className="border rounded-md overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>案件</TableHead>
+                      <TableHead className="text-right">案件ID</TableHead>
+                      <TableHead>移動元</TableHead>
+                      <TableHead>移動先</TableHead>
+                      <TableHead className="text-right">締めID</TableHead>
+                      <TableHead>状態</TableHead>
+                      <TableHead className="text-right">移動元出面</TableHead>
+                      <TableHead className="text-right">移動先出面</TableHead>
+                      <TableHead className="text-right">提出数</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {yearShiftCandidates.map((candidate: any) => (
+                      <TableRow key={`${candidate.projectId}:${candidate.fromMonth}`}>
+                        <TableCell className="font-medium">{candidate.projectName}</TableCell>
+                        <TableCell className="text-right">{candidate.projectId}</TableCell>
+                        <TableCell>{candidate.fromMonth}</TableCell>
+                        <TableCell>{candidate.toMonth}</TableCell>
+                        <TableCell className="text-right">{candidate.closingId}</TableCell>
+                        <TableCell>{STATUS_LABELS[candidate.closingStatus]?.label || candidate.closingStatus || "-"}</TableCell>
+                        <TableCell className="text-right">{candidate.fromAttendanceCount}</TableCell>
+                        <TableCell className="text-right">{candidate.toAttendanceCount}</TableCell>
+                        <TableCell className="text-right">{candidate.closingSubmissionsCount}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            onClick={() => handleRepairYearShift(candidate)}
+                            disabled={repairYearShiftMutation.isPending}
+                          >
+                            {repairYearShiftMutation.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                            2026年へ修復
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

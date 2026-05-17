@@ -176,13 +176,6 @@
       "when": 1778583830000,
       "tag": "0024_password_reset_requests",
       "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "5",
-      "when": 1778944554306,
-      "tag": "0025_flowery_ultimates",
-      "breakpoints": true
     }
   ]
 }
