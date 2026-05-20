@@ -34,6 +34,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { useLocation } from "wouter";
 
 type InvoiceLineItemDraft = {
   label: string;
@@ -141,11 +142,16 @@ function canWorkerEdit(
 }
 
 export default function AppMyClosing() {
+  const [location] = useLocation();
+  const params = useMemo(() => new URLSearchParams(location.split("?")[1] || ""), [location]);
+  const queryProjectId = Number(params.get("projectId") || 0) || null;
+  const queryMonth = params.get("month") || null;
+  const queryEmployeeId = Number(params.get("employeeId") || 0) || undefined;
   const [closingMonth, setClosingMonth] = useState(
-    format(new Date(), "yyyy-MM")
+    queryMonth || format(new Date(), "yyyy-MM")
   );
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
-    null
+    queryProjectId
   );
   const [transportAmount, setTransportAmount] = useState(0);
   const [expenseAmount, setExpenseAmount] = useState(0);
@@ -162,13 +168,17 @@ export default function AppMyClosing() {
 
   const projectsQuery = trpc.attendance.myProjects.useQuery();
   const detailQuery = trpc.closing.mySubmission.useQuery(
-    { projectId: selectedProjectId || 0, closingMonth },
+    { projectId: selectedProjectId || 0, closingMonth, employeeId: queryEmployeeId },
     {
       enabled: !!selectedProjectId,
       refetchOnWindowFocus: true,
       refetchInterval: 15000,
     }
   );
+  React.useEffect(() => {
+    if (queryProjectId) setSelectedProjectId(queryProjectId);
+    if (queryMonth) setClosingMonth(queryMonth);
+  }, [queryProjectId, queryMonth]);
   const workerInvoiceDraftQuery = trpc.workerInvoice.getMyDraft.useQuery(
     { projectId: selectedProjectId || 0, closingMonth },
     { enabled: !!selectedProjectId && !!detailQuery.data?.eligible }
@@ -447,7 +457,11 @@ export default function AppMyClosing() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">月締め提出</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            {detailQuery.data?.actorEmployeeId && detailQuery.data?.employee?.id && detailQuery.data.actorEmployeeId !== detailQuery.data.employee.id
+              ? "月締め提出（代行）"
+              : "月締め提出"}
+          </h1>
           <p className="text-sm text-muted-foreground">
             交通費・経費・領収書を提出して、月締めを完了します。
           </p>
@@ -481,6 +495,13 @@ export default function AppMyClosing() {
           </div>
         </div>
       </div>
+      {detailQuery.data && (
+        <div className="text-sm text-muted-foreground">
+          <span className="mr-4">対象者: {detailQuery.data.employee?.nameKanji || detailQuery.data.employee?.nameRomaji || "-"}</span>
+          <span className="mr-4">現場: {detailQuery.data.project?.name || "-"}</span>
+          <span>対象月: {closingMonth.replace(/^(\d{4})-(\d{2})$/, "$1年$2月")}</span>
+        </div>
+      )}
 
       {!selectedProjectId ? (
         <Card>
