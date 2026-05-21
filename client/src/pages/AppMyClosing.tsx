@@ -175,6 +175,10 @@ export default function AppMyClosing() {
       refetchInterval: 15000,
     }
   );
+  const overviewQuery = trpc.closing.workerMonthlyOverview.useQuery(
+    { closingMonth, employeeId: queryEmployeeId, projectId: selectedProjectId || undefined },
+    { enabled: !!closingMonth, refetchOnWindowFocus: true }
+  );
   React.useEffect(() => {
     if (queryProjectId) setSelectedProjectId(queryProjectId);
     if (queryMonth) setClosingMonth(queryMonth);
@@ -503,29 +507,46 @@ export default function AppMyClosing() {
         </div>
       )}
 
-      {!selectedProjectId ? (
+      
+      {overviewQuery.data?.isTarget && overviewQuery.data.projectLines?.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>現場別明細</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {overviewQuery.data.projectLines.map((line: any) => (
+              <div key={line.projectId} className="text-sm border rounded p-2">
+                <div className="font-medium">{line.projectName}</div>
+                <div className="text-muted-foreground">出勤日数: {line.attendanceDays} / 工数: {line.totalHours}h / 残業: {line.overtimeHours}h</div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+{!selectedProjectId ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <CalendarDays className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>現場と対象月を選択してください</p>
           </CardContent>
         </Card>
-      ) : detailQuery.isLoading ? (
+      ) : detailQuery.isLoading || overviewQuery.isLoading ? (
         <Card>
           <CardContent className="py-12 flex items-center justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-gold" />
           </CardContent>
         </Card>
-      ) : !detail?.eligible ? (
+      ) : overviewQuery.error?.message?.includes("target employee required") ? (
+        <Card>
+          <CardContent className="py-10 space-y-3">
+            <div className="text-lg font-medium">対象作業員を選択してください</div>
+          </CardContent>
+        </Card>
+      ) : !overviewQuery.data?.isTarget || !detail?.eligible ? (
         <Card>
           <CardContent className="py-10 space-y-3">
             <div className="text-lg font-medium">提出対象外です</div>
             <p className="text-sm text-muted-foreground">
               {selectedProject?.name || "この現場"} の {closingMonth}{" "}
               は、まだあなたの提出対象として初期化されていません。
-            </p>
-            <p className="text-sm text-muted-foreground">
-              まず出面表を保存してから、もう一度この画面を開いてください。対象外のままなら管理者に確認してください。
             </p>
           </CardContent>
         </Card>
