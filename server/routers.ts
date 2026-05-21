@@ -593,16 +593,21 @@ async function repairClosingYearShiftProjectMonth(projectId: number, fromMonth: 
   };
 }
 
-async function getMyClosingSubmission(projectId: number, closingMonth: string, userId: number) {
+async function getMyClosingSubmission(projectId: number, closingMonth: string, userId: number, requestedEmployeeId?: number, actorRole?: string) {
   const employee = await db.getEmployeeByUserId(userId);
   if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+  const role = actorRole || "worker";
+  const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+  const targetEmployeeId = canDelegate && requestedEmployeeId ? requestedEmployeeId : employee.id;
 
   const closing = await ensureClosingInitializedForProjectMonth(projectId, closingMonth);
   const detail = await buildClosingDetail(projectId, closingMonth);
-  const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, employee.id);
+  const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, targetEmployeeId);
+  const targetEmployee = targetEmployeeId === employee.id ? employee : await db.getEmployeeById(targetEmployeeId);
 
   return {
-    employee,
+    employee: targetEmployee || employee,
+    actorEmployeeId: employee.id,
     closing,
     detail,
     submission,
@@ -2896,14 +2901,16 @@ export const appRouter = router({
       }),
 
     mySubmission: protectedProcedure
-      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().optional() }))
       .query(async ({ ctx, input }) => {
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
         return {
           eligible: result.eligible,
           closing: result.detail?.closing || result.closing,
           project: result.detail?.project || null,
           client: result.detail?.client || null,
+          employee: result.employee || null,
+          actorEmployeeId: result.actorEmployeeId,
           submission: result.submission ? { ...result.submission, documents: await db.listClosingSubmissionDocuments(result.submission.id) } : null,
           summary: result.detail?.summary || null,
         };
