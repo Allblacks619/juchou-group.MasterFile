@@ -910,6 +910,14 @@ export default function AppAttendance() {
                 ))}
               </SelectContent>
             </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!selectedProjectId}
+              onClick={() => selectedProjectId && setLocation(`/app/my-closing?projectId=${selectedProjectId}&month=${closingMonth}`)}
+            >
+              月締め提出
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -1007,6 +1015,19 @@ export default function AppAttendance() {
                         >
                           <div className="flex items-center gap-1">
                             <span className="truncate">{row.label}</span>
+                            {canManageAttendanceMembers && !row.isGuest && row.key.startsWith("emp-") && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-1 text-[10px]"
+                                onClick={() => {
+                                  const employeeId = Number(row.key.replace("emp-", ""));
+                                  setLocation(`/app/my-closing?projectId=${selectedProjectId}&month=${closingMonth}&employeeId=${employeeId}`);
+                                }}
+                              >
+                                代行提出
+                              </Button>
+                            )}
                             {canRemoveAttendanceMembers && !isLocked && (
                               <button
                                 onClick={() => handleRemoveMember(row.key, row.label)}

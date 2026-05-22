@@ -423,24 +423,24 @@ export default function AppClosings() {
           <CardHeader>
             <CardTitle className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <span>{selectedRow?.project?.name || "案件"} / {closingMonth} 締め詳細</span>
-              {detail?.closing && (
+              {detail && (
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-1 rounded text-xs ${STATUS_LABELS[detail.closing.status]?.className || "bg-muted"}`}>
-                    {STATUS_LABELS[detail.closing.status]?.label || detail.closing.status}
+                  <span className={`px-2 py-1 rounded text-xs ${detail.closing ? (STATUS_LABELS[detail.closing.status]?.className || "bg-muted") : "bg-muted text-muted-foreground"}`}>
+                    {detail.closing ? (STATUS_LABELS[detail.closing.status]?.label || detail.closing.status) : "未初期化"}
                   </span>
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => markReadyMutation.mutate({ projectId: selectedProjectId, closingMonth })}
-                    disabled={!detail.summary.canMarkReady || markReadyMutation.isPending}
+                    onClick={() => detail.closing && markReadyMutation.mutate({ projectId: selectedProjectId, closingMonth })}
+                    disabled={!detail.closing || !detail.summary.canMarkReady || markReadyMutation.isPending}
                   >
                     <FileCheck className="h-3.5 w-3.5 mr-1" />
                     ready
                   </Button>
                   <Button
                     size="sm"
-                    onClick={() => closeMutation.mutate({ projectId: selectedProjectId, closingMonth })}
-                    disabled={detail.closing.status !== "ready" || closeMutation.isPending}
+                    onClick={() => detail.closing && closeMutation.mutate({ projectId: selectedProjectId, closingMonth })}
+                    disabled={!detail.closing || detail.closing.status !== "ready" || closeMutation.isPending}
                   >
                     <Lock className="h-3.5 w-3.5 mr-1" />
                     締める
@@ -448,13 +448,13 @@ export default function AppClosings() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => reopenMutation.mutate({ projectId: selectedProjectId, closingMonth })}
-                    disabled={reopenMutation.isPending}
+                    onClick={() => detail.closing && reopenMutation.mutate({ projectId: selectedProjectId, closingMonth })}
+                    disabled={!detail.closing || reopenMutation.isPending}
                   >
                     <LockOpen className="h-3.5 w-3.5 mr-1" />
                     再開
                   </Button>
-                  {detail.closing.status === "closed" && (
+                  {detail.closing && detail.closing.status === "closed" && (
                     <Button
                       size="sm"
                       onClick={() => generateInvoiceMutation.mutate({ projectId: selectedProjectId!, closingMonth, projectIds: invoiceProjectIds.length ? invoiceProjectIds : [selectedProjectId!] })}
@@ -473,8 +473,8 @@ export default function AppClosings() {
               <div className="flex items-center justify-center py-10">
                 <Loader2 className="h-5 w-5 animate-spin text-gold" />
               </div>
-            ) : !detail?.closing ? (
-              <div className="text-sm text-muted-foreground">まだ初期化されていません。上の「初期化」を押してください。</div>
+            ) : !detail ? (
+              <div className="text-sm text-muted-foreground">データがありません。</div>
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -485,7 +485,7 @@ export default function AppClosings() {
                   <SummaryCard label="領収書不足" value={detail.summary.receiptMissingCount} />
                 </div>
 
-                {detail.closing.status === "closed" && sameClientProjects.length > 0 && (
+                {detail.closing && detail.closing.status === "closed" && sameClientProjects.length > 0 && (
                   <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 space-y-3">
                     <div>
                       <p className="text-sm font-medium text-blue-300">同一取引先・同月の締め準備済み現場をまとめて請求します</p>

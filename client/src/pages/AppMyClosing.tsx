@@ -34,6 +34,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { useLocation } from "wouter";
 
 type InvoiceLineItemDraft = {
   label: string;
@@ -141,11 +142,16 @@ function canWorkerEdit(
 }
 
 export default function AppMyClosing() {
+  const [location] = useLocation();
+  const params = useMemo(() => new URLSearchParams(location.split("?")[1] || ""), [location]);
+  const queryProjectId = Number(params.get("projectId") || 0) || null;
+  const queryMonth = params.get("month") || null;
+  const queryEmployeeId = Number(params.get("employeeId") || 0) || undefined;
   const [closingMonth, setClosingMonth] = useState(
-    format(new Date(), "yyyy-MM")
+    queryMonth || format(new Date(), "yyyy-MM")
   );
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
-    null
+    queryProjectId
   );
   const [transportAmount, setTransportAmount] = useState(0);
   const [expenseAmount, setExpenseAmount] = useState(0);
@@ -162,13 +168,21 @@ export default function AppMyClosing() {
 
   const projectsQuery = trpc.attendance.myProjects.useQuery();
   const detailQuery = trpc.closing.mySubmission.useQuery(
-    { projectId: selectedProjectId || 0, closingMonth },
+    { projectId: selectedProjectId || 0, closingMonth, employeeId: queryEmployeeId },
     {
       enabled: !!selectedProjectId,
       refetchOnWindowFocus: true,
       refetchInterval: 15000,
     }
   );
+  const overviewQuery = trpc.closing.workerMonthlyOverview.useQuery(
+    { closingMonth, employeeId: queryEmployeeId, projectId: selectedProjectId || undefined },
+    { enabled: !!closingMonth, refetchOnWindowFocus: true }
+  );
+  React.useEffect(() => {
+    if (queryProjectId) setSelectedProjectId(queryProjectId);
+    if (queryMonth) setClosingMonth(queryMonth);
+  }, [queryProjectId, queryMonth]);
   const workerInvoiceDraftQuery = trpc.workerInvoice.getMyDraft.useQuery(
     { projectId: selectedProjectId || 0, closingMonth },
     { enabled: !!selectedProjectId && !!detailQuery.data?.eligible }
@@ -447,7 +461,11 @@ export default function AppMyClosing() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">月締め提出</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            {detailQuery.data?.actorEmployeeId && detailQuery.data?.employee?.id && detailQuery.data.actorEmployeeId !== detailQuery.data.employee.id
+              ? "月締め提出（代行）"
+              : "月締め提出"}
+          </h1>
           <p className="text-sm text-muted-foreground">
             交通費・経費・領収書を提出して、月締めを完了します。
           </p>
@@ -481,30 +499,54 @@ export default function AppMyClosing() {
           </div>
         </div>
       </div>
+      {detailQuery.data && (
+        <div className="text-sm text-muted-foreground">
+          <span className="mr-4">対象者: {detailQuery.data.employee?.nameKanji || detailQuery.data.employee?.nameRomaji || "-"}</span>
+          <span className="mr-4">現場: {detailQuery.data.project?.name || "-"}</span>
+          <span>対象月: {closingMonth.replace(/^(\d{4})-(\d{2})$/, "$1年$2月")}</span>
+        </div>
+      )}
 
-      {!selectedProjectId ? (
+      
+      {overviewQuery.data?.isTarget && overviewQuery.data.projectLines?.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>現場別明細</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {overviewQuery.data.projectLines.map((line: any) => (
+              <div key={line.projectId} className="text-sm border rounded p-2">
+                <div className="font-medium">{line.projectName}</div>
+                <div className="text-muted-foreground">出勤日数: {line.attendanceDays} / 工数: {line.totalHours}h / 残業: {line.overtimeHours}h</div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+{!selectedProjectId ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <CalendarDays className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>現場と対象月を選択してください</p>
           </CardContent>
         </Card>
-      ) : detailQuery.isLoading ? (
+      ) : detailQuery.isLoading || overviewQuery.isLoading ? (
         <Card>
           <CardContent className="py-12 flex items-center justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-gold" />
           </CardContent>
         </Card>
-      ) : !detail?.eligible ? (
+      ) : overviewQuery.error?.message?.includes("target employee required") ? (
+        <Card>
+          <CardContent className="py-10 space-y-3">
+            <div className="text-lg font-medium">対象作業員を選択してください</div>
+          </CardContent>
+        </Card>
+      ) : !overviewQuery.data?.isTarget || !detail?.eligible ? (
         <Card>
           <CardContent className="py-10 space-y-3">
             <div className="text-lg font-medium">提出対象外です</div>
             <p className="text-sm text-muted-foreground">
               {selectedProject?.name || "この現場"} の {closingMonth}{" "}
               は、まだあなたの提出対象として初期化されていません。
-            </p>
-            <p className="text-sm text-muted-foreground">
-              まず出面表を保存してから、もう一度この画面を開いてください。対象外のままなら管理者に確認してください。
             </p>
           </CardContent>
         </Card>

@@ -191,42 +191,83 @@ function getMonthDateRange(closingMonth: string): { start: Date; end: Date } {
 }
 
 async function buildClosingDetail(projectId: number, closingMonth: string) {
-  const closing = await db.getProjectClosingByProjectMonth(projectId, closingMonth);
-  if (!closing?.id) return null;
-
-  const project = await db.getProjectById(projectId);
-  const [client, submissions, employees] = await Promise.all([
-    project?.clientId ? db.getClientById(project.clientId) : Promise.resolve(null),
-    db.getClosingSubmissionsByClosing(closing.id),
+  const { start, end } = getMonthDateRange(closingMonth);
+  const [closing, project, employees, attendanceRecordsRaw] = await Promise.all([
+    db.getProjectClosingByProjectMonth(projectId, closingMonth),
+    db.getProjectById(projectId),
     db.getAllEmployees(),
+    db.getAttendanceByProject(projectId, start, end),
   ]);
 
+  const client = project?.clientId ? await db.getClientById(project.clientId) : null;
+  const attendanceRecords = excludeRemovedGuestMarkers(attendanceRecordsRaw);
   const employeeMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
-  const enrichedSubmissions = (await Promise.all(submissions
-    .map(async (submission) => ({ ...submission, employee: employeeMap.get(submission.employeeId) || null, documents: await db.listClosingSubmissionDocuments(submission.id) }))))
-    .sort((a, b) => (a.employee?.nameKanji || "").localeCompare(b.employee?.nameKanji || "", "ja"));
 
-  const targetSubmissions = enrichedSubmissions.filter((s) => s.status !== "not_required");
-  const pendingCount = targetSubmissions.filter((s) => s.status === "pending" || s.status === "rejected").length;
-  const submittedCount = targetSubmissions.filter((s) => s.status === "submitted" || s.status === "approved").length;
-  const approvedCount = targetSubmissions.filter((s) => s.status === "approved").length;
+  const nonGuestByEmployee = new Map<number, any[]>();
+  const guestByName = new Map<string, any[]>();
+  for (const rec of attendanceRecords) {
+    if (rec.employeeId) {
+      if (!nonGuestByEmployee.has(rec.employeeId)) nonGuestByEmployee.set(rec.employeeId, []);
+      nonGuestByEmployee.get(rec.employeeId)!.push(rec);
+      continue;
+    }
+    const guestName = (rec.guestName || '').trim();
+    if (!guestName || isRemovedGuestMarkerName(guestName)) continue;
+    if (!guestByName.has(guestName)) guestByName.set(guestName, []);
+    guestByName.get(guestName)!.push(rec);
+  }
+
+  const submissions = closing?.id ? await db.getClosingSubmissionsByClosing(closing.id) : [];
+  const submissionByEmployee = new Map<number, any>(submissions.map((s: any) => [s.employeeId, s]));
+
+  const targetEmployeeIds = new Set<number>([
+    ...Array.from(nonGuestByEmployee.keys()),
+    ...submissions.map((s: any) => Number(s.employeeId)).filter(Boolean),
+  ]);
+
+  const workerRows = await Promise.all(Array.from(targetEmployeeIds).map(async (employeeId) => {
+    const records = nonGuestByEmployee.get(employeeId) || [];
+    const existing = submissionByEmployee.get(employeeId);
+    const attendanceDays = new Set(records.map((r: any) => { const d = new Date(r.workDate); return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10); }).filter(Boolean)).size;
+    const totalHours = records.reduce((sum: number, r: any) => sum + Number(r.hoursWorked || 0), 0) / 10;
+    return {
+      ...(existing || { id: `attendance-${projectId}-${closingMonth}-${employeeId}`, closingId: closing?.id || null, employeeId, status: 'pending', transportAmount: 0, expenseAmount: 0, receiptRequired: false, receiptUploaded: false, notes: null }),
+      employee: employeeMap.get(employeeId) || null,
+      documents: existing?.id ? await db.listClosingSubmissionDocuments(existing.id) : [],
+      attendanceDays,
+      totalHours,
+      submissionStatus: existing?.status || 'pending',
+      adminReviewStatus: existing?.status === 'approved' ? 'approved' : existing?.status || 'pending',
+      isGuest: false,
+    };
+  }));
+
+  const guestRows = Array.from(guestByName.entries()).map(([guestName, records]) => ({
+    id: `guest-${projectId}-${closingMonth}-${guestName}`,
+    employeeId: null,
+    employee: { nameKanji: guestName },
+    status: 'not_required',
+    transportAmount: 0,
+    expenseAmount: 0,
+    receiptRequired: false,
+    receiptUploaded: false,
+    notes: null,
+    documents: [],
+    attendanceDays: new Set(records.map((r: any) => { const d = new Date(r.workDate); return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10); }).filter(Boolean)).size,
+    totalHours: 0,
+    isGuest: true,
+    excludedFromSubmission: true,
+  }));
+
+  const enrichedSubmissions = [...workerRows, ...guestRows].sort((a, b) => (a.employee?.nameKanji || '').localeCompare(b.employee?.nameKanji || '', 'ja'));
+  const targetSubmissions = workerRows.filter((s) => s.status !== 'not_required');
+  const pendingCount = targetSubmissions.filter((s) => s.status === 'pending' || s.status === 'rejected').length;
+  const submittedCount = targetSubmissions.filter((s) => s.status === 'submitted' || s.status === 'approved').length;
+  const approvedCount = targetSubmissions.filter((s) => s.status === 'approved').length;
   const receiptMissingCount = targetSubmissions.filter((s) => s.receiptRequired && !s.receiptUploaded).length;
-  const canMarkReady = targetSubmissions.length > 0 && pendingCount === 0 && receiptMissingCount === 0;
+  const canMarkReady = Boolean(closing?.id) && targetSubmissions.length > 0 && pendingCount === 0 && receiptMissingCount === 0;
 
-  return {
-    closing,
-    project,
-    client,
-    submissions: enrichedSubmissions,
-    summary: {
-      targetCount: targetSubmissions.length,
-      pendingCount,
-      submittedCount,
-      approvedCount,
-      receiptMissingCount,
-      canMarkReady,
-    },
-  };
+  return { closing: closing || null, project, client, submissions: enrichedSubmissions, summary: { targetCount: targetSubmissions.length, pendingCount, submittedCount, approvedCount, receiptMissingCount, canMarkReady } };
 }
 
 function canInvoiceFromClosingStatus(status?: string | null) {
@@ -593,16 +634,21 @@ async function repairClosingYearShiftProjectMonth(projectId: number, fromMonth: 
   };
 }
 
-async function getMyClosingSubmission(projectId: number, closingMonth: string, userId: number) {
+async function getMyClosingSubmission(projectId: number, closingMonth: string, userId: number, requestedEmployeeId?: number, actorRole?: string) {
   const employee = await db.getEmployeeByUserId(userId);
   if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+  const role = actorRole || "worker";
+  const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+  const targetEmployeeId = canDelegate && requestedEmployeeId ? requestedEmployeeId : employee.id;
 
   const closing = await ensureClosingInitializedForProjectMonth(projectId, closingMonth);
   const detail = await buildClosingDetail(projectId, closingMonth);
-  const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, employee.id);
+  const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, targetEmployeeId);
+  const targetEmployee = targetEmployeeId === employee.id ? employee : await db.getEmployeeById(targetEmployeeId);
 
   return {
-    employee,
+    employee: targetEmployee || employee,
+    actorEmployeeId: employee.id,
     closing,
     detail,
     submission,
@@ -611,6 +657,79 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
 }
 
 
+
+
+async function buildWorkerMonthlyOverview(params: {
+  closingMonth: string;
+  actorUserId: number;
+  actorRole?: string | null;
+  employeeId?: number;
+  projectId?: number;
+}) {
+  const role = params.actorRole || "worker";
+  const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+  const actorEmployee = await db.getEmployeeByUserId(params.actorUserId);
+  if (!canDelegate && !actorEmployee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+  if (canDelegate && !params.employeeId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "target employee required for delegated monthly closing" });
+  }
+
+  const targetEmployeeId = canDelegate ? Number(params.employeeId) : Number(actorEmployee!.id);
+  if (!canDelegate && params.employeeId && Number(params.employeeId) != Number(actorEmployee!.id)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の月締めは参照できません" });
+  }
+
+  const targetEmployee = targetEmployeeId === Number(actorEmployee?.id)
+    ? actorEmployee
+    : await db.getEmployeeById(targetEmployeeId);
+
+  const { start, end } = getMonthDateRange(params.closingMonth);
+  const monthlyRecords = excludeRemovedGuestMarkers(await db.getAttendanceByDateRange(start, end));
+  const workerRecords = monthlyRecords.filter((r: any) => Number(r.employeeId) === targetEmployeeId);
+
+  const projects = await db.getAllProjects();
+  const projectMap = new Map<number, any>(projects.map((p: any) => [Number(p.id), p]));
+
+  const grouped = new Map<number, any[]>();
+  for (const rec of workerRecords) {
+    const pid = Number(rec.projectId);
+    if (!grouped.has(pid)) grouped.set(pid, []);
+    grouped.get(pid)!.push(rec);
+  }
+
+  const lines = await Promise.all(Array.from(grouped.entries()).map(async ([projectId, records]) => {
+    const attendanceDays = new Set(records.map((r: any) => { const d = new Date(r.workDate); return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10); }).filter(Boolean)).size;
+    const totalHours = records.reduce((sum: number, r: any) => sum + Number(r.hoursWorked || 0), 0) / 10;
+    const overtimeHours = records.reduce((sum: number, r: any) => sum + Number(r.overtimeHours || 0), 0) / 10;
+
+    const closing = await db.getProjectClosingByProjectMonth(projectId, params.closingMonth);
+    const submission = closing?.id ? await db.getClosingSubmissionByClosingEmployee(closing.id, targetEmployeeId) : null;
+
+    return {
+      projectId,
+      projectName: projectMap.get(projectId)?.name || `Project #${projectId}`,
+      attendanceDays,
+      totalHours,
+      overtimeHours,
+      guestExcluded: false,
+      submissionStatus: submission?.status || null,
+      adminReviewStatus: submission?.status === "approved" ? "approved" : submission?.status || null,
+    };
+  }));
+
+  const filteredLines = params.projectId
+    ? lines.filter((line) => Number(line.projectId) === Number(params.projectId))
+    : lines;
+
+  return {
+    employeeId: targetEmployeeId,
+    employeeName: targetEmployee?.nameKanji || targetEmployee?.nameRomaji || null,
+    closingMonth: params.closingMonth,
+    isTarget: lines.length > 0,
+    targetReason: lines.length > 0 ? "attendance_found" : "no_attendance",
+    projectLines: filteredLines.sort((a, b) => a.projectName.localeCompare(b.projectName, "ja")),
+  };
+}
 function toYmd(value: unknown): string {
   if (!value) return new Date().toISOString().slice(0, 10);
   const date = value instanceof Date ? value : new Date(String(value));
@@ -2896,17 +3015,36 @@ export const appRouter = router({
       }),
 
     mySubmission: protectedProcedure
-      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().optional() }))
       .query(async ({ ctx, input }) => {
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
         return {
           eligible: result.eligible,
           closing: result.detail?.closing || result.closing,
           project: result.detail?.project || null,
           client: result.detail?.client || null,
+          employee: result.employee || null,
+          actorEmployeeId: result.actorEmployeeId,
           submission: result.submission ? { ...result.submission, documents: await db.listClosingSubmissionDocuments(result.submission.id) } : null,
           summary: result.detail?.summary || null,
         };
+      }),
+
+
+    workerMonthlyOverview: protectedProcedure
+      .input(z.object({
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        employeeId: z.number().optional(),
+        projectId: z.number().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        return buildWorkerMonthlyOverview({
+          closingMonth: input.closingMonth,
+          actorUserId: ctx.user.id,
+          actorRole: (ctx.user as any).appRole,
+          employeeId: input.employeeId,
+          projectId: input.projectId,
+        });
       }),
 
     saveMySubmission: protectedProcedure

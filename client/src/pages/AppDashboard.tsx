@@ -207,11 +207,9 @@ function WorkflowShortcuts({ appRole }: { appRole: string }) {
   const isAdminOrLeader = isManagerLikeAppRole(appRole);
   const items = isAdminOrLeader
     ? [
-        { title: "締め管理", icon: FileCheck2, path: "/app/closings" },
         { title: "請求管理", icon: FileText, path: "/app/invoices" },
         { title: "支払管理", icon: Wallet, path: "/app/payments" },
         { title: "入金管理", icon: Landmark, path: "/app/receivables" },
-        { title: "月締め提出", icon: FileCheck2, path: "/app/my-closing" },
       ]
     : [
         { title: "月締め提出", icon: FileCheck2, path: "/app/my-closing" },
@@ -653,6 +651,14 @@ function AttendanceCalendar() {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => selectedProjectId && setLocation(`/app/my-closing?projectId=${selectedProjectId}&month=${format(currentMonth, "yyyy-MM")}`)}
+                    disabled={!selectedProjectId}
+                  >
+                    <FileCheck2 className="h-4 w-4 mr-1" /> 月締め提出
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={handlePdfDownload}
                     disabled={!selectedProjectId || pdfMutation.isPending}
                   >
@@ -661,7 +667,7 @@ function AttendanceCalendar() {
                   </Button>
                 </>
               ) : (
-                <Button variant="outline" size="sm" onClick={() => setLocation("/app/my-closing")}>
+                <Button variant="outline" size="sm" onClick={() => selectedProjectId && setLocation(`/app/my-closing?projectId=${selectedProjectId}&month=${format(currentMonth, "yyyy-MM")}`)} disabled={!selectedProjectId}>
                   <FileCheck2 className="h-4 w-4 mr-1" /> 月締め提出
                 </Button>
               )}
