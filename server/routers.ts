@@ -616,6 +616,79 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
 }
 
 
+
+
+async function buildWorkerMonthlyOverview(params: {
+  closingMonth: string;
+  actorUserId: number;
+  actorRole?: string | null;
+  employeeId?: number;
+  projectId?: number;
+}) {
+  const role = params.actorRole || "worker";
+  const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+  const actorEmployee = await db.getEmployeeByUserId(params.actorUserId);
+  if (!canDelegate && !actorEmployee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+  if (canDelegate && !params.employeeId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "target employee required for delegated monthly closing" });
+  }
+
+  const targetEmployeeId = canDelegate ? Number(params.employeeId) : Number(actorEmployee!.id);
+  if (!canDelegate && params.employeeId && Number(params.employeeId) != Number(actorEmployee!.id)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の月締めは参照できません" });
+  }
+
+  const targetEmployee = targetEmployeeId === Number(actorEmployee?.id)
+    ? actorEmployee
+    : await db.getEmployeeById(targetEmployeeId);
+
+  const { start, end } = getMonthDateRange(params.closingMonth);
+  const monthlyRecords = excludeRemovedGuestMarkers(await db.getAttendanceByDateRange(start, end));
+  const workerRecords = monthlyRecords.filter((r: any) => Number(r.employeeId) === targetEmployeeId);
+
+  const projects = await db.getAllProjects();
+  const projectMap = new Map<number, any>(projects.map((p: any) => [Number(p.id), p]));
+
+  const grouped = new Map<number, any[]>();
+  for (const rec of workerRecords) {
+    const pid = Number(rec.projectId);
+    if (!grouped.has(pid)) grouped.set(pid, []);
+    grouped.get(pid)!.push(rec);
+  }
+
+  const lines = await Promise.all(Array.from(grouped.entries()).map(async ([projectId, records]) => {
+    const attendanceDays = new Set(records.map((r: any) => new Date(r.workDate).toISOString().slice(0, 10))).size;
+    const totalHours = records.reduce((sum: number, r: any) => sum + Number(r.hoursWorked || 0), 0) / 10;
+    const overtimeHours = records.reduce((sum: number, r: any) => sum + Number(r.overtimeHours || 0), 0) / 10;
+
+    const closing = await db.getProjectClosingByProjectMonth(projectId, params.closingMonth);
+    const submission = closing?.id ? await db.getClosingSubmissionByClosingEmployee(closing.id, targetEmployeeId) : null;
+
+    return {
+      projectId,
+      projectName: projectMap.get(projectId)?.name || `Project #${projectId}`,
+      attendanceDays,
+      totalHours,
+      overtimeHours,
+      guestExcluded: false,
+      submissionStatus: submission?.status || null,
+      adminReviewStatus: submission?.status === "approved" ? "approved" : submission?.status || null,
+    };
+  }));
+
+  const filteredLines = params.projectId
+    ? lines.filter((line) => Number(line.projectId) === Number(params.projectId))
+    : lines;
+
+  return {
+    employeeId: targetEmployeeId,
+    employeeName: targetEmployee?.nameKanji || targetEmployee?.nameRomaji || null,
+    closingMonth: params.closingMonth,
+    isTarget: lines.length > 0,
+    targetReason: lines.length > 0 ? "attendance_found" : "no_attendance",
+    projectLines: filteredLines.sort((a, b) => a.projectName.localeCompare(b.projectName, "ja")),
+  };
+}
 function toYmd(value: unknown): string {
   if (!value) return new Date().toISOString().slice(0, 10);
   const date = value instanceof Date ? value : new Date(String(value));
@@ -2914,6 +2987,23 @@ export const appRouter = router({
           submission: result.submission ? { ...result.submission, documents: await db.listClosingSubmissionDocuments(result.submission.id) } : null,
           summary: result.detail?.summary || null,
         };
+      }),
+
+
+    workerMonthlyOverview: protectedProcedure
+      .input(z.object({
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        employeeId: z.number().optional(),
+        projectId: z.number().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        return buildWorkerMonthlyOverview({
+          closingMonth: input.closingMonth,
+          actorUserId: ctx.user.id,
+          actorRole: (ctx.user as any).appRole,
+          employeeId: input.employeeId,
+          projectId: input.projectId,
+        });
       }),
 
     saveMySubmission: protectedProcedure
