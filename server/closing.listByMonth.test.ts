@@ -20,10 +20,12 @@ const { projects, clients, closingsByProject, attendanceRecords } = vi.hoisted((
   const attendanceRecords = [
     { id: 2000, projectId: 2, employeeId: 203, workDate: new Date("2026-04-10"), hoursWorked: 80, workType: "normal" },
     { id: 2001, projectId: 2, employeeId: 203, workDate: new Date("2026-05-10"), hoursWorked: 80, workType: "normal" },
+    { id: 2003, projectId: 2, employeeId: null, guestName: "ゲストA", workDate: new Date("2026-05-12"), hoursWorked: 80, workType: "normal" },
     { id: 1999, projectId: 4, employeeId: 203, workDate: new Date("2025-05-10"), hoursWorked: 80, workType: "normal" },
   ];
 
   return { projects, clients, closingsByProject, attendanceRecords };
+
 });
 
 vi.mock("./db", () => ({
@@ -295,4 +297,28 @@ describe("closing.listByMonth", () => {
       expect.objectContaining({ status: "not_required" })
     );
   });
+
+  it("closing.get returns attendance-backed workers for exact month even when uninitialized", async () => {
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    const detail = await caller.closing.get({ projectId: 2, closingMonth: "2026-05" });
+
+    expect(detail?.closing).toBeNull();
+    expect(detail?.summary.targetCount).toBe(1);
+    expect(detail?.submissions.some((s: any) => s.employeeId === 203 && s.isGuest === false)).toBe(true);
+    expect(detail?.submissions.some((s: any) => s.employee?.nameKanji === "ゲストA" && s.isGuest === true)).toBe(true);
+  });
+
+  it("closing.get keeps exact-month scope and does not mix 2025/2026 attendance", async () => {
+    const caller = appRouter.createCaller(createCtx(createUser()));
+
+    const detail2025 = await caller.closing.get({ projectId: 2, closingMonth: "2025-04" });
+    const detail2026 = await caller.closing.get({ projectId: 2, closingMonth: "2026-05" });
+
+    expect(detail2025?.summary.targetCount).toBe(0);
+    expect(detail2026?.summary.targetCount).toBeGreaterThan(0);
+    expect(db.getAttendanceByProject).toHaveBeenCalledWith(2, new Date("2025-04-01T00:00:00.000Z"), new Date("2025-04-30T23:59:59.999Z"));
+    expect(db.getAttendanceByProject).toHaveBeenCalledWith(2, new Date("2026-05-01T00:00:00.000Z"), new Date("2026-05-31T23:59:59.999Z"));
+  });
+
 });

@@ -191,42 +191,83 @@ function getMonthDateRange(closingMonth: string): { start: Date; end: Date } {
 }
 
 async function buildClosingDetail(projectId: number, closingMonth: string) {
-  const closing = await db.getProjectClosingByProjectMonth(projectId, closingMonth);
-  if (!closing?.id) return null;
-
-  const project = await db.getProjectById(projectId);
-  const [client, submissions, employees] = await Promise.all([
-    project?.clientId ? db.getClientById(project.clientId) : Promise.resolve(null),
-    db.getClosingSubmissionsByClosing(closing.id),
+  const { start, end } = getMonthDateRange(closingMonth);
+  const [closing, project, employees, attendanceRecordsRaw] = await Promise.all([
+    db.getProjectClosingByProjectMonth(projectId, closingMonth),
+    db.getProjectById(projectId),
     db.getAllEmployees(),
+    db.getAttendanceByProject(projectId, start, end),
   ]);
 
+  const client = project?.clientId ? await db.getClientById(project.clientId) : null;
+  const attendanceRecords = excludeRemovedGuestMarkers(attendanceRecordsRaw);
   const employeeMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
-  const enrichedSubmissions = (await Promise.all(submissions
-    .map(async (submission) => ({ ...submission, employee: employeeMap.get(submission.employeeId) || null, documents: await db.listClosingSubmissionDocuments(submission.id) }))))
-    .sort((a, b) => (a.employee?.nameKanji || "").localeCompare(b.employee?.nameKanji || "", "ja"));
 
-  const targetSubmissions = enrichedSubmissions.filter((s) => s.status !== "not_required");
-  const pendingCount = targetSubmissions.filter((s) => s.status === "pending" || s.status === "rejected").length;
-  const submittedCount = targetSubmissions.filter((s) => s.status === "submitted" || s.status === "approved").length;
-  const approvedCount = targetSubmissions.filter((s) => s.status === "approved").length;
+  const nonGuestByEmployee = new Map<number, any[]>();
+  const guestByName = new Map<string, any[]>();
+  for (const rec of attendanceRecords) {
+    if (rec.employeeId) {
+      if (!nonGuestByEmployee.has(rec.employeeId)) nonGuestByEmployee.set(rec.employeeId, []);
+      nonGuestByEmployee.get(rec.employeeId)!.push(rec);
+      continue;
+    }
+    const guestName = (rec.guestName || '').trim();
+    if (!guestName || isRemovedGuestMarkerName(guestName)) continue;
+    if (!guestByName.has(guestName)) guestByName.set(guestName, []);
+    guestByName.get(guestName)!.push(rec);
+  }
+
+  const submissions = closing?.id ? await db.getClosingSubmissionsByClosing(closing.id) : [];
+  const submissionByEmployee = new Map<number, any>(submissions.map((s: any) => [s.employeeId, s]));
+
+  const targetEmployeeIds = new Set<number>([
+    ...Array.from(nonGuestByEmployee.keys()),
+    ...submissions.map((s: any) => Number(s.employeeId)).filter(Boolean),
+  ]);
+
+  const workerRows = await Promise.all(Array.from(targetEmployeeIds).map(async (employeeId) => {
+    const records = nonGuestByEmployee.get(employeeId) || [];
+    const existing = submissionByEmployee.get(employeeId);
+    const attendanceDays = new Set(records.map((r: any) => { const d = new Date(r.workDate); return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10); }).filter(Boolean)).size;
+    const totalHours = records.reduce((sum: number, r: any) => sum + Number(r.hoursWorked || 0), 0) / 10;
+    return {
+      ...(existing || { id: `attendance-${projectId}-${closingMonth}-${employeeId}`, closingId: closing?.id || null, employeeId, status: 'pending', transportAmount: 0, expenseAmount: 0, receiptRequired: false, receiptUploaded: false, notes: null }),
+      employee: employeeMap.get(employeeId) || null,
+      documents: existing?.id ? await db.listClosingSubmissionDocuments(existing.id) : [],
+      attendanceDays,
+      totalHours,
+      submissionStatus: existing?.status || 'pending',
+      adminReviewStatus: existing?.status === 'approved' ? 'approved' : existing?.status || 'pending',
+      isGuest: false,
+    };
+  }));
+
+  const guestRows = Array.from(guestByName.entries()).map(([guestName, records]) => ({
+    id: `guest-${projectId}-${closingMonth}-${guestName}`,
+    employeeId: null,
+    employee: { nameKanji: guestName },
+    status: 'not_required',
+    transportAmount: 0,
+    expenseAmount: 0,
+    receiptRequired: false,
+    receiptUploaded: false,
+    notes: null,
+    documents: [],
+    attendanceDays: new Set(records.map((r: any) => { const d = new Date(r.workDate); return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10); }).filter(Boolean)).size,
+    totalHours: 0,
+    isGuest: true,
+    excludedFromSubmission: true,
+  }));
+
+  const enrichedSubmissions = [...workerRows, ...guestRows].sort((a, b) => (a.employee?.nameKanji || '').localeCompare(b.employee?.nameKanji || '', 'ja'));
+  const targetSubmissions = workerRows.filter((s) => s.status !== 'not_required');
+  const pendingCount = targetSubmissions.filter((s) => s.status === 'pending' || s.status === 'rejected').length;
+  const submittedCount = targetSubmissions.filter((s) => s.status === 'submitted' || s.status === 'approved').length;
+  const approvedCount = targetSubmissions.filter((s) => s.status === 'approved').length;
   const receiptMissingCount = targetSubmissions.filter((s) => s.receiptRequired && !s.receiptUploaded).length;
-  const canMarkReady = targetSubmissions.length > 0 && pendingCount === 0 && receiptMissingCount === 0;
+  const canMarkReady = Boolean(closing?.id) && targetSubmissions.length > 0 && pendingCount === 0 && receiptMissingCount === 0;
 
-  return {
-    closing,
-    project,
-    client,
-    submissions: enrichedSubmissions,
-    summary: {
-      targetCount: targetSubmissions.length,
-      pendingCount,
-      submittedCount,
-      approvedCount,
-      receiptMissingCount,
-      canMarkReady,
-    },
-  };
+  return { closing: closing || null, project, client, submissions: enrichedSubmissions, summary: { targetCount: targetSubmissions.length, pendingCount, submittedCount, approvedCount, receiptMissingCount, canMarkReady } };
 }
 
 function canInvoiceFromClosingStatus(status?: string | null) {
@@ -657,7 +698,7 @@ async function buildWorkerMonthlyOverview(params: {
   }
 
   const lines = await Promise.all(Array.from(grouped.entries()).map(async ([projectId, records]) => {
-    const attendanceDays = new Set(records.map((r: any) => new Date(r.workDate).toISOString().slice(0, 10))).size;
+    const attendanceDays = new Set(records.map((r: any) => { const d = new Date(r.workDate); return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10); }).filter(Boolean)).size;
     const totalHours = records.reduce((sum: number, r: any) => sum + Number(r.hoursWorked || 0), 0) / 10;
     const overtimeHours = records.reduce((sum: number, r: any) => sum + Number(r.overtimeHours || 0), 0) / 10;
 
