@@ -203,8 +203,10 @@ export default function AppClosings() {
     onError: (e: any) => toast.error(`領収書解除エラー: ${e.message}`),
   });
 
-  const rows = listQuery.data || [];
-  const selectedProjectExists = selectedProjectId ? rows.some((row: any) => Number(row.project.id) === Number(selectedProjectId)) : false;
+  const rows = useMemo(() => (Array.isArray(listQuery.data) ? listQuery.data : []), [listQuery.data]);
+  const selectedProjectExists = selectedProjectId
+    ? rows.some((row: any) => Number(row?.project?.id) === Number(selectedProjectId))
+    : false;
   const activeProjectId = selectedProjectExists ? selectedProjectId : null;
   const yearShiftRows = yearShiftDiagnosisQuery.data || [];
   const yearShiftCandidates = useMemo(() => {
@@ -225,11 +227,23 @@ export default function AppClosings() {
       });
   }, [yearShiftRows]);
   const selectedRow = useMemo(
-    () => rows.find((row: any) => row.project.id === activeProjectId) || null,
+    () => rows.find((row: any) => Number(row?.project?.id) === Number(activeProjectId)) || null,
     [rows, activeProjectId]
   );
   const detail = detailQuery.data;
-  const sameClientProjects = sameClientCandidatesQuery.data || [];
+  const detailSummary = detail?.summary ?? {
+    targetCount: 0,
+    pendingCount: 0,
+    submittedCount: 0,
+    approvedCount: 0,
+    receiptMissingCount: 0,
+    canMarkReady: false,
+  };
+  const detailSubmissions = useMemo(
+    () => (Array.isArray(detail?.submissions) ? detail.submissions : []),
+    [detail?.submissions]
+  );
+  const sameClientProjects = Array.isArray(sameClientCandidatesQuery.data) ? sameClientCandidatesQuery.data : [];
   const eligibleSameClientProjects = useMemo(
     () => sameClientProjects.filter((project: any) => project.isEligible),
     [sameClientProjects]
@@ -415,6 +429,10 @@ export default function AppClosings() {
             <div className="flex items-center justify-center py-10">
               <Loader2 className="h-5 w-5 animate-spin text-gold" />
             </div>
+          ) : listQuery.isError ? (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              案件一覧の取得に失敗しました: {(listQuery.error as any)?.message || "不明なエラー"}
+            </div>
           ) : (
             <div className="border rounded-md overflow-x-auto">
               <Table>
@@ -430,9 +448,12 @@ export default function AppClosings() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row: any) => (
-                    <TableRow key={row.project.id} className={selectedProjectId === row.project.id ? "bg-muted/50" : ""}>
-                      <TableCell className="font-medium">{row.project.name}</TableCell>
+                  {rows.map((row: any, index: number) => {
+                    const projectId = Number(row?.project?.id ?? 0);
+                    const rowKey = projectId > 0 ? projectId : `row-${index}`;
+                    return (
+                    <TableRow key={rowKey} className={selectedProjectId === projectId ? "bg-muted/50" : ""}>
+                      <TableCell className="font-medium">{row?.project?.name || "-"}</TableCell>
                       <TableCell>{row.client?.name || "-"}</TableCell>
                       <TableCell>
                         {row.closing ? (
@@ -443,25 +464,25 @@ export default function AppClosings() {
                           <span className="px-2 py-1 rounded text-xs bg-muted text-muted-foreground">未初期化</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right">{row.summary.targetCount}</TableCell>
-                      <TableCell className="text-right">{row.summary.pendingCount}</TableCell>
-                      <TableCell className="text-right">{row.summary.receiptMissingCount}</TableCell>
+                      <TableCell className="text-right">{row?.summary?.targetCount ?? 0}</TableCell>
+                      <TableCell className="text-right">{row?.summary?.pendingCount ?? 0}</TableCell>
+                      <TableCell className="text-right">{row?.summary?.receiptMissingCount ?? 0}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button size="sm" variant="outline" onClick={() => setSelectedProjectId(row.project.id)}>
+                          <Button size="sm" variant="outline" onClick={() => projectId > 0 && setSelectedProjectId(projectId)} disabled={projectId <= 0}>
                             詳細
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => initializeMutation.mutate({ projectId: row.project.id, closingMonth })}
-                            disabled={initializeMutation.isPending}
+                            onClick={() => initializeMutation.mutate({ projectId, closingMonth })}
+                            disabled={initializeMutation.isPending || projectId <= 0}
                           >
                             初期化
                           </Button>
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )})}
                   {rows.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
@@ -531,16 +552,20 @@ export default function AppClosings() {
               <div className="flex items-center justify-center py-10">
                 <Loader2 className="h-5 w-5 animate-spin text-gold" />
               </div>
+            ) : detailQuery.isError ? (
+              <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                締め詳細の取得に失敗しました: {(detailQuery.error as any)?.message || "不明なエラー"}
+              </div>
             ) : !detail ? (
               <div className="text-sm text-muted-foreground">データがありません。</div>
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  <SummaryCard label="対象者" value={detail.summary.targetCount} />
-                  <SummaryCard label="未提出" value={detail.summary.pendingCount} />
-                  <SummaryCard label="提出済" value={detail.summary.submittedCount} />
-                  <SummaryCard label="確認済" value={detail.summary.approvedCount} />
-                  <SummaryCard label="領収書不足" value={detail.summary.receiptMissingCount} />
+                  <SummaryCard label="対象者" value={detailSummary.targetCount} />
+                  <SummaryCard label="未提出" value={detailSummary.pendingCount} />
+                  <SummaryCard label="提出済" value={detailSummary.submittedCount} />
+                  <SummaryCard label="確認済" value={detailSummary.approvedCount} />
+                  <SummaryCard label="領収書不足" value={detailSummary.receiptMissingCount} />
                 </div>
 
                 {detail.closing && detail.closing.status === "closed" && sameClientProjects.length > 0 && (
@@ -594,7 +619,7 @@ export default function AppClosings() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {detail.submissions.map((submission: any) => (
+                      {detailSubmissions.map((submission: any) => (
                         <SubmissionRow
                           key={submission.id}
                           submission={submission}
@@ -604,7 +629,7 @@ export default function AppClosings() {
                           busy={updateSubmissionMutation.isPending || uploadReceiptMutation.isPending || clearReceiptMutation.isPending}
                         />
                       ))}
-                      {detail.submissions.length === 0 && (
+                      {detailSubmissions.length === 0 && (
                         <TableRow>
                           <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                             対象提出データがありません
@@ -615,7 +640,7 @@ export default function AppClosings() {
                   </Table>
                 </div>
 
-                {!detail.summary.canMarkReady && (
+                {!detailSummary.canMarkReady && (
                   <div className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3">
                     未提出または領収書不足があるため、まだ ready にできません。
                   </div>
