@@ -33,6 +33,30 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 
+const MONTH_STRING_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/;
+const MONTH_SELECT_YEARS = Array.from({ length: 8 }, (_, index) => String(new Date().getFullYear() - 3 + index));
+
+function isValidMonthString(value: string): boolean {
+  return MONTH_STRING_REGEX.test(value);
+}
+
+function splitMonthString(value: string): { year: string; month: string } {
+  if (!isValidMonthString(value)) return { year: String(new Date().getFullYear()), month: "01" };
+  const [year, month] = value.split("-");
+  return { year, month };
+}
+
+function buildMonthString(year: string, month: string): string {
+  const normalizedMonth = month.padStart(2, "0");
+  const built = `${year}-${normalizedMonth}`;
+  return isValidMonthString(built) ? built : format(new Date(), "yyyy-MM");
+}
+
+function formatMonthLabel(value: string): string {
+  const { year, month } = splitMonthString(value);
+  return `${year}年${Number(month)}月`;
+}
+
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   open: { label: "開放中", className: "bg-slate-500/20 text-slate-300" },
   ready: { label: "準備完了", className: "bg-emerald-500/20 text-emerald-400" },
@@ -59,7 +83,7 @@ const SUBMISSION_ICONS: Record<string, { icon: ReactNode; color: string; dotClas
 export default function AppClosings() {
   // React hooks are now imported at the top
   const [location] = useLocation();
-  const [closingMonth, setClosingMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [closingMonth, setClosingMonth] = useState(() => format(new Date(), "yyyy-MM"));
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [invoiceProjectIds, setInvoiceProjectIds] = useState<number[]>([]);
 
@@ -70,7 +94,7 @@ export default function AppClosings() {
     const monthParam = params.get("month") || params.get("closingMonth");
     const projectIdParam = params.get("projectId");
 
-    if (monthParam) setClosingMonth(monthParam);
+    if (monthParam && isValidMonthString(monthParam)) setClosingMonth(monthParam);
     if (projectIdParam) {
       const id = Number(projectIdParam);
       if (!Number.isNaN(id)) setSelectedProjectId(id);
@@ -180,6 +204,8 @@ export default function AppClosings() {
   });
 
   const rows = listQuery.data || [];
+  const selectedProjectExists = selectedProjectId ? rows.some((row: any) => Number(row.project.id) === Number(selectedProjectId)) : false;
+  const activeProjectId = selectedProjectExists ? selectedProjectId : null;
   const yearShiftRows = yearShiftDiagnosisQuery.data || [];
   const yearShiftCandidates = useMemo(() => {
     return yearShiftRows
@@ -199,8 +225,8 @@ export default function AppClosings() {
       });
   }, [yearShiftRows]);
   const selectedRow = useMemo(
-    () => rows.find((row: any) => row.project.id === selectedProjectId) || null,
-    [rows, selectedProjectId]
+    () => rows.find((row: any) => row.project.id === activeProjectId) || null,
+    [rows, activeProjectId]
   );
   const detail = detailQuery.data;
   const sameClientProjects = sameClientCandidatesQuery.data || [];
@@ -231,6 +257,14 @@ export default function AppClosings() {
     setInvoiceProjectIds(nextProjectIds);
     autoSelectionKeyRef.current = selectionKey;
   }, [selectedProjectId, closingMonth, eligibleSameClientProjects]);
+
+  useEffect(() => {
+    if (selectedProjectId && !selectedProjectExists) {
+      setSelectedProjectId(null);
+    }
+  }, [selectedProjectId, selectedProjectExists]);
+
+  const { year: selectedYear, month: selectedMonth } = splitMonthString(closingMonth);
 
   const toggleInvoiceProject = (projectId: number) => {
     const project = eligibleSameClientProjects.find((candidate: any) => Number(candidate.projectId) === Number(projectId));
@@ -264,9 +298,33 @@ export default function AppClosings() {
           <h1 className="text-2xl font-bold text-foreground">締め管理</h1>
           <p className="text-sm text-muted-foreground">案件ごと・月ごとの提出状況と締め状態を管理します。</p>
         </div>
-        <div className="w-[180px]">
+        <div className="w-full max-w-[300px]">
           <Label className="text-xs text-muted-foreground">対象月</Label>
-          <Input type="month" value={closingMonth} onChange={(e) => setClosingMonth(e.target.value)} />
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            <Select
+              value={selectedYear}
+              onValueChange={(year) => setClosingMonth(buildMonthString(year, selectedMonth))}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {MONTH_SELECT_YEARS.map((year) => (
+                  <SelectItem key={year} value={year}>{year}年</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={selectedMonth}
+              onValueChange={(month) => setClosingMonth(buildMonthString(selectedYear, month))}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 12 }, (_, idx) => String(idx + 1).padStart(2, "0")).map((month) => (
+                  <SelectItem key={month} value={month}>{Number(month)}月</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{formatMonthLabel(closingMonth)} ({closingMonth})</p>
         </div>
       </div>
 
@@ -418,11 +476,11 @@ export default function AppClosings() {
         </CardContent>
       </Card>
 
-      {selectedProjectId && (
+      {activeProjectId && (
         <Card>
           <CardHeader>
             <CardTitle className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <span>{selectedRow?.project?.name || "案件"} / {closingMonth} 締め詳細</span>
+              <span>{selectedRow?.project?.name || "案件"} / {formatMonthLabel(closingMonth)} 締め詳細</span>
               {detail && (
                 <div className="flex items-center gap-2">
                   <span className={`px-2 py-1 rounded text-xs ${detail.closing ? (STATUS_LABELS[detail.closing.status]?.className || "bg-muted") : "bg-muted text-muted-foreground"}`}>
@@ -431,7 +489,7 @@ export default function AppClosings() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => detail.closing && markReadyMutation.mutate({ projectId: selectedProjectId, closingMonth })}
+                    onClick={() => detail.closing && markReadyMutation.mutate({ projectId: activeProjectId, closingMonth })}
                     disabled={!detail.closing || !detail.summary.canMarkReady || markReadyMutation.isPending}
                   >
                     <FileCheck className="h-3.5 w-3.5 mr-1" />
@@ -439,7 +497,7 @@ export default function AppClosings() {
                   </Button>
                   <Button
                     size="sm"
-                    onClick={() => detail.closing && closeMutation.mutate({ projectId: selectedProjectId, closingMonth })}
+                    onClick={() => detail.closing && closeMutation.mutate({ projectId: activeProjectId, closingMonth })}
                     disabled={!detail.closing || detail.closing.status !== "ready" || closeMutation.isPending}
                   >
                     <Lock className="h-3.5 w-3.5 mr-1" />
@@ -448,7 +506,7 @@ export default function AppClosings() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => detail.closing && reopenMutation.mutate({ projectId: selectedProjectId, closingMonth })}
+                    onClick={() => detail.closing && reopenMutation.mutate({ projectId: activeProjectId, closingMonth })}
                     disabled={!detail.closing || reopenMutation.isPending}
                   >
                     <LockOpen className="h-3.5 w-3.5 mr-1" />
@@ -457,7 +515,7 @@ export default function AppClosings() {
                   {detail.closing && detail.closing.status === "closed" && (
                     <Button
                       size="sm"
-                      onClick={() => generateInvoiceMutation.mutate({ projectId: selectedProjectId!, closingMonth, projectIds: invoiceProjectIds.length ? invoiceProjectIds : [selectedProjectId!] })}
+                      onClick={() => generateInvoiceMutation.mutate({ projectId: activeProjectId!, closingMonth, projectIds: invoiceProjectIds.length ? invoiceProjectIds : [activeProjectId!] })}
                       disabled={generateInvoiceMutation.isPending || invoiceProjectIds.length === 0}
                     >
                       <FileDown className="h-3.5 w-3.5 mr-1" />
