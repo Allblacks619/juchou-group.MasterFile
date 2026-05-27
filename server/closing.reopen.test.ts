@@ -21,6 +21,8 @@ vi.mock("./db", () => ({
   getProjectMembersByProject: vi.fn().mockResolvedValue([{ employeeId: 10, isActive: true }, { employeeId: 11, isActive: true }]),
   getProjectMembers: vi.fn().mockResolvedValue([{ employeeId: 10, isActive: true }, { employeeId: 11, isActive: true }]),
   getAttendanceByProject: vi.fn().mockResolvedValue([{ employeeId: 10, hoursWorked: 80, shiftType: "day", workDate: new Date("2026-04-01") }, { employeeId: 11, hoursWorked: 80, shiftType: "day", workDate: new Date("2026-04-01") }]),
+  getAttendanceByDateRange: vi.fn().mockResolvedValue([{ projectId: 1, employeeId: 10, hoursWorked: 80, shiftType: "day", workDate: new Date("2026-04-01") }, { projectId: 1, employeeId: 11, hoursWorked: 80, shiftType: "day", workDate: new Date("2026-04-01") }]),
+  getAllProjects: vi.fn().mockResolvedValue([{ id: 1, name: "案件A" }]),
   getClosingSubmissionsByClosing: vi.fn().mockImplementation(async () => ([10,11].map((employeeId) => ({ id: 900 + employeeId, closingId: 100, employeeId, status: submissionStatusByEmployee[employeeId] || "pending", transportAmount: 0, expenseAmount: 0, receiptRequired: false, receiptUploaded: false, notes: null })))),
   getClosingSubmissionByClosingEmployee: vi.fn().mockImplementation(async (_closingId: number, employeeId: number) => ({ id: 900 + employeeId, closingId: 100, employeeId, status: submissionStatusByEmployee[employeeId] || "pending", transportAmount: 0, expenseAmount: 0, receiptRequired: false, receiptUploaded: false, notes: null })),
   upsertClosingSubmission: vi.fn().mockResolvedValue({ id: 900 }),

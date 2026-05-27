@@ -283,6 +283,14 @@ export default function AppClosings() {
     }
   }, [selectedProjectId, selectedProjectExists]);
 
+  useEffect(() => {
+    if (selectedProjectId) return;
+    const firstProjectId = Number(rows[0]?.project?.id || 0);
+    if (firstProjectId > 0) {
+      setSelectedProjectId(firstProjectId);
+    }
+  }, [rows, selectedProjectId, closingMonth]);
+
   const { year: selectedYear, month: selectedMonth } = splitMonthString(closingMonth);
 
   const toggleInvoiceProject = (projectId: number) => {
