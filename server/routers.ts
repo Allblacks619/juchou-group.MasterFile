@@ -3372,7 +3372,6 @@ export const appRouter = router({
       .input(z.object({
         employeeId: z.number(),
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
-        projectId: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const actorRole = (ctx.user as any).appRole;
@@ -3388,9 +3387,6 @@ export const appRouter = router({
         const { start, end } = getMonthDateRange(input.closingMonth);
         let records = excludeRemovedGuestMarkers(await db.getAttendanceByDateRange(start, end));
         records = records.filter((r: any) => Number(r.employeeId) === input.employeeId);
-        if (input.projectId) {
-          records = records.filter((r: any) => Number(r.projectId) === input.projectId);
-        }
         const allProjects = await db.getAllProjects();
         const projectMap = new Map(allProjects.map((p: any) => [Number(p.id), p]));
         const projectIds = [...new Set(records.map((r: any) => Number(r.projectId)))];
@@ -3437,7 +3433,6 @@ export const appRouter = router({
           entityId: input.employeeId,
           employeeId: input.employeeId,
           closingMonth: input.closingMonth,
-          projectId: input.projectId || null,
           note: `確認表PDF生成 ${fileName}`,
         });
         return { url, fileName };

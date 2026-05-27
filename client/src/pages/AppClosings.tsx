@@ -203,12 +203,16 @@ export default function AppClosings() {
     onError: (e: any) => toast.error(`領収書解除エラー: ${e.message}`),
   });
 
-  const rows = useMemo(() => (Array.isArray(listQuery.data) ? listQuery.data : []), [listQuery.data]);
+  const rows = useMemo(() => {
+    const raw = listQuery.data;
+    const arr = Array.isArray(raw) ? raw : Array.isArray((raw as any)?.rows) ? (raw as any).rows : [];
+    return arr.filter(Boolean).filter((row: any) => row?.project && row?.project?.id);
+  }, [listQuery.data]);
   const selectedProjectExists = selectedProjectId
     ? rows.some((row: any) => Number(row?.project?.id) === Number(selectedProjectId))
     : false;
   const activeProjectId = selectedProjectExists ? selectedProjectId : null;
-  const yearShiftRows = yearShiftDiagnosisQuery.data || [];
+  const yearShiftRows = Array.isArray(yearShiftDiagnosisQuery.data) ? yearShiftDiagnosisQuery.data : [];
   const yearShiftCandidates = useMemo(() => {
     return yearShiftRows
       .filter((row: any) => row.isYearShiftCandidate)
@@ -244,6 +248,7 @@ export default function AppClosings() {
     [detail?.submissions]
   );
   const sameClientProjects = Array.isArray(sameClientCandidatesQuery.data) ? sameClientCandidatesQuery.data : [];
+  const detailClosing = detail?.closing ?? null;
   const eligibleSameClientProjects = useMemo(
     () => sameClientProjects.filter((project: any) => project.isEligible),
     [sameClientProjects]
@@ -454,7 +459,7 @@ export default function AppClosings() {
                     return (
                     <TableRow key={rowKey} className={selectedProjectId === projectId ? "bg-muted/50" : ""}>
                       <TableCell className="font-medium">{row?.project?.name || "-"}</TableCell>
-                      <TableCell>{row.client?.name || "-"}</TableCell>
+                      <TableCell>{row?.client?.name || "-"}</TableCell>
                       <TableCell>
                         {row.closing ? (
                           <span className={`px-2 py-1 rounded text-xs ${STATUS_LABELS[row.closing.status]?.className || "bg-muted"}`}>
@@ -504,22 +509,22 @@ export default function AppClosings() {
               <span>{selectedRow?.project?.name || "案件"} / {formatMonthLabel(closingMonth)} 締め詳細</span>
               {detail && (
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-1 rounded text-xs ${detail.closing ? (STATUS_LABELS[detail.closing.status]?.className || "bg-muted") : "bg-muted text-muted-foreground"}`}>
-                    {detail.closing ? (STATUS_LABELS[detail.closing.status]?.label || detail.closing.status) : "未初期化"}
+                  <span className={`px-2 py-1 rounded text-xs ${detailClosing ? (STATUS_LABELS[detailClosing.status]?.className || "bg-muted") : "bg-muted text-muted-foreground"}`}>
+                    {detailClosing ? (STATUS_LABELS[detailClosing.status]?.label || detailClosing.status) : "未初期化"}
                   </span>
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => detail.closing && markReadyMutation.mutate({ projectId: activeProjectId, closingMonth })}
-                    disabled={!detail.closing || !detailSummary.canMarkReady || markReadyMutation.isPending}
+                    onClick={() => detailClosing && markReadyMutation.mutate({ projectId: activeProjectId, closingMonth })}
+                    disabled={!detailClosing || !detailSummary.canMarkReady || markReadyMutation.isPending}
                   >
                     <FileCheck className="h-3.5 w-3.5 mr-1" />
                     ready
                   </Button>
                   <Button
                     size="sm"
-                    onClick={() => detail.closing && closeMutation.mutate({ projectId: activeProjectId, closingMonth })}
-                    disabled={!detail.closing || detail.closing.status !== "ready" || closeMutation.isPending}
+                    onClick={() => detailClosing && closeMutation.mutate({ projectId: activeProjectId, closingMonth })}
+                    disabled={!detailClosing || detailClosing.status !== "ready" || closeMutation.isPending}
                   >
                     <Lock className="h-3.5 w-3.5 mr-1" />
                     締める
@@ -527,13 +532,13 @@ export default function AppClosings() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => detail.closing && reopenMutation.mutate({ projectId: activeProjectId, closingMonth })}
-                    disabled={!detail.closing || reopenMutation.isPending}
+                    onClick={() => detailClosing && reopenMutation.mutate({ projectId: activeProjectId, closingMonth })}
+                    disabled={!detailClosing || reopenMutation.isPending}
                   >
                     <LockOpen className="h-3.5 w-3.5 mr-1" />
                     再開
                   </Button>
-                  {detail.closing && detail.closing.status === "closed" && (
+                  {detailClosing && detailClosing.status === "closed" && (
                     <Button
                       size="sm"
                       onClick={() => generateInvoiceMutation.mutate({ projectId: activeProjectId!, closingMonth, projectIds: invoiceProjectIds.length ? invoiceProjectIds : [activeProjectId!] })}
@@ -568,7 +573,7 @@ export default function AppClosings() {
                   <SummaryCard label="領収書不足" value={detailSummary.receiptMissingCount} />
                 </div>
 
-                {detail.closing && detail.closing.status === "closed" && sameClientProjects.length > 0 && (
+                {detailClosing && detailClosing.status === "closed" && sameClientProjects.length > 0 && (
                   <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 space-y-3">
                     <div>
                       <p className="text-sm font-medium text-blue-300">同一取引先・同月の締め準備済み現場をまとめて請求します</p>

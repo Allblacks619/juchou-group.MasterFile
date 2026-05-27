@@ -10,14 +10,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, FileDown, History, FileText, ExternalLink } from "lucide-react";
+import { Loader2, FileDown, History, FileText } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useAppLang } from "@/contexts/AppLanguageContext";
-
-function splitMonthString(month: string): { year: string; month: string } {
-  const [y, m] = month.split("-");
-  return { year: y, month: m };
-}
 
 function buildMonthString(year: string, month: string): string {
   return `${year}-${month.padStart(2, "0")}`;
@@ -34,18 +29,12 @@ export default function AppConfirmationPdf() {
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<number | "all">("all");
   const [generating, setGenerating] = useState(false);
 
   const closingMonth = buildMonthString(selectedYear, selectedMonth);
 
   // Get employees list (for managers)
   const employeesQuery = trpc.employee.list.useQuery(undefined, {
-    enabled: !!user,
-  });
-
-  // Get projects list
-  const projectsQuery = trpc.project.list.useQuery(undefined, {
     enabled: !!user,
   });
 
@@ -88,7 +77,6 @@ export default function AppConfirmationPdf() {
       {
         employeeId: selectedEmployeeId,
         closingMonth,
-        projectId: selectedProjectId === "all" ? undefined : selectedProjectId,
       },
       { onSettled: () => setGenerating(false) }
     );
@@ -179,29 +167,6 @@ export default function AppConfirmationPdf() {
             </div>
           )}
 
-          {/* Project filter */}
-          {projectsQuery.data && (
-            <div>
-              <label className="text-sm font-medium mb-1 block">プロジェクト（絞り込み）</label>
-              <Select
-                value={selectedProjectId === "all" ? "all" : String(selectedProjectId)}
-                onValueChange={(v) => setSelectedProjectId(v === "all" ? "all" : Number(v))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全プロジェクト</SelectItem>
-                  {projectsQuery.data.map((p: any) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
           <Button
             onClick={handleGenerate}
             disabled={generating || !selectedEmployeeId}
@@ -250,10 +215,7 @@ export default function AppConfirmationPdf() {
                     <FileText className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">
-                        {item.closingMonth || "不明"}
-                        {item.projectId && projectsQuery.data
-                          ? ` - ${projectsQuery.data.find((p: any) => p.id === item.projectId)?.name || ""}`
-                          : " - 全プロジェクト"}
+                        {item.closingMonth || "不明"} - 従業員月次PDF
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {item.createdAt
