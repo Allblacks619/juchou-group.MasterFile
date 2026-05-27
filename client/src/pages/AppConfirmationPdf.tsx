@@ -39,7 +39,7 @@ export default function AppConfirmationPdf() {
   });
 
   // Get current user's employee info
-  const meQuery = trpc.employee.me.useQuery(undefined, {
+  const meQuery = trpc.employee.getMyProfile.useQuery(undefined, {
     enabled: !!user,
   });
 

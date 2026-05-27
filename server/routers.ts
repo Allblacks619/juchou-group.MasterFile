@@ -639,11 +639,32 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
   if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
   const role = actorRole || "worker";
   const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+  if (canDelegate && !requestedEmployeeId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "target employee required for delegated monthly closing" });
+  }
   const targetEmployeeId = canDelegate && requestedEmployeeId ? requestedEmployeeId : employee.id;
+  if (!canDelegate && requestedEmployeeId && Number(requestedEmployeeId) !== Number(employee.id)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の月締めは参照できません" });
+  }
 
-  const closing = await ensureClosingInitializedForProjectMonth(projectId, closingMonth);
+  const overview = await buildWorkerMonthlyOverview({
+    closingMonth,
+    actorUserId: userId,
+    actorRole: role,
+    employeeId: targetEmployeeId,
+  });
+  const targetHasMonthlyAttendance = Boolean(overview?.isTarget);
+  const filteredLines = projectId
+    ? (overview?.projectLines || []).filter((line: any) => Number(line.projectId) === Number(projectId))
+    : (overview?.projectLines || []);
+
+  const hasProjectAttendance = filteredLines.length > 0;
+  const shouldInitializeProjectClosing = Number(projectId) > 0 && hasProjectAttendance;
+  const closing = shouldInitializeProjectClosing
+    ? await ensureClosingInitializedForProjectMonth(projectId, closingMonth)
+    : await db.getProjectClosingByProjectMonth(projectId, closingMonth);
   const detail = await buildClosingDetail(projectId, closingMonth);
-  const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, targetEmployeeId);
+  const submission = closing?.id ? await db.getClosingSubmissionByClosingEmployee(closing.id!, targetEmployeeId) : null;
   const targetEmployee = targetEmployeeId === employee.id ? employee : await db.getEmployeeById(targetEmployeeId);
 
   return {
@@ -652,7 +673,14 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
     closing,
     detail,
     submission,
-    eligible: !!submission && submission.status !== "not_required",
+    eligible: targetHasMonthlyAttendance && (!projectId || hasProjectAttendance),
+    monthlyOverview: {
+      ...overview,
+      projectLines: filteredLines,
+    },
+    nonTargetReason: targetHasMonthlyAttendance
+      ? (hasProjectAttendance ? null : "no_attendance_for_selected_project")
+      : "no_attendance",
   };
 }
 
@@ -3020,6 +3048,7 @@ export const appRouter = router({
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
         return {
           eligible: result.eligible,
+          isTarget: result.eligible,
           closing: result.detail?.closing || result.closing,
           project: result.detail?.project || null,
           client: result.detail?.client || null,
@@ -3027,6 +3056,8 @@ export const appRouter = router({
           actorEmployeeId: result.actorEmployeeId,
           submission: result.submission ? { ...result.submission, documents: await db.listClosingSubmissionDocuments(result.submission.id) } : null,
           summary: result.detail?.summary || null,
+          monthlyOverview: result.monthlyOverview || null,
+          nonTargetReason: result.nonTargetReason || null,
         };
       }),
 
@@ -3060,7 +3091,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では編集できません" });
         }
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
-        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では編集できません" });
         }
@@ -3100,7 +3131,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では提出できません" });
         }
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
-        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では提出できません" });
         }
@@ -3130,7 +3161,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では領収書をアップロードできません" });
         }
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
-        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "この状態ではアップロードできません" });
         }
@@ -3159,7 +3190,7 @@ export const appRouter = router({
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ ctx, input }) => {
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
-        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         const docs = await db.listClosingSubmissionDocuments(result.submission.id);
         return { documents: docs, legacyReceipt: result.submission.receiptFileUrl ? { fileUrl: result.submission.receiptFileUrl, fileName: result.submission.receiptFileName, fileKey: result.submission.receiptFileKey, mimeType: result.submission.receiptMimeType } : null };
       }),
@@ -3168,7 +3199,7 @@ export const appRouter = router({
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), base64: z.string(), mimeType: z.string(), fileName: z.string(), documentType: z.enum(["receipt","company_card","etc","other"]).optional() }))
       .mutation(async ({ ctx, input }) => {
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
-        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "この状態ではアップロードできません" });
         const buffer = Buffer.from(input.base64, "base64");
         const validationError = validateFile(input.fileName, input.mimeType, buffer.length);
@@ -3185,7 +3216,7 @@ export const appRouter = router({
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), documentId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
-        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では削除できません" });
         const doc = await db.getClosingSubmissionDocumentById(input.documentId);
         if (!doc || doc.submissionId !== result.submission.id) throw new TRPCError({ code: "NOT_FOUND", message: "書類が見つかりません" });
@@ -3202,7 +3233,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では領収書を解除できません" });
         }
         const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
-        if (!result.eligible || !result.submission) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
+        if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         await db.updateClosingSubmission(result.submission.id, {
           receiptUploaded: false,
           receiptFileUrl: null,
@@ -3389,7 +3420,7 @@ export const appRouter = router({
         records = records.filter((r: any) => Number(r.employeeId) === input.employeeId);
         const allProjects = await db.getAllProjects();
         const projectMap = new Map(allProjects.map((p: any) => [Number(p.id), p]));
-        const projectIds = [...new Set(records.map((r: any) => Number(r.projectId)))];
+        const projectIds = Array.from(new Set(records.map((r: any) => Number(r.projectId))));
         const projectTransports: Array<{ projectId: number; projectName: string; monthlyAmount: number; attendanceDays: number }> = [];
         for (const pid of projectIds) {
           const closing = await db.getProjectClosingByProjectMonth(pid, input.closingMonth);
@@ -3432,8 +3463,8 @@ export const appRouter = router({
         await safeAuditLog(ctx.user.id, "closing.generateConfirmationPdf", "closing", {
           entityId: input.employeeId,
           employeeId: input.employeeId,
-          closingMonth: input.closingMonth,
           note: `確認表PDF生成 ${fileName}`,
+          payload: { closingMonth: input.closingMonth },
         });
         return { url, fileName };
       }),

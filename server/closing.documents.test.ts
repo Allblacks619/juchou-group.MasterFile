@@ -11,7 +11,7 @@ vi.mock('./db', () => ({
   getEmployeeByUserId: vi.fn(async (id:number)=> ({ id: id===99?99:10, userId:id })),
   getProjectClosingByProjectMonth: vi.fn(async ()=> ({ id:1, projectId:1, closingMonth:'2026-04', status:'open' })),
   createProjectClosing: vi.fn(async ()=> ({ id:1, projectId:1, closingMonth:'2026-04', status:'open' })),
-  getProjectById: vi.fn(async ()=> ({ id:1, clientId:1 })), getClientById: vi.fn(async ()=> ({ id:1 })), getAllEmployees: vi.fn(async ()=> [{id:10}]), getProjectMembers: vi.fn(async ()=> [{employeeId:10,isActive:true}]), getAttendanceByProject: vi.fn(async ()=> [{employeeId:10}]),
+  getProjectById: vi.fn(async ()=> ({ id:1, clientId:1 })), getClientById: vi.fn(async ()=> ({ id:1 })), getAllEmployees: vi.fn(async ()=> [{id:10}]), getProjectMembers: vi.fn(async ()=> [{employeeId:10,isActive:true}]), getAttendanceByProject: vi.fn(async ()=> [{employeeId:10}]), getAttendanceByDateRange: vi.fn(async ()=> [{projectId:1, employeeId:10}]), getAllProjects: vi.fn(async ()=> [{id:1,name:'案件A'}]),
   getClosingSubmissionsByClosing: vi.fn(async ()=> [submission]),
   getClosingSubmissionByClosingEmployee: vi.fn(async (_c:number,e:number)=> e===10?submission:null),
   upsertClosingSubmission: vi.fn(async ()=> submission), updateClosingSubmission: vi.fn(async (_id:number,patch:any)=> ({...submission,...patch})),

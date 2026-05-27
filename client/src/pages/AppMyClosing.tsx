@@ -267,7 +267,9 @@ export default function AppMyClosing() {
   const projects = projectsQuery.data || [];
   const workerInvoicesQuery = trpc.workerInvoice.listMyInvoices.useQuery();
   const trpcUtils = trpc.useUtils();
-  const detail = detailQuery.data;
+  const detail: any = detailQuery.data ?? null;
+  const monthlyOverview = detail?.monthlyOverview || overviewQuery.data || null;
+  const isMonthlyTarget = Boolean(monthlyOverview?.isTarget || detail?.eligible);
   const receiptRequired = transportAmount > 0 || expenseAmount > 0;
   const busy =
     saveMutation.isPending ||
@@ -508,11 +510,11 @@ export default function AppMyClosing() {
       )}
 
       
-      {overviewQuery.data?.isTarget && overviewQuery.data.projectLines?.length > 0 && (
+      {monthlyOverview?.isTarget && monthlyOverview.projectLines?.length > 0 && (
         <Card>
           <CardHeader><CardTitle>現場別明細</CardTitle></CardHeader>
           <CardContent className="space-y-2">
-            {overviewQuery.data.projectLines.map((line: any) => (
+            {monthlyOverview.projectLines.map((line: any) => (
               <div key={line.projectId} className="text-sm border rounded p-2">
                 <div className="font-medium">{line.projectName}</div>
                 <div className="text-muted-foreground">出勤日数: {line.attendanceDays} / 工数: {line.totalHours}h / 残業: {line.overtimeHours}h</div>
@@ -540,13 +542,14 @@ export default function AppMyClosing() {
             <div className="text-lg font-medium">対象作業員を選択してください</div>
           </CardContent>
         </Card>
-      ) : !overviewQuery.data?.isTarget || !detail?.eligible ? (
+      ) : !isMonthlyTarget ? (
         <Card>
           <CardContent className="py-10 space-y-3">
             <div className="text-lg font-medium">提出対象外です</div>
             <p className="text-sm text-muted-foreground">
-              {selectedProject?.name || "この現場"} の {closingMonth}{" "}
-              は、まだあなたの提出対象として初期化されていません。
+              {detail?.nonTargetReason === "no_attendance_for_selected_project"
+                ? `${selectedProject?.name || "選択中の現場"} ではこの月の出面が見つかりません。別の現場を選択してください。`
+                : `${closingMonth} の出面実績が見つからないため提出対象外です。`}
             </p>
           </CardContent>
         </Card>
@@ -565,7 +568,7 @@ export default function AppMyClosing() {
                       className={`px-2 py-1 rounded text-xs ${CLOSING_STATUS_LABELS[detail.closing.status]?.className || "bg-muted"}`}
                     >
                       {CLOSING_STATUS_LABELS[detail.closing.status]?.label ||
-                        detail.closing.status}
+                        detail?.closing?.status}
                     </span>
                   )}
                   {detail.submission?.status && (
@@ -573,7 +576,7 @@ export default function AppMyClosing() {
                       className={`px-2 py-1 rounded text-xs ${STATUS_LABELS[detail.submission.status]?.className || "bg-muted"}`}
                     >
                       {STATUS_LABELS[detail.submission.status]?.label ||
-                        detail.submission.status}
+                        detail?.submission?.status}
                     </span>
                   )}
                 </div>
@@ -684,9 +687,9 @@ export default function AppMyClosing() {
                         </Button>
                       </div>
                     ))}
-                    {detail.submission?.receiptFileUrl && (
-                      <a href={detail.submission.receiptFileUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate">
-                        <LinkIcon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{detail.submission.receiptFileName || "領収書(旧)"}</span>
+                    {detail?.submission?.receiptFileUrl && (
+                      <a href={detail?.submission?.receiptFileUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate">
+                        <LinkIcon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{detail?.submission?.receiptFileName || "領収書(旧)"}</span>
                       </a>
                     )}
                   </div>
