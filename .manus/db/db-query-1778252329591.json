@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE users MODIFY COLUMN appRole enum('super_admin','admin','manager','leader','worker','guest') NOT NULL DEFAULT 'worker'; ALTER TABLE invitations MODIFY COLUMN assignedRole enum('super_admin','admin','manager','leader','worker','guest') NOT NULL DEFAULT 'worker';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4J7tUJfFB9qLpnj.df8ac853eb6a --database Zmx5PsySMYEq8fnTQEF9bk --execute ALTER TABLE users MODIFY COLUMN appRole enum('super_admin','admin','manager','leader','worker','guest') NOT NULL DEFAULT 'worker'; ALTER TABLE invitations MODIFY COLUMN assignedRole enum('super_admin','admin','manager','leader','worker','guest') NOT NULL DEFAULT 'worker';",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2677
+}

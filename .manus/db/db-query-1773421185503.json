@@ -1,0 +1,18 @@
+{
+  "query": "SELECT id, openId, name, email, role, appRole FROM users;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4J7tUJfFB9qLpnj.df8ac853eb6a --database Zmx5PsySMYEq8fnTQEF9bk --execute SELECT id, openId, name, email, role, appRole FROM users;",
+  "rows": [
+    {
+      "id": "1",
+      "openId": "9QPME5LZaK8GiQckusDigp",
+      "name": "Oki Mitsuru",
+      "email": "biguoki@gmail.com",
+      "role": "admin",
+      "appRole": "admin"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\topenId\tname\temail\trole\tappRole\n1\t9QPME5LZaK8GiQckusDigp\tOki Mitsuru\tbiguoki@gmail.com\tadmin\tadmin\n",
+  "stderr": "",
+  "execution_time_ms": 1589
+}

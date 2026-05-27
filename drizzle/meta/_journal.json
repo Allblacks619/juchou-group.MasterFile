@@ -1,0 +1,181 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1773420224277,
+      "tag": "0000_strong_hellcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1773420392458,
+      "tag": "0001_needy_human_fly",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1773424490332,
+      "tag": "0002_organic_mother_askani",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1775102668876,
+      "tag": "0003_flashy_shockwave",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1775104423037,
+      "tag": "0004_bizarre_frank_castle",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1775105264155,
+      "tag": "0005_gorgeous_sharon_carter",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1775125207937,
+      "tag": "0006_ambiguous_lord_hawal",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1775125886628,
+      "tag": "0007_lucky_phil_sheldon",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1775146272138,
+      "tag": "0008_dazzling_namora",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1775190706220,
+      "tag": "0009_silky_texas_twister",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1775730783422,
+      "tag": "0010_confused_ezekiel_stane",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1775731603466,
+      "tag": "0011_purple_toad",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1775912173403,
+      "tag": "0012_busy_purple_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1776984821631,
+      "tag": "0013_lucky_sunspot",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1777139929552,
+      "tag": "0014_quiet_major_mapleleaf",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1777456713926,
+      "tag": "0015_common_puck",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1777477770485,
+      "tag": "0016_complex_blacklash",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1777578238180,
+      "tag": "0017_steady_black_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1777961959832,
+      "tag": "0018_nosy_celestials",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1778005314896,
+      "tag": "0018_worker_invoices_v1",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1778003222137,
+      "tag": "0021_worker_invoice_number_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1778075466702,
+      "tag": "0021_outstanding_energizer",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1778232856711,
+      "tag": "0020_closing_submission_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1778453062107,
+      "tag": "0023_square_serpent_society",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1778583830000,
+      "tag": "0024_password_reset_requests",
+      "breakpoints": true
+    }
+  ]
+}
