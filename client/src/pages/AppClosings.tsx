@@ -511,7 +511,7 @@ export default function AppClosings() {
                     size="sm"
                     variant="outline"
                     onClick={() => detail.closing && markReadyMutation.mutate({ projectId: activeProjectId, closingMonth })}
-                    disabled={!detail.closing || !detail.summary.canMarkReady || markReadyMutation.isPending}
+                    disabled={!detail.closing || !detailSummary.canMarkReady || markReadyMutation.isPending}
                   >
                     <FileCheck className="h-3.5 w-3.5 mr-1" />
                     ready
@@ -684,7 +684,8 @@ function WorkerInvoiceReviewSection() {
     onError: (e: any) => toast.error(`PDFエラー: ${e.message}`),
   });
 
-  const invoices = reviewQuery.data || [];
+  const rawReviewData = reviewQuery.data;
+  const invoices = Array.isArray(rawReviewData) ? rawReviewData : (rawReviewData && Array.isArray((rawReviewData as any).invoices) ? (rawReviewData as any).invoices : []);
   if (invoices.length === 0 && !reviewQuery.isLoading) return null;
 
   return (
