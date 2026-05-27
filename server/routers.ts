@@ -3367,6 +3367,115 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return buildSameClientInvoiceCandidates(input.projectId, input.closingMonth);
       }),
+    /** Generate attendance & transportation confirmation PDF */
+    generateConfirmationPdf: protectedProcedure
+      .input(z.object({
+        employeeId: z.number(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        projectId: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const actorRole = (ctx.user as any).appRole;
+        const actorEmployee = await db.getEmployeeByUserId(ctx.user.id);
+        if (!isManagerLike(actorRole) && (!actorEmployee || actorEmployee.id !== input.employeeId)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "権限がありません" });
+        }
+        const employee = await db.getEmployeeById(input.employeeId);
+        if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員が見つかりません" });
+        const [yearStr, monthStr] = input.closingMonth.split("-");
+        const year = parseInt(yearStr, 10);
+        const monthNum = parseInt(monthStr, 10);
+        const { start, end } = getMonthDateRange(input.closingMonth);
+        let records = excludeRemovedGuestMarkers(await db.getAttendanceByDateRange(start, end));
+        records = records.filter((r: any) => Number(r.employeeId) === input.employeeId);
+        if (input.projectId) {
+          records = records.filter((r: any) => Number(r.projectId) === input.projectId);
+        }
+        const allProjects = await db.getAllProjects();
+        const projectMap = new Map(allProjects.map((p: any) => [Number(p.id), p]));
+        const projectIds = [...new Set(records.map((r: any) => Number(r.projectId)))];
+        const projectTransports: Array<{ projectId: number; projectName: string; monthlyAmount: number; attendanceDays: number }> = [];
+        for (const pid of projectIds) {
+          const closing = await db.getProjectClosingByProjectMonth(pid, input.closingMonth);
+          let transportAmount = 0;
+          if (closing?.id) {
+            const submission = await db.getClosingSubmissionByClosingEmployee(closing.id, input.employeeId);
+            transportAmount = submission?.transportAmount || 0;
+          }
+          const daysForProject = new Set(records.filter((r: any) => Number(r.projectId) === pid).map((r: any) => new Date(r.workDate).toISOString().slice(0, 10))).size;
+          projectTransports.push({
+            projectId: pid,
+            projectName: projectMap.get(pid)?.name || `Project #${pid}`,
+            monthlyAmount: transportAmount,
+            attendanceDays: daysForProject,
+          });
+        }
+        const confirmRecords = records.map((r: any) => ({
+          workDate: r.workDate,
+          projectId: Number(r.projectId),
+          projectName: projectMap.get(Number(r.projectId))?.name || `Project #${r.projectId}`,
+          shiftType: (r.shiftType || "day") as "day" | "night",
+          overtimeHours: Number(r.overtimeHours || 0),
+          notes: r.notes,
+        }));
+        const { generateConfirmationPdf } = await import("./pdfConfirmation");
+        const pdfBuffer = await generateConfirmationPdf({
+          year,
+          month: monthNum,
+          employeeName: employee.nameKanji || employee.nameRomaji || `ID:${employee.id}`,
+          companyName: "充寵グループ",
+          records: confirmRecords,
+          projectTransports,
+        });
+        const fileName = `confirmation-${input.closingMonth}-${input.employeeId}-${Date.now()}.pdf`;
+        const { url } = await storagePut(
+          `confirmations/${fileName}`,
+          pdfBuffer,
+          "application/pdf"
+        );
+        await safeAuditLog(ctx.user.id, "closing.generateConfirmationPdf", "closing", {
+          entityId: input.employeeId,
+          employeeId: input.employeeId,
+          closingMonth: input.closingMonth,
+          projectId: input.projectId || null,
+          note: `確認表PDF生成 ${fileName}`,
+        });
+        return { url, fileName };
+      }),
+    /** List confirmation PDF history for an employee */
+    confirmationPdfHistory: protectedProcedure
+      .input(z.object({
+        employeeId: z.number(),
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const actorRole = (ctx.user as any).appRole;
+        const actorEmployee = await db.getEmployeeByUserId(ctx.user.id);
+        if (!isManagerLike(actorRole) && (!actorEmployee || actorEmployee.id !== input.employeeId)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "権限がありません" });
+        }
+        const allLogs = await db.getAuditLogsByAction("closing.generateConfirmationPdf");
+        let logs = allLogs.filter((l: any) => {
+          const meta = typeof l.payload === "string" ? JSON.parse(l.payload) : (l.payload || {});
+          return Number(meta?.employeeId || l.employeeId) === input.employeeId;
+        });
+        if (input.closingMonth) {
+          logs = logs.filter((l: any) => {
+            const meta = typeof l.payload === "string" ? JSON.parse(l.payload) : (l.payload || {});
+            return meta?.closingMonth === input.closingMonth;
+          });
+        }
+        return logs.slice(0, 50).map((l: any) => {
+          const meta = typeof l.payload === "string" ? JSON.parse(l.payload) : (l.payload || {});
+          return {
+            id: l.id,
+            closingMonth: meta?.closingMonth || null,
+            projectId: meta?.projectId || null,
+            note: l.note || meta?.note || null,
+            createdAt: l.performedAt,
+          };
+        });
+      }),
   }),
 
 

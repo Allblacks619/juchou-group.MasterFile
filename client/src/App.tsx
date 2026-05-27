@@ -32,6 +32,7 @@ const AppClosings = lazy(() => import("./pages/AppClosings"));
 const AppPayments = lazy(() => import("./pages/AppPayments"));
 const AppReceivables = lazy(() => import("./pages/AppReceivables"));
 const AppAuditLogs = lazy(() => import("./pages/AppAuditLogs"));
+const AppConfirmationPdf = lazy(() => import("./pages/AppConfirmationPdf"));
 const AppSupport = lazy(() => import("./pages/AppSupport"));
 const AppPasswordResets = lazy(() => import("./pages/AppPasswordResets"));
 const AppResetPassword = lazy(() => import("./pages/AppResetPassword"));
@@ -106,6 +107,9 @@ function AppRoutes() {
           </Route>
           <Route path="/app/audit">
             <RoleGuard allowed={ADMIN_LEADER}><AppAuditLogs /></RoleGuard>
+          </Route>
+          <Route path="/app/confirmation-pdf">
+            <AppConfirmationPdf />
           </Route>
           <Route path="/app/password-resets">
             <RoleGuard allowed={SUPER_ADMIN}><AppPasswordResets /></RoleGuard>

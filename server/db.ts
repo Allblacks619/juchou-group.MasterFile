@@ -1057,3 +1057,8 @@ export async function upsertInvoiceSupportingDocument(data: InsertInvoiceSupport
 
 export async function getSupportingDocumentsBySubmission(submissionId: number) { const db = await getDb(); if (!db) return []; return db.select().from(invoiceSupportingDocuments).where(eq(invoiceSupportingDocuments.submissionId, submissionId)); }
 export async function getSupportingDocumentsByProjectMonth(projectId: number, closingMonth: string) { const db = await getDb(); if (!db) return []; return db.select().from(invoiceSupportingDocuments).where(and(eq(invoiceSupportingDocuments.projectId, projectId), eq(invoiceSupportingDocuments.closingMonth, closingMonth))); }
+export async function getAuditLogsByAction(action: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(auditLogs).where(eq(auditLogs.action, action));
+}

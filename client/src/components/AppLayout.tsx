@@ -48,6 +48,7 @@ const navItems: NavItem[] = [
   { path: "/app/attendance", labelKey: "nav_attendance", icon: CalendarDays, roles: ["manager"] },
   { path: "/app/invoices", labelKey: "nav_invoices", icon: FileText, roles: ["manager"] },
   { path: "/app/closings", labelKey: "nav_closings", icon: FileCheck2, roles: ["manager"] },
+  { path: "/app/confirmation-pdf", labelKey: "nav_confirmationPdf", icon: FileText, roles: ["manager", "worker"] },
   { path: "/app/payments", labelKey: "nav_payments", icon: Wallet, roles: ["manager"] },
   { path: "/app/receivables", labelKey: "nav_receivables", icon: FileText, roles: ["manager"] },
   { path: "/app/audit", labelKey: "nav_audit", icon: ClipboardList, roles: ["manager"] },
@@ -76,7 +77,7 @@ function getNavGroups(): NavGroup[] {
       groupKey: "nav_finance",
       icon: DollarSign,
       items: navItems.filter(item => 
-        ["nav_invoices", "nav_closings", "nav_payments", "nav_receivables"].includes(item.labelKey)
+        ["nav_invoices", "nav_closings", "nav_confirmationPdf", "nav_payments", "nav_receivables"].includes(item.labelKey)
       ),
     },
   ];

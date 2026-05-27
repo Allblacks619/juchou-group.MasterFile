@@ -48,6 +48,8 @@ const dict = {
   nav_attendance: { ja: "出面表管理", pt: "Presença" },
   nav_invoices: { ja: "請求書", pt: "Faturas" },
   nav_closings: { ja: "締め管理", pt: "Fechamento" },
+  nav_confirmationPdf: { ja: "確認表PDF", pt: "PDF de Confirmação" },
+  confirmation_pdf_title: { ja: "作業出面・交通費確認表", pt: "Confirmação de Presença e Transporte" },
   nav_payments: { ja: "支払管理", pt: "Pagamentos" },
   nav_receivables: { ja: "入金管理", pt: "Recebimentos" },
   nav_audit: { ja: "監査ログ", pt: "Auditoria" },
