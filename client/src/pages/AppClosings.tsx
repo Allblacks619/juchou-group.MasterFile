@@ -278,18 +278,19 @@ export default function AppClosings() {
   }, [selectedProjectId, closingMonth, eligibleSameClientProjects]);
 
   useEffect(() => {
-    if (selectedProjectId && !selectedProjectExists) {
+    if (selectedProjectId && !selectedProjectExists && !listQuery.isLoading) {
       setSelectedProjectId(null);
     }
-  }, [selectedProjectId, selectedProjectExists]);
+  }, [selectedProjectId, selectedProjectExists, listQuery.isLoading]);
 
   useEffect(() => {
     if (selectedProjectId) return;
+    if (listQuery.isLoading) return;
     const firstProjectId = Number(rows[0]?.project?.id || 0);
     if (firstProjectId > 0) {
       setSelectedProjectId(firstProjectId);
     }
-  }, [rows, selectedProjectId, closingMonth]);
+  }, [rows, selectedProjectId, listQuery.isLoading]);
 
   const { year: selectedYear, month: selectedMonth } = splitMonthString(closingMonth);
 

@@ -488,3 +488,7 @@
 - [ ] Invoice party: worker invoice recipient fixed as JYUCHOU GROUP
 - [ ] Access control: worker sees only own invoices (already implemented)
 - [ ] Safety: do not break monthly closing logic
+
+# 締め管理クラッシュ修正 (ZIP 10-1)
+
+- [x] AppClosings.tsx 無限ループ修正: useEffect auto-select と clear が互いに干渉してクラッシュ → listQuery.isLoading ガードを追加、closingMonth を依存配列から除外
