@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex, index } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex, index, date } from "drizzle-orm/mysql-core";
 /**
  * Core user table backing auth flow.
  * Extended with role hierarchy: admin (統合管理者), leader (責任者), worker (作業員)
@@ -856,7 +856,7 @@ export const monthlyClosingV2ExpenseLines = mysqlTable("monthly_closing_v2_expen
   workerId: int("workerId").notNull(),
   targetMonth: varchar("targetMonth", { length: 7 }).notNull(),
   projectId: int("projectId"),
-  expenseDate: timestamp("expenseDate"),
+  expenseDate: date("expenseDate", { mode: "string" }),
   expenseType: mysqlEnum("monthlyClosingV2ExpenseType", ["transportation", "other"]).default("transportation").notNull(),
   amount: int("amount").default(0).notNull(),
   paymentMethod: mysqlEnum("monthlyClosingV2PaymentMethod", ["paid_by_worker", "company_card", "etc", "paid_by_client", "other"]).default("paid_by_worker").notNull(),

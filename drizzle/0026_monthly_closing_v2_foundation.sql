@@ -41,7 +41,7 @@ CREATE TABLE `monthly_closing_v2_expense_lines` (
 	`workerId` int NOT NULL,
 	`targetMonth` varchar(7) NOT NULL,
 	`projectId` int,
-	`expenseDate` timestamp,
+	`expenseDate` date,
 	`expenseType` enum('transportation','other') NOT NULL DEFAULT 'transportation',
 	`amount` int NOT NULL DEFAULT 0,
 	`paymentMethod` enum('paid_by_worker','company_card','etc','paid_by_client','other') NOT NULL DEFAULT 'paid_by_worker',
