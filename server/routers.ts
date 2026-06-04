@@ -2849,6 +2849,54 @@ export const appRouter = router({
   }),
 
   // ── Invoices (請求書) ──
+
+  monthlyClosingV2: router({
+    dashboard: leaderOrAdminProcedure
+      .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        const { start, end } = getMonthDateRange(input.targetMonth);
+        const [recordsRaw, employees, projects, submissions] = await Promise.all([
+          db.getAttendanceByDateRange(start, end),
+          db.getAllEmployees(),
+          db.getAllProjects(),
+          db.getMonthlyClosingV2WorkerSubmissionsByMonth(input.targetMonth),
+        ]);
+
+        const employeeMap = new Map<number, any>(employees.map((employee: any) => [Number(employee.id), employee]));
+        const projectMap = new Map<number, any>(projects.map((project: any) => [Number(project.id), project]));
+        const submissionMap = new Map<number, any>(submissions.map((submission: any) => [Number(submission.workerId), submission]));
+        const grouped = new Map<string, any>();
+
+        for (const record of excludeRemovedGuestMarkers(recordsRaw as any[])) {
+          if (!record.employeeId) continue; // Guest records are visible in attendance but excluded from V2 aggregation/validation foundation.
+          const workerId = Number(record.employeeId);
+          const projectId = Number(record.projectId);
+          const key = `${workerId}:${projectId}`;
+          const current = grouped.get(key) || {
+            targetMonth: input.targetMonth,
+            workerId,
+            workerName: employeeMap.get(workerId)?.nameKanji || employeeMap.get(workerId)?.nameRomaji || `従業員ID:${workerId}`,
+            projectId,
+            projectName: projectMap.get(projectId)?.name || `現場ID:${projectId}`,
+            attendanceCount: 0,
+            status: submissionMap.get(workerId)?.status || "not_submitted",
+            warning: "placeholder",
+          };
+          current.attendanceCount += 1;
+          grouped.set(key, current);
+        }
+
+        return {
+          targetMonth: input.targetMonth,
+          rows: Array.from(grouped.values()).sort((a, b) => {
+            const workerCompare = a.workerName.localeCompare(b.workerName, "ja");
+            if (workerCompare !== 0) return workerCompare;
+            return a.projectName.localeCompare(b.projectName, "ja");
+          }),
+        };
+      }),
+  }),
+
   closing: router({
     listByMonth: leaderOrAdminProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))

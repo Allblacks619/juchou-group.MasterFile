@@ -1,0 +1,7 @@
+{
+  "buildTime": "2026-06-03T22:55:24.397Z",
+  "commit": "6744a14",
+  "bundle": "vite-client-bundle",
+  "environment": "production",
+  "feature": "monthly-close-v2-phase-1"
+}
