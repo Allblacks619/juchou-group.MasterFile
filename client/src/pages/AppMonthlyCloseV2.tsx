@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,24 +13,24 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CalendarDays, FileCheck2, Loader2, RefreshCw } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronRight, FileCheck2, Loader2, RefreshCw } from "lucide-react";
 
-const STATUS_LABELS: Record<string, string> = {
-  not_submitted: "未提出",
-  submitted: "提出済",
-  sent_back: "差戻し",
-  accepted: "受理済",
-  ready_to_close: "締め可能",
-  closed: "締め済み",
+const PROJECT_STATUS_BADGE_CLASS: Record<string, string> = {
+  未着手: "bg-muted text-muted-foreground border-border",
+  確認中: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+  情報不足: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+  差し戻しあり: "bg-red-500/10 text-red-500 border-red-500/20",
+  締め完了: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
 };
 
-const STATUS_BADGE_CLASS: Record<string, string> = {
-  not_submitted: "bg-muted text-muted-foreground border-border",
-  submitted: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  sent_back: "bg-red-500/10 text-red-500 border-red-500/20",
-  accepted: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-  ready_to_close: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-  closed: "bg-purple-500/10 text-purple-500 border-purple-500/20",
+const PARTICIPANT_STATUS_BADGE_CLASS: Record<string, string> = {
+  未確認: "bg-muted text-muted-foreground border-border",
+  出面確認済み: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+  交通費未入力: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+  情報不足: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+  差し戻し: "bg-red-500/10 text-red-500 border-red-500/20",
+  確認済み: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+  締め完了: "bg-purple-500/10 text-purple-500 border-purple-500/20",
 };
 
 function getCurrentMonth() {
@@ -38,17 +38,29 @@ function getCurrentMonth() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function warningLabel(warning: string | null | undefined) {
-  if (!warning || warning === "placeholder") return "確認待ち";
-  return warning;
+function warningLabel(warningCount: number | null | undefined) {
+  return `${warningCount ?? 0}件`;
 }
 
 export default function AppMonthlyCloseV2() {
   const [targetMonth, setTargetMonth] = useState(getCurrentMonth());
+  const [openProjectIds, setOpenProjectIds] = useState<Set<number>>(new Set());
   const queryInput = useMemo(() => ({ targetMonth }), [targetMonth]);
   const dashboardQuery = trpc.monthlyClosingV2.dashboard.useQuery(queryInput);
 
   const rows = dashboardQuery.data?.rows ?? [];
+
+  const toggleProject = (projectId: number) => {
+    setOpenProjectIds((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -59,7 +71,7 @@ export default function AppMonthlyCloseV2() {
             月締めV2
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            出面データを元にした新しい月締めフローの基盤画面です。
+            対象月 × 現場 / プロジェクト単位で月締めを管理します。作業員情報は各現場の参加者明細で確認します。
           </p>
         </div>
         <Button variant="outline" onClick={() => dashboardQuery.refetch()} disabled={dashboardQuery.isFetching}>
@@ -70,9 +82,10 @@ export default function AppMonthlyCloseV2() {
 
       <Alert>
         <CalendarDays className="h-4 w-4" />
-        <AlertTitle>Phase 1 基盤</AlertTitle>
+        <AlertTitle>Phase 2A</AlertTitle>
         <AlertDescription>
-          この画面は既存の締め管理画面に依存せず、既存の出面レコードから従業員・現場別の基礎データのみを表示します。
+          この画面は既存の締め管理画面に依存せず、既存の出面レコードから対象月・現場別の月締めダッシュボードを表示します。
+          ゲストは「ゲスト / 集計対象外」として表示し、検証・請求集計の対象には含めません。
         </AlertDescription>
       </Alert>
 
@@ -118,28 +131,99 @@ export default function AppMonthlyCloseV2() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>対象月</TableHead>
-                    <TableHead>従業員</TableHead>
+                    <TableHead>取引先</TableHead>
                     <TableHead>現場 / プロジェクト</TableHead>
+                    <TableHead className="text-right">参加人数</TableHead>
                     <TableHead className="text-right">出面件数</TableHead>
-                    <TableHead>ステータス</TableHead>
+                    <TableHead>締めステータス</TableHead>
                     <TableHead>警告</TableHead>
+                    <TableHead>詳細</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row) => (
-                    <TableRow key={`${row.workerId}-${row.projectId}`}>
-                      <TableCell className="whitespace-nowrap">{row.targetMonth}</TableCell>
-                      <TableCell className="font-medium">{row.workerName}</TableCell>
-                      <TableCell>{row.projectName}</TableCell>
-                      <TableCell className="text-right">{row.attendanceCount.toLocaleString("ja-JP")}</TableCell>
-                      <TableCell>
-                        <Badge className={STATUS_BADGE_CLASS[row.status] || STATUS_BADGE_CLASS.not_submitted} variant="outline">
-                          {STATUS_LABELS[row.status] || "未提出"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{warningLabel(row.warning)}</TableCell>
-                    </TableRow>
-                  ))}
+                  {rows.map((row) => {
+                    const isOpen = openProjectIds.has(row.projectId);
+                    return (
+                      <Fragment key={`project-fragment-${row.projectId}`}>
+                        <TableRow>
+                          <TableCell className="whitespace-nowrap">{row.targetMonth}</TableCell>
+                          <TableCell>{row.clientName}</TableCell>
+                          <TableCell className="font-medium">{row.projectName}</TableCell>
+                          <TableCell className="text-right">{row.participantCount.toLocaleString("ja-JP")}</TableCell>
+                          <TableCell className="text-right">{row.attendanceCount.toLocaleString("ja-JP")}</TableCell>
+                          <TableCell>
+                            <Badge className={PROJECT_STATUS_BADGE_CLASS[row.closingStatus] || PROJECT_STATUS_BADGE_CLASS.未着手} variant="outline">
+                              {row.closingStatus}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{warningLabel(row.warningCount)}</TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm" onClick={() => toggleProject(row.projectId)} aria-expanded={isOpen}>
+                              {isOpen ? <ChevronDown className="mr-1 h-4 w-4" /> : <ChevronRight className="mr-1 h-4 w-4" />}
+                              詳細
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                        {isOpen && (
+                          <TableRow key={`project-${row.projectId}-participants`}>
+                            <TableCell colSpan={8} className="bg-muted/30 p-4">
+                              <div className="space-y-3">
+                                <div className="font-semibold">参加者明細</div>
+                                {row.participants.length === 0 ? (
+                                  <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                                    データがありません
+                                  </div>
+                                ) : (
+                                  <div className="overflow-x-auto rounded-md border bg-background">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead>作業員</TableHead>
+                                          <TableHead>区分</TableHead>
+                                          <TableHead className="text-right">出面件数</TableHead>
+                                          <TableHead>交通費状態</TableHead>
+                                          <TableHead>請求情報状態</TableHead>
+                                          <TableHead>個別ステータス</TableHead>
+                                          <TableHead>差し戻し理由</TableHead>
+                                          <TableHead>情報不足内容</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {row.participants.map((participant: any) => (
+                                          <TableRow key={participant.participantKey}>
+                                            <TableCell className="font-medium">{participant.workerName}</TableCell>
+                                            <TableCell>
+                                              {participant.isAggregationExcluded ? (
+                                                <Badge variant="outline" className="bg-muted text-muted-foreground border-border">
+                                                  ゲスト / 集計対象外
+                                                </Badge>
+                                              ) : (
+                                                participant.category
+                                              )}
+                                            </TableCell>
+                                            <TableCell className="text-right">{participant.attendanceCount.toLocaleString("ja-JP")}</TableCell>
+                                            <TableCell>{participant.transportationStatus}</TableCell>
+                                            <TableCell>{participant.invoiceInfoStatus}</TableCell>
+                                            <TableCell>
+                                              <Badge className={PARTICIPANT_STATUS_BADGE_CLASS[participant.individualStatus] || PARTICIPANT_STATUS_BADGE_CLASS.未確認} variant="outline">
+                                                {participant.individualStatus}
+                                              </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground">{participant.sendBackReason || "—"}</TableCell>
+                                            <TableCell className="text-muted-foreground">{participant.missingInfo || "—"}</TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
