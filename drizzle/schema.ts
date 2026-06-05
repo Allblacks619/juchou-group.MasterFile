@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex, index } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex, index, date } from "drizzle-orm/mysql-core";
 /**
  * Core user table backing auth flow.
  * Extended with role hierarchy: admin (統合管理者), leader (責任者), worker (作業員)
@@ -798,6 +798,135 @@ export const invoiceSupportingDocuments = mysqlTable("invoice_supporting_documen
 });
 export type InvoiceSupportingDocument = typeof invoiceSupportingDocuments.$inferSelect;
 export type InsertInvoiceSupportingDocument = typeof invoiceSupportingDocuments.$inferInsert;
+
+
+/**
+ * Monthly Closing V2 batches (月締めV2 締めバッチ)
+ * Snapshot/lock unit for the new attendance-based monthly closing flow.
+ */
+export const monthlyClosingV2Batches = mysqlTable("monthly_closing_v2_batches", {
+  id: int("id").autoincrement().primaryKey(),
+  closingBatchId: varchar("closingBatchId", { length: 64 }).notNull().unique(),
+  targetMonth: varchar("targetMonth", { length: 7 }).notNull(),
+  clientId: int("clientId"),
+  projectId: int("projectId"),
+  workerId: int("workerId"),
+  status: mysqlEnum("monthlyClosingV2BatchStatus", ["open", "ready_to_close", "closed", "unlocked"]).default("open").notNull(),
+  isLocked: boolean("isLocked").default(false).notNull(),
+  approvedBy: int("approvedBy"),
+  approvedAt: timestamp("approvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  index("monthly_closing_v2_batches_month_idx").on(table.targetMonth),
+  index("monthly_closing_v2_batches_scope_idx").on(table.clientId, table.projectId, table.workerId),
+]));
+export type MonthlyClosingV2Batch = typeof monthlyClosingV2Batches.$inferSelect;
+export type InsertMonthlyClosingV2Batch = typeof monthlyClosingV2Batches.$inferInsert;
+
+/**
+ * Monthly Closing V2 worker submissions (月締めV2 従業員月次提出)
+ * One row per worker + target month.
+ */
+export const monthlyClosingV2WorkerSubmissions = mysqlTable("monthly_closing_v2_worker_submissions", {
+  id: int("id").autoincrement().primaryKey(),
+  workerId: int("workerId").notNull(),
+  targetMonth: varchar("targetMonth", { length: 7 }).notNull(),
+  status: mysqlEnum("monthlyClosingV2WorkerSubmissionStatus", ["not_submitted", "submitted", "sent_back", "accepted", "ready_to_close", "closed"]).default("not_submitted").notNull(),
+  sendBackReason: text("sendBackReason"),
+  submittedAt: timestamp("submittedAt"),
+  acceptedAt: timestamp("acceptedAt"),
+  acceptedBy: int("acceptedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("monthly_closing_v2_worker_month_unique").on(table.workerId, table.targetMonth),
+  index("monthly_closing_v2_worker_submissions_status_idx").on(table.status),
+]));
+export type MonthlyClosingV2WorkerSubmission = typeof monthlyClosingV2WorkerSubmissions.$inferSelect;
+export type InsertMonthlyClosingV2WorkerSubmission = typeof monthlyClosingV2WorkerSubmissions.$inferInsert;
+
+/**
+ * Monthly Closing V2 expense lines (月締めV2 経費明細)
+ * Transportation and other expenses are stored as project-distinguishable line items.
+ * projectId is nullable so workers can temporarily save unassigned expenses before final validation.
+ */
+export const monthlyClosingV2ExpenseLines = mysqlTable("monthly_closing_v2_expense_lines", {
+  id: int("id").autoincrement().primaryKey(),
+  workerId: int("workerId").notNull(),
+  targetMonth: varchar("targetMonth", { length: 7 }).notNull(),
+  projectId: int("projectId"),
+  expenseDate: date("expenseDate", { mode: "string" }),
+  expenseType: mysqlEnum("monthlyClosingV2ExpenseType", ["transportation", "other"]).default("transportation").notNull(),
+  amount: int("amount").default(0).notNull(),
+  paymentMethod: mysqlEnum("monthlyClosingV2PaymentMethod", ["paid_by_worker", "company_card", "etc", "paid_by_client", "other"]).default("paid_by_worker").notNull(),
+  allocationMethod: mysqlEnum("monthlyClosingV2AllocationMethod", ["manual", "daily", "project_specific", "monthly_attendance_allocation"]).default("manual").notNull(),
+  isClientBillable: boolean("isClientBillable").default(true).notNull(),
+  memo: text("memo"),
+  status: mysqlEnum("monthlyClosingV2ExpenseLineStatus", ["draft", "submitted", "accepted", "sent_back", "locked"]).default("draft").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  index("monthly_closing_v2_expense_worker_month_idx").on(table.workerId, table.targetMonth),
+  index("monthly_closing_v2_expense_project_month_idx").on(table.projectId, table.targetMonth),
+  index("monthly_closing_v2_expense_status_idx").on(table.status),
+]));
+export type MonthlyClosingV2ExpenseLine = typeof monthlyClosingV2ExpenseLines.$inferSelect;
+export type InsertMonthlyClosingV2ExpenseLine = typeof monthlyClosingV2ExpenseLines.$inferInsert;
+
+/**
+ * Monthly Closing V2 expense-line receipts (月締めV2 経費明細領収書)
+ * Multiple receipts per expense line are allowed. The receiptFileKey uniqueness guard
+ * prevents the same uploaded receipt file from being counted across multiple projects.
+ */
+export const monthlyClosingV2ExpenseLineReceipts = mysqlTable("monthly_closing_v2_expense_line_receipts", {
+  id: int("id").autoincrement().primaryKey(),
+  expenseLineId: int("expenseLineId").notNull(),
+  workerId: int("workerId").notNull(),
+  targetMonth: varchar("targetMonth", { length: 7 }).notNull(),
+  projectId: int("projectId"),
+  receiptFileKey: varchar("receiptFileKey", { length: 512 }).notNull(),
+  receiptFileUrl: text("receiptFileUrl").notNull(),
+  originalFileName: varchar("originalFileName", { length: 512 }).notNull(),
+  mimeType: varchar("mimeType", { length: 128 }),
+  fileSize: int("fileSize"),
+  uploadedBy: int("uploadedBy"),
+  uploadedAt: timestamp("uploadedAt").defaultNow().notNull(),
+}, (table) => ([
+  index("monthly_closing_v2_receipts_expense_idx").on(table.expenseLineId),
+  index("monthly_closing_v2_receipts_worker_month_idx").on(table.workerId, table.targetMonth),
+  uniqueIndex("monthly_closing_v2_receipt_file_key_unique").on(table.receiptFileKey),
+]));
+export type MonthlyClosingV2ExpenseLineReceipt = typeof monthlyClosingV2ExpenseLineReceipts.$inferSelect;
+export type InsertMonthlyClosingV2ExpenseLineReceipt = typeof monthlyClosingV2ExpenseLineReceipts.$inferInsert;
+
+/**
+ * Monthly Closing V2 generated documents (月締めV2 生成書類)
+ * Metadata for generated worker invoices, monthly work reports, and client invoices.
+ */
+export const monthlyClosingV2GeneratedDocuments = mysqlTable("monthly_closing_v2_generated_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  targetMonth: varchar("targetMonth", { length: 7 }).notNull(),
+  closingBatchId: varchar("closingBatchId", { length: 64 }),
+  workerId: int("workerId"),
+  clientId: int("clientId"),
+  projectId: int("projectId"),
+  documentType: mysqlEnum("monthlyClosingV2GeneratedDocumentType", ["worker_invoice", "monthly_work_report", "client_invoice"]).notNull(),
+  fileKey: varchar("fileKey", { length: 512 }).notNull(),
+  fileUrl: text("fileUrl").notNull(),
+  originalFileName: varchar("originalFileName", { length: 512 }),
+  generatedBy: int("generatedBy"),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  snapshotVersion: int("snapshotVersion").default(1).notNull(),
+  snapshotJson: text("snapshotJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ([
+  index("monthly_closing_v2_documents_month_type_idx").on(table.targetMonth, table.documentType),
+  index("monthly_closing_v2_documents_batch_idx").on(table.closingBatchId),
+  index("monthly_closing_v2_documents_scope_idx").on(table.workerId, table.clientId, table.projectId),
+]));
+export type MonthlyClosingV2GeneratedDocument = typeof monthlyClosingV2GeneratedDocuments.$inferSelect;
+export type InsertMonthlyClosingV2GeneratedDocument = typeof monthlyClosingV2GeneratedDocuments.$inferInsert;
 
 
 /**

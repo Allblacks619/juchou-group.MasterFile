@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `monthly_closing_v2_worker_submissions` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`workerId` int NOT NULL,\n\t`targetMonth` varchar(7) NOT NULL,\n\t`status` enum('not_submitted','submitted','sent_back','accepted','ready_to_close','closed') NOT NULL DEFAULT 'not_submitted',\n\t`sendBackReason` text,\n\t`submittedAt` timestamp,\n\t`acceptedAt` timestamp,\n\t`acceptedBy` int,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `monthly_closing_v2_worker_submissions_id` PRIMARY KEY(`id`),\n\tCONSTRAINT `monthly_closing_v2_worker_month_unique` UNIQUE(`workerId`,`targetMonth`))",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4J7tUJfFB9qLpnj.df8ac853eb6a --database Zmx5PsySMYEq8fnTQEF9bk --execute CREATE TABLE `monthly_closing_v2_worker_submissions` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`workerId` int NOT NULL,\n\t`targetMonth` varchar(7) NOT NULL,\n\t`status` enum('not_submitted','submitted','sent_back','accepted','ready_to_close','closed') NOT NULL DEFAULT 'not_submitted',\n\t`sendBackReason` text,\n\t`submittedAt` timestamp,\n\t`acceptedAt` timestamp,\n\t`acceptedBy` int,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `monthly_closing_v2_worker_submissions_id` PRIMARY KEY(`id`),\n\tCONSTRAINT `monthly_closing_v2_worker_month_unique` UNIQUE(`workerId`,`targetMonth`))",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1849
+}

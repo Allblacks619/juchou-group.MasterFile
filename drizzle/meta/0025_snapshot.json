@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "c0866133-fb89-41ab-9226-acedfdd83561",
-  "prevId": "0a766149-c777-42d6-b14e-43144f3bf70d",
+  "id": "1e3814dc-ed74-458c-8b68-b7457ecec4b4",
+  "prevId": "c0866133-fb89-41ab-9226-acedfdd83561",
   "tables": {
     "attendance": {
       "name": "attendance",
@@ -2130,6 +2130,666 @@
       "compositePrimaryKeys": {
         "invoices_id": {
           "name": "invoices_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "monthly_closing_v2_batches": {
+      "name": "monthly_closing_v2_batches",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "closingBatchId": {
+          "name": "closingBatchId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "targetMonth": {
+          "name": "targetMonth",
+          "type": "varchar(7)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "clientId": {
+          "name": "clientId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "workerId": {
+          "name": "workerId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "monthlyClosingV2BatchStatus": {
+          "name": "monthlyClosingV2BatchStatus",
+          "type": "enum('open','ready_to_close','closed','unlocked')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'open'"
+        },
+        "isLocked": {
+          "name": "isLocked",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "approvedBy": {
+          "name": "approvedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "approvedAt": {
+          "name": "approvedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "monthly_closing_v2_batches_month_idx": {
+          "name": "monthly_closing_v2_batches_month_idx",
+          "columns": [
+            "targetMonth"
+          ],
+          "isUnique": false
+        },
+        "monthly_closing_v2_batches_scope_idx": {
+          "name": "monthly_closing_v2_batches_scope_idx",
+          "columns": [
+            "clientId",
+            "projectId",
+            "workerId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "monthly_closing_v2_batches_id": {
+          "name": "monthly_closing_v2_batches_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "monthly_closing_v2_batches_closingBatchId_unique": {
+          "name": "monthly_closing_v2_batches_closingBatchId_unique",
+          "columns": [
+            "closingBatchId"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "monthly_closing_v2_expense_line_receipts": {
+      "name": "monthly_closing_v2_expense_line_receipts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "expenseLineId": {
+          "name": "expenseLineId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workerId": {
+          "name": "workerId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "targetMonth": {
+          "name": "targetMonth",
+          "type": "varchar(7)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "receiptFileKey": {
+          "name": "receiptFileKey",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "receiptFileUrl": {
+          "name": "receiptFileUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "originalFileName": {
+          "name": "originalFileName",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mimeType": {
+          "name": "mimeType",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fileSize": {
+          "name": "fileSize",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "uploadedBy": {
+          "name": "uploadedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "uploadedAt": {
+          "name": "uploadedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "monthly_closing_v2_receipts_expense_idx": {
+          "name": "monthly_closing_v2_receipts_expense_idx",
+          "columns": [
+            "expenseLineId"
+          ],
+          "isUnique": false
+        },
+        "monthly_closing_v2_receipts_worker_month_idx": {
+          "name": "monthly_closing_v2_receipts_worker_month_idx",
+          "columns": [
+            "workerId",
+            "targetMonth"
+          ],
+          "isUnique": false
+        },
+        "monthly_closing_v2_receipt_file_key_unique": {
+          "name": "monthly_closing_v2_receipt_file_key_unique",
+          "columns": [
+            "receiptFileKey"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "monthly_closing_v2_expense_line_receipts_id": {
+          "name": "monthly_closing_v2_expense_line_receipts_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "monthly_closing_v2_expense_lines": {
+      "name": "monthly_closing_v2_expense_lines",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "workerId": {
+          "name": "workerId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "targetMonth": {
+          "name": "targetMonth",
+          "type": "varchar(7)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expenseDate": {
+          "name": "expenseDate",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "monthlyClosingV2ExpenseType": {
+          "name": "monthlyClosingV2ExpenseType",
+          "type": "enum('transportation','other')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'transportation'"
+        },
+        "amount": {
+          "name": "amount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "monthlyClosingV2PaymentMethod": {
+          "name": "monthlyClosingV2PaymentMethod",
+          "type": "enum('paid_by_worker','company_card','etc','paid_by_client','other')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'paid_by_worker'"
+        },
+        "monthlyClosingV2AllocationMethod": {
+          "name": "monthlyClosingV2AllocationMethod",
+          "type": "enum('manual','daily','project_specific','monthly_attendance_allocation')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'manual'"
+        },
+        "isClientBillable": {
+          "name": "isClientBillable",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "memo": {
+          "name": "memo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "monthlyClosingV2ExpenseLineStatus": {
+          "name": "monthlyClosingV2ExpenseLineStatus",
+          "type": "enum('draft','submitted','accepted','sent_back','locked')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'draft'"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "monthly_closing_v2_expense_worker_month_idx": {
+          "name": "monthly_closing_v2_expense_worker_month_idx",
+          "columns": [
+            "workerId",
+            "targetMonth"
+          ],
+          "isUnique": false
+        },
+        "monthly_closing_v2_expense_project_month_idx": {
+          "name": "monthly_closing_v2_expense_project_month_idx",
+          "columns": [
+            "projectId",
+            "targetMonth"
+          ],
+          "isUnique": false
+        },
+        "monthly_closing_v2_expense_status_idx": {
+          "name": "monthly_closing_v2_expense_status_idx",
+          "columns": [
+            "monthlyClosingV2ExpenseLineStatus"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "monthly_closing_v2_expense_lines_id": {
+          "name": "monthly_closing_v2_expense_lines_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "monthly_closing_v2_generated_documents": {
+      "name": "monthly_closing_v2_generated_documents",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "targetMonth": {
+          "name": "targetMonth",
+          "type": "varchar(7)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "closingBatchId": {
+          "name": "closingBatchId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "workerId": {
+          "name": "workerId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "clientId": {
+          "name": "clientId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "monthlyClosingV2GeneratedDocumentType": {
+          "name": "monthlyClosingV2GeneratedDocumentType",
+          "type": "enum('worker_invoice','monthly_work_report','client_invoice')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fileKey": {
+          "name": "fileKey",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fileUrl": {
+          "name": "fileUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "originalFileName": {
+          "name": "originalFileName",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "generatedBy": {
+          "name": "generatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "generatedAt": {
+          "name": "generatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "snapshotVersion": {
+          "name": "snapshotVersion",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "snapshotJson": {
+          "name": "snapshotJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "monthly_closing_v2_documents_month_type_idx": {
+          "name": "monthly_closing_v2_documents_month_type_idx",
+          "columns": [
+            "targetMonth",
+            "monthlyClosingV2GeneratedDocumentType"
+          ],
+          "isUnique": false
+        },
+        "monthly_closing_v2_documents_batch_idx": {
+          "name": "monthly_closing_v2_documents_batch_idx",
+          "columns": [
+            "closingBatchId"
+          ],
+          "isUnique": false
+        },
+        "monthly_closing_v2_documents_scope_idx": {
+          "name": "monthly_closing_v2_documents_scope_idx",
+          "columns": [
+            "workerId",
+            "clientId",
+            "projectId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "monthly_closing_v2_generated_documents_id": {
+          "name": "monthly_closing_v2_generated_documents_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "monthly_closing_v2_worker_submissions": {
+      "name": "monthly_closing_v2_worker_submissions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "workerId": {
+          "name": "workerId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "targetMonth": {
+          "name": "targetMonth",
+          "type": "varchar(7)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "monthlyClosingV2WorkerSubmissionStatus": {
+          "name": "monthlyClosingV2WorkerSubmissionStatus",
+          "type": "enum('not_submitted','submitted','sent_back','accepted','ready_to_close','closed')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'not_submitted'"
+        },
+        "sendBackReason": {
+          "name": "sendBackReason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "submittedAt": {
+          "name": "submittedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "acceptedAt": {
+          "name": "acceptedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "acceptedBy": {
+          "name": "acceptedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "monthly_closing_v2_worker_month_unique": {
+          "name": "monthly_closing_v2_worker_month_unique",
+          "columns": [
+            "workerId",
+            "targetMonth"
+          ],
+          "isUnique": true
+        },
+        "monthly_closing_v2_worker_submissions_status_idx": {
+          "name": "monthly_closing_v2_worker_submissions_status_idx",
+          "columns": [
+            "monthlyClosingV2WorkerSubmissionStatus"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "monthly_closing_v2_worker_submissions_id": {
+          "name": "monthly_closing_v2_worker_submissions_id",
           "columns": [
             "id"
           ]

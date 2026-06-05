@@ -176,6 +176,20 @@
       "when": 1778583830000,
       "tag": "0024_password_reset_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1780646770651,
+      "tag": "0025_glossy_magus",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1780700000000,
+      "tag": "0026_monthly_closing_v2_foundation",
+      "breakpoints": true
     }
   ]
 }

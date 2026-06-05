@@ -1,0 +1,9 @@
+{
+  "query": "CREATE INDEX `monthly_closing_v2_documents_month_type_idx` ON `monthly_closing_v2_generated_documents` (`targetMonth`,`documentType`);\nCREATE INDEX `monthly_closing_v2_documents_batch_idx` ON `monthly_closing_v2_generated_documents` (`closingBatchId`);\nCREATE INDEX `monthly_closing_v2_documents_scope_idx` ON `monthly_closing_v2_generated_documents` (`workerId`,`clientId`,`projectId`)",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4J7tUJfFB9qLpnj.df8ac853eb6a --database Zmx5PsySMYEq8fnTQEF9bk --execute CREATE INDEX `monthly_closing_v2_documents_month_type_idx` ON `monthly_closing_v2_generated_documents` (`targetMonth`,`documentType`);\nCREATE INDEX `monthly_closing_v2_documents_batch_idx` ON `monthly_closing_v2_generated_documents` (`closingBatchId`);\nCREATE INDEX `monthly_closing_v2_documents_scope_idx` ON `monthly_closing_v2_generated_documents` (`workerId`,`clientId`,`projectId`)",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2904
+}
