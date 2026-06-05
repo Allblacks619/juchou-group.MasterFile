@@ -1,0 +1,25 @@
+{
+  "query": "SHOW TABLES LIKE 'monthly_closing_v2%'",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4J7tUJfFB9qLpnj.df8ac853eb6a --database Zmx5PsySMYEq8fnTQEF9bk --execute SHOW TABLES LIKE 'monthly_closing_v2%'",
+  "rows": [
+    {
+      "Tables_in_Zmx5PsySMYEq8fnTQEF9bk (monthly_closing_v2%)": "monthly_closing_v2_batches"
+    },
+    {
+      "Tables_in_Zmx5PsySMYEq8fnTQEF9bk (monthly_closing_v2%)": "monthly_closing_v2_expense_line_receipts"
+    },
+    {
+      "Tables_in_Zmx5PsySMYEq8fnTQEF9bk (monthly_closing_v2%)": "monthly_closing_v2_expense_lines"
+    },
+    {
+      "Tables_in_Zmx5PsySMYEq8fnTQEF9bk (monthly_closing_v2%)": "monthly_closing_v2_generated_documents"
+    },
+    {
+      "Tables_in_Zmx5PsySMYEq8fnTQEF9bk (monthly_closing_v2%)": "monthly_closing_v2_worker_submissions"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_Zmx5PsySMYEq8fnTQEF9bk (monthly_closing_v2%)\nmonthly_closing_v2_batches\nmonthly_closing_v2_expense_line_receipts\nmonthly_closing_v2_expense_lines\nmonthly_closing_v2_generated_documents\nmonthly_closing_v2_worker_submissions\n",
+  "stderr": "",
+  "execution_time_ms": 1802
+}
