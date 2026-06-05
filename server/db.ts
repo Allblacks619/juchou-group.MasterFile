@@ -23,6 +23,7 @@ import {
   workerInvoiceItems, InsertWorkerInvoiceItem,
   workerInvoiceSnapshots, InsertWorkerInvoiceSnapshot,
   invoiceSupportingDocuments, InsertInvoiceSupportingDocument,
+  monthlyClosingV2WorkerSubmissions,
   workerBaseRates,
   InsertWorkerBaseRate,
 } from "../drizzle/schema";
@@ -42,6 +43,15 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+
+// ── Monthly Closing V2 ──
+
+export async function getMonthlyClosingV2WorkerSubmissionsByMonth(targetMonth: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(monthlyClosingV2WorkerSubmissions).where(eq(monthlyClosingV2WorkerSubmissions.targetMonth, targetMonth));
 }
 
 // ── Worker Base Rates ──
