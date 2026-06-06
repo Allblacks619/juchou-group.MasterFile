@@ -4,14 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CalendarDays, ChevronDown, ChevronRight, FileCheck2, Loader2, RefreshCw } from "lucide-react";
 
@@ -46,9 +38,9 @@ export default function AppMonthlyCloseV2() {
   const [targetMonth, setTargetMonth] = useState(getCurrentMonth());
   const [openProjectIds, setOpenProjectIds] = useState<Set<number>>(new Set());
   const queryInput = useMemo(() => ({ targetMonth }), [targetMonth]);
-  const dashboardQuery = trpc.monthlyClosingV2.dashboard.useQuery(queryInput);
 
-  const rows = dashboardQuery.data?.rows ?? [];
+  const dashboardQuery = trpc.monthlyClosingV2.projectDashboard.useQuery(queryInput);
+  const projectRows = dashboardQuery.data?.projects ?? [];
 
   const toggleProject = (projectId: number) => {
     setOpenProjectIds((current) => {
@@ -74,12 +66,19 @@ export default function AppMonthlyCloseV2() {
             対象月 × 現場 / プロジェクト単位で月締めを管理します。作業員情報は各現場の参加者明細で確認します。
           </p>
         </div>
-        <Button variant="outline" onClick={() => dashboardQuery.refetch()} disabled={dashboardQuery.isFetching}>
-          {dashboardQuery.isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+        <Button
+          variant="outline"
+          onClick={() => dashboardQuery.refetch()}
+          disabled={dashboardQuery.isFetching}
+        >
+          {dashboardQuery.isFetching ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-2 h-4 w-4" />
+          )}
           更新
         </Button>
       </div>
-
       <Alert>
         <CalendarDays className="h-4 w-4" />
         <AlertTitle>Phase 2A</AlertTitle>
@@ -88,7 +87,6 @@ export default function AppMonthlyCloseV2() {
           ゲストは「ゲスト / 集計対象外」として表示し、検証・請求集計の対象には含めません。
         </AlertDescription>
       </Alert>
-
       <Card>
         <CardHeader>
           <CardTitle>対象月</CardTitle>
@@ -99,17 +97,16 @@ export default function AppMonthlyCloseV2() {
             <Input
               type="month"
               value={targetMonth}
-              onChange={(event) => setTargetMonth(event.target.value || getCurrentMonth())}
+              onChange={(e) => setTargetMonth(e.target.value || getCurrentMonth())}
               aria-label="対象月"
             />
           </div>
         </CardContent>
       </Card>
-
       <Card>
         <CardHeader>
-          <CardTitle>月締めV2 ダッシュボード</CardTitle>
-          <CardDescription>対象月: {targetMonth}</CardDescription>
+          <CardTitle>現場一覧</CardTitle>
+          <CardDescription>対象月: {formatMonth(targetMonth)}</CardDescription>
         </CardHeader>
         <CardContent>
           {dashboardQuery.isLoading ? (
@@ -121,7 +118,7 @@ export default function AppMonthlyCloseV2() {
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
               データの取得に失敗しました: {dashboardQuery.error.message}
             </div>
-          ) : rows.length === 0 ? (
+          ) : projectRows.length === 0 ? (
             <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
               データがありません
             </div>

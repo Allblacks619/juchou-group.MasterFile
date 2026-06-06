@@ -2851,6 +2851,105 @@ export const appRouter = router({
   // ── Invoices (請求書) ──
 
   monthlyClosingV2: router({
+    /**
+     * Project-centric dashboard (現場単位ダッシュボード)
+     * Returns one row per project that had attendance in the target month.
+     * Each project row includes a list of participating workers with their status.
+     */
+    projectDashboard: leaderOrAdminProcedure
+      .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        const { start, end } = getMonthDateRange(input.targetMonth);
+        const [recordsRaw, employees, allProjects, allClients, submissions] = await Promise.all([
+          db.getAttendanceByDateRange(start, end),
+          db.getAllEmployees(),
+          db.getAllProjects(),
+          db.getAllClients(),
+          db.getMonthlyClosingV2WorkerSubmissionsByMonth(input.targetMonth),
+        ]);
+        const employeeMap = new Map<number, any>(employees.map((e: any) => [Number(e.id), e]));
+        const projectMap = new Map<number, any>(allProjects.map((p: any) => [Number(p.id), p]));
+        const clientMap = new Map<number, any>(allClients.map((c: any) => [Number(c.id), c]));
+        const submissionMap = new Map<number, any>(submissions.map((s: any) => [Number(s.workerId), s]));
+
+        // Group attendance: projectId -> workerId -> { attendanceCount }
+        const projectWorkerMap = new Map<number, Map<number, { attendanceCount: number }>>();
+        for (const record of excludeRemovedGuestMarkers(recordsRaw as any[])) {
+          if (!record.employeeId) continue;
+          const projectId = Number(record.projectId);
+          const workerId = Number(record.employeeId);
+          if (!projectWorkerMap.has(projectId)) projectWorkerMap.set(projectId, new Map());
+          const wm = projectWorkerMap.get(projectId)!;
+          const existing = wm.get(workerId) || { attendanceCount: 0 };
+          existing.attendanceCount += 1;
+          wm.set(workerId, existing);
+        }
+
+        // Derive worker-status labels
+        const WORKER_STATUS_LABELS: Record<string, string> = {
+          not_submitted: "未確認",
+          submitted: "確認中",
+          sent_back: "差戻し",
+          accepted: "確認済",
+          ready_to_close: "締め可能",
+          closed: "締め完了",
+        };
+
+        // Build project rows
+        const projectRows = [];
+        for (const [projectId, workerMap] of Array.from(projectWorkerMap.entries())) {
+          const project = projectMap.get(projectId);
+          const client = project?.clientId ? clientMap.get(Number(project.clientId)) : null;
+
+          const workerRows = [];
+          for (const [workerId, stats] of Array.from(workerMap.entries())) {
+            const employee = employeeMap.get(workerId);
+            const submission = submissionMap.get(workerId);
+            const workerStatus = submission?.status || "not_submitted";
+            workerRows.push({
+              workerId,
+              workerName: employee?.nameKanji || employee?.nameRomaji || `従業員ID:${workerId}`,
+              attendanceCount: stats.attendanceCount,
+              status: workerStatus,
+              statusLabel: WORKER_STATUS_LABELS[workerStatus] || "未確認",
+              expenseStatus: "未入力", // Phase 2 will query expense lines
+            });
+          }
+          workerRows.sort((a, b) => a.workerName.localeCompare(b.workerName, "ja"));
+
+          // Derive project-level status from worker statuses
+          const statuses = workerRows.map((w) => w.status);
+          let projectStatus: string;
+          let projectStatusLabel: string;
+          if (statuses.length === 0) {
+            projectStatus = "not_started"; projectStatusLabel = "未着手";
+          } else if (statuses.every((s) => s === "closed")) {
+            projectStatus = "closed"; projectStatusLabel = "締め完了";
+          } else if (statuses.some((s) => s === "sent_back")) {
+            projectStatus = "has_sendback"; projectStatusLabel = "差戻しあり";
+          } else if (statuses.some((s) => s === "not_submitted")) {
+            projectStatus = "info_missing"; projectStatusLabel = "情報不足";
+          } else if (statuses.every((s) => s === "accepted" || s === "ready_to_close" || s === "closed")) {
+            projectStatus = "ready"; projectStatusLabel = "確認中";
+          } else {
+            projectStatus = "in_review"; projectStatusLabel = "確認中";
+          }
+
+          projectRows.push({
+            projectId,
+            projectName: project?.name || `現場ID:${projectId}`,
+            clientId: project?.clientId ? Number(project.clientId) : null,
+            clientName: client?.name || null,
+            workerCount: workerRows.length,
+            projectStatus,
+            projectStatusLabel,
+            workers: workerRows,
+          });
+        }
+
+        projectRows.sort((a, b) => a.projectName.localeCompare(b.projectName, "ja"));
+        return { targetMonth: input.targetMonth, projects: projectRows };
+      }),
     dashboard: leaderOrAdminProcedure
       .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
