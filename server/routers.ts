@@ -2954,42 +2954,181 @@ export const appRouter = router({
       .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const { start, end } = getMonthDateRange(input.targetMonth);
-        const [recordsRaw, employees, projects, submissions] = await Promise.all([
+        const [recordsRaw, employees, projects, clients, submissions] = await Promise.all([
           db.getAttendanceByDateRange(start, end),
           db.getAllEmployees(),
           db.getAllProjects(),
+          db.getAllClients(),
           db.getMonthlyClosingV2WorkerSubmissionsByMonth(input.targetMonth),
         ]);
 
         const employeeMap = new Map<number, any>(employees.map((employee: any) => [Number(employee.id), employee]));
         const projectMap = new Map<number, any>(projects.map((project: any) => [Number(project.id), project]));
+        const clientMap = new Map<number, any>(clients.map((client: any) => [Number(client.id), client]));
         const submissionMap = new Map<number, any>(submissions.map((submission: any) => [Number(submission.workerId), submission]));
-        const grouped = new Map<string, any>();
+        const projectGroups = new Map<number, any>();
+
+        const buildWorkerName = (workerId: number) => {
+          const employee = employeeMap.get(workerId);
+          return employee?.nameKanji || employee?.nameRomaji || `従業員ID:${workerId}`;
+        };
+
+        const buildParticipantStatuses = (submission: any | undefined, isGuest: boolean) => {
+          if (isGuest) {
+            return {
+              transportationStatus: "集計対象外",
+              invoiceInfoStatus: "集計対象外",
+              individualStatus: "未確認",
+              sendBackReason: "",
+              missingInfo: "ゲストのため集計対象外",
+              warningCount: 0,
+            };
+          }
+
+          if (!submission) {
+            return {
+              transportationStatus: "未入力",
+              invoiceInfoStatus: "確認待ち",
+              individualStatus: "交通費未入力",
+              sendBackReason: "",
+              missingInfo: "交通費・請求情報の確認が必要です",
+              warningCount: 1,
+            };
+          }
+
+          if (submission.status === "sent_back") {
+            return {
+              transportationStatus: "確認待ち",
+              invoiceInfoStatus: "確認待ち",
+              individualStatus: "差し戻し",
+              sendBackReason: submission.sendBackReason || "差し戻し理由を確認してください",
+              missingInfo: "差し戻し対応が必要です",
+              warningCount: 1,
+            };
+          }
+
+          if (submission.status === "closed") {
+            return {
+              transportationStatus: "入力済み",
+              invoiceInfoStatus: "確認済み",
+              individualStatus: "締め完了",
+              sendBackReason: "",
+              missingInfo: "",
+              warningCount: 0,
+            };
+          }
+
+          if (submission.status === "accepted" || submission.status === "ready_to_close") {
+            return {
+              transportationStatus: "入力済み",
+              invoiceInfoStatus: "確認済み",
+              individualStatus: "確認済み",
+              sendBackReason: "",
+              missingInfo: "",
+              warningCount: 0,
+            };
+          }
+
+          if (submission.status === "submitted") {
+            return {
+              transportationStatus: "入力済み",
+              invoiceInfoStatus: "確認中",
+              individualStatus: "出面確認済み",
+              sendBackReason: "",
+              missingInfo: "請求情報の確認中です",
+              warningCount: 0,
+            };
+          }
+
+          return {
+            transportationStatus: "未入力",
+            invoiceInfoStatus: "情報不足",
+            individualStatus: "情報不足",
+            sendBackReason: "",
+            missingInfo: "提出情報が不足しています",
+            warningCount: 1,
+          };
+        };
+
+        const deriveProjectStatus = (participants: any[]) => {
+          const aggregateParticipants = participants.filter((participant) => !participant.isGuest);
+          if (aggregateParticipants.length === 0) return "未着手";
+          if (aggregateParticipants.some((participant) => participant.individualStatus === "差し戻し")) return "差し戻しあり";
+          if (aggregateParticipants.some((participant) => participant.individualStatus === "情報不足" || participant.individualStatus === "交通費未入力")) return "情報不足";
+          if (aggregateParticipants.every((participant) => participant.individualStatus === "締め完了")) return "締め完了";
+          if (aggregateParticipants.some((participant) => participant.individualStatus === "出面確認済み" || participant.individualStatus === "確認済み")) return "確認中";
+          return "未着手";
+        };
 
         for (const record of excludeRemovedGuestMarkers(recordsRaw as any[])) {
-          if (!record.employeeId) continue; // Guest records are visible in attendance but excluded from V2 aggregation/validation foundation.
-          const workerId = Number(record.employeeId);
           const projectId = Number(record.projectId);
-          const key = `${workerId}:${projectId}`;
-          const current = grouped.get(key) || {
+          const project = projectMap.get(projectId);
+          const client = project?.clientId ? clientMap.get(Number(project.clientId)) : null;
+          const projectGroup = projectGroups.get(projectId) || {
             targetMonth: input.targetMonth,
-            workerId,
-            workerName: employeeMap.get(workerId)?.nameKanji || employeeMap.get(workerId)?.nameRomaji || `従業員ID:${workerId}`,
             projectId,
-            projectName: projectMap.get(projectId)?.name || `現場ID:${projectId}`,
+            projectName: project?.name || `現場ID:${projectId}`,
+            clientId: project?.clientId ? Number(project.clientId) : null,
+            clientName: client?.name || "未設定",
+            participantCount: 0,
             attendanceCount: 0,
-            status: submissionMap.get(workerId)?.status || "not_submitted",
-            warning: "placeholder",
+            closingStatus: "未着手",
+            warningCount: 0,
+            warnings: [] as string[],
+            participants: [] as any[],
           };
-          current.attendanceCount += 1;
-          grouped.set(key, current);
+
+          const isGuest = !record.employeeId;
+          const guestName = record.guestName || "ゲスト";
+          const participantKey = isGuest ? `guest:${guestName}` : `worker:${Number(record.employeeId)}`;
+          let participant = projectGroup.participants.find((item: any) => item.participantKey === participantKey);
+
+          if (!participant) {
+            const workerId = record.employeeId ? Number(record.employeeId) : null;
+            const submission = workerId ? submissionMap.get(workerId) : undefined;
+            const statuses = buildParticipantStatuses(submission, isGuest);
+            participant = {
+              participantKey,
+              workerId,
+              workerName: isGuest ? guestName : buildWorkerName(workerId!),
+              category: isGuest ? "ゲスト / 集計対象外" : "作業員",
+              isGuest,
+              isAggregationExcluded: isGuest,
+              attendanceCount: 0,
+              transportationStatus: statuses.transportationStatus,
+              invoiceInfoStatus: statuses.invoiceInfoStatus,
+              individualStatus: statuses.individualStatus,
+              sendBackReason: statuses.sendBackReason,
+              missingInfo: statuses.missingInfo,
+              warningCount: statuses.warningCount,
+            };
+            projectGroup.participants.push(participant);
+          }
+
+          participant.attendanceCount += 1;
+          projectGroup.attendanceCount += 1;
+          projectGroups.set(projectId, projectGroup);
         }
+
+        const rows = Array.from(projectGroups.values()).map((projectGroup) => {
+          projectGroup.participants.sort((a: any, b: any) => {
+            if (a.isGuest !== b.isGuest) return a.isGuest ? 1 : -1;
+            return a.workerName.localeCompare(b.workerName, "ja");
+          });
+          projectGroup.participantCount = projectGroup.participants.filter((participant: any) => !participant.isGuest).length;
+          projectGroup.warningCount = projectGroup.participants
+            .filter((participant: any) => !participant.isGuest)
+            .reduce((sum: number, participant: any) => sum + participant.warningCount, 0);
+          projectGroup.warnings = projectGroup.warningCount > 0 ? [`${projectGroup.warningCount}件`] : [];
+          projectGroup.closingStatus = deriveProjectStatus(projectGroup.participants);
+          return projectGroup;
+        });
 
         return {
           targetMonth: input.targetMonth,
-          rows: Array.from(grouped.values()).sort((a, b) => {
-            const workerCompare = a.workerName.localeCompare(b.workerName, "ja");
-            if (workerCompare !== 0) return workerCompare;
+          rows: rows.sort((a, b) => {
+            const clientCompare = a.clientName.localeCompare(b.clientName, "ja");
+            if (clientCompare !== 0) return clientCompare;
             return a.projectName.localeCompare(b.projectName, "ja");
           }),
         };
