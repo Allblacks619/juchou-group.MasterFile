@@ -24,6 +24,8 @@ import {
   workerInvoiceSnapshots, InsertWorkerInvoiceSnapshot,
   invoiceSupportingDocuments, InsertInvoiceSupportingDocument,
   monthlyClosingV2WorkerSubmissions,
+  monthlyClosingV2ProjectReviews,
+  monthlyClosingV2ParticipantReviews,
   workerBaseRates,
   InsertWorkerBaseRate,
 } from "../drizzle/schema";
@@ -52,6 +54,90 @@ export async function getMonthlyClosingV2WorkerSubmissionsByMonth(targetMonth: s
   const db = await getDb();
   if (!db) return [];
   return db.select().from(monthlyClosingV2WorkerSubmissions).where(eq(monthlyClosingV2WorkerSubmissions.targetMonth, targetMonth));
+}
+
+export async function getMonthlyClosingV2ProjectReviewsByMonth(targetMonth: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(monthlyClosingV2ProjectReviews).where(eq(monthlyClosingV2ProjectReviews.targetMonth, targetMonth));
+}
+
+export async function upsertMonthlyClosingV2ProjectReview(data: {
+  targetMonth: string;
+  projectId: number;
+  status: "未着手" | "確認中" | "情報不足" | "差し戻しあり" | "締め完了";
+  updatedBy?: number | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(monthlyClosingV2ProjectReviews).values(data).onDuplicateKeyUpdate({
+    set: { status: data.status, updatedBy: data.updatedBy ?? null },
+  });
+  const result = await db.select().from(monthlyClosingV2ProjectReviews).where(and(
+    eq(monthlyClosingV2ProjectReviews.targetMonth, data.targetMonth),
+    eq(monthlyClosingV2ProjectReviews.projectId, data.projectId),
+  )).limit(1);
+  return result[0];
+}
+
+export async function getMonthlyClosingV2ParticipantReviewsByMonth(targetMonth: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(monthlyClosingV2ParticipantReviews).where(eq(monthlyClosingV2ParticipantReviews.targetMonth, targetMonth));
+}
+
+export async function getMonthlyClosingV2ParticipantReview(targetMonth: string, projectId: number, participantKey: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(monthlyClosingV2ParticipantReviews).where(and(
+    eq(monthlyClosingV2ParticipantReviews.targetMonth, targetMonth),
+    eq(monthlyClosingV2ParticipantReviews.projectId, projectId),
+    eq(monthlyClosingV2ParticipantReviews.participantKey, participantKey),
+  )).limit(1);
+  return result[0];
+}
+
+export async function upsertMonthlyClosingV2ParticipantReview(data: {
+  targetMonth: string;
+  projectId: number;
+  participantKey: string;
+  workerId?: number | null;
+  guestName?: string | null;
+  individualStatus: "未確認" | "出面確認済み" | "交通費未入力" | "情報不足" | "差し戻し" | "確認済み" | "締め完了";
+  transportationStatus: string;
+  invoiceInfoStatus: string;
+  sendBackReason?: string | null;
+  missingInfo?: string | null;
+  isAggregationExcluded: boolean;
+  aggregationOverrideReason?: string | null;
+  aggregationOverrideBy?: number | null;
+  aggregationOverrideAt?: Date | null;
+  updatedBy?: number | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(monthlyClosingV2ParticipantReviews).values(data).onDuplicateKeyUpdate({
+    set: {
+      workerId: data.workerId ?? null,
+      guestName: data.guestName ?? null,
+      individualStatus: data.individualStatus,
+      transportationStatus: data.transportationStatus,
+      invoiceInfoStatus: data.invoiceInfoStatus,
+      sendBackReason: data.sendBackReason ?? null,
+      missingInfo: data.missingInfo ?? null,
+      isAggregationExcluded: data.isAggregationExcluded,
+      aggregationOverrideReason: data.aggregationOverrideReason ?? null,
+      aggregationOverrideBy: data.aggregationOverrideBy ?? null,
+      aggregationOverrideAt: data.aggregationOverrideAt ?? null,
+      updatedBy: data.updatedBy ?? null,
+    },
+  });
+  const result = await db.select().from(monthlyClosingV2ParticipantReviews).where(and(
+    eq(monthlyClosingV2ParticipantReviews.targetMonth, data.targetMonth),
+    eq(monthlyClosingV2ParticipantReviews.projectId, data.projectId),
+    eq(monthlyClosingV2ParticipantReviews.participantKey, data.participantKey),
+  )).limit(1);
+  return result[0];
 }
 
 // ── Worker Base Rates ──

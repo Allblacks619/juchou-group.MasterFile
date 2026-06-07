@@ -40,6 +40,11 @@ vi.mock("./db", () => ({
   getMonthlyClosingV2WorkerSubmissionsByMonth: vi.fn(async (targetMonth: string) =>
     fixture.submissions.filter((submission) => submission.targetMonth === targetMonth)
   ),
+  getMonthlyClosingV2ProjectReviewsByMonth: vi.fn(async () => []),
+  getMonthlyClosingV2ParticipantReviewsByMonth: vi.fn(async () => []),
+  getMonthlyClosingV2ParticipantReview: vi.fn(async () => undefined),
+  upsertMonthlyClosingV2ProjectReview: vi.fn(async (data) => ({ id: 1, ...data })),
+  upsertMonthlyClosingV2ParticipantReview: vi.fn(async (data) => ({ id: 1, ...data })),
 }));
 
 import { appRouter } from "./routers";
@@ -108,4 +113,73 @@ describe("monthlyClosingV2.dashboard", () => {
     expect(result.rows[0].participantCount).toBe(3);
     expect(result.rows[0].warningCount).toBe(2);
   });
+  it("persists project review status edits in V2-specific storage", async () => {
+    const caller = appRouter.createCaller(createCtx(createUser()));
+    const result = await caller.monthlyClosingV2.updateProjectStatus({
+      targetMonth: "2026-05",
+      projectId: 1,
+      status: "確認中",
+    });
+
+    expect(result).toMatchObject({ targetMonth: "2026-05", projectId: 1, status: "確認中" });
+  });
+
+  it("requires admin privilege and a reason to include an excluded guest", async () => {
+    const managerCaller = appRouter.createCaller(createCtx(createUser({ appRole: "manager" })));
+    await expect(managerCaller.monthlyClosingV2.updateParticipantStatus({
+      targetMonth: "2026-05",
+      projectId: 1,
+      participantKey: "guest:応援ゲスト",
+      workerId: null,
+      guestName: "応援ゲスト",
+      individualStatus: "未確認",
+      transportationStatus: "確認待ち",
+      invoiceInfoStatus: "確認待ち",
+      sendBackReason: "",
+      missingInfo: "",
+      isAggregationExcluded: false,
+      aggregationOverrideReason: "応援費を今回だけ請求対象にするため",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    const adminCaller = appRouter.createCaller(createCtx(createUser({ appRole: "admin" })));
+    await expect(adminCaller.monthlyClosingV2.updateParticipantStatus({
+      targetMonth: "2026-05",
+      projectId: 1,
+      participantKey: "guest:応援ゲスト",
+      workerId: null,
+      guestName: "応援ゲスト",
+      individualStatus: "未確認",
+      transportationStatus: "確認待ち",
+      invoiceInfoStatus: "確認待ち",
+      sendBackReason: "",
+      missingInfo: "",
+      isAggregationExcluded: false,
+      aggregationOverrideReason: "",
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    const result = await adminCaller.monthlyClosingV2.updateParticipantStatus({
+      targetMonth: "2026-05",
+      projectId: 1,
+      participantKey: "guest:応援ゲスト",
+      workerId: null,
+      guestName: "応援ゲスト",
+      individualStatus: "未確認",
+      transportationStatus: "確認待ち",
+      invoiceInfoStatus: "確認待ち",
+      sendBackReason: "",
+      missingInfo: "管理者により集計対象に含める",
+      isAggregationExcluded: false,
+      aggregationOverrideReason: "応援費を今回だけ請求対象にするため",
+    });
+
+    expect(result).toMatchObject({
+      targetMonth: "2026-05",
+      projectId: 1,
+      participantKey: "guest:応援ゲスト",
+      isAggregationExcluded: false,
+      aggregationOverrideReason: "応援費を今回だけ請求対象にするため",
+      aggregationOverrideBy: 1,
+    });
+  });
+
 });
