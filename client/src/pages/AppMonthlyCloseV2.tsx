@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CalendarDays, ChevronDown, ChevronRight, FileCheck2, Loader2, RefreshCw } from "lucide-react";
 
 const PROJECT_STATUS_BADGE_CLASS: Record<string, string> = {
@@ -34,21 +35,32 @@ function warningLabel(warningCount: number | null | undefined) {
   return `${warningCount ?? 0}件`;
 }
 
+function formatMonth(value: string) {
+  const [year, month] = value.split("-");
+  if (!year || !month) return value;
+  return `${year}年${Number(month)}月`;
+}
+
+function getProjectKey(projectId: number | string) {
+  return `project:${projectId}`;
+}
+
 export default function AppMonthlyCloseV2() {
   const [targetMonth, setTargetMonth] = useState(getCurrentMonth());
-  const [openProjectIds, setOpenProjectIds] = useState<Set<number>>(new Set());
+  const [openProjectIds, setOpenProjectIds] = useState<Set<string>>(new Set());
   const queryInput = useMemo(() => ({ targetMonth }), [targetMonth]);
 
-  const dashboardQuery = trpc.monthlyClosingV2.projectDashboard.useQuery(queryInput);
-  const projectRows = dashboardQuery.data?.projects ?? [];
+  const dashboardQuery = trpc.monthlyClosingV2.dashboard.useQuery(queryInput);
+  const projectRows = dashboardQuery.data?.rows ?? [];
 
-  const toggleProject = (projectId: number) => {
+  const toggleProject = (projectId: number | string) => {
+    const projectKey = getProjectKey(projectId);
     setOpenProjectIds((current) => {
       const next = new Set(current);
-      if (next.has(projectId)) {
-        next.delete(projectId);
+      if (next.has(projectKey)) {
+        next.delete(projectKey);
       } else {
-        next.add(projectId);
+        next.add(projectKey);
       }
       return next;
     });
@@ -81,7 +93,7 @@ export default function AppMonthlyCloseV2() {
       </div>
       <Alert>
         <CalendarDays className="h-4 w-4" />
-        <AlertTitle>Phase 2A</AlertTitle>
+        <AlertTitle>Phase 2A 基盤</AlertTitle>
         <AlertDescription>
           この画面は既存の締め管理画面に依存せず、既存の出面レコードから対象月・現場別の月締めダッシュボードを表示します。
           ゲストは「ゲスト / 集計対象外」として表示し、検証・請求集計の対象には含めません。
@@ -138,14 +150,33 @@ export default function AppMonthlyCloseV2() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row) => {
-                    const isOpen = openProjectIds.has(row.projectId);
+                  {projectRows.map((row) => {
+                    const projectKey = getProjectKey(row.projectId);
+                    const isOpen = openProjectIds.has(projectKey);
+                    const participants = row.participants ?? [];
                     return (
-                      <Fragment key={`project-fragment-${row.projectId}`}>
-                        <TableRow>
+                      <Fragment key={projectKey}>
+                        <TableRow
+                          role="button"
+                          tabIndex={0}
+                          aria-expanded={isOpen}
+                          className="cursor-pointer select-none"
+                          onClick={() => toggleProject(row.projectId)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              toggleProject(row.projectId);
+                            }
+                          }}
+                        >
                           <TableCell className="whitespace-nowrap">{row.targetMonth}</TableCell>
                           <TableCell>{row.clientName}</TableCell>
-                          <TableCell className="font-medium">{row.projectName}</TableCell>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              {isOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                              <span>{row.projectName}</span>
+                            </div>
+                          </TableCell>
                           <TableCell className="text-right">{row.participantCount.toLocaleString("ja-JP")}</TableCell>
                           <TableCell className="text-right">{row.attendanceCount.toLocaleString("ja-JP")}</TableCell>
                           <TableCell>
@@ -155,7 +186,15 @@ export default function AppMonthlyCloseV2() {
                           </TableCell>
                           <TableCell className="text-muted-foreground">{warningLabel(row.warningCount)}</TableCell>
                           <TableCell>
-                            <Button variant="ghost" size="sm" onClick={() => toggleProject(row.projectId)} aria-expanded={isOpen}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleProject(row.projectId);
+                              }}
+                              aria-expanded={isOpen}
+                            >
                               {isOpen ? <ChevronDown className="mr-1 h-4 w-4" /> : <ChevronRight className="mr-1 h-4 w-4" />}
                               詳細
                             </Button>
@@ -166,9 +205,9 @@ export default function AppMonthlyCloseV2() {
                             <TableCell colSpan={8} className="bg-muted/30 p-4">
                               <div className="space-y-3">
                                 <div className="font-semibold">参加者明細</div>
-                                {row.participants.length === 0 ? (
+                                {participants.length === 0 ? (
                                   <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                                    データがありません
+                                    参加者明細がありません
                                   </div>
                                 ) : (
                                   <div className="overflow-x-auto rounded-md border bg-background">
@@ -186,7 +225,7 @@ export default function AppMonthlyCloseV2() {
                                         </TableRow>
                                       </TableHeader>
                                       <TableBody>
-                                        {row.participants.map((participant: any) => (
+                                        {participants.map((participant: any) => (
                                           <TableRow key={participant.participantKey}>
                                             <TableCell className="font-medium">{participant.workerName}</TableCell>
                                             <TableCell>
