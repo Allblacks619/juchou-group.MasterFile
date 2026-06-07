@@ -40,6 +40,8 @@ vi.mock("./db", () => ({
   getMonthlyClosingV2WorkerSubmissionsByMonth: vi.fn(async (targetMonth: string) =>
     fixture.submissions.filter((submission) => submission.targetMonth === targetMonth)
   ),
+  getMonthlyClosingV2ProjectReviewsByMonth: vi.fn(async () => []),
+  getMonthlyClosingV2ParticipantReviewsByMonth: vi.fn(async () => []),
 }));
 
 import { appRouter } from "./routers";

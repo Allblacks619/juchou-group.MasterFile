@@ -847,6 +847,56 @@ export type MonthlyClosingV2WorkerSubmission = typeof monthlyClosingV2WorkerSubm
 export type InsertMonthlyClosingV2WorkerSubmission = typeof monthlyClosingV2WorkerSubmissions.$inferInsert;
 
 /**
+ * Monthly Closing V2 project review statuses (月締めV2 現場別レビュー状態)
+ * One row per target month + project for Phase 2B project-first status editing.
+ */
+export const monthlyClosingV2ProjectReviews = mysqlTable("monthly_closing_v2_project_reviews", {
+  id: int("id").autoincrement().primaryKey(),
+  targetMonth: varchar("targetMonth", { length: 7 }).notNull(),
+  projectId: int("projectId").notNull(),
+  status: mysqlEnum("status", ["未着手", "確認中", "情報不足", "差し戻しあり", "締め完了"]).default("未着手").notNull(),
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("monthly_closing_v2_project_review_unique").on(table.targetMonth, table.projectId),
+  index("monthly_closing_v2_project_review_status_idx").on(table.status),
+]));
+export type MonthlyClosingV2ProjectReview = typeof monthlyClosingV2ProjectReviews.$inferSelect;
+export type InsertMonthlyClosingV2ProjectReview = typeof monthlyClosingV2ProjectReviews.$inferInsert;
+
+/**
+ * Monthly Closing V2 participant review statuses (月締めV2 参加者別レビュー状態)
+ * Stores targetMonth x projectId x participantKey review fields without touching legacy closings.
+ */
+export const monthlyClosingV2ParticipantReviews = mysqlTable("monthly_closing_v2_participant_reviews", {
+  id: int("id").autoincrement().primaryKey(),
+  targetMonth: varchar("targetMonth", { length: 7 }).notNull(),
+  projectId: int("projectId").notNull(),
+  participantKey: varchar("participantKey", { length: 255 }).notNull(),
+  workerId: int("workerId"),
+  guestName: varchar("guestName", { length: 255 }),
+  individualStatus: mysqlEnum("individualStatus", ["未確認", "出面確認済み", "交通費未入力", "情報不足", "差し戻し", "確認済み", "締め完了"]).default("未確認").notNull(),
+  transportationStatus: varchar("transportationStatus", { length: 64 }).default("未入力").notNull(),
+  invoiceInfoStatus: varchar("invoiceInfoStatus", { length: 64 }).default("確認待ち").notNull(),
+  sendBackReason: text("sendBackReason"),
+  missingInfo: text("missingInfo"),
+  isAggregationExcluded: boolean("isAggregationExcluded").default(false).notNull(),
+  aggregationOverrideReason: text("aggregationOverrideReason"),
+  aggregationOverrideBy: int("aggregationOverrideBy"),
+  aggregationOverrideAt: timestamp("aggregationOverrideAt"),
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("monthly_closing_v2_participant_review_unique").on(table.targetMonth, table.projectId, table.participantKey),
+  index("monthly_closing_v2_participant_review_worker_idx").on(table.workerId, table.targetMonth),
+  index("monthly_closing_v2_participant_review_project_idx").on(table.projectId, table.targetMonth),
+]));
+export type MonthlyClosingV2ParticipantReview = typeof monthlyClosingV2ParticipantReviews.$inferSelect;
+export type InsertMonthlyClosingV2ParticipantReview = typeof monthlyClosingV2ParticipantReviews.$inferInsert;
+
+/**
  * Monthly Closing V2 expense lines (月締めV2 経費明細)
  * Transportation and other expenses are stored as project-distinguishable line items.
  * projectId is nullable so workers can temporarily save unassigned expenses before final validation.
