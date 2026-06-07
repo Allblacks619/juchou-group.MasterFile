@@ -3149,6 +3149,39 @@ export const appRouter = router({
           }),
         };
       }),
+    getTransportationExpenses: leaderOrAdminProcedure
+      .input(z.object({
+        targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        projectId: z.number().int().positive(),
+      }))
+      .query(async ({ input }) => {
+        const lines = await db.getMonthlyClosingV2ExpenseLinesByProjectMonth(input.projectId, input.targetMonth);
+        const result: Record<number, { amount: number; memo: string | null }> = {};
+        for (const line of lines) {
+          if (line.workerId) {
+            result[Number(line.workerId)] = { amount: line.amount, memo: line.memo ?? null };
+          }
+        }
+        return result;
+      }),
+    upsertTransportationExpense: leaderOrAdminProcedure
+      .input(z.object({
+        targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        projectId: z.number().int().positive(),
+        workerId: z.number().int().positive(),
+        amount: z.number().int().min(0),
+        memo: z.string().max(500).optional().default(""),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.upsertMonthlyClosingV2TransportationExpense({
+          workerId: input.workerId,
+          projectId: input.projectId,
+          targetMonth: input.targetMonth,
+          amount: input.amount,
+          memo: input.memo?.trim() || null,
+          updatedBy: ctx.user.id,
+        });
+      }),
     updateProjectStatus: leaderOrAdminProcedure
       .input(z.object({
         targetMonth: z.string().regex(/^\d{4}-\d{2}$/),

@@ -26,6 +26,7 @@ import {
   monthlyClosingV2WorkerSubmissions,
   monthlyClosingV2ProjectReviews,
   monthlyClosingV2ParticipantReviews,
+  monthlyClosingV2ExpenseLines,
   workerBaseRates,
   InsertWorkerBaseRate,
 } from "../drizzle/schema";
@@ -138,6 +139,83 @@ export async function upsertMonthlyClosingV2ParticipantReview(data: {
     eq(monthlyClosingV2ParticipantReviews.participantKey, data.participantKey),
   )).limit(1);
   return result[0];
+}
+
+// ── Monthly Closing V2 Expense Lines (Transportation) ──
+
+export async function getMonthlyClosingV2ExpenseLinesByWorkerProjectMonth(
+  workerId: number,
+  projectId: number,
+  targetMonth: string
+) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(monthlyClosingV2ExpenseLines).where(
+    and(
+      eq(monthlyClosingV2ExpenseLines.workerId, workerId),
+      eq(monthlyClosingV2ExpenseLines.projectId, projectId),
+      eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
+      eq(monthlyClosingV2ExpenseLines.expenseType, "transportation"),
+    )
+  );
+}
+
+export async function getMonthlyClosingV2ExpenseLinesByProjectMonth(
+  projectId: number,
+  targetMonth: string
+) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(monthlyClosingV2ExpenseLines).where(
+    and(
+      eq(monthlyClosingV2ExpenseLines.projectId, projectId),
+      eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
+      eq(monthlyClosingV2ExpenseLines.expenseType, "transportation"),
+    )
+  );
+}
+
+export async function upsertMonthlyClosingV2TransportationExpense(data: {
+  workerId: number;
+  projectId: number;
+  targetMonth: string;
+  amount: number;
+  memo?: string | null;
+  updatedBy?: number | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Check if a transportation expense line already exists for this worker/project/month
+  const existing = await db.select().from(monthlyClosingV2ExpenseLines).where(
+    and(
+      eq(monthlyClosingV2ExpenseLines.workerId, data.workerId),
+      eq(monthlyClosingV2ExpenseLines.projectId, data.projectId),
+      eq(monthlyClosingV2ExpenseLines.targetMonth, data.targetMonth),
+      eq(monthlyClosingV2ExpenseLines.expenseType, "transportation"),
+    )
+  ).limit(1);
+  if (existing.length > 0) {
+    await db.update(monthlyClosingV2ExpenseLines)
+      .set({ amount: data.amount, memo: data.memo ?? null, updatedAt: new Date() })
+      .where(eq(monthlyClosingV2ExpenseLines.id, existing[0].id));
+    const updated = await db.select().from(monthlyClosingV2ExpenseLines).where(eq(monthlyClosingV2ExpenseLines.id, existing[0].id)).limit(1);
+    return updated[0];
+  } else {
+    const result = await db.insert(monthlyClosingV2ExpenseLines).values({
+      workerId: data.workerId,
+      projectId: data.projectId,
+      targetMonth: data.targetMonth,
+      expenseType: "transportation",
+      amount: data.amount,
+      memo: data.memo ?? null,
+      paymentMethod: "paid_by_worker",
+      allocationMethod: "manual",
+      isClientBillable: false,
+      status: "draft",
+    });
+    const inserted = await db.select().from(monthlyClosingV2ExpenseLines).where(eq(monthlyClosingV2ExpenseLines.id, result[0].insertId)).limit(1);
+    return inserted[0];
+  }
 }
 
 // ── Worker Base Rates ──
