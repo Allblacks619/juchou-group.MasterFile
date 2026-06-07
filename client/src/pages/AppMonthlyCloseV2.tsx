@@ -21,9 +21,12 @@ import {
   AlertTriangle,
   CheckCircle2,
   User,
+  Paperclip,
+  Upload,
+  RefreshCcw,
 } from "lucide-react";
 
-// ─── Constants ──────────────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const PROJECT_STATUS_OPTIONS = ["未着手", "確認中", "情報不足", "差し戻しあり", "締め完了"] as const;
 const PARTICIPANT_STATUS_OPTIONS = ["未確認", "出面確認済み", "交通費未入力", "情報不足", "差し戻し", "確認済み", "締め完了"] as const;
@@ -290,19 +293,34 @@ export default function AppMonthlyCloseV2() {
 
                     {/* Expanded participant list */}
                     {isOpen && (
-                      <div className="border-t bg-muted/10 p-4">
-                        <div className="mb-3 flex items-center gap-2">
+                      <div className="border-t bg-muted/10">
+                        {/* Table header — desktop only */}
+                        <div className="hidden md:grid md:grid-cols-[minmax(0,2fr)_80px_60px_110px_90px_110px_110px_90px_80px] gap-x-2 px-4 py-2 text-xs font-medium text-muted-foreground border-b bg-muted/20">
+                          <span className="flex items-center gap-1"><User className="h-3 w-3" />作業員</span>
+                          <span>区分</span>
+                          <span>出面</span>
+                          <span>個別ステータス</span>
+                          <span>交通費状態</span>
+                          <span className="flex items-center gap-1"><Truck className="h-3 w-3" />交通費金額</span>
+                          <span>請求情報状態</span>
+                          <span className="flex items-center gap-1"><Paperclip className="h-3 w-3" />領収書</span>
+                          <span>保存</span>
+                        </div>
+
+                        {/* Mobile header */}
+                        <div className="flex items-center gap-2 px-4 py-2 md:hidden border-b bg-muted/20">
                           <User className="h-4 w-4 text-muted-foreground" />
                           <span className="font-semibold text-sm">参加者明細</span>
                         </div>
+
                         {participants.length === 0 ? (
-                          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                          <div className="rounded-md border border-dashed m-4 p-6 text-center text-sm text-muted-foreground">
                             参加者明細がありません
                           </div>
                         ) : (
-                          <div className="space-y-3">
+                          <div className="divide-y">
                             {participants.map((participant: any) => (
-                              <ParticipantCard
+                              <ParticipantRow
                                 key={participant.participantKey}
                                 row={row}
                                 participant={participant}
@@ -328,11 +346,11 @@ export default function AppMonthlyCloseV2() {
   );
 }
 
-// ─── Participant Card ─────────────────────────────────────────────────────────
+// ─── Participant Row ──────────────────────────────────────────────────────────
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
-function ParticipantCard({
+function ParticipantRow({
   row,
   participant,
   targetMonth,
@@ -355,6 +373,7 @@ function ParticipantCard({
   const [sendBackReason, setSendBackReason] = useState(toText(participant.sendBackReason));
   const [missingInfo, setMissingInfo] = useState(toText(participant.missingInfo));
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showMobileEdit, setShowMobileEdit] = useState(false);
 
   // Transportation amount state
   const [transportAmount, setTransportAmount] = useState<string>("");
@@ -428,68 +447,292 @@ function ParticipantCard({
   const transportAmountNum = parseInt(transportAmount.replace(/[^0-9]/g, ""), 10);
   const hasTransportAmount = !isNaN(transportAmountNum) && transportAmountNum > 0;
 
-  return (
-    <div className={`rounded-lg border bg-background p-4 ${isExcluded ? "opacity-70" : ""}`}>
-      {/* Participant header */}
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold">{participant.workerName}</span>
-            {isExcluded ? (
-              <Badge variant="outline" className="bg-muted text-muted-foreground border-border">
-                {isGuest ? "ゲスト / 集計対象外" : "集計対象外"}
-              </Badge>
-            ) : isGuest ? (
-              <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20">
-                ゲスト / 管理者により集計対象
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="bg-muted/50 text-foreground border-border">
-                作業員
-              </Badge>
-            )}
-            <Badge
-              className={PARTICIPANT_STATUS_BADGE_CLASS[participant.individualStatus] || PARTICIPANT_STATUS_BADGE_CLASS.未確認}
-              variant="outline"
-            >
-              {participant.individualStatus}
-            </Badge>
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            出面 {participant.attendanceCount}件
-            {!isExcluded && participant.warningCount > 0 && (
-              <span className="ml-2 text-amber-500">
-                <AlertTriangle className="inline h-3 w-3 mr-0.5" />
-                警告 {participant.warningCount}件
-              </span>
-            )}
-            {!isGuest && hasTransportAmount && (
-              <span className="ml-2 text-emerald-600 dark:text-emerald-400">
-                <Truck className="inline h-3 w-3 mr-0.5" />
-                交通費 {formatYen(transportAmountNum)}
-              </span>
-            )}
-          </div>
+  // Category label
+  const categoryLabel = isGuest
+    ? (isExcluded ? "ゲスト / 集計対象外" : "ゲスト / 集計対象")
+    : "作業員";
+
+  // Receipt placeholder state (future implementation)
+  const receiptStatus = "未添付"; // TODO: fetch from DB in next phase
+
+  // ── Desktop table row ──────────────────────────────────────────────────────
+  const desktopRow = (
+    <div className="hidden md:grid md:grid-cols-[minmax(0,2fr)_80px_60px_110px_90px_110px_110px_90px_80px] gap-x-2 px-4 py-3 items-start">
+      {/* 作業員 */}
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className={`font-medium text-sm ${isExcluded ? "text-muted-foreground" : ""}`}>
+            {participant.workerName}
+          </span>
+          <Badge
+            className={PARTICIPANT_STATUS_BADGE_CLASS[participant.individualStatus] || PARTICIPANT_STATUS_BADGE_CLASS.未確認}
+            variant="outline"
+          >
+            {participant.individualStatus}
+          </Badge>
         </div>
-        {canChangeAggregation && (
+        {participant.warningCount > 0 && !isExcluded && (
+          <span className="text-xs text-amber-500">
+            <AlertTriangle className="inline h-3 w-3 mr-0.5" />警告 {participant.warningCount}件
+          </span>
+        )}
+        {/* Advanced toggle */}
+        <button
+          type="button"
+          className="mt-1 flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          onClick={() => setShowAdvanced((v) => !v)}
+        >
+          {showAdvanced ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          詳細
+        </button>
+        {showAdvanced && (
+          <div className="mt-2 space-y-2 col-span-full">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">差し戻し理由</Label>
+                <Textarea
+                  className="text-xs min-h-[60px]"
+                  value={sendBackReason}
+                  onChange={(e) => setSendBackReason(e.target.value)}
+                  placeholder="差し戻し理由"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">情報不足内容</Label>
+                <Textarea
+                  className="text-xs min-h-[60px]"
+                  value={missingInfo}
+                  onChange={(e) => setMissingInfo(e.target.value)}
+                  placeholder="不足情報"
+                />
+              </div>
+            </div>
+            {canChangeAggregation && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs h-7"
+                disabled={isSavingStatus}
+                onClick={() => onChangeAggregation(row, participant)}
+              >
+                {isExcluded ? "集計対象に含める" : "集計対象外にする"}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 区分 */}
+      <div className="text-xs text-muted-foreground pt-1">{categoryLabel}</div>
+
+      {/* 出面 */}
+      <div className="text-sm pt-1">{participant.attendanceCount}件</div>
+
+      {/* 個別ステータス */}
+      {isExcluded && isGuest ? (
+        <div className="text-xs text-muted-foreground pt-1">—</div>
+      ) : (
+        <Select
+          value={participant.individualStatus}
+          disabled={isSavingStatus}
+          onValueChange={(value) => onUpdate(row, participant, { individualStatus: value })}
+        >
+          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {PARTICIPANT_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+
+      {/* 交通費状態 */}
+      {isExcluded && isGuest ? (
+        <div className="text-xs text-muted-foreground pt-1">—</div>
+      ) : (
+        <Select
+          value={participant.transportationStatus}
+          disabled={isSavingStatus}
+          onValueChange={(value) => onUpdate(row, participant, { transportationStatus: value })}
+        >
+          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {TRANSPORTATION_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+
+      {/* 交通費金額 */}
+      {!isGuest && workerId != null ? (
+        <div className="space-y-1">
+          <div className="relative">
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">¥</span>
+            <Input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              className="pl-5 h-8 text-xs"
+              placeholder="0"
+              value={transportAmount}
+              onChange={(e) => setTransportAmount(e.target.value.replace(/[^0-9]/g, ""))}
+            />
+          </div>
+          {transportQuery.isLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+        </div>
+      ) : (
+        <div className="text-xs text-muted-foreground pt-1">—</div>
+      )}
+
+      {/* 請求情報状態 */}
+      {isExcluded && isGuest ? (
+        <div className="text-xs text-muted-foreground pt-1">—</div>
+      ) : (
+        <Select
+          value={participant.invoiceInfoStatus}
+          disabled={isSavingStatus}
+          onValueChange={(value) => onUpdate(row, participant, { invoiceInfoStatus: value })}
+        >
+          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {INVOICE_INFO_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+
+      {/* 領収書 (placeholder) */}
+      {!isGuest && workerId != null ? (
+        <div className="flex flex-col items-start gap-1">
+          <Badge
+            variant="outline"
+            className={receiptStatus === "添付済み"
+              ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs"
+              : "bg-muted text-muted-foreground border-border text-xs"}
+          >
+            {receiptStatus}
+          </Badge>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="shrink-0 text-xs"
-            disabled={isSavingStatus}
-            onClick={() => onChangeAggregation(row, participant)}
+            className="h-7 text-xs px-2"
+            disabled
+            title="領収書アップロード（次フェーズで実装）"
           >
-            {isExcluded ? "集計対象に含める" : "集計対象外にする"}
+            <Upload className="h-3 w-3 mr-1" />
+            {receiptStatus === "添付済み" ? "差し替え" : "添付"}
           </Button>
+        </div>
+      ) : (
+        <div className="text-xs text-muted-foreground pt-1">—</div>
+      )}
+
+      {/* 保存ボタン */}
+      {!(isExcluded && isGuest) && (
+        <div className="flex flex-col gap-1">
+          {/* Status save */}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs px-2 whitespace-nowrap"
+            disabled={statusSaveState === "saving" || isSavingStatus}
+            onClick={saveStatus}
+          >
+            {statusSaveState === "saving" ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : statusSaveState === "saved" ? (
+              <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+            ) : statusSaveState === "error" ? (
+              <AlertTriangle className="h-3 w-3 text-destructive" />
+            ) : (
+              <><Save className="h-3 w-3 mr-1" />保存</>
+            )}
+          </Button>
+          {/* Transport save (only if amount field shown) */}
+          {!isGuest && workerId != null && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs px-2 whitespace-nowrap"
+              disabled={transportSaveState === "saving" || upsertTransportMutation.isPending}
+              onClick={saveTransportation}
+              title="交通費保存"
+            >
+              {transportSaveState === "saving" ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : transportSaveState === "saved" ? (
+                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+              ) : transportSaveState === "error" ? (
+                <AlertTriangle className="h-3 w-3 text-destructive" />
+              ) : (
+                <><Truck className="h-3 w-3 mr-1" />交通費</>
+              )}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Mobile row ─────────────────────────────────────────────────────────────
+  const mobileRow = (
+    <div className="md:hidden px-4 py-3 space-y-2">
+      {/* Line 1: name / category / status */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+          <span className={`font-medium text-sm ${isExcluded ? "text-muted-foreground" : ""}`}>
+            {participant.workerName}
+          </span>
+          <span className="text-xs text-muted-foreground">{categoryLabel}</span>
+          <Badge
+            className={PARTICIPANT_STATUS_BADGE_CLASS[participant.individualStatus] || PARTICIPANT_STATUS_BADGE_CLASS.未確認}
+            variant="outline"
+          >
+            {participant.individualStatus}
+          </Badge>
+        </div>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5"
+          onClick={() => setShowMobileEdit((v) => !v)}
+        >
+          {showMobileEdit ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          編集
+        </button>
+      </div>
+
+      {/* Line 2: attendance / transport amount / receipt badge */}
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <span>出面 {participant.attendanceCount}件</span>
+        {participant.warningCount > 0 && !isExcluded && (
+          <span className="text-amber-500">
+            <AlertTriangle className="inline h-3 w-3 mr-0.5" />警告 {participant.warningCount}件
+          </span>
+        )}
+        {!isGuest && hasTransportAmount && (
+          <span className="text-emerald-600 dark:text-emerald-400">
+            <Truck className="inline h-3 w-3 mr-0.5" />
+            {formatYen(transportAmountNum)}
+          </span>
+        )}
+        {!isGuest && workerId != null && (
+          <Badge
+            variant="outline"
+            className={receiptStatus === "添付済み"
+              ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs"
+              : "bg-muted text-muted-foreground border-border text-xs"}
+          >
+            <Paperclip className="h-2.5 w-2.5 mr-0.5" />
+            領収書: {receiptStatus}
+          </Badge>
         )}
       </div>
 
-      {/* Skip editing UI for excluded guests */}
-      {isExcluded && isGuest ? null : (
-        <div className="mt-4 space-y-4">
+      {/* Mobile edit panel */}
+      {showMobileEdit && !(isExcluded && isGuest) && (
+        <div className="mt-2 space-y-3 rounded-md border bg-muted/20 p-3">
           {/* Status dropdowns */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div className="space-y-1">
               <Label className="text-xs">個別ステータス</Label>
               <Select
@@ -531,70 +774,87 @@ function ParticipantCard({
             </div>
           </div>
 
-          {/* Transportation amount input (non-guest only) */}
+          {/* Transportation amount (non-guest only) */}
           {!isGuest && workerId != null && (
-            <div className="rounded-md border bg-muted/20 p-3">
-              <div className="mb-2 flex items-center gap-2">
-                <Truck className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">交通費金額（内部管理用）</span>
-              </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                <div className="space-y-1">
-                  <Label className="text-xs">金額（円）</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
-                    <Input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      className="pl-7 h-9 text-sm"
-                      placeholder="0"
-                      value={transportAmount}
-                      onChange={(e) => setTransportAmount(e.target.value.replace(/[^0-9]/g, ""))}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">メモ（任意）</Label>
+            <div className="space-y-2">
+              <Label className="text-xs flex items-center gap-1">
+                <Truck className="h-3 w-3" />交通費金額（内部管理用）
+              </Label>
+              <div className="flex gap-2 items-center">
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
                   <Input
                     type="text"
-                    className="h-9 text-sm"
-                    placeholder="交通手段など"
-                    value={transportMemo}
-                    onChange={(e) => setTransportMemo(e.target.value)}
-                    maxLength={100}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    className="pl-7 h-9 text-sm"
+                    placeholder="0"
+                    value={transportAmount}
+                    onChange={(e) => setTransportAmount(e.target.value.replace(/[^0-9]/g, ""))}
                   />
                 </div>
-                <div className="flex items-end">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-9 whitespace-nowrap"
-                    disabled={transportSaveState === "saving" || upsertTransportMutation.isPending}
-                    onClick={saveTransportation}
-                  >
-                    {transportSaveState === "saving" ? (
-                      <><Loader2 className="mr-1 h-3 w-3 animate-spin" />保存中</>
-                    ) : transportSaveState === "saved" ? (
-                      <><CheckCircle2 className="mr-1 h-3 w-3 text-emerald-500" />保存済み</>
-                    ) : transportSaveState === "error" ? (
-                      <><AlertTriangle className="mr-1 h-3 w-3 text-destructive" />エラー</>
-                    ) : (
-                      <><Save className="mr-1 h-3 w-3" />保存</>
-                    )}
-                  </Button>
-                </div>
+                <Input
+                  type="text"
+                  className="h-9 text-sm flex-1"
+                  placeholder="メモ（任意）"
+                  value={transportMemo}
+                  onChange={(e) => setTransportMemo(e.target.value)}
+                  maxLength={100}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-9 shrink-0"
+                  disabled={transportSaveState === "saving" || upsertTransportMutation.isPending}
+                  onClick={saveTransportation}
+                >
+                  {transportSaveState === "saving" ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : transportSaveState === "saved" ? (
+                    <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                  ) : transportSaveState === "error" ? (
+                    <AlertTriangle className="h-3 w-3 text-destructive" />
+                  ) : (
+                    <><Save className="h-3 w-3 mr-1" />保存</>
+                  )}
+                </Button>
               </div>
-              {transportQuery.isLoading && (
-                <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />読み込み中
-                </div>
-              )}
             </div>
           )}
 
-          {/* Advanced fields (差し戻し理由・情報不足) — collapsed by default */}
+          {/* Receipt placeholder */}
+          {!isGuest && workerId != null && (
+            <div className="space-y-1">
+              <Label className="text-xs flex items-center gap-1">
+                <Paperclip className="h-3 w-3" />領収書
+              </Label>
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={receiptStatus === "添付済み"
+                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs"
+                    : "bg-muted text-muted-foreground border-border text-xs"}
+                >
+                  {receiptStatus}
+                </Badge>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled
+                  title="領収書アップロード（次フェーズで実装）"
+                >
+                  <Upload className="h-3 w-3 mr-1" />
+                  {receiptStatus === "添付済み" ? "差し替え" : "アップロード"}
+                </Button>
+                <span className="text-xs text-muted-foreground">PDF / JPEG / PNG</span>
+              </div>
+            </div>
+          )}
+
+          {/* Advanced fields */}
           <div>
             <button
               type="button"
@@ -626,35 +886,51 @@ function ParticipantCard({
                     />
                   </div>
                 </div>
-                <div className="flex items-center justify-between gap-2">
-                  {participant.aggregationOverrideReason ? (
-                    <span className="text-xs text-muted-foreground">集計変更理由: {participant.aggregationOverrideReason}</span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">集計対象の変更には管理者操作と理由入力が必要です。</span>
-                  )}
+                {canChangeAggregation && (
                   <Button
                     type="button"
-                    size="sm"
                     variant="outline"
-                    disabled={statusSaveState === "saving" || isSavingStatus}
-                    onClick={saveStatus}
+                    size="sm"
+                    className="text-xs"
+                    disabled={isSavingStatus}
+                    onClick={() => onChangeAggregation(row, participant)}
                   >
-                    {statusSaveState === "saving" ? (
-                      <><Loader2 className="mr-1 h-3 w-3 animate-spin" />保存中</>
-                    ) : statusSaveState === "saved" ? (
-                      <><CheckCircle2 className="mr-1 h-3 w-3 text-emerald-500" />保存しました</>
-                    ) : statusSaveState === "error" ? (
-                      <><AlertTriangle className="mr-1 h-3 w-3 text-destructive" />エラー</>
-                    ) : (
-                      <><Save className="mr-1 h-3 w-3" />保存</>
-                    )}
+                    {isExcluded ? "集計対象に含める" : "集計対象外にする"}
                   </Button>
-                </div>
+                )}
               </div>
             )}
           </div>
+
+          {/* Save status button */}
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={statusSaveState === "saving" || isSavingStatus}
+              onClick={saveStatus}
+            >
+              {statusSaveState === "saving" ? (
+                <><Loader2 className="mr-1 h-3 w-3 animate-spin" />保存中</>
+              ) : statusSaveState === "saved" ? (
+                <><CheckCircle2 className="mr-1 h-3 w-3 text-emerald-500" />保存しました</>
+              ) : statusSaveState === "error" ? (
+                <><AlertTriangle className="mr-1 h-3 w-3 text-destructive" />エラー</>
+              ) : (
+                <><Save className="mr-1 h-3 w-3" />保存</>
+              )}
+            </Button>
+          </div>
         </div>
       )}
+    </div>
+  );
+
+  return (
+    <div className={isExcluded ? "opacity-70" : ""}>
+      {desktopRow}
+      {mobileRow}
     </div>
   );
 }
