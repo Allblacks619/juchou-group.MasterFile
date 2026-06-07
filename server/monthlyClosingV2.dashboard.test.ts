@@ -113,8 +113,7 @@ describe("monthlyClosingV2.dashboard", () => {
     expect(result.rows[0].participantCount).toBe(3);
     expect(result.rows[0].warningCount).toBe(2);
   });
-<<<<<<< HEAD
-=======
+
   it("persists project review status edits in V2-specific storage", async () => {
     const caller = appRouter.createCaller(createCtx(createUser()));
     const result = await caller.monthlyClosingV2.updateProjectStatus({
@@ -182,7 +181,5 @@ describe("monthlyClosingV2.dashboard", () => {
       aggregationOverrideReason: "応援費を今回だけ請求対象にするため",
       aggregationOverrideBy: 1,
     });
-  });
-
->>>>>>> user_github/main
+  })
 });
