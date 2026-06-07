@@ -51,6 +51,11 @@ function isPrivilegedAppRole(role: unknown) {
 const ATTENDANCE_REMOVED_GUEST_PREFIX = "__attendance_removed_guest__:";
 const ATTENDANCE_REMOVED_GUEST_DATE = "1900-01-01";
 
+const monthlyClosingV2ProjectStatuses = ["未着手", "確認中", "情報不足", "差し戻しあり", "締め完了"] as const;
+const monthlyClosingV2ParticipantStatuses = ["未確認", "出面確認済み", "交通費未入力", "情報不足", "差し戻し", "確認済み", "締め完了"] as const;
+const monthlyClosingV2TransportationStatuses = ["未入力", "入力済み", "確認待ち", "確認済み", "情報不足", "集計対象外"] as const;
+const monthlyClosingV2InvoiceInfoStatuses = ["確認待ち", "確認中", "確認済み", "情報不足", "集計対象外"] as const;
+
 function canRemoveAttendanceMember(role: unknown) {
   return role === "super_admin" || role === "admin" || role === "manager";
 }
@@ -2954,18 +2959,22 @@ export const appRouter = router({
       .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const { start, end } = getMonthDateRange(input.targetMonth);
-        const [recordsRaw, employees, projects, clients, submissions] = await Promise.all([
+        const [recordsRaw, employees, projects, clients, submissions, projectReviews, participantReviews] = await Promise.all([
           db.getAttendanceByDateRange(start, end),
           db.getAllEmployees(),
           db.getAllProjects(),
           db.getAllClients(),
           db.getMonthlyClosingV2WorkerSubmissionsByMonth(input.targetMonth),
+          db.getMonthlyClosingV2ProjectReviewsByMonth(input.targetMonth),
+          db.getMonthlyClosingV2ParticipantReviewsByMonth(input.targetMonth),
         ]);
 
         const employeeMap = new Map<number, any>(employees.map((employee: any) => [Number(employee.id), employee]));
         const projectMap = new Map<number, any>(projects.map((project: any) => [Number(project.id), project]));
         const clientMap = new Map<number, any>(clients.map((client: any) => [Number(client.id), client]));
         const submissionMap = new Map<number, any>(submissions.map((submission: any) => [Number(submission.workerId), submission]));
+        const projectReviewMap = new Map<number, any>(projectReviews.map((review: any) => [Number(review.projectId), review]));
+        const participantReviewMap = new Map<string, any>(participantReviews.map((review: any) => [`${Number(review.projectId)}:${review.participantKey}`, review]));
         const projectGroups = new Map<number, any>();
 
         const buildWorkerName = (workerId: number) => {
@@ -3051,7 +3060,7 @@ export const appRouter = router({
         };
 
         const deriveProjectStatus = (participants: any[]) => {
-          const aggregateParticipants = participants.filter((participant) => !participant.isGuest);
+          const aggregateParticipants = participants.filter((participant) => !participant.isAggregationExcluded);
           if (aggregateParticipants.length === 0) return "未着手";
           if (aggregateParticipants.some((participant) => participant.individualStatus === "差し戻し")) return "差し戻しあり";
           if (aggregateParticipants.some((participant) => participant.individualStatus === "情報不足" || participant.individualStatus === "交通費未入力")) return "情報不足";
@@ -3072,7 +3081,7 @@ export const appRouter = router({
             clientName: client?.name || "未設定",
             participantCount: 0,
             attendanceCount: 0,
-            closingStatus: "未着手",
+            closingStatus: projectReviewMap.get(projectId)?.status || "未着手",
             warningCount: 0,
             warnings: [] as string[],
             participants: [] as any[],
@@ -3087,20 +3096,27 @@ export const appRouter = router({
             const workerId = record.employeeId ? Number(record.employeeId) : null;
             const submission = workerId ? submissionMap.get(workerId) : undefined;
             const statuses = buildParticipantStatuses(submission, isGuest);
+            const review = participantReviewMap.get(`${projectId}:${participantKey}`);
+            const isAggregationExcluded = review?.isAggregationExcluded ?? isGuest;
+            const reviewedStatus = review?.individualStatus;
+            const warningCount = isAggregationExcluded ? 0 : reviewedStatus ? (["交通費未入力", "情報不足", "差し戻し"].includes(reviewedStatus) ? 1 : 0) : statuses.warningCount;
             participant = {
               participantKey,
               workerId,
               workerName: isGuest ? guestName : buildWorkerName(workerId!),
-              category: isGuest ? "ゲスト / 集計対象外" : "作業員",
+              category: isGuest ? (isAggregationExcluded ? "ゲスト / 集計対象外" : "ゲスト / 管理者により集計対象") : (isAggregationExcluded ? "作業員 / 集計対象外" : "作業員"),
               isGuest,
-              isAggregationExcluded: isGuest,
+              isAggregationExcluded,
               attendanceCount: 0,
-              transportationStatus: statuses.transportationStatus,
-              invoiceInfoStatus: statuses.invoiceInfoStatus,
-              individualStatus: statuses.individualStatus,
-              sendBackReason: statuses.sendBackReason,
-              missingInfo: statuses.missingInfo,
-              warningCount: statuses.warningCount,
+              transportationStatus: review?.transportationStatus || (isAggregationExcluded && isGuest ? "集計対象外" : statuses.transportationStatus),
+              invoiceInfoStatus: review?.invoiceInfoStatus || (isAggregationExcluded && isGuest ? "集計対象外" : statuses.invoiceInfoStatus),
+              individualStatus: review?.individualStatus || statuses.individualStatus,
+              sendBackReason: review?.sendBackReason || statuses.sendBackReason,
+              missingInfo: review?.missingInfo || (isAggregationExcluded && isGuest ? "ゲストのため集計対象外" : statuses.missingInfo),
+              aggregationOverrideReason: review?.aggregationOverrideReason || "",
+              aggregationOverrideBy: review?.aggregationOverrideBy || null,
+              aggregationOverrideAt: review?.aggregationOverrideAt || null,
+              warningCount,
             };
             projectGroup.participants.push(participant);
           }
@@ -3115,12 +3131,12 @@ export const appRouter = router({
             if (a.isGuest !== b.isGuest) return a.isGuest ? 1 : -1;
             return a.workerName.localeCompare(b.workerName, "ja");
           });
-          projectGroup.participantCount = projectGroup.participants.filter((participant: any) => !participant.isGuest).length;
+          projectGroup.participantCount = projectGroup.participants.filter((participant: any) => !participant.isAggregationExcluded).length;
           projectGroup.warningCount = projectGroup.participants
-            .filter((participant: any) => !participant.isGuest)
+            .filter((participant: any) => !participant.isAggregationExcluded)
             .reduce((sum: number, participant: any) => sum + participant.warningCount, 0);
           projectGroup.warnings = projectGroup.warningCount > 0 ? [`${projectGroup.warningCount}件`] : [];
-          projectGroup.closingStatus = deriveProjectStatus(projectGroup.participants);
+          projectGroup.closingStatus = projectReviewMap.get(projectGroup.projectId)?.status || deriveProjectStatus(projectGroup.participants);
           return projectGroup;
         });
 
@@ -3132,6 +3148,78 @@ export const appRouter = router({
             return a.projectName.localeCompare(b.projectName, "ja");
           }),
         };
+      }),
+    updateProjectStatus: leaderOrAdminProcedure
+      .input(z.object({
+        targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        projectId: z.number().int().positive(),
+        status: z.enum(monthlyClosingV2ProjectStatuses),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.upsertMonthlyClosingV2ProjectReview({
+          targetMonth: input.targetMonth,
+          projectId: input.projectId,
+          status: input.status,
+          updatedBy: ctx.user.id,
+        });
+      }),
+    updateParticipantStatus: leaderOrAdminProcedure
+      .input(z.object({
+        targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        projectId: z.number().int().positive(),
+        participantKey: z.string().min(1).max(255),
+        workerId: z.number().int().positive().nullable().optional(),
+        guestName: z.string().max(255).nullable().optional(),
+        individualStatus: z.enum(monthlyClosingV2ParticipantStatuses),
+        transportationStatus: z.enum(monthlyClosingV2TransportationStatuses),
+        invoiceInfoStatus: z.enum(monthlyClosingV2InvoiceInfoStatuses),
+        sendBackReason: z.string().max(2000).optional().default(""),
+        missingInfo: z.string().max(2000).optional().default(""),
+        isAggregationExcluded: z.boolean(),
+        aggregationOverrideReason: z.string().max(2000).optional().default(""),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const isAdmin = isPrivilegedAppRole((ctx.user as any).appRole);
+        const isGuestParticipant = input.participantKey.startsWith("guest:");
+        const defaultExcluded = isGuestParticipant;
+        const currentReview = await db.getMonthlyClosingV2ParticipantReview(input.targetMonth, input.projectId, input.participantKey);
+        const currentExcluded = currentReview?.isAggregationExcluded ?? defaultExcluded;
+        const changesAggregationInclusion = input.isAggregationExcluded !== currentExcluded;
+
+        if (changesAggregationInclusion && !isAdmin) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "集計対象の変更は管理者のみ実行できます" });
+        }
+        if (changesAggregationInclusion && input.aggregationOverrideReason.trim().length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "集計対象を変更する理由を入力してください" });
+        }
+
+        const aggregationAudit = changesAggregationInclusion
+          ? {
+              aggregationOverrideReason: input.aggregationOverrideReason.trim(),
+              aggregationOverrideBy: ctx.user.id,
+              aggregationOverrideAt: new Date(),
+            }
+          : {
+              aggregationOverrideReason: input.aggregationOverrideReason.trim() || null,
+              aggregationOverrideBy: null,
+              aggregationOverrideAt: null,
+            };
+
+        return db.upsertMonthlyClosingV2ParticipantReview({
+          targetMonth: input.targetMonth,
+          projectId: input.projectId,
+          participantKey: input.participantKey,
+          workerId: input.workerId ?? null,
+          guestName: input.guestName ?? null,
+          individualStatus: input.individualStatus,
+          transportationStatus: input.transportationStatus,
+          invoiceInfoStatus: input.invoiceInfoStatus,
+          sendBackReason: input.sendBackReason.trim(),
+          missingInfo: input.missingInfo.trim(),
+          isAggregationExcluded: input.isAggregationExcluded,
+          ...aggregationAudit,
+          updatedBy: ctx.user.id,
+        });
       }),
   }),
 
