@@ -1,21 +1,25 @@
-/**
+/*
  * AppMonthlyCloseV2 — 月締めV2
- * UI: compact table for project list + participant list.
- * Editing controls appear only when 編集 is clicked.
+ * UI: 現場カード + コンパクト参加者テーブル + インライン編集パネル
+ * モックアップ（FC80AA22）に合わせてリデザイン済み
+ * - 「出勤日数」表示（「出面件数」廃止）
+ * - 「職種」列削除
+ * - チップ/ボタン型ステータス選択（ドロップダウン廃止）
+ * - 交通費区分: なし / 本人立替 / 会社カード・ETC
+ * - 現場ステータスもチップ型
  * Backend / schema / migrations: UNCHANGED.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
+  Building2,
   CalendarDays,
   ChevronDown,
   ChevronRight,
@@ -30,23 +34,56 @@ import {
   X,
   Paperclip,
   Upload,
+  Users,
+  Flag,
 } from "lucide-react";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const PROJECT_STATUS_OPTIONS = ["未着手", "確認中", "情報不足", "差し戻しあり", "締め完了"] as const;
 const PARTICIPANT_STATUS_OPTIONS = ["未確認", "出面確認済み", "交通費未入力", "情報不足", "差し戻し", "確認済み", "締め完了"] as const;
-const TRANSPORTATION_STATUS_OPTIONS = ["未入力", "入力済み", "確認待ち", "確認済み", "情報不足", "集計対象外"] as const;
-const INVOICE_INFO_STATUS_OPTIONS = ["確認待ち", "確認中", "確認済み", "情報不足", "集計対象外"] as const;
+const TRANSPORT_CATEGORY_OPTIONS = ["なし", "本人立替", "会社カード・ETC"] as const;
+const INVOICE_INFO_STATUS_OPTIONS = ["確認待ち", "確認中", "確認済み", "情報不足"] as const;
 
-const PROJECT_STATUS_BADGE: Record<string, string> = {
-  未着手: "bg-muted text-muted-foreground border-border",
-  確認中: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  情報不足: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-  差し戻しあり: "bg-red-500/10 text-red-500 border-red-500/20",
-  締め完了: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+type TransportCategory = typeof TRANSPORT_CATEGORY_OPTIONS[number];
+
+const PROJECT_STATUS_CHIP: Record<string, string> = {
+  未着手: "border-border text-muted-foreground hover:bg-muted/50",
+  確認中: "border-blue-500/40 text-blue-500 bg-blue-500/10 hover:bg-blue-500/20",
+  情報不足: "border-amber-500/40 text-amber-500 bg-amber-500/10 hover:bg-amber-500/20",
+  差し戻しあり: "border-red-500/40 text-red-500 bg-red-500/10 hover:bg-red-500/20",
+  締め完了: "border-emerald-500/40 text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20",
 };
 
+const PROJECT_STATUS_CHIP_ACTIVE: Record<string, string> = {
+  未着手: "border-border bg-muted text-foreground",
+  確認中: "border-blue-500 bg-blue-500 text-white",
+  情報不足: "border-amber-500 bg-amber-500 text-white",
+  差し戻しあり: "border-red-500 bg-red-500 text-white",
+  締め完了: "border-emerald-500 bg-emerald-500 text-white",
+};
+
+const PARTICIPANT_STATUS_CHIP: Record<string, string> = {
+  未確認: "border-border text-muted-foreground hover:bg-muted/50",
+  出面確認済み: "border-blue-500/40 text-blue-500 bg-blue-500/10 hover:bg-blue-500/20",
+  交通費未入力: "border-amber-500/40 text-amber-500 bg-amber-500/10 hover:bg-amber-500/20",
+  情報不足: "border-amber-500/40 text-amber-500 bg-amber-500/10 hover:bg-amber-500/20",
+  差し戻し: "border-red-500/40 text-red-500 bg-red-500/10 hover:bg-red-500/20",
+  確認済み: "border-emerald-500/40 text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20",
+  締め完了: "border-purple-500/40 text-purple-500 bg-purple-500/10 hover:bg-purple-500/20",
+};
+
+const PARTICIPANT_STATUS_CHIP_ACTIVE: Record<string, string> = {
+  未確認: "border-border bg-muted text-foreground",
+  出面確認済み: "border-blue-500 bg-blue-500 text-white",
+  交通費未入力: "border-amber-500 bg-amber-500 text-white",
+  情報不足: "border-amber-500 bg-amber-500 text-white",
+  差し戻し: "border-red-500 bg-red-500 text-white",
+  確認済み: "border-emerald-500 bg-emerald-500 text-white",
+  締め完了: "border-purple-500 bg-purple-500 text-white",
+};
+
+// Badge for read-only display in table
 const PARTICIPANT_STATUS_BADGE: Record<string, string> = {
   未確認: "bg-muted text-muted-foreground border-border",
   出面確認済み: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -55,6 +92,28 @@ const PARTICIPANT_STATUS_BADGE: Record<string, string> = {
   差し戻し: "bg-red-500/10 text-red-500 border-red-500/20",
   確認済み: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
   締め完了: "bg-purple-500/10 text-purple-500 border-purple-500/20",
+};
+
+const INVOICE_STATUS_CHIP: Record<string, string> = {
+  確認待ち: "border-border text-muted-foreground hover:bg-muted/50",
+  確認中: "border-blue-500/40 text-blue-500 bg-blue-500/10 hover:bg-blue-500/20",
+  確認済み: "border-emerald-500/40 text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20",
+  情報不足: "border-amber-500/40 text-amber-500 bg-amber-500/10 hover:bg-amber-500/20",
+};
+
+const INVOICE_STATUS_CHIP_ACTIVE: Record<string, string> = {
+  確認待ち: "border-border bg-muted text-foreground",
+  確認中: "border-blue-500 bg-blue-500 text-white",
+  確認済み: "border-emerald-500 bg-emerald-500 text-white",
+  情報不足: "border-amber-500 bg-amber-500 text-white",
+};
+
+const INVOICE_STATUS_BADGE: Record<string, string> = {
+  確認待ち: "bg-muted text-muted-foreground border-border",
+  確認中: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+  確認済み: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+  情報不足: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+  集計対象外: "bg-muted text-muted-foreground border-border",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -84,6 +143,37 @@ function isAdminRole(appRole: unknown) {
 }
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+
+// ─── Chip Button ─────────────────────────────────────────────────────────────
+
+function ChipButton({
+  label,
+  isActive,
+  activeClass,
+  inactiveClass,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  isActive: boolean;
+  activeClass: string;
+  inactiveClass: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`px-3 py-1.5 text-xs rounded-md border font-medium transition-all duration-150 ${
+        isActive ? activeClass : inactiveClass
+      } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+    >
+      {label}
+    </button>
+  );
+}
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
@@ -165,244 +255,241 @@ export default function AppMonthlyCloseV2() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold">
             <FileCheck2 className="h-5 w-5 text-gold" />
-            月締めV2
+            月締め管理
           </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">対象月 × 現場／プロジェクト単位で月締めを管理</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => dashboardQuery.refetch()}
-          disabled={dashboardQuery.isFetching}
-        >
-          {dashboardQuery.isFetching ? (
-            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-          )}
-          更新
-        </Button>
-      </div>
-
-      <Alert className="py-2 px-3">
-        <CalendarDays className="h-4 w-4" />
-        <AlertTitle className="text-sm">Phase 2A 基盤</AlertTitle>
-        <AlertDescription className="text-xs">
-          この画面は既存の締め管理画面に依存せず、既存の出面レコードから従業員・現場別の基礎データのみを表示します。
-        </AlertDescription>
-      </Alert>
-
-      {/* Month selector */}
-      <div className="flex items-center gap-3">
-        <Label className="shrink-0 text-sm font-medium">対象月</Label>
-        <Input
-          type="month"
-          value={targetMonth}
-          onChange={(e) => setTargetMonth(e.target.value || getCurrentMonth())}
-          className="w-44 h-9 text-sm"
-          aria-label="対象月"
-        />
-        <span className="text-sm text-muted-foreground">{formatMonth(targetMonth)}</span>
+        <div className="flex items-center gap-2">
+          {/* Month selector */}
+          <div className="flex items-center gap-2 border rounded-md px-3 py-1.5 bg-card">
+            <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground shrink-0">対象月</span>
+            <Input
+              type="month"
+              value={targetMonth}
+              onChange={(e) => setTargetMonth(e.target.value || getCurrentMonth())}
+              className="w-36 h-7 text-sm border-0 p-0 focus-visible:ring-0 bg-transparent"
+              aria-label="対象月"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => dashboardQuery.refetch()}
+            disabled={dashboardQuery.isFetching}
+          >
+            {dashboardQuery.isFetching ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Project list */}
-      <Card>
-        <CardHeader className="pb-2 pt-4 px-4">
-          <CardTitle className="text-base">現場一覧</CardTitle>
-          <CardDescription className="text-xs">対象月: {formatMonth(targetMonth)}</CardDescription>
-        </CardHeader>
-        <CardContent className="px-0 pb-2">
-          {dashboardQuery.isLoading ? (
-            <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              読み込み中
-            </div>
-          ) : dashboardQuery.isError ? (
-            <div className="mx-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              データの取得に失敗しました: {dashboardQuery.error.message}
-            </div>
-          ) : projectRows.length === 0 ? (
-            <div className="mx-4 rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-              データがありません
-            </div>
-          ) : (
-            <>
-              {/* Desktop table header */}
-              <div className="hidden md:grid md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)_56px_56px_56px_minmax(0,1.5fr)_100px] gap-x-3 px-4 py-1.5 text-xs font-medium text-muted-foreground border-b bg-muted/20">
-                <span>現場 / プロジェクト</span>
-                <span>取引先</span>
-                <span className="text-center">参加</span>
-                <span className="text-center">出面</span>
-                <span className="text-center">警告</span>
-                <span>ステータス</span>
-                <span></span>
-              </div>
+      {dashboardQuery.isLoading ? (
+        <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          読み込み中
+        </div>
+      ) : dashboardQuery.isError ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+          データの取得に失敗しました: {dashboardQuery.error.message}
+        </div>
+      ) : projectRows.length === 0 ? (
+        <div className="rounded-md border border-dashed p-12 text-center text-sm text-muted-foreground">
+          {formatMonth(targetMonth)} のデータがありません
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {projectRows.map((row: any) => {
+            const projectKey = `project:${row.projectId}`;
+            const isOpen = openProjectIds.has(projectKey);
+            const participants = row.participants ?? [];
 
-              <div className="divide-y">
-                {projectRows.map((row: any) => {
-                  const projectKey = `project:${row.projectId}`;
-                  const isOpen = openProjectIds.has(projectKey);
-                  const participants = row.participants ?? [];
+            return (
+              <Card key={projectKey} className="overflow-hidden">
+                {/* Project card header */}
+                <div
+                  className="flex items-center gap-4 p-4 cursor-pointer hover:bg-muted/10 transition-colors"
+                  onClick={() => toggleProject(row.projectId)}
+                >
+                  {/* Building icon */}
+                  <div className="shrink-0 w-12 h-12 rounded-md bg-muted/30 border flex items-center justify-center">
+                    <Building2 className="h-6 w-6 text-muted-foreground" />
+                  </div>
 
-                  return (
-                    <div key={projectKey}>
-                      {/* Desktop row */}
-                      <div className="hidden md:grid md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)_56px_56px_56px_minmax(0,1.5fr)_100px] gap-x-3 px-4 py-2.5 items-center hover:bg-muted/10 transition-colors">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <button
-                            type="button"
-                            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                            onClick={() => toggleProject(row.projectId)}
-                            aria-label={isOpen ? "折りたたむ" : "展開する"}
-                          >
-                            {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                          </button>
-                          <button
-                            type="button"
-                            className="truncate text-sm font-medium text-left hover:underline"
-                            onClick={() => toggleProject(row.projectId)}
-                          >
-                            {row.projectName}
-                          </button>
-                        </div>
-                        <span className="truncate text-sm text-muted-foreground">{row.clientName}</span>
-                        <span className="text-center text-sm">{row.participantCount}</span>
-                        <span className="text-center text-sm">{row.attendanceCount}</span>
-                        <span className="text-center text-sm">
-                          {row.warningCount > 0 ? (
-                            <span className="text-amber-500 font-medium">{row.warningCount}</span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </span>
-                        {/* Project status selector */}
-                        <div>
-                          <Select
-                            value={row.closingStatus}
-                            onValueChange={(value) =>
-                              projectStatusMutation.mutate({
-                                targetMonth,
-                                projectId: Number(row.projectId),
-                                status: value as any,
-                              })
-                            }
-                            disabled={projectStatusMutation.isPending}
-                          >
-                            <SelectTrigger className="h-7 text-xs px-2">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {PROJECT_STATUS_OPTIONS.map((s) => (
-                                <SelectItem key={s} value={s} className="text-xs">
-                                  {s}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="flex justify-end">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs px-2"
-                            onClick={() => toggleProject(row.projectId)}
-                          >
-                            {isOpen ? "閉じる" : "詳細"}
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Mobile row */}
-                      <div
-                        className="md:hidden px-4 py-3 cursor-pointer hover:bg-muted/10 transition-colors"
-                        onClick={() => toggleProject(row.projectId)}
+                  {/* Project name + client */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="text-base font-bold text-left hover:underline truncate"
+                        onClick={(e) => { e.stopPropagation(); toggleProject(row.projectId); }}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {isOpen ? (
-                                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                              )}
-                              <span className="font-medium text-sm">{row.projectName}</span>
-                              <Badge
-                                variant="outline"
-                                className={`text-xs ${PROJECT_STATUS_BADGE[row.closingStatus] || PROJECT_STATUS_BADGE.未着手}`}
-                              >
-                                {row.closingStatus}
-                              </Badge>
-                            </div>
-                            <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground pl-5">
-                              <span>{row.clientName}</span>
-                              <span>参加 {row.participantCount}名</span>
-                              <span>出面 {row.attendanceCount}件</span>
-                              {row.warningCount > 0 && (
-                                <span className="text-amber-500">
-                                  <AlertTriangle className="inline h-3 w-3 mr-0.5" />
-                                  警告 {row.warningCount}件
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Expanded participant section */}
-                      {isOpen && (
-                        <div className="border-t bg-muted/5">
-                          {/* Participant table header — desktop */}
-                          <div className="hidden md:grid md:grid-cols-[minmax(0,2fr)_70px_50px_110px_90px_110px_90px_80px_80px] gap-x-2 px-6 py-1.5 text-xs font-medium text-muted-foreground border-b bg-muted/20">
-                            <span>作業員</span>
-                            <span>区分</span>
-                            <span className="text-center">出面</span>
-                            <span>個別ステータス</span>
-                            <span>交通費状態</span>
-                            <span>交通費金額</span>
-                            <span>請求情報</span>
-                            <span>領収書</span>
-                            <span></span>
-                          </div>
-
-                          {/* Mobile participant header */}
-                          <div className="md:hidden px-4 py-1.5 text-xs font-medium text-muted-foreground border-b bg-muted/20">
-                            参加者明細
-                          </div>
-
-                          {participants.length === 0 ? (
-                            <div className="px-6 py-6 text-center text-sm text-muted-foreground">
-                              参加者明細がありません
-                            </div>
-                          ) : (
-                            <div className="divide-y">
-                              {participants.map((participant: any) => (
-                                <ParticipantRow
-                                  key={participant.participantKey}
-                                  row={row}
-                                  participant={participant}
-                                  targetMonth={targetMonth}
-                                  canChangeAggregation={canChangeAggregation}
-                                  isSavingStatus={participantStatusMutation.isPending}
-                                  onUpdate={updateParticipant}
-                                  onChangeAggregation={changeAggregation}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        {row.projectName}
+                      </button>
+                      {isOpen ? (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+                    <p className="text-xs text-muted-foreground truncate">{row.clientName}</p>
+                  </div>
+
+                  {/* Stats */}
+                  <div className="hidden sm:flex items-center gap-6 shrink-0">
+                    {/* 参加 */}
+                    <div className="text-center">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5">
+                        <Users className="h-3 w-3" />参加
+                      </div>
+                      <div className="text-lg font-bold">{row.participantCount}<span className="text-xs font-normal text-muted-foreground ml-0.5">名</span></div>
+                    </div>
+                    {/* 出勤日数 */}
+                    <div className="text-center">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5">
+                        <CalendarDays className="h-3 w-3" />出勤日数
+                      </div>
+                      <div className="text-lg font-bold">{row.attendanceCount}<span className="text-xs font-normal text-muted-foreground ml-0.5">日</span></div>
+                    </div>
+                    {/* 警告 */}
+                    <div className="text-center">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5">
+                        <AlertTriangle className="h-3 w-3" />警告
+                      </div>
+                      <div className={`text-lg font-bold ${row.warningCount > 0 ? "text-amber-500" : "text-muted-foreground"}`}>
+                        {row.warningCount}<span className="text-xs font-normal ml-0.5">件</span>
+                      </div>
+                    </div>
+                    {/* 月締めステータス */}
+                    <div className="text-center min-w-[80px]">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5 justify-center">
+                        <Flag className="h-3 w-3" />月締めステータス
+                      </div>
+                      <ProjectStatusSelector
+                        value={row.closingStatus}
+                        onChange={(value) =>
+                          projectStatusMutation.mutate({
+                            targetMonth,
+                            projectId: Number(row.projectId),
+                            status: value as any,
+                          })
+                        }
+                        disabled={projectStatusMutation.isPending}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Mobile stats */}
+                  <div className="sm:hidden flex flex-col items-end gap-1 shrink-0">
+                    <Badge
+                      variant="outline"
+                      className={`text-xs ${PROJECT_STATUS_CHIP[row.closingStatus] || PROJECT_STATUS_CHIP.未着手}`}
+                    >
+                      {row.closingStatus}
+                    </Badge>
+                    <div className="flex gap-2 text-xs text-muted-foreground">
+                      <span>{row.participantCount}名</span>
+                      <span>{row.attendanceCount}日</span>
+                      {row.warningCount > 0 && (
+                        <span className="text-amber-500">{row.warningCount}件警告</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Expanded participant section */}
+                {isOpen && (
+                  <div className="border-t">
+                    {/* Participant table header — desktop */}
+                    <div className="hidden md:grid md:grid-cols-[minmax(0,2fr)_80px_minmax(0,1.5fr)_110px_minmax(0,1.2fr)_minmax(0,1.2fr)_80px] gap-x-3 px-5 py-2 text-xs font-medium text-muted-foreground bg-muted/20 border-b">
+                      <span>作業員名</span>
+                      <span className="text-center">出勤日数</span>
+                      <span>個別状態</span>
+                      <span>交通費金額</span>
+                      <span>領収書状況</span>
+                      <span>請求情報状態</span>
+                      <span></span>
+                    </div>
+
+                    {/* Mobile participant header */}
+                    <div className="md:hidden px-4 py-2 text-xs font-medium text-muted-foreground bg-muted/20 border-b">
+                      参加者明細
+                    </div>
+
+                    {participants.length === 0 ? (
+                      <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+                        参加者明細がありません
+                      </div>
+                    ) : (
+                      <div className="divide-y">
+                        {participants.map((participant: any) => (
+                          <ParticipantRow
+                            key={participant.participantKey}
+                            row={row}
+                            participant={participant}
+                            targetMonth={targetMonth}
+                            canChangeAggregation={canChangeAggregation}
+                            isSavingStatus={participantStatusMutation.isPending}
+                            onUpdate={updateParticipant}
+                            onChangeAggregation={changeAggregation}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Project Status Selector (chip dropdown) ─────────────────────────────────
+
+function ProjectStatusSelector({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="relative group">
+      <button
+        type="button"
+        disabled={disabled}
+        className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-all ${
+          PROJECT_STATUS_CHIP_ACTIVE[value] || "border-border bg-muted text-foreground"
+        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {value || "未着手"}
+      </button>
+      {/* Dropdown on hover/focus - simple select overlay */}
+      <select
+        value={value}
+        onChange={(e) => { e.stopPropagation(); onChange(e.target.value); }}
+        disabled={disabled}
+        className="absolute inset-0 opacity-0 cursor-pointer w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {PROJECT_STATUS_OPTIONS.map((s) => (
+          <option key={s} value={s}>{s}</option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -431,8 +518,8 @@ function ParticipantRow({
 
   // Local edit state (initialized from participant data)
   const [localIndividualStatus, setLocalIndividualStatus] = useState(toText(participant.individualStatus) || "未確認");
-  const [localTransportStatus, setLocalTransportStatus] = useState(toText(participant.transportationStatus) || "未入力");
   const [localInvoiceStatus, setLocalInvoiceStatus] = useState(toText(participant.invoiceInfoStatus) || "確認待ち");
+  const [localTransportCategory, setLocalTransportCategory] = useState<TransportCategory>("なし");
   const [sendBackReason, setSendBackReason] = useState(toText(participant.sendBackReason));
   const [missingInfo, setMissingInfo] = useState(toText(participant.missingInfo));
   const [transportAmount, setTransportAmount] = useState<string>("");
@@ -458,6 +545,8 @@ function ParticipantRow({
     if (existing) {
       setTransportAmount(String(existing.amount));
       setTransportMemo(existing.memo ?? "");
+      // Infer category from amount
+      if (existing.amount > 0) setLocalTransportCategory("本人立替");
     }
     transportInitialized.current = true;
   }
@@ -482,16 +571,36 @@ function ParticipantRow({
     upsertTransportMutation.mutate({ targetMonth, projectId, workerId, amount, memo: transportMemo.trim() });
   };
 
-  const saveStatus = () => {
+  const saveAll = () => {
     setStatusSaveState("saving");
     try {
+      // Derive transportationStatus from category
+      let transportationStatus = participant.transportationStatus;
+      if (!isGuest && workerId != null) {
+        if (localTransportCategory === "なし") {
+          transportationStatus = "確認済み";
+        } else if (localTransportCategory === "本人立替" || localTransportCategory === "会社カード・ETC") {
+          const amount = parseInt(transportAmount.replace(/[^0-9]/g, ""), 10);
+          transportationStatus = (amount > 0 || localTransportCategory === "会社カード・ETC") ? "入力済み" : "未入力";
+        }
+      }
+
       onUpdate(row, participant, {
         individualStatus: localIndividualStatus,
-        transportationStatus: localTransportStatus,
+        transportationStatus,
         invoiceInfoStatus: localInvoiceStatus,
         sendBackReason,
         missingInfo,
       });
+
+      // Also save transportation amount if non-guest
+      if (!isGuest && workerId != null) {
+        const amount = parseInt(transportAmount.replace(/[^0-9]/g, ""), 10);
+        if (!isNaN(amount) && amount >= 0) {
+          upsertTransportMutation.mutate({ targetMonth, projectId, workerId, amount, memo: transportMemo.trim() });
+        }
+      }
+
       setStatusSaveState("saved");
       setTimeout(() => {
         setStatusSaveState("idle");
@@ -509,70 +618,98 @@ function ParticipantRow({
         ? null
         : transportAmountNum > 0
         ? formatYen(transportAmountNum)
-        : "交通費未入力")
+        : "—")
     : null;
 
-  const categoryLabel = isGuest
-    ? isExcluded
-      ? "ゲスト / 集計対象外"
-      : "ゲスト / 集計対象"
-    : "作業員";
-
   // Receipt placeholder state (future implementation)
-  const receiptStatus = "未添付";
+  const receiptStatus: string = "未添付";
 
   // ── Collapsed read-only row (desktop) ────────────────────────────────────
   const desktopReadRow = (
-    <div className="hidden md:grid md:grid-cols-[minmax(0,2fr)_70px_50px_110px_90px_110px_90px_80px_80px] gap-x-2 px-6 py-2 items-center">
-      {/* 作業員 */}
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span className={`text-sm truncate ${isExcluded ? "text-muted-foreground" : ""}`}>
+    <div className="hidden md:grid md:grid-cols-[minmax(0,2fr)_80px_minmax(0,1.5fr)_110px_minmax(0,1.2fr)_minmax(0,1.2fr)_80px] gap-x-3 px-5 py-2.5 items-center hover:bg-muted/5 transition-colors">
+      {/* 作業員名 */}
+      <div className="flex flex-col min-w-0">
+        <span className={`text-sm font-medium truncate ${isExcluded ? "text-muted-foreground" : ""}`}>
           {participant.workerName}
+          {participant.warningCount > 0 && !isExcluded && (
+            <AlertTriangle className="inline h-3 w-3 ml-1 text-amber-500" />
+          )}
         </span>
-        {participant.warningCount > 0 && !isExcluded && (
-          <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" />
+        {isExcluded && (
+          <span className="text-xs text-muted-foreground">ゲスト／集計対象外</span>
         )}
       </div>
-      {/* 区分 */}
-      <span className="text-xs text-muted-foreground truncate">{categoryLabel}</span>
-      {/* 出面 */}
-      <span className="text-center text-sm">{participant.attendanceCount}</span>
-      {/* 個別ステータス */}
-      <Badge
-        variant="outline"
-        className={`text-xs justify-center ${PARTICIPANT_STATUS_BADGE[participant.individualStatus] || PARTICIPANT_STATUS_BADGE.未確認}`}
-      >
-        {participant.individualStatus}
-      </Badge>
-      {/* 交通費状態 */}
-      <span className="text-xs text-muted-foreground truncate">{participant.transportationStatus}</span>
+      {/* 出勤日数 */}
+      <span className="text-center text-sm">{participant.attendanceCount}<span className="text-xs text-muted-foreground ml-0.5">日</span></span>
+      {/* 個別状態 */}
+      {isExcluded ? (
+        <span className="text-xs text-muted-foreground">—</span>
+      ) : (
+        <Badge
+          variant="outline"
+          className={`text-xs w-fit ${PARTICIPANT_STATUS_BADGE[participant.individualStatus] || PARTICIPANT_STATUS_BADGE.未確認}`}
+        >
+          {participant.individualStatus}
+        </Badge>
+      )}
       {/* 交通費金額 */}
-      <span className={`text-xs truncate ${transportDisplayText === "交通費未入力" ? "text-amber-500" : "text-foreground"}`}>
-        {transportDisplayText ?? "—"}
-      </span>
-      {/* 請求情報 */}
-      <span className="text-xs text-muted-foreground truncate">{participant.invoiceInfoStatus}</span>
-      {/* 領収書 */}
-      <span className="text-xs text-muted-foreground">
-        {!isGuest && workerId != null ? (
-          <span className={receiptStatus === "添付済み" ? "text-emerald-600" : "text-muted-foreground"}>
-            {receiptStatus}
-          </span>
-        ) : "—"}
-      </span>
-      {/* 編集ボタン */}
-      {!(isExcluded && isGuest) && (
+      {isExcluded ? (
+        <span className="text-xs text-muted-foreground">—</span>
+      ) : (
+        <span className={`text-sm ${transportDisplayText && transportDisplayText !== "—" ? "font-medium" : "text-muted-foreground"}`}>
+          {transportDisplayText ?? "—"}
+        </span>
+      )}
+      {/* 領収書状況 */}
+      {isExcluded ? (
+        <span className="text-xs text-muted-foreground">—</span>
+      ) : !isGuest && workerId != null ? (
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Paperclip className="h-3 w-3" />
+          領収書：{receiptStatus}
+        </span>
+      ) : (
+        <span className="text-xs text-muted-foreground">—</span>
+      )}
+      {/* 請求情報状態 */}
+      {isExcluded ? (
+        <span className="text-xs text-muted-foreground">—</span>
+      ) : (
+        <Badge
+          variant="outline"
+          className={`text-xs w-fit ${INVOICE_STATUS_BADGE[participant.invoiceInfoStatus] || INVOICE_STATUS_BADGE.確認待ち}`}
+        >
+          {participant.invoiceInfoStatus}
+        </Badge>
+      )}
+      {/* 操作 */}
+      {!isExcluded ? (
         <div className="flex justify-end">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 text-xs px-2"
+            className="h-7 text-xs px-3"
             onClick={() => setIsEditing(true)}
           >
             <Pencil className="h-3 w-3 mr-1" />
             編集
           </Button>
+        </div>
+      ) : (
+        <div className="flex justify-end">
+          {canChangeAggregation && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs px-2 text-muted-foreground"
+              disabled={isSavingStatus}
+              onClick={() => onChangeAggregation(row, participant)}
+            >
+              集計対象に含める
+            </Button>
+          )}
         </div>
       )}
     </div>
@@ -580,30 +717,32 @@ function ParticipantRow({
 
   // ── Mobile collapsed row ──────────────────────────────────────────────────
   const mobileReadRow = (
-    <div className="md:hidden px-4 py-2.5">
+    <div className="md:hidden px-4 py-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className={`text-sm font-medium ${isExcluded ? "text-muted-foreground" : ""}`}>
               {participant.workerName}
             </span>
-            <span className="text-xs text-muted-foreground">{categoryLabel}</span>
-            <Badge
-              variant="outline"
-              className={`text-xs ${PARTICIPANT_STATUS_BADGE[participant.individualStatus] || PARTICIPANT_STATUS_BADGE.未確認}`}
-            >
-              {participant.individualStatus}
-            </Badge>
+            {isExcluded && (
+              <span className="text-xs text-muted-foreground">ゲスト／集計対象外</span>
+            )}
+            {!isExcluded && (
+              <Badge
+                variant="outline"
+                className={`text-xs ${PARTICIPANT_STATUS_BADGE[participant.individualStatus] || PARTICIPANT_STATUS_BADGE.未確認}`}
+              >
+                {participant.individualStatus}
+              </Badge>
+            )}
           </div>
           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-            <span>出面 {participant.attendanceCount}件</span>
-            {transportDisplayText && (
-              <span className={transportDisplayText === "交通費未入力" ? "text-amber-500" : ""}>
-                {transportDisplayText}
-              </span>
+            <span>出勤 {participant.attendanceCount}日</span>
+            {!isExcluded && transportDisplayText && transportDisplayText !== "—" && (
+              <span className="text-foreground font-medium">{transportDisplayText}</span>
             )}
-            {!isGuest && workerId != null && (
-              <span className={receiptStatus === "添付済み" ? "text-emerald-600" : ""}>
+            {!isExcluded && !isGuest && workerId != null && (
+              <span>
                 <Paperclip className="inline h-3 w-3 mr-0.5" />
                 領収書: {receiptStatus}
               </span>
@@ -616,7 +755,7 @@ function ParticipantRow({
             )}
           </div>
         </div>
-        {!(isExcluded && isGuest) && (
+        {!isExcluded && (
           <Button
             type="button"
             variant="outline"
@@ -634,9 +773,10 @@ function ParticipantRow({
 
   // ── Edit panel (shown when isEditing) ─────────────────────────────────────
   const editPanel = isEditing && (
-    <div className="mx-4 mb-3 rounded-md border bg-card shadow-sm">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/20">
-        <span className="text-sm font-medium">{participant.workerName} — 編集</span>
+    <div className="mx-4 mb-3 rounded-lg border bg-card shadow-sm">
+      {/* Edit panel header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b">
+        <span className="text-sm font-semibold">{participant.workerName} の詳細編集</span>
         <Button
           type="button"
           variant="ghost"
@@ -649,116 +789,134 @@ function ParticipantRow({
         </Button>
       </div>
 
-      <div className="p-4 space-y-4">
-        {/* Status dropdowns */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="space-y-1">
-            <Label className="text-xs">個別ステータス</Label>
-            <Select value={localIndividualStatus} onValueChange={setLocalIndividualStatus}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {PARTICIPANT_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">交通費状態</Label>
-            <Select value={localTransportStatus} onValueChange={setLocalTransportStatus}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {TRANSPORTATION_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">請求情報状態</Label>
-            <Select value={localInvoiceStatus} onValueChange={setLocalInvoiceStatus}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {INVOICE_INFO_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
+      <div className="p-4 space-y-5">
+        {/* 個別ステータス — chip group */}
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold">個別ステータス</Label>
+          <div className="flex flex-wrap gap-2">
+            {PARTICIPANT_STATUS_OPTIONS.map((s) => (
+              <ChipButton
+                key={s}
+                label={s}
+                isActive={localIndividualStatus === s}
+                activeClass={PARTICIPANT_STATUS_CHIP_ACTIVE[s] || "border-border bg-muted text-foreground"}
+                inactiveClass={PARTICIPANT_STATUS_CHIP[s] || "border-border text-muted-foreground hover:bg-muted/50"}
+                onClick={() => setLocalIndividualStatus(s)}
+              />
+            ))}
           </div>
         </div>
 
-        {/* Transportation amount (non-guest only) */}
+        {/* 交通区分 + 請求情報状態 */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* 交通区分 */}
+          {!isGuest && workerId != null && (
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">交通区分</Label>
+              <div className="flex flex-wrap gap-2">
+                {TRANSPORT_CATEGORY_OPTIONS.map((cat) => (
+                  <ChipButton
+                    key={cat}
+                    label={cat}
+                    isActive={localTransportCategory === cat}
+                    activeClass="border-blue-500 bg-blue-500 text-white"
+                    inactiveClass="border-border text-muted-foreground hover:bg-muted/50"
+                    onClick={() => setLocalTransportCategory(cat)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 請求情報状態 */}
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold">請求情報状態</Label>
+            <div className="flex flex-wrap gap-2">
+              {INVOICE_INFO_STATUS_OPTIONS.map((s) => (
+                <ChipButton
+                  key={s}
+                  label={s}
+                  isActive={localInvoiceStatus === s}
+                  activeClass={INVOICE_STATUS_CHIP_ACTIVE[s] || "border-border bg-muted text-foreground"}
+                  inactiveClass={INVOICE_STATUS_CHIP[s] || "border-border text-muted-foreground hover:bg-muted/50"}
+                  onClick={() => setLocalInvoiceStatus(s)}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 交通費金額 + メモ + 領収書 (non-guest only) */}
         {!isGuest && workerId != null && (
-          <div className="space-y-1.5">
-            <Label className="text-xs flex items-center gap-1">
-              <Truck className="h-3 w-3" />交通費金額（内部管理用）
-            </Label>
-            <div className="flex gap-2 items-center flex-wrap">
-              <div className="relative w-36">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[200px_1fr_180px]">
+            {/* 交通費金額 */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">交通費金額（内部管理用）</Label>
+              <div className="flex items-center gap-1.5">
                 <Input
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  className="pl-7 h-9 text-sm"
+                  className="h-9 text-sm text-right"
                   placeholder="0"
                   value={transportAmount}
                   onChange={(e) => setTransportAmount(e.target.value.replace(/[^0-9]/g, ""))}
+                  disabled={localTransportCategory === "なし"}
                 />
+                <span className="text-sm text-muted-foreground shrink-0">円</span>
               </div>
-              <Input
-                type="text"
-                className="h-9 text-sm flex-1 min-w-[120px]"
-                placeholder="メモ（任意）"
+            </div>
+
+            {/* メモ */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">メモ（任意）</Label>
+              <Textarea
+                className="text-sm min-h-[36px] h-9 resize-none"
+                placeholder="任意のメモを入力"
                 value={transportMemo}
                 onChange={(e) => setTransportMemo(e.target.value)}
                 maxLength={100}
               />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-9 shrink-0"
-                disabled={transportSaveState === "saving" || upsertTransportMutation.isPending}
-                onClick={saveTransportation}
-              >
-                {transportSaveState === "saving" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : transportSaveState === "saved" ? (
-                  <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mr-1" />保存しました</>
-                ) : transportSaveState === "error" ? (
-                  <><AlertTriangle className="h-3.5 w-3.5 text-destructive mr-1" />エラー</>
-                ) : (
-                  <><Save className="h-3.5 w-3.5 mr-1" />交通費保存</>
-                )}
-              </Button>
             </div>
-          </div>
-        )}
 
-        {/* Receipt placeholder */}
-        {!isGuest && workerId != null && (
-          <div className="space-y-1.5">
-            <Label className="text-xs flex items-center gap-1">
-              <Paperclip className="h-3 w-3" />領収書
-            </Label>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge
-                variant="outline"
-                className={
-                  receiptStatus === "添付済み"
-                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs"
-                    : "bg-muted text-muted-foreground border-border text-xs"
-                }
-              >
-                {receiptStatus}
-              </Badge>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs"
-                disabled
-                title="領収書アップロード（次フェーズで実装）"
-              >
-                <Upload className="h-3 w-3 mr-1" />
-                {receiptStatus === "添付済み" ? "差し替え" : "アップロード"}
-              </Button>
-              <span className="text-xs text-muted-foreground">PDF / JPEG / PNG</span>
+            {/* 領収書 */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">領収書</Label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className={
+                    receiptStatus === "添付済み"
+                      ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs"
+                      : "bg-amber-500/10 text-amber-500 border-amber-500/20 text-xs"
+                  }
+                >
+                  {receiptStatus}
+                </Badge>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled
+                  title="領収書アップロード（次フェーズで実装）"
+                >
+                  <Upload className="h-3 w-3 mr-1" />
+                  アップロード
+                </Button>
+                {receiptStatus === "添付済み" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled
+                  >
+                    差し替え
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">PDF / JPEG / PNG</p>
             </div>
           </div>
         )}
@@ -786,7 +944,7 @@ function ParticipantRow({
         </div>
 
         {/* Admin aggregation toggle */}
-        {canChangeAggregation && (
+        {canChangeAggregation && isExcluded && (
           <div>
             <Button
               type="button"
@@ -796,16 +954,24 @@ function ParticipantRow({
               disabled={isSavingStatus}
               onClick={() => onChangeAggregation(row, participant)}
             >
-              {isExcluded ? "集計対象に含める" : "集計対象外にする"}
+              集計対象に含める
             </Button>
           </div>
         )}
 
-        {/* Save status button */}
-        <div className="flex justify-end gap-2">
+        {/* Info note */}
+        {!isGuest && workerId != null && (
+          <p className="text-xs text-muted-foreground flex items-start gap-1.5 border rounded-md p-2.5 bg-muted/20">
+            <span className="shrink-0 mt-0.5">ℹ</span>
+            交通区分が「なし」の場合は金額入力不要。会社カード・ETC利用時は金額0でも領収書アップロードが必要。
+          </p>
+        )}
+
+        {/* Footer actions */}
+        <div className="flex justify-end gap-2 pt-1">
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={() => setIsEditing(false)}
           >
@@ -814,8 +980,9 @@ function ParticipantRow({
           <Button
             type="button"
             size="sm"
+            className="min-w-[80px]"
             disabled={statusSaveState === "saving" || isSavingStatus}
-            onClick={saveStatus}
+            onClick={saveAll}
           >
             {statusSaveState === "saving" ? (
               <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />保存中</>
@@ -833,7 +1000,7 @@ function ParticipantRow({
   );
 
   return (
-    <div className={isExcluded ? "opacity-70" : ""}>
+    <div className={isExcluded ? "opacity-60" : ""}>
       {desktopReadRow}
       {mobileReadRow}
       {editPanel}
