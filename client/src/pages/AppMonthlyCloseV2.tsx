@@ -5,11 +5,10 @@
  * - 「出勤日数」表示（「出面件数」廃止）
  * - 「職種」列削除
  * - チップ/ボタン型ステータス選択（ドロップダウン廃止）
- * - 交通費区分: なし / 本人立替 / 会社カード・ETC
+ * - 交通費区分: 交通費なし / 本人立替 / 会社カード・ETC / 客先請求 / 会社負担
  * - 現場ステータスもチップ型
- * Backend / schema / migrations: UNCHANGED.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -42,10 +41,16 @@ import {
 
 const PROJECT_STATUS_OPTIONS = ["未着手", "確認中", "情報不足", "差し戻しあり", "締め完了"] as const;
 const PARTICIPANT_STATUS_OPTIONS = ["未確認", "出面確認済み", "交通費未入力", "情報不足", "差し戻し", "確認済み", "締め完了"] as const;
-const TRANSPORT_CATEGORY_OPTIONS = ["なし", "本人立替", "会社カード・ETC"] as const;
+const TRANSPORT_CATEGORY_OPTIONS = [
+  { value: "none", label: "交通費なし" },
+  { value: "worker_reimbursable", label: "本人立替／精算対象" },
+  { value: "company_card_etc", label: "会社カード・ETC／会社払い" },
+  { value: "billable_to_client", label: "客先請求対象" },
+  { value: "company_absorbed", label: "会社負担／客先請求なし" },
+] as const;
 const INVOICE_INFO_STATUS_OPTIONS = ["確認待ち", "確認中", "確認済み", "情報不足"] as const;
 
-type TransportCategory = typeof TRANSPORT_CATEGORY_OPTIONS[number];
+type TransportCategory = typeof TRANSPORT_CATEGORY_OPTIONS[number]["value"];
 
 const PROJECT_STATUS_CHIP: Record<string, string> = {
   未着手: "border-border text-muted-foreground hover:bg-muted/50",
@@ -519,7 +524,7 @@ function ParticipantRow({
   // Local edit state (initialized from participant data)
   const [localIndividualStatus, setLocalIndividualStatus] = useState(toText(participant.individualStatus) || "未確認");
   const [localInvoiceStatus, setLocalInvoiceStatus] = useState(toText(participant.invoiceInfoStatus) || "確認待ち");
-  const [localTransportCategory, setLocalTransportCategory] = useState<TransportCategory>("なし");
+  const [localTransportCategory, setLocalTransportCategory] = useState<TransportCategory>("none");
   const [sendBackReason, setSendBackReason] = useState(toText(participant.sendBackReason));
   const [missingInfo, setMissingInfo] = useState(toText(participant.missingInfo));
   const [transportAmount, setTransportAmount] = useState<string>("");
@@ -539,17 +544,17 @@ function ParticipantRow({
     { enabled: !isGuest && workerId != null, staleTime: 30_000 }
   );
 
-  // Initialize transport fields once
-  if (!transportInitialized.current && !transportQuery.isLoading && transportQuery.data && workerId != null) {
+  // Initialize transport fields once after loading existing internal management data.
+  useEffect(() => {
+    if (transportInitialized.current || transportQuery.isLoading || !transportQuery.data || workerId == null) return;
     const existing = transportQuery.data[workerId];
     if (existing) {
-      setTransportAmount(String(existing.amount));
+      setTransportAmount(String(existing.amount ?? 0));
       setTransportMemo(existing.memo ?? "");
-      // Infer category from amount
-      if (existing.amount > 0) setLocalTransportCategory("本人立替");
+      setLocalTransportCategory((existing.paymentType as TransportCategory) || "none");
     }
     transportInitialized.current = true;
-  }
+  }, [transportQuery.isLoading, transportQuery.data, workerId]);
 
   const upsertTransportMutation = trpc.monthlyClosingV2.upsertTransportationExpense.useMutation({
     onSuccess: () => {
@@ -565,10 +570,11 @@ function ParticipantRow({
 
   const saveTransportation = () => {
     if (workerId == null) return;
-    const amount = parseInt(transportAmount.replace(/[^0-9]/g, ""), 10);
+    const rawAmount = transportAmount.replace(/[^0-9]/g, "");
+    const amount = rawAmount === "" ? 0 : parseInt(rawAmount, 10);
     if (isNaN(amount) || amount < 0) return;
     setTransportSaveState("saving");
-    upsertTransportMutation.mutate({ targetMonth, projectId, workerId, amount, memo: transportMemo.trim() });
+    upsertTransportMutation.mutate({ targetMonth, projectId, workerId, amount, paymentType: localTransportCategory, memo: transportMemo.trim() });
   };
 
   const saveAll = () => {
@@ -577,11 +583,10 @@ function ParticipantRow({
       // Derive transportationStatus from category
       let transportationStatus = participant.transportationStatus;
       if (!isGuest && workerId != null) {
-        if (localTransportCategory === "なし") {
+        if (localTransportCategory === "none") {
           transportationStatus = "確認済み";
-        } else if (localTransportCategory === "本人立替" || localTransportCategory === "会社カード・ETC") {
-          const amount = parseInt(transportAmount.replace(/[^0-9]/g, ""), 10);
-          transportationStatus = (amount > 0 || localTransportCategory === "会社カード・ETC") ? "入力済み" : "未入力";
+        } else {
+          transportationStatus = "入力済み";
         }
       }
 
@@ -595,9 +600,10 @@ function ParticipantRow({
 
       // Also save transportation amount if non-guest
       if (!isGuest && workerId != null) {
-        const amount = parseInt(transportAmount.replace(/[^0-9]/g, ""), 10);
+        const rawAmount = transportAmount.replace(/[^0-9]/g, "");
+        const amount = rawAmount === "" ? 0 : parseInt(rawAmount, 10);
         if (!isNaN(amount) && amount >= 0) {
-          upsertTransportMutation.mutate({ targetMonth, projectId, workerId, amount, memo: transportMemo.trim() });
+          upsertTransportMutation.mutate({ targetMonth, projectId, workerId, amount, paymentType: localTransportCategory, memo: transportMemo.trim() });
         }
       }
 
@@ -613,6 +619,7 @@ function ParticipantRow({
   };
 
   const transportAmountNum = parseInt(transportAmount.replace(/[^0-9]/g, ""), 10);
+  const existingTransport = !isGuest && workerId != null ? transportQuery.data?.[workerId] : undefined;
   const transportDisplayText = !isGuest && workerId != null
     ? (transportQuery.isLoading
         ? null
@@ -621,8 +628,34 @@ function ParticipantRow({
         : "—")
     : null;
 
-  // Receipt placeholder state (future implementation)
-  const receiptStatus: string = "未添付";
+  const receiptStatus: string = existingTransport?.receiptStatus || "未添付";
+  const receiptCount = existingTransport?.receiptCount || 0;
+  const uploadReceiptMutation = trpc.monthlyClosingV2.uploadTransportationReceipt.useMutation({
+    onSuccess: () => {
+      utils.monthlyClosingV2.getTransportationExpenses.invalidate({ targetMonth, projectId });
+    },
+  });
+
+  const handleReceiptUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || workerId == null) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",").pop() || "" : result;
+      uploadReceiptMutation.mutate({
+        targetMonth,
+        projectId,
+        workerId,
+        base64,
+        mimeType: file.type as "application/pdf" | "image/jpeg" | "image/jpg" | "image/png",
+        fileName: file.name,
+        paymentType: localTransportCategory === "none" ? "company_card_etc" : localTransportCategory,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
 
   // ── Collapsed read-only row (desktop) ────────────────────────────────────
   const desktopReadRow = (
@@ -666,7 +699,7 @@ function ParticipantRow({
       ) : !isGuest && workerId != null ? (
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Paperclip className="h-3 w-3" />
-          領収書：{receiptStatus}
+          領収書：{receiptStatus}{receiptCount > 0 ? `（${receiptCount}件）` : ""}
         </span>
       ) : (
         <span className="text-xs text-muted-foreground">—</span>
@@ -744,7 +777,7 @@ function ParticipantRow({
             {!isExcluded && !isGuest && workerId != null && (
               <span>
                 <Paperclip className="inline h-3 w-3 mr-0.5" />
-                領収書: {receiptStatus}
+                領収書: {receiptStatus}{receiptCount > 0 ? `（${receiptCount}件）` : ""}
               </span>
             )}
             {participant.warningCount > 0 && !isExcluded && (
@@ -816,12 +849,12 @@ function ParticipantRow({
               <div className="flex flex-wrap gap-2">
                 {TRANSPORT_CATEGORY_OPTIONS.map((cat) => (
                   <ChipButton
-                    key={cat}
-                    label={cat}
-                    isActive={localTransportCategory === cat}
+                    key={cat.value}
+                    label={cat.label}
+                    isActive={localTransportCategory === cat.value}
                     activeClass="border-blue-500 bg-blue-500 text-white"
                     inactiveClass="border-border text-muted-foreground hover:bg-muted/50"
-                    onClick={() => setLocalTransportCategory(cat)}
+                    onClick={() => setLocalTransportCategory(cat.value)}
                   />
                 ))}
               </div>
@@ -861,7 +894,7 @@ function ParticipantRow({
                   placeholder="0"
                   value={transportAmount}
                   onChange={(e) => setTransportAmount(e.target.value.replace(/[^0-9]/g, ""))}
-                  disabled={localTransportCategory === "なし"}
+                  disabled={false}
                 />
                 <span className="text-sm text-muted-foreground shrink-0">円</span>
               </div>
@@ -893,27 +926,19 @@ function ParticipantRow({
                 >
                   {receiptStatus}
                 </Badge>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  disabled
-                  title="領収書アップロード（次フェーズで実装）"
-                >
+                <label className="inline-flex h-8 cursor-pointer items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground">
                   <Upload className="h-3 w-3 mr-1" />
-                  アップロード
-                </Button>
-                {receiptStatus === "添付済み" && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    disabled
-                  >
-                    差し替え
-                  </Button>
+                  {uploadReceiptMutation.isPending ? "アップロード中" : receiptCount > 0 ? "追加アップロード" : "アップロード"}
+                  <input
+                    type="file"
+                    className="sr-only"
+                    accept="application/pdf,image/jpeg,image/jpg,image/png,.pdf,.jpg,.jpeg,.png"
+                    onChange={handleReceiptUpload}
+                    disabled={uploadReceiptMutation.isPending}
+                  />
+                </label>
+                {uploadReceiptMutation.isError && (
+                  <span className="text-xs text-destructive">アップロードに失敗しました</span>
                 )}
               </div>
               <p className="text-xs text-muted-foreground">PDF / JPEG / PNG</p>
@@ -963,7 +988,7 @@ function ParticipantRow({
         {!isGuest && workerId != null && (
           <p className="text-xs text-muted-foreground flex items-start gap-1.5 border rounded-md p-2.5 bg-muted/20">
             <span className="shrink-0 mt-0.5">ℹ</span>
-            交通区分が「なし」の場合は金額入力不要。会社カード・ETC利用時は金額0でも領収書アップロードが必要。
+            交通費金額が0円または空欄の場合、金額入力は不要です。会社カード・ETCなどは金額0円でも領収書・証憑をアップロードできます。
           </p>
         )}
 

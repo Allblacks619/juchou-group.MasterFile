@@ -28,11 +28,20 @@ const fixture = vi.hoisted(() => ({
     { workerId: 100, targetMonth: "2026-05", status: "accepted", sendBackReason: null },
     { workerId: 102, targetMonth: "2026-05", status: "sent_back", sendBackReason: "出面を確認してください" },
   ],
+  transportationLines: [
+    { id: 501, workerId: 100, projectId: 1, targetMonth: "2026-05", expenseType: "transportation", amount: 0, paymentMethod: "company_card", isClientBillable: false, memo: "ETC" },
+    { id: 502, workerId: 101, projectId: 1, targetMonth: "2026-05", expenseType: "transportation", amount: 1200, paymentMethod: "paid_by_client", isClientBillable: true, memo: "客先請求" },
+  ],
+  transportationReceipts: [
+    { id: 601, expenseLineId: 501, workerId: 100, projectId: 1, targetMonth: "2026-05", originalFileName: "etc.pdf", receiptFileUrl: "https://files/につながる/receipt.pdf", mimeType: "application/pdf", fileSize: 128, uploadedAt: new Date("2026-05-31") },
+  ],
 }));
 
+vi.mock("./storage", () => ({ storagePut: vi.fn(async (key: string) => ({ url: `https://storage/${key}` })) }));
+
 vi.mock("./db", () => ({
-  getAttendanceByDateRange: vi.fn(async (start: Date, end: Date) =>
-    fixture.attendance.filter((record) => record.workDate >= start && record.workDate <= end)
+  getAttendanceByDateRange: vi.fn(async (start: Date, end: Date, projectId?: number) =>
+    fixture.attendance.filter((record) => record.workDate >= start && record.workDate <= end && (projectId == null || record.projectId === projectId))
   ),
   getAllEmployees: vi.fn(async () => fixture.employees),
   getAllProjects: vi.fn(async () => fixture.projects),
@@ -45,8 +54,23 @@ vi.mock("./db", () => ({
   getMonthlyClosingV2ParticipantReview: vi.fn(async () => undefined),
   upsertMonthlyClosingV2ProjectReview: vi.fn(async (data) => ({ id: 1, ...data })),
   upsertMonthlyClosingV2ParticipantReview: vi.fn(async (data) => ({ id: 1, ...data })),
+  getMonthlyClosingV2ExpenseLinesByProjectMonth: vi.fn(async (projectId: number, targetMonth: string) =>
+    fixture.transportationLines.filter((line) => line.projectId === projectId && line.targetMonth === targetMonth)
+  ),
+  getMonthlyClosingV2ExpenseLineReceiptsByExpenseLineIds: vi.fn(async (expenseLineIds: number[]) =>
+    fixture.transportationReceipts.filter((receipt) => expenseLineIds.includes(receipt.expenseLineId))
+  ),
+  getMonthlyClosingV2ExpenseLinesByWorkerProjectMonth: vi.fn(async (workerId: number, projectId: number, targetMonth: string) =>
+    fixture.transportationLines.filter((line) => line.workerId === workerId && line.projectId === projectId && line.targetMonth === targetMonth)
+  ),
+  upsertMonthlyClosingV2TransportationExpense: vi.fn(async (data) => ({ id: 700, expenseType: "transportation", ...data })),
+  createMonthlyClosingV2ExpenseLineReceipt: vi.fn(async (data) => ({ id: 800, uploadedAt: new Date(), ...data })),
+  getMonthlyClosingV2ClientTransportationBillingSummary: vi.fn(async (targetMonth: string) => [{ clientId: 10, projectId: 1, totalAmount: 1200, lineCount: 1, targetMonth }]),
+  deriveMonthlyClosingV2TransportationPaymentType: vi.fn((line) => line.isClientBillable ? "billable_to_client" : line.paymentMethod === "company_card" ? "company_card_etc" : "worker_reimbursable"),
+  createAuditLog: vi.fn(async (data) => ({ id: 900, ...data })),
 }));
 
+import * as db from "./db";
 import { appRouter } from "./routers";
 
 function createUser(overrides: Partial<User> = {}): User {
@@ -181,5 +205,77 @@ describe("monthlyClosingV2.dashboard", () => {
       aggregationOverrideReason: "応援費を今回だけ請求対象にするため",
       aggregationOverrideBy: 1,
     });
-  })
+  });
+
+  it("stores transportation amount, billing type, receipt metadata, and memo per target month/project/worker", async () => {
+    const caller = appRouter.createCaller(createCtx(createUser({ appRole: "admin" })));
+
+    await expect(caller.monthlyClosingV2.upsertTransportationExpense({
+      targetMonth: "2026-05",
+      projectId: 1,
+      workerId: 101,
+      amount: 0,
+      paymentType: "company_card_etc",
+      memo: "会社ETCの証憑のみ",
+    })).resolves.toMatchObject({
+      targetMonth: "2026-05",
+      projectId: 1,
+      workerId: 101,
+      amount: 0,
+      paymentType: "company_card_etc",
+      memo: "会社ETCの証憑のみ",
+    });
+
+    const expenses = await caller.monthlyClosingV2.getTransportationExpenses({ targetMonth: "2026-05", projectId: 1 });
+    expect(expenses[100]).toMatchObject({
+      amount: 0,
+      paymentType: "company_card_etc",
+      memo: "ETC",
+      receiptStatus: "添付済み",
+      receiptCount: 1,
+      receipts: [expect.objectContaining({ fileName: "etc.pdf", mimeType: "application/pdf" })],
+    });
+  });
+
+  it("allows a PDF receipt upload even when transportation amount is zero", async () => {
+    const caller = appRouter.createCaller(createCtx(createUser({ appRole: "admin" })));
+    const result = await caller.monthlyClosingV2.uploadTransportationReceipt({
+      targetMonth: "2026-05",
+      projectId: 1,
+      workerId: 100,
+      base64: Buffer.from("pdf evidence").toString("base64"),
+      mimeType: "application/pdf",
+      fileName: "etc-evidence.pdf",
+      paymentType: "company_card_etc",
+    });
+
+    expect(result).toMatchObject({ receiptId: 800, fileName: "etc-evidence.pdf" });
+    expect(db.createMonthlyClosingV2ExpenseLineReceipt).toHaveBeenCalledWith(expect.objectContaining({
+      expenseLineId: 501,
+      workerId: 100,
+      targetMonth: "2026-05",
+      projectId: 1,
+      originalFileName: "etc-evidence.pdf",
+      mimeType: "application/pdf",
+    }));
+  });
+
+  it("aggregates client-billable transportation by client and project without worker-level breakdown", async () => {
+    const caller = appRouter.createCaller(createCtx(createUser({ appRole: "admin" })));
+    const summary = await caller.monthlyClosingV2.transportationBillingSummary({ targetMonth: "2026-05" });
+
+    expect(summary).toEqual([expect.objectContaining({
+      targetMonth: "2026-05",
+      clientId: 10,
+      clientName: "長山建設",
+      projectId: 1,
+      projectName: "長山 新築マンション",
+      transportationAmount: 1200,
+      lineCount: 1,
+      receiptCount: 0,
+      receiptReferences: [],
+    })]);
+    expect(JSON.stringify(summary)).not.toContain("大木");
+    expect(summary[0].note).toContain("作業員別・日別内訳は社内管理情報");
+  });
 });

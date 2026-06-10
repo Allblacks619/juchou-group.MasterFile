@@ -55,6 +55,7 @@ const monthlyClosingV2ProjectStatuses = ["未着手", "確認中", "情報不足
 const monthlyClosingV2ParticipantStatuses = ["未確認", "出面確認済み", "交通費未入力", "情報不足", "差し戻し", "確認済み", "締め完了"] as const;
 const monthlyClosingV2TransportationStatuses = ["未入力", "入力済み", "確認待ち", "確認済み", "情報不足", "集計対象外"] as const;
 const monthlyClosingV2InvoiceInfoStatuses = ["確認待ち", "確認中", "確認済み", "情報不足", "集計対象外"] as const;
+const monthlyClosingV2TransportationPaymentTypes = ["none", "worker_reimbursable", "company_card_etc", "billable_to_client", "company_absorbed"] as const;
 
 function canRemoveAttendanceMember(role: unknown) {
   return role === "super_admin" || role === "admin" || role === "manager";
@@ -3156,10 +3157,32 @@ export const appRouter = router({
       }))
       .query(async ({ input }) => {
         const lines = await db.getMonthlyClosingV2ExpenseLinesByProjectMonth(input.projectId, input.targetMonth);
-        const result: Record<number, { amount: number; memo: string | null }> = {};
-        for (const line of lines) {
+        const receipts = await db.getMonthlyClosingV2ExpenseLineReceiptsByExpenseLineIds(lines.map((line: any) => Number(line.id)));
+        const receiptsByLine = new Map<number, any[]>();
+        for (const receipt of receipts as any[]) {
+          const lineReceipts = receiptsByLine.get(Number(receipt.expenseLineId)) || [];
+          lineReceipts.push(receipt);
+          receiptsByLine.set(Number(receipt.expenseLineId), lineReceipts);
+        }
+        const result: Record<number, { amount: number; paymentType: string; memo: string | null; receiptStatus: string; receiptCount: number; receipts: any[] }> = {};
+        for (const line of lines as any[]) {
           if (line.workerId) {
-            result[Number(line.workerId)] = { amount: line.amount, memo: line.memo ?? null };
+            const lineReceipts = receiptsByLine.get(Number(line.id)) || [];
+            result[Number(line.workerId)] = {
+              amount: Number(line.amount || 0),
+              paymentType: db.deriveMonthlyClosingV2TransportationPaymentType(line),
+              memo: line.memo ?? null,
+              receiptStatus: lineReceipts.length > 0 ? "添付済み" : "未添付",
+              receiptCount: lineReceipts.length,
+              receipts: lineReceipts.map((receipt: any) => ({
+                id: receipt.id,
+                fileName: receipt.originalFileName,
+                fileUrl: receipt.receiptFileUrl,
+                mimeType: receipt.mimeType,
+                fileSize: receipt.fileSize,
+                uploadedAt: receipt.uploadedAt,
+              })),
+            };
           }
         }
         return result;
@@ -3170,6 +3193,7 @@ export const appRouter = router({
         projectId: z.number().int().positive(),
         workerId: z.number().int().positive(),
         amount: z.number().int().min(0),
+        paymentType: z.enum(monthlyClosingV2TransportationPaymentTypes).optional().default("worker_reimbursable"),
         memo: z.string().max(500).optional().default(""),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -3178,9 +3202,107 @@ export const appRouter = router({
           projectId: input.projectId,
           targetMonth: input.targetMonth,
           amount: input.amount,
+          paymentType: input.paymentType,
           memo: input.memo?.trim() || null,
           updatedBy: ctx.user.id,
         });
+      }),
+    uploadTransportationReceipt: leaderOrAdminProcedure
+      .input(z.object({
+        targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        projectId: z.number().int().positive(),
+        workerId: z.number().int().positive(),
+        base64: z.string(),
+        mimeType: z.enum(["application/pdf", "image/jpeg", "image/jpg", "image/png"]),
+        fileName: z.string().min(1).max(512),
+        paymentType: z.enum(monthlyClosingV2TransportationPaymentTypes).optional().default("company_card_etc"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { start, end } = getMonthDateRange(input.targetMonth);
+        const attendance = await db.getAttendanceByDateRange(start, end, input.projectId);
+        const hasWorkerAttendance = attendance.some((record: any) => Number(record.employeeId) === input.workerId);
+        if (!hasWorkerAttendance) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "対象月・現場に該当作業員の出勤がありません" });
+        }
+
+        const buffer = Buffer.from(input.base64, "base64");
+        const validationError = validateFile(input.fileName, input.mimeType, buffer.length);
+        if (validationError) throw new TRPCError({ code: "BAD_REQUEST", message: validationError.replace("WEBP、", "") });
+
+        let line = (await db.getMonthlyClosingV2ExpenseLinesByWorkerProjectMonth(input.workerId, input.projectId, input.targetMonth))[0];
+        if (!line) {
+          line = await db.upsertMonthlyClosingV2TransportationExpense({
+            workerId: input.workerId,
+            projectId: input.projectId,
+            targetMonth: input.targetMonth,
+            amount: 0,
+            paymentType: input.paymentType,
+            memo: null,
+            updatedBy: ctx.user.id,
+          });
+        }
+
+        const suffix = nanoid(8);
+        const safeFileName = input.fileName.replace(/[\/]/g, "_");
+        const fileKey = `monthly-closing-v2/${input.targetMonth}/project-${input.projectId}/worker-${input.workerId}/transport-${suffix}-${safeFileName}`;
+        const { url } = await storagePut(fileKey, buffer, input.mimeType);
+        const receipt = await db.createMonthlyClosingV2ExpenseLineReceipt({
+          expenseLineId: Number(line.id),
+          workerId: input.workerId,
+          targetMonth: input.targetMonth,
+          projectId: input.projectId,
+          receiptFileKey: fileKey,
+          receiptFileUrl: url,
+          originalFileName: input.fileName,
+          mimeType: input.mimeType,
+          fileSize: buffer.length,
+          uploadedBy: ctx.user.id,
+        });
+        await safeAuditLog(ctx.user.id, "monthlyClosingV2.transportationReceipt.upload", "monthly_closing_v2_expense_line", {
+          entityId: Number(line.id),
+          projectId: input.projectId,
+          employeeId: input.workerId,
+          note: `${input.targetMonth} 交通費領収書アップロード: ${input.fileName}`,
+        });
+        return { receiptId: receipt.id, url, fileName: input.fileName };
+      }),
+    transportationBillingSummary: leaderOrAdminProcedure
+      .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        const [summaries, projects, clients] = await Promise.all([
+          db.getMonthlyClosingV2ClientTransportationBillingSummary(input.targetMonth),
+          db.getAllProjects(),
+          db.getAllClients(),
+        ]);
+        const projectMap = new Map(projects.map((project: any) => [Number(project.id), project]));
+        const clientMap = new Map(clients.map((client: any) => [Number(client.id), client]));
+        return Promise.all((summaries as any[]).map(async (summary) => {
+          const project = summary.projectId ? projectMap.get(Number(summary.projectId)) : null;
+          const clientId = summary.clientId ? Number(summary.clientId) : (project?.clientId ? Number(project.clientId) : null);
+          const client = clientId ? clientMap.get(clientId) : null;
+          const projectId = summary.projectId ? Number(summary.projectId) : null;
+          const billableLines = projectId
+            ? (await db.getMonthlyClosingV2ExpenseLinesByProjectMonth(projectId, input.targetMonth)).filter((line: any) => line.isClientBillable)
+            : [];
+          const receipts = await db.getMonthlyClosingV2ExpenseLineReceiptsByExpenseLineIds(billableLines.map((line: any) => Number(line.id)));
+          return {
+            targetMonth: input.targetMonth,
+            clientId,
+            clientName: client?.name || "未設定",
+            projectId,
+            projectName: project?.name || (projectId ? `現場ID:${projectId}` : "未設定"),
+            transportationAmount: Number(summary.totalAmount || 0),
+            lineCount: Number(summary.lineCount || 0),
+            receiptCount: receipts.length,
+            receiptReferences: (receipts as any[]).map((receipt) => ({
+              id: receipt.id,
+              fileName: receipt.originalFileName,
+              fileUrl: receipt.receiptFileUrl,
+              mimeType: receipt.mimeType,
+            })),
+            note: "作業員別・日別内訳は社内管理情報のため標準請求表示には含めません。関連領収書は交通費明細に紐づけて参照します。",
+          };
+        }));
       }),
     updateProjectStatus: leaderOrAdminProcedure
       .input(z.object({
