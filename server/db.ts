@@ -1,4 +1,4 @@
-import { eq, and, lt, gte, lte, sql } from "drizzle-orm";
+import { eq, and, lt, gte, lte, sql, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users, User,
@@ -27,6 +27,7 @@ import {
   monthlyClosingV2ProjectReviews,
   monthlyClosingV2ParticipantReviews,
   monthlyClosingV2ExpenseLines,
+  monthlyClosingV2ExpenseLineReceipts,
   workerBaseRates,
   InsertWorkerBaseRate,
 } from "../drizzle/schema";
@@ -175,17 +176,50 @@ export async function getMonthlyClosingV2ExpenseLinesByProjectMonth(
   );
 }
 
+export type MonthlyClosingV2PayerType =
+  | "none"
+  | "worker_paid"
+  | "company_card_etc"
+  | "company_paid"
+  | "client_paid_direct";
+
+function paymentMethodFromPayerType(payerType: MonthlyClosingV2PayerType) {
+  switch (payerType) {
+    case "worker_paid":
+      return "paid_by_worker" as const;
+    case "company_card_etc":
+      return "company_card" as const;
+    case "client_paid_direct":
+      return "paid_by_client" as const;
+    case "company_paid":
+    case "none":
+      return "other" as const;
+  }
+}
+
+export function payerTypeFromPaymentMethod(line: { paymentMethod?: string | null; amount?: number | null }): MonthlyClosingV2PayerType {
+  if (line.paymentMethod === "paid_by_worker") return "worker_paid";
+  if (line.paymentMethod === "company_card" || line.paymentMethod === "etc") return "company_card_etc";
+  if (line.paymentMethod === "paid_by_client") return "client_paid_direct";
+  if ((line.amount ?? 0) === 0) return "none";
+  return "company_paid";
+}
+
 export async function upsertMonthlyClosingV2TransportationExpense(data: {
   workerId: number;
   projectId: number;
   targetMonth: string;
+  payerType: MonthlyClosingV2PayerType;
+  clientBillable: boolean;
   amount: number;
   memo?: string | null;
   updatedBy?: number | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  // Check if a transportation expense line already exists for this worker/project/month
+  const normalizedAmount = data.payerType === "none" ? 0 : data.amount;
+  const paymentMethod = paymentMethodFromPayerType(data.payerType);
+  const isClientBillable = data.payerType === "client_paid_direct" ? false : data.clientBillable;
   const existing = await db.select().from(monthlyClosingV2ExpenseLines).where(
     and(
       eq(monthlyClosingV2ExpenseLines.workerId, data.workerId),
@@ -196,26 +230,92 @@ export async function upsertMonthlyClosingV2TransportationExpense(data: {
   ).limit(1);
   if (existing.length > 0) {
     await db.update(monthlyClosingV2ExpenseLines)
-      .set({ amount: data.amount, memo: data.memo ?? null, updatedAt: new Date() })
+      .set({
+        amount: normalizedAmount,
+        paymentMethod,
+        isClientBillable,
+        memo: data.memo ?? null,
+        updatedAt: new Date(),
+      })
       .where(eq(monthlyClosingV2ExpenseLines.id, existing[0].id));
     const updated = await db.select().from(monthlyClosingV2ExpenseLines).where(eq(monthlyClosingV2ExpenseLines.id, existing[0].id)).limit(1);
     return updated[0];
-  } else {
-    const result = await db.insert(monthlyClosingV2ExpenseLines).values({
-      workerId: data.workerId,
-      projectId: data.projectId,
-      targetMonth: data.targetMonth,
-      expenseType: "transportation",
-      amount: data.amount,
-      memo: data.memo ?? null,
-      paymentMethod: "paid_by_worker",
-      allocationMethod: "manual",
-      isClientBillable: false,
-      status: "draft",
-    });
-    const inserted = await db.select().from(monthlyClosingV2ExpenseLines).where(eq(monthlyClosingV2ExpenseLines.id, result[0].insertId)).limit(1);
-    return inserted[0];
   }
+
+  const result = await db.insert(monthlyClosingV2ExpenseLines).values({
+    workerId: data.workerId,
+    projectId: data.projectId,
+    targetMonth: data.targetMonth,
+    expenseType: "transportation",
+    amount: normalizedAmount,
+    paymentMethod,
+    memo: data.memo ?? null,
+    allocationMethod: "manual",
+    isClientBillable,
+    status: "draft",
+  });
+  const inserted = await db.select().from(monthlyClosingV2ExpenseLines).where(eq(monthlyClosingV2ExpenseLines.id, result[0].insertId)).limit(1);
+  return inserted[0];
+}
+
+
+export async function getMonthlyClosingV2ExpenseLineReceiptsByExpenseLineIds(expenseLineIds: number[]) {
+  const db = await getDb();
+  if (!db || expenseLineIds.length === 0) return [];
+  return db.select().from(monthlyClosingV2ExpenseLineReceipts).where(
+    inArray(monthlyClosingV2ExpenseLineReceipts.expenseLineId, expenseLineIds)
+  );
+}
+
+export async function createMonthlyClosingV2ExpenseLineReceipt(data: {
+  expenseLineId: number;
+  workerId: number;
+  targetMonth: string;
+  projectId: number;
+  receiptFileKey: string;
+  receiptFileUrl: string;
+  originalFileName: string;
+  mimeType: string;
+  fileSize: number;
+  uploadedBy?: number | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(monthlyClosingV2ExpenseLineReceipts).values({
+    expenseLineId: data.expenseLineId,
+    workerId: data.workerId,
+    targetMonth: data.targetMonth,
+    projectId: data.projectId,
+    receiptFileKey: data.receiptFileKey,
+    receiptFileUrl: data.receiptFileUrl,
+    originalFileName: data.originalFileName,
+    mimeType: data.mimeType,
+    fileSize: data.fileSize,
+    uploadedBy: data.uploadedBy ?? null,
+  });
+  const inserted = await db.select().from(monthlyClosingV2ExpenseLineReceipts).where(eq(monthlyClosingV2ExpenseLineReceipts.id, result[0].insertId)).limit(1);
+  return inserted[0];
+}
+
+export async function getMonthlyClosingV2ClientTransportationBillingSummary(targetMonth: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      clientId: projects.clientId,
+      projectId: monthlyClosingV2ExpenseLines.projectId,
+      totalAmount: sql<number>`sum(${monthlyClosingV2ExpenseLines.amount})`,
+      lineCount: sql<number>`count(*)`,
+    })
+    .from(monthlyClosingV2ExpenseLines)
+    .leftJoin(projects, eq(projects.id, monthlyClosingV2ExpenseLines.projectId))
+    .where(and(
+      eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
+      eq(monthlyClosingV2ExpenseLines.expenseType, "transportation"),
+      eq(monthlyClosingV2ExpenseLines.isClientBillable, true),
+      sql`${monthlyClosingV2ExpenseLines.paymentMethod} <> 'paid_by_client'`,
+    ))
+    .groupBy(projects.clientId, monthlyClosingV2ExpenseLines.projectId);
 }
 
 // ── Worker Base Rates ──
