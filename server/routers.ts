@@ -3177,19 +3177,15 @@ export const appRouter = router({
           lineReceipts.push(receipt);
           receiptsByLine.set(Number(receipt.expenseLineId), lineReceipts);
         }
-        const result: Record<number, { amount: number; payerType: string; workerReimbursementRequired: boolean; clientBillable: boolean; workerReimbursementAmount: number; clientBillableAmount: number; internalMemo: string | null; receiptStatus: string; receiptCount: number; receipts: any[] }> = {};
+        const result: Record<number, { amount: number; payerType: string; clientBillable: boolean; memo: string | null; receiptStatus: string; receiptCount: number; receipts: any[] }> = {};
         for (const line of lines as any[]) {
           if (line.workerId) {
             const lineReceipts = receiptsByLine.get(Number(line.id)) || [];
-            const normalized = db.normalizeMonthlyClosingV2TransportationLine(line);
             result[Number(line.workerId)] = {
-              amount: Math.max(normalized.workerReimbursementAmount, normalized.clientBillableAmount),
-              payerType: normalized.payerType,
-              workerReimbursementRequired: normalized.workerReimbursementRequired,
-              clientBillable: normalized.clientBillable,
-              workerReimbursementAmount: normalized.workerReimbursementAmount,
-              clientBillableAmount: normalized.clientBillableAmount,
-              internalMemo: normalized.internalMemo,
+              amount: Number(line.amount || 0),
+              payerType: db.payerTypeFromPaymentMethod(line),
+              clientBillable: line.paymentMethod === "paid_by_client" ? false : Boolean(line.isClientBillable),
+              memo: line.memo ?? null,
               receiptStatus: lineReceipts.length > 0 ? "添付済み" : "未添付",
               receiptCount: lineReceipts.length,
               receipts: lineReceipts.map((receipt: any) => ({
@@ -3211,11 +3207,9 @@ export const appRouter = router({
         projectId: z.number().int().positive(),
         workerId: z.number().int().positive(),
         payerType: z.enum(monthlyClosingV2PayerTypes),
-        workerReimbursementRequired: z.boolean(),
         clientBillable: z.boolean(),
-        workerReimbursementAmount: z.number().int().min(0).optional().default(0),
-        clientBillableAmount: z.number().int().min(0).optional().default(0),
-        internalMemo: z.string().max(500).optional().default(""),
+        amount: z.number().int().min(0).optional().default(0),
+        memo: z.string().max(500).optional().default(""),
       }))
       .mutation(async ({ ctx, input }) => {
         return db.upsertMonthlyClosingV2TransportationExpense({
@@ -3223,11 +3217,9 @@ export const appRouter = router({
           projectId: input.projectId,
           targetMonth: input.targetMonth,
           payerType: input.payerType,
-          workerReimbursementRequired: input.workerReimbursementRequired,
           clientBillable: input.clientBillable,
-          workerReimbursementAmount: input.workerReimbursementAmount,
-          clientBillableAmount: input.clientBillableAmount,
-          internalMemo: input.internalMemo?.trim() || null,
+          amount: input.amount,
+          memo: input.memo?.trim() || null,
           updatedBy: ctx.user.id,
         });
       }),
@@ -3260,11 +3252,9 @@ export const appRouter = router({
             projectId: input.projectId,
             targetMonth: input.targetMonth,
             payerType: input.payerType,
-            workerReimbursementRequired: false,
             clientBillable: false,
-            workerReimbursementAmount: 0,
-            clientBillableAmount: 0,
-            internalMemo: null,
+            amount: 0,
+            memo: null,
             updatedBy: ctx.user.id,
           });
         }
@@ -3309,7 +3299,7 @@ export const appRouter = router({
           const client = clientId ? clientMap.get(clientId) : null;
           const projectId = summary.projectId ? Number(summary.projectId) : null;
           const billableLines = projectId
-            ? (await db.getMonthlyClosingV2ExpenseLinesByProjectMonth(projectId, input.targetMonth)).filter((line: any) => line.clientBillable ?? line.isClientBillable)
+            ? (await db.getMonthlyClosingV2ExpenseLinesByProjectMonth(projectId, input.targetMonth)).filter((line: any) => line.isClientBillable && line.paymentMethod !== "paid_by_client")
             : [];
           const receipts = await db.getMonthlyClosingV2ExpenseLineReceiptsByExpenseLineIds(billableLines.map((line: any) => Number(line.id)));
           return {

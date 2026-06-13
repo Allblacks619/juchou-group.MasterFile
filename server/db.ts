@@ -183,7 +183,7 @@ export type MonthlyClosingV2PayerType =
   | "company_paid"
   | "client_paid_direct";
 
-function legacyPaymentMethodFromPayerType(payerType: MonthlyClosingV2PayerType) {
+function paymentMethodFromPayerType(payerType: MonthlyClosingV2PayerType) {
   switch (payerType) {
     case "worker_paid":
       return "paid_by_worker" as const;
@@ -197,35 +197,12 @@ function legacyPaymentMethodFromPayerType(payerType: MonthlyClosingV2PayerType) 
   }
 }
 
-export function normalizeMonthlyClosingV2TransportationLine(line: {
-  payerType?: string | null;
-  workerReimbursementRequired?: boolean | null;
-  clientBillable?: boolean | null;
-  workerReimbursementAmount?: number | null;
-  clientBillableAmount?: number | null;
-  internalMemo?: string | null;
-  paymentMethod?: string | null;
-  isClientBillable?: boolean | null;
-  amount?: number | null;
-  memo?: string | null;
-}) {
-  const amount = Number(line.amount || 0);
-  const payerType = (line.payerType || (
-    line.paymentMethod === "paid_by_worker" ? "worker_paid" :
-    line.paymentMethod === "company_card" || line.paymentMethod === "etc" ? "company_card_etc" :
-    line.paymentMethod === "paid_by_client" ? "client_paid_direct" :
-    amount === 0 ? "none" : "company_paid"
-  )) as MonthlyClosingV2PayerType;
-  const workerReimbursementAmount = Number(line.workerReimbursementAmount ?? (payerType === "worker_paid" ? amount : 0));
-  const clientBillableAmount = Number(line.clientBillableAmount ?? (line.isClientBillable ? amount : 0));
-  return {
-    payerType,
-    workerReimbursementRequired: Boolean(line.workerReimbursementRequired ?? (payerType === "worker_paid" && workerReimbursementAmount > 0)),
-    clientBillable: Boolean(line.clientBillable ?? line.isClientBillable ?? clientBillableAmount > 0),
-    workerReimbursementAmount,
-    clientBillableAmount,
-    internalMemo: line.internalMemo ?? line.memo ?? null,
-  };
+export function payerTypeFromPaymentMethod(line: { paymentMethod?: string | null; amount?: number | null }): MonthlyClosingV2PayerType {
+  if (line.paymentMethod === "paid_by_worker") return "worker_paid";
+  if (line.paymentMethod === "company_card" || line.paymentMethod === "etc") return "company_card_etc";
+  if (line.paymentMethod === "paid_by_client") return "client_paid_direct";
+  if ((line.amount ?? 0) === 0) return "none";
+  return "company_paid";
 }
 
 export async function upsertMonthlyClosingV2TransportationExpense(data: {
@@ -233,19 +210,16 @@ export async function upsertMonthlyClosingV2TransportationExpense(data: {
   projectId: number;
   targetMonth: string;
   payerType: MonthlyClosingV2PayerType;
-  workerReimbursementRequired: boolean;
   clientBillable: boolean;
-  workerReimbursementAmount: number;
-  clientBillableAmount: number;
-  internalMemo?: string | null;
+  amount: number;
+  memo?: string | null;
   updatedBy?: number | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const normalizedWorkerReimbursementAmount = data.workerReimbursementRequired ? data.workerReimbursementAmount : 0;
-  const normalizedClientBillableAmount = data.clientBillable ? data.clientBillableAmount : 0;
-  const displayAmount = Math.max(normalizedWorkerReimbursementAmount, normalizedClientBillableAmount);
-  const paymentMethod = legacyPaymentMethodFromPayerType(data.payerType);
+  const normalizedAmount = data.payerType === "none" ? 0 : data.amount;
+  const paymentMethod = paymentMethodFromPayerType(data.payerType);
+  const isClientBillable = data.payerType === "client_paid_direct" ? false : data.clientBillable;
   const existing = await db.select().from(monthlyClosingV2ExpenseLines).where(
     and(
       eq(monthlyClosingV2ExpenseLines.workerId, data.workerId),
@@ -257,16 +231,10 @@ export async function upsertMonthlyClosingV2TransportationExpense(data: {
   if (existing.length > 0) {
     await db.update(monthlyClosingV2ExpenseLines)
       .set({
-        amount: displayAmount,
+        amount: normalizedAmount,
         paymentMethod,
-        payerType: data.payerType,
-        workerReimbursementRequired: data.workerReimbursementRequired,
-        clientBillable: data.clientBillable,
-        workerReimbursementAmount: normalizedWorkerReimbursementAmount,
-        clientBillableAmount: normalizedClientBillableAmount,
-        isClientBillable: data.clientBillable,
-        memo: data.internalMemo ?? null,
-        internalMemo: data.internalMemo ?? null,
+        isClientBillable,
+        memo: data.memo ?? null,
         updatedAt: new Date(),
       })
       .where(eq(monthlyClosingV2ExpenseLines.id, existing[0].id));
@@ -279,17 +247,11 @@ export async function upsertMonthlyClosingV2TransportationExpense(data: {
     projectId: data.projectId,
     targetMonth: data.targetMonth,
     expenseType: "transportation",
-    amount: displayAmount,
+    amount: normalizedAmount,
     paymentMethod,
-    payerType: data.payerType,
-    workerReimbursementRequired: data.workerReimbursementRequired,
-    clientBillable: data.clientBillable,
-    workerReimbursementAmount: normalizedWorkerReimbursementAmount,
-    clientBillableAmount: normalizedClientBillableAmount,
-    memo: data.internalMemo ?? null,
-    internalMemo: data.internalMemo ?? null,
+    memo: data.memo ?? null,
     allocationMethod: "manual",
-    isClientBillable: data.clientBillable,
+    isClientBillable,
     status: "draft",
   });
   const inserted = await db.select().from(monthlyClosingV2ExpenseLines).where(eq(monthlyClosingV2ExpenseLines.id, result[0].insertId)).limit(1);
@@ -342,7 +304,7 @@ export async function getMonthlyClosingV2ClientTransportationBillingSummary(targ
     .select({
       clientId: projects.clientId,
       projectId: monthlyClosingV2ExpenseLines.projectId,
-      totalAmount: sql<number>`sum(${monthlyClosingV2ExpenseLines.clientBillableAmount})`,
+      totalAmount: sql<number>`sum(${monthlyClosingV2ExpenseLines.amount})`,
       lineCount: sql<number>`count(*)`,
     })
     .from(monthlyClosingV2ExpenseLines)
@@ -350,7 +312,8 @@ export async function getMonthlyClosingV2ClientTransportationBillingSummary(targ
     .where(and(
       eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
       eq(monthlyClosingV2ExpenseLines.expenseType, "transportation"),
-      eq(monthlyClosingV2ExpenseLines.clientBillable, true),
+      eq(monthlyClosingV2ExpenseLines.isClientBillable, true),
+      sql`${monthlyClosingV2ExpenseLines.paymentMethod} <> 'paid_by_client'`,
     ))
     .groupBy(projects.clientId, monthlyClosingV2ExpenseLines.projectId);
 }

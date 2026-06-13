@@ -533,13 +533,11 @@ function ParticipantRow({
   const [localIndividualStatus, setLocalIndividualStatus] = useState(toText(participant.individualStatus) || "未確認");
   const [localInvoiceStatus, setLocalInvoiceStatus] = useState(toText(participant.invoiceInfoStatus) || "確認待ち");
   const [payerType, setPayerType] = useState<PayerType>("none");
-  const [workerReimbursementRequired, setWorkerReimbursementRequired] = useState(false);
   const [clientBillable, setClientBillable] = useState(false);
   const [sendBackReason, setSendBackReason] = useState(toText(participant.sendBackReason));
   const [missingInfo, setMissingInfo] = useState(toText(participant.missingInfo));
-  const [workerReimbursementAmount, setWorkerReimbursementAmount] = useState<string>("");
-  const [clientBillableAmount, setClientBillableAmount] = useState<string>("");
-  const [internalMemo, setInternalMemo] = useState<string>("");
+  const [transportAmount, setTransportAmount] = useState<string>("");
+  const [transportMemo, setTransportMemo] = useState<string>("");
   const [transportSaveState, setTransportSaveState] = useState<SaveState>("idle");
   const [statusSaveState, setStatusSaveState] = useState<SaveState>("idle");
   const transportInitialized = useRef(false);
@@ -561,11 +559,9 @@ function ParticipantRow({
     const existing = transportQuery.data[workerId];
     if (existing) {
       setPayerType((existing.payerType as PayerType) || "none");
-      setWorkerReimbursementRequired(Boolean(existing.workerReimbursementRequired));
       setClientBillable(Boolean(existing.clientBillable));
-      setWorkerReimbursementAmount(String(existing.workerReimbursementAmount ?? 0));
-      setClientBillableAmount(String(existing.clientBillableAmount ?? 0));
-      setInternalMemo(existing.internalMemo ?? "");
+      setTransportAmount(String(existing.amount ?? 0));
+      setTransportMemo(existing.memo ?? "");
     }
     transportInitialized.current = true;
   }, [transportQuery.isLoading, transportQuery.data, workerId]);
@@ -589,20 +585,17 @@ function ParticipantRow({
 
   const saveTransportation = async () => {
     if (workerId == null || !canManageTransportation) return;
-    const reimbursementAmount = parseOptionalAmount(workerReimbursementAmount);
-    const billableAmount = parseOptionalAmount(clientBillableAmount);
-    if (isNaN(reimbursementAmount) || isNaN(billableAmount)) return;
+    const amount = parseOptionalAmount(transportAmount);
+    if (isNaN(amount)) return;
     setTransportSaveState("saving");
     await upsertTransportMutation.mutateAsync({
       targetMonth,
       projectId,
       workerId,
       payerType,
-      workerReimbursementRequired,
       clientBillable,
-      workerReimbursementAmount: reimbursementAmount,
-      clientBillableAmount: billableAmount,
-      internalMemo: internalMemo.trim(),
+      amount,
+      memo: transportMemo.trim(),
     });
   };
 
@@ -643,7 +636,7 @@ function ParticipantRow({
     }
   };
 
-  const transportAmountNum = Math.max(parseOptionalAmount(workerReimbursementAmount) || 0, parseOptionalAmount(clientBillableAmount) || 0);
+  const transportAmountNum = parseOptionalAmount(transportAmount) || 0;
   const existingTransport = !isGuest && workerId != null ? transportQuery.data?.[workerId] : undefined;
   const transportDisplayText = !isGuest && workerId != null
     ? (transportQuery.isLoading
@@ -870,7 +863,7 @@ function ParticipantRow({
           {/* 交通区分 */}
           {canManageTransportation && !isGuest && workerId != null && (
             <div className="space-y-2">
-              <Label className="text-xs font-semibold">交通区分</Label>
+              <Label className="text-xs font-semibold">支払元 / 支払方法</Label>
               <div className="flex flex-wrap gap-2">
                 {PAYER_TYPE_OPTIONS.map((cat) => (
                   <ChipButton
@@ -882,10 +875,11 @@ function ParticipantRow({
                     onClick={() => {
                       setPayerType(cat.value);
                       if (cat.value === "none") {
-                        setWorkerReimbursementRequired(false);
                         setClientBillable(false);
-                        setWorkerReimbursementAmount("");
-                        setClientBillableAmount("");
+                        setTransportAmount("");
+                      }
+                      if (cat.value === "client_paid_direct") {
+                        setClientBillable(false);
                       }
                     }}
                   />
@@ -914,53 +908,32 @@ function ParticipantRow({
 
         {/* 内部交通費設定 + メモ + 領収書 (permitted internal roles only) */}
         {canManageTransportation && !isGuest && workerId != null && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_160px_160px_1fr_180px]">
-            {/* 精算／請求設定 */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_180px_1fr_180px]">
+            {/* 取引先請求 */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">精算／請求設定</Label>
-              <div className="space-y-1.5 rounded-md border p-2 text-xs">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={workerReimbursementRequired}
-                    onChange={(event) => setWorkerReimbursementRequired(event.target.checked)}
-                    disabled={payerType === "none"}
-                  />
-                  作業員へ精算
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={clientBillable}
-                    onChange={(event) => setClientBillable(event.target.checked)}
-                    disabled={payerType === "none"}
-                  />
-                  客先へ請求
-                </label>
-              </div>
-            </div>
-
-            {/* 作業員精算額 */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">作業員精算額</Label>
-              <div className="flex items-center gap-1.5">
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  className="h-9 text-sm text-right"
-                  placeholder="0"
-                  value={workerReimbursementAmount}
-                  onChange={(e) => setWorkerReimbursementAmount(e.target.value.replace(/[^0-9]/g, ""))}
-                  disabled={!workerReimbursementRequired}
+              <Label className="text-xs font-semibold">取引先請求</Label>
+              <div className="flex flex-wrap gap-2">
+                <ChipButton
+                  label="する"
+                  isActive={clientBillable}
+                  activeClass="border-blue-500 bg-blue-500 text-white"
+                  inactiveClass="border-border text-muted-foreground hover:bg-muted/50"
+                  onClick={() => setClientBillable(true)}
+                  disabled={payerType === "none" || payerType === "client_paid_direct"}
                 />
-                <span className="text-sm text-muted-foreground shrink-0">円</span>
+                <ChipButton
+                  label="しない"
+                  isActive={!clientBillable}
+                  activeClass="border-blue-500 bg-blue-500 text-white"
+                  inactiveClass="border-border text-muted-foreground hover:bg-muted/50"
+                  onClick={() => setClientBillable(false)}
+                />
               </div>
             </div>
 
-            {/* 客先請求額 */}
+            {/* 交通費金額 */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">客先請求額</Label>
+              <Label className="text-xs font-semibold">交通費金額（内部管理用）</Label>
               <div className="flex items-center gap-1.5">
                 <Input
                   type="text"
@@ -968,9 +941,9 @@ function ParticipantRow({
                   pattern="[0-9]*"
                   className="h-9 text-sm text-right"
                   placeholder="0"
-                  value={clientBillableAmount}
-                  onChange={(e) => setClientBillableAmount(e.target.value.replace(/[^0-9]/g, ""))}
-                  disabled={!clientBillable}
+                  value={transportAmount}
+                  onChange={(e) => setTransportAmount(e.target.value.replace(/[^0-9]/g, ""))}
+                  disabled={payerType === "none"}
                 />
                 <span className="text-sm text-muted-foreground shrink-0">円</span>
               </div>
@@ -978,12 +951,12 @@ function ParticipantRow({
 
             {/* メモ */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">社内メモ（任意）</Label>
+              <Label className="text-xs font-semibold">メモ（任意）</Label>
               <Textarea
                 className="text-sm min-h-[36px] h-9 resize-none"
                 placeholder="社内向けメモを入力"
-                value={internalMemo}
-                onChange={(e) => setInternalMemo(e.target.value)}
+                value={transportMemo}
+                onChange={(e) => setTransportMemo(e.target.value)}
                 maxLength={100}
               />
             </div>
