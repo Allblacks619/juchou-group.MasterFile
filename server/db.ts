@@ -176,48 +176,76 @@ export async function getMonthlyClosingV2ExpenseLinesByProjectMonth(
   );
 }
 
-export type MonthlyClosingV2TransportationPaymentType =
+export type MonthlyClosingV2PayerType =
   | "none"
-  | "worker_reimbursable"
+  | "worker_paid"
   | "company_card_etc"
-  | "billable_to_client"
-  | "company_absorbed";
+  | "company_paid"
+  | "client_paid_direct";
 
-function mapMonthlyClosingV2TransportationPaymentType(paymentType: MonthlyClosingV2TransportationPaymentType) {
-  switch (paymentType) {
-    case "none":
-      return { paymentMethod: "other" as const, isClientBillable: false };
-    case "worker_reimbursable":
-      return { paymentMethod: "paid_by_worker" as const, isClientBillable: false };
+function legacyPaymentMethodFromPayerType(payerType: MonthlyClosingV2PayerType) {
+  switch (payerType) {
+    case "worker_paid":
+      return "paid_by_worker" as const;
     case "company_card_etc":
-      return { paymentMethod: "company_card" as const, isClientBillable: false };
-    case "billable_to_client":
-      return { paymentMethod: "paid_by_client" as const, isClientBillable: true };
-    case "company_absorbed":
-      return { paymentMethod: "other" as const, isClientBillable: false };
+      return "company_card" as const;
+    case "client_paid_direct":
+      return "paid_by_client" as const;
+    case "company_paid":
+    case "none":
+      return "other" as const;
   }
 }
 
-export function deriveMonthlyClosingV2TransportationPaymentType(line: { paymentMethod?: string | null; isClientBillable?: boolean | null; amount?: number | null }): MonthlyClosingV2TransportationPaymentType {
-  if (line.isClientBillable) return "billable_to_client";
-  if ((line.amount ?? 0) === 0 && line.paymentMethod === "other") return "none";
-  if (line.paymentMethod === "paid_by_worker") return "worker_reimbursable";
-  if (line.paymentMethod === "company_card" || line.paymentMethod === "etc") return "company_card_etc";
-  return "company_absorbed";
+export function normalizeMonthlyClosingV2TransportationLine(line: {
+  payerType?: string | null;
+  workerReimbursementRequired?: boolean | null;
+  clientBillable?: boolean | null;
+  workerReimbursementAmount?: number | null;
+  clientBillableAmount?: number | null;
+  internalMemo?: string | null;
+  paymentMethod?: string | null;
+  isClientBillable?: boolean | null;
+  amount?: number | null;
+  memo?: string | null;
+}) {
+  const amount = Number(line.amount || 0);
+  const payerType = (line.payerType || (
+    line.paymentMethod === "paid_by_worker" ? "worker_paid" :
+    line.paymentMethod === "company_card" || line.paymentMethod === "etc" ? "company_card_etc" :
+    line.paymentMethod === "paid_by_client" ? "client_paid_direct" :
+    amount === 0 ? "none" : "company_paid"
+  )) as MonthlyClosingV2PayerType;
+  const workerReimbursementAmount = Number(line.workerReimbursementAmount ?? (payerType === "worker_paid" ? amount : 0));
+  const clientBillableAmount = Number(line.clientBillableAmount ?? (line.isClientBillable ? amount : 0));
+  return {
+    payerType,
+    workerReimbursementRequired: Boolean(line.workerReimbursementRequired ?? (payerType === "worker_paid" && workerReimbursementAmount > 0)),
+    clientBillable: Boolean(line.clientBillable ?? line.isClientBillable ?? clientBillableAmount > 0),
+    workerReimbursementAmount,
+    clientBillableAmount,
+    internalMemo: line.internalMemo ?? line.memo ?? null,
+  };
 }
 
 export async function upsertMonthlyClosingV2TransportationExpense(data: {
   workerId: number;
   projectId: number;
   targetMonth: string;
-  amount: number;
-  paymentType?: MonthlyClosingV2TransportationPaymentType;
-  memo?: string | null;
+  payerType: MonthlyClosingV2PayerType;
+  workerReimbursementRequired: boolean;
+  clientBillable: boolean;
+  workerReimbursementAmount: number;
+  clientBillableAmount: number;
+  internalMemo?: string | null;
   updatedBy?: number | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  // Check if a transportation expense line already exists for this worker/project/month
+  const normalizedWorkerReimbursementAmount = data.workerReimbursementRequired ? data.workerReimbursementAmount : 0;
+  const normalizedClientBillableAmount = data.clientBillable ? data.clientBillableAmount : 0;
+  const displayAmount = Math.max(normalizedWorkerReimbursementAmount, normalizedClientBillableAmount);
+  const paymentMethod = legacyPaymentMethodFromPayerType(data.payerType);
   const existing = await db.select().from(monthlyClosingV2ExpenseLines).where(
     and(
       eq(monthlyClosingV2ExpenseLines.workerId, data.workerId),
@@ -226,29 +254,46 @@ export async function upsertMonthlyClosingV2TransportationExpense(data: {
       eq(monthlyClosingV2ExpenseLines.expenseType, "transportation"),
     )
   ).limit(1);
-  const mapped = mapMonthlyClosingV2TransportationPaymentType(data.paymentType ?? "worker_reimbursable");
   if (existing.length > 0) {
     await db.update(monthlyClosingV2ExpenseLines)
-      .set({ amount: data.amount, memo: data.memo ?? null, paymentMethod: mapped.paymentMethod, isClientBillable: mapped.isClientBillable, updatedAt: new Date() })
+      .set({
+        amount: displayAmount,
+        paymentMethod,
+        payerType: data.payerType,
+        workerReimbursementRequired: data.workerReimbursementRequired,
+        clientBillable: data.clientBillable,
+        workerReimbursementAmount: normalizedWorkerReimbursementAmount,
+        clientBillableAmount: normalizedClientBillableAmount,
+        isClientBillable: data.clientBillable,
+        memo: data.internalMemo ?? null,
+        internalMemo: data.internalMemo ?? null,
+        updatedAt: new Date(),
+      })
       .where(eq(monthlyClosingV2ExpenseLines.id, existing[0].id));
     const updated = await db.select().from(monthlyClosingV2ExpenseLines).where(eq(monthlyClosingV2ExpenseLines.id, existing[0].id)).limit(1);
     return updated[0];
-  } else {
-    const result = await db.insert(monthlyClosingV2ExpenseLines).values({
-      workerId: data.workerId,
-      projectId: data.projectId,
-      targetMonth: data.targetMonth,
-      expenseType: "transportation",
-      amount: data.amount,
-      memo: data.memo ?? null,
-      paymentMethod: mapped.paymentMethod,
-      allocationMethod: "manual",
-      isClientBillable: mapped.isClientBillable,
-      status: "draft",
-    });
-    const inserted = await db.select().from(monthlyClosingV2ExpenseLines).where(eq(monthlyClosingV2ExpenseLines.id, result[0].insertId)).limit(1);
-    return inserted[0];
   }
+
+  const result = await db.insert(monthlyClosingV2ExpenseLines).values({
+    workerId: data.workerId,
+    projectId: data.projectId,
+    targetMonth: data.targetMonth,
+    expenseType: "transportation",
+    amount: displayAmount,
+    paymentMethod,
+    payerType: data.payerType,
+    workerReimbursementRequired: data.workerReimbursementRequired,
+    clientBillable: data.clientBillable,
+    workerReimbursementAmount: normalizedWorkerReimbursementAmount,
+    clientBillableAmount: normalizedClientBillableAmount,
+    memo: data.internalMemo ?? null,
+    internalMemo: data.internalMemo ?? null,
+    allocationMethod: "manual",
+    isClientBillable: data.clientBillable,
+    status: "draft",
+  });
+  const inserted = await db.select().from(monthlyClosingV2ExpenseLines).where(eq(monthlyClosingV2ExpenseLines.id, result[0].insertId)).limit(1);
+  return inserted[0];
 }
 
 
@@ -297,7 +342,7 @@ export async function getMonthlyClosingV2ClientTransportationBillingSummary(targ
     .select({
       clientId: projects.clientId,
       projectId: monthlyClosingV2ExpenseLines.projectId,
-      totalAmount: sql<number>`sum(${monthlyClosingV2ExpenseLines.amount})`,
+      totalAmount: sql<number>`sum(${monthlyClosingV2ExpenseLines.clientBillableAmount})`,
       lineCount: sql<number>`count(*)`,
     })
     .from(monthlyClosingV2ExpenseLines)
@@ -305,7 +350,7 @@ export async function getMonthlyClosingV2ClientTransportationBillingSummary(targ
     .where(and(
       eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
       eq(monthlyClosingV2ExpenseLines.expenseType, "transportation"),
-      eq(monthlyClosingV2ExpenseLines.isClientBillable, true),
+      eq(monthlyClosingV2ExpenseLines.clientBillable, true),
     ))
     .groupBy(projects.clientId, monthlyClosingV2ExpenseLines.projectId);
 }

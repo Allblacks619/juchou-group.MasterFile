@@ -55,7 +55,7 @@ const monthlyClosingV2ProjectStatuses = ["未着手", "確認中", "情報不足
 const monthlyClosingV2ParticipantStatuses = ["未確認", "出面確認済み", "交通費未入力", "情報不足", "差し戻し", "確認済み", "締め完了"] as const;
 const monthlyClosingV2TransportationStatuses = ["未入力", "入力済み", "確認待ち", "確認済み", "情報不足", "集計対象外"] as const;
 const monthlyClosingV2InvoiceInfoStatuses = ["確認待ち", "確認中", "確認済み", "情報不足", "集計対象外"] as const;
-const monthlyClosingV2TransportationPaymentTypes = ["none", "worker_reimbursable", "company_card_etc", "billable_to_client", "company_absorbed"] as const;
+const monthlyClosingV2PayerTypes = ["none", "worker_paid", "company_card_etc", "company_paid", "client_paid_direct"] as const;
 
 function canRemoveAttendanceMember(role: unknown) {
   return role === "super_admin" || role === "admin" || role === "manager";
@@ -76,6 +76,19 @@ function removedGuestMarkerNote(guestName: string) {
 function excludeRemovedGuestMarkers<T extends { guestName: string | null }>(records: T[]) {
   return records.filter((record) => !isRemovedGuestMarkerName(record.guestName));
 }
+
+
+function canManageMonthlyClosingV2Transportation(role: unknown) {
+  return ["super_admin", "admin", "manager", "leader", "supervisor", "accounting-manager"].includes(String(role || ""));
+}
+
+const monthlyClosingV2TransportationManagementProcedure = protectedProcedure.use(({ ctx, next }) => {
+  const role = (ctx.user as any).appRole || ctx.user.role;
+  if (!canManageMonthlyClosingV2Transportation(role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "交通費の内部管理情報を操作する権限がありません" });
+  }
+  return next({ ctx });
+});
 
 // ── Helper: check admin or leader role ──
 const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -3150,7 +3163,7 @@ export const appRouter = router({
           }),
         };
       }),
-    getTransportationExpenses: leaderOrAdminProcedure
+    getTransportationExpenses: monthlyClosingV2TransportationManagementProcedure
       .input(z.object({
         targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
         projectId: z.number().int().positive(),
@@ -3164,14 +3177,19 @@ export const appRouter = router({
           lineReceipts.push(receipt);
           receiptsByLine.set(Number(receipt.expenseLineId), lineReceipts);
         }
-        const result: Record<number, { amount: number; paymentType: string; memo: string | null; receiptStatus: string; receiptCount: number; receipts: any[] }> = {};
+        const result: Record<number, { amount: number; payerType: string; workerReimbursementRequired: boolean; clientBillable: boolean; workerReimbursementAmount: number; clientBillableAmount: number; internalMemo: string | null; receiptStatus: string; receiptCount: number; receipts: any[] }> = {};
         for (const line of lines as any[]) {
           if (line.workerId) {
             const lineReceipts = receiptsByLine.get(Number(line.id)) || [];
+            const normalized = db.normalizeMonthlyClosingV2TransportationLine(line);
             result[Number(line.workerId)] = {
-              amount: Number(line.amount || 0),
-              paymentType: db.deriveMonthlyClosingV2TransportationPaymentType(line),
-              memo: line.memo ?? null,
+              amount: Math.max(normalized.workerReimbursementAmount, normalized.clientBillableAmount),
+              payerType: normalized.payerType,
+              workerReimbursementRequired: normalized.workerReimbursementRequired,
+              clientBillable: normalized.clientBillable,
+              workerReimbursementAmount: normalized.workerReimbursementAmount,
+              clientBillableAmount: normalized.clientBillableAmount,
+              internalMemo: normalized.internalMemo,
               receiptStatus: lineReceipts.length > 0 ? "添付済み" : "未添付",
               receiptCount: lineReceipts.length,
               receipts: lineReceipts.map((receipt: any) => ({
@@ -3187,27 +3205,33 @@ export const appRouter = router({
         }
         return result;
       }),
-    upsertTransportationExpense: leaderOrAdminProcedure
+    upsertTransportationExpense: monthlyClosingV2TransportationManagementProcedure
       .input(z.object({
         targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
         projectId: z.number().int().positive(),
         workerId: z.number().int().positive(),
-        amount: z.number().int().min(0),
-        paymentType: z.enum(monthlyClosingV2TransportationPaymentTypes).optional().default("worker_reimbursable"),
-        memo: z.string().max(500).optional().default(""),
+        payerType: z.enum(monthlyClosingV2PayerTypes),
+        workerReimbursementRequired: z.boolean(),
+        clientBillable: z.boolean(),
+        workerReimbursementAmount: z.number().int().min(0).optional().default(0),
+        clientBillableAmount: z.number().int().min(0).optional().default(0),
+        internalMemo: z.string().max(500).optional().default(""),
       }))
       .mutation(async ({ ctx, input }) => {
         return db.upsertMonthlyClosingV2TransportationExpense({
           workerId: input.workerId,
           projectId: input.projectId,
           targetMonth: input.targetMonth,
-          amount: input.amount,
-          paymentType: input.paymentType,
-          memo: input.memo?.trim() || null,
+          payerType: input.payerType,
+          workerReimbursementRequired: input.workerReimbursementRequired,
+          clientBillable: input.clientBillable,
+          workerReimbursementAmount: input.workerReimbursementAmount,
+          clientBillableAmount: input.clientBillableAmount,
+          internalMemo: input.internalMemo?.trim() || null,
           updatedBy: ctx.user.id,
         });
       }),
-    uploadTransportationReceipt: leaderOrAdminProcedure
+    uploadTransportationReceipt: monthlyClosingV2TransportationManagementProcedure
       .input(z.object({
         targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
         projectId: z.number().int().positive(),
@@ -3215,7 +3239,7 @@ export const appRouter = router({
         base64: z.string(),
         mimeType: z.enum(["application/pdf", "image/jpeg", "image/jpg", "image/png"]),
         fileName: z.string().min(1).max(512),
-        paymentType: z.enum(monthlyClosingV2TransportationPaymentTypes).optional().default("company_card_etc"),
+        payerType: z.enum(monthlyClosingV2PayerTypes).optional().default("company_card_etc"),
       }))
       .mutation(async ({ ctx, input }) => {
         const { start, end } = getMonthDateRange(input.targetMonth);
@@ -3235,9 +3259,12 @@ export const appRouter = router({
             workerId: input.workerId,
             projectId: input.projectId,
             targetMonth: input.targetMonth,
-            amount: 0,
-            paymentType: input.paymentType,
-            memo: null,
+            payerType: input.payerType,
+            workerReimbursementRequired: false,
+            clientBillable: false,
+            workerReimbursementAmount: 0,
+            clientBillableAmount: 0,
+            internalMemo: null,
             updatedBy: ctx.user.id,
           });
         }
@@ -3266,7 +3293,7 @@ export const appRouter = router({
         });
         return { receiptId: receipt.id, url, fileName: input.fileName };
       }),
-    transportationBillingSummary: leaderOrAdminProcedure
+    transportationBillingSummary: monthlyClosingV2TransportationManagementProcedure
       .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const [summaries, projects, clients] = await Promise.all([
@@ -3282,7 +3309,7 @@ export const appRouter = router({
           const client = clientId ? clientMap.get(clientId) : null;
           const projectId = summary.projectId ? Number(summary.projectId) : null;
           const billableLines = projectId
-            ? (await db.getMonthlyClosingV2ExpenseLinesByProjectMonth(projectId, input.targetMonth)).filter((line: any) => line.isClientBillable)
+            ? (await db.getMonthlyClosingV2ExpenseLinesByProjectMonth(projectId, input.targetMonth)).filter((line: any) => line.clientBillable ?? line.isClientBillable)
             : [];
           const receipts = await db.getMonthlyClosingV2ExpenseLineReceiptsByExpenseLineIds(billableLines.map((line: any) => Number(line.id)));
           return {

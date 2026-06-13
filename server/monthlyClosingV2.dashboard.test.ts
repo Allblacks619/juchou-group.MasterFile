@@ -29,8 +29,8 @@ const fixture = vi.hoisted(() => ({
     { workerId: 102, targetMonth: "2026-05", status: "sent_back", sendBackReason: "出面を確認してください" },
   ],
   transportationLines: [
-    { id: 501, workerId: 100, projectId: 1, targetMonth: "2026-05", expenseType: "transportation", amount: 0, paymentMethod: "company_card", isClientBillable: false, memo: "ETC" },
-    { id: 502, workerId: 101, projectId: 1, targetMonth: "2026-05", expenseType: "transportation", amount: 1200, paymentMethod: "paid_by_client", isClientBillable: true, memo: "客先請求" },
+    { id: 501, workerId: 100, projectId: 1, targetMonth: "2026-05", expenseType: "transportation", amount: 0, paymentMethod: "company_card", payerType: "company_card_etc", workerReimbursementRequired: false, clientBillable: false, workerReimbursementAmount: 0, clientBillableAmount: 0, isClientBillable: false, memo: "ETC", internalMemo: "ETC" },
+    { id: 502, workerId: 101, projectId: 1, targetMonth: "2026-05", expenseType: "transportation", amount: 1200, paymentMethod: "paid_by_worker", payerType: "worker_paid", workerReimbursementRequired: true, clientBillable: true, workerReimbursementAmount: 1200, clientBillableAmount: 1200, isClientBillable: true, memo: "客先請求", internalMemo: "客先請求" },
   ],
   transportationReceipts: [
     { id: 601, expenseLineId: 501, workerId: 100, projectId: 1, targetMonth: "2026-05", originalFileName: "etc.pdf", receiptFileUrl: "https://files/につながる/receipt.pdf", mimeType: "application/pdf", fileSize: 128, uploadedAt: new Date("2026-05-31") },
@@ -66,7 +66,14 @@ vi.mock("./db", () => ({
   upsertMonthlyClosingV2TransportationExpense: vi.fn(async (data) => ({ id: 700, expenseType: "transportation", ...data })),
   createMonthlyClosingV2ExpenseLineReceipt: vi.fn(async (data) => ({ id: 800, uploadedAt: new Date(), ...data })),
   getMonthlyClosingV2ClientTransportationBillingSummary: vi.fn(async (targetMonth: string) => [{ clientId: 10, projectId: 1, totalAmount: 1200, lineCount: 1, targetMonth }]),
-  deriveMonthlyClosingV2TransportationPaymentType: vi.fn((line) => line.isClientBillable ? "billable_to_client" : line.paymentMethod === "company_card" ? "company_card_etc" : "worker_reimbursable"),
+  normalizeMonthlyClosingV2TransportationLine: vi.fn((line) => ({
+    payerType: line.payerType,
+    workerReimbursementRequired: line.workerReimbursementRequired,
+    clientBillable: line.clientBillable,
+    workerReimbursementAmount: line.workerReimbursementAmount,
+    clientBillableAmount: line.clientBillableAmount,
+    internalMemo: line.internalMemo ?? line.memo ?? null,
+  })),
   createAuditLog: vi.fn(async (data) => ({ id: 900, ...data })),
 }));
 
@@ -214,23 +221,33 @@ describe("monthlyClosingV2.dashboard", () => {
       targetMonth: "2026-05",
       projectId: 1,
       workerId: 101,
-      amount: 0,
-      paymentType: "company_card_etc",
-      memo: "会社ETCの証憑のみ",
+      payerType: "worker_paid",
+      workerReimbursementRequired: true,
+      clientBillable: true,
+      workerReimbursementAmount: 1500,
+      clientBillableAmount: 1800,
+      internalMemo: "作業員精算し客先請求",
     })).resolves.toMatchObject({
       targetMonth: "2026-05",
       projectId: 1,
       workerId: 101,
-      amount: 0,
-      paymentType: "company_card_etc",
-      memo: "会社ETCの証憑のみ",
+      payerType: "worker_paid",
+      workerReimbursementRequired: true,
+      clientBillable: true,
+      workerReimbursementAmount: 1500,
+      clientBillableAmount: 1800,
+      internalMemo: "作業員精算し客先請求",
     });
 
     const expenses = await caller.monthlyClosingV2.getTransportationExpenses({ targetMonth: "2026-05", projectId: 1 });
     expect(expenses[100]).toMatchObject({
       amount: 0,
-      paymentType: "company_card_etc",
-      memo: "ETC",
+      payerType: "company_card_etc",
+      workerReimbursementRequired: false,
+      clientBillable: false,
+      workerReimbursementAmount: 0,
+      clientBillableAmount: 0,
+      internalMemo: "ETC",
       receiptStatus: "添付済み",
       receiptCount: 1,
       receipts: [expect.objectContaining({ fileName: "etc.pdf", mimeType: "application/pdf" })],
@@ -246,7 +263,7 @@ describe("monthlyClosingV2.dashboard", () => {
       base64: Buffer.from("pdf evidence").toString("base64"),
       mimeType: "application/pdf",
       fileName: "etc-evidence.pdf",
-      paymentType: "company_card_etc",
+      payerType: "company_card_etc",
     });
 
     expect(result).toMatchObject({ receiptId: 800, fileName: "etc-evidence.pdf" });
@@ -258,6 +275,24 @@ describe("monthlyClosingV2.dashboard", () => {
       originalFileName: "etc-evidence.pdf",
       mimeType: "application/pdf",
     }));
+  });
+
+  it("rejects internal transportation management APIs for normal workers", async () => {
+    const workerCaller = appRouter.createCaller(createCtx(createUser({ appRole: "worker", role: "user" as any })));
+
+    await expect(workerCaller.monthlyClosingV2.getTransportationExpenses({ targetMonth: "2026-05", projectId: 1 }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(workerCaller.monthlyClosingV2.upsertTransportationExpense({
+      targetMonth: "2026-05",
+      projectId: 1,
+      workerId: 100,
+      payerType: "worker_paid",
+      workerReimbursementRequired: true,
+      clientBillable: true,
+      workerReimbursementAmount: 1000,
+      clientBillableAmount: 1000,
+      internalMemo: "worker should not see this",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("aggregates client-billable transportation by client and project without worker-level breakdown", async () => {
