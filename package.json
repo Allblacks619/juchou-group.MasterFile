@@ -8,6 +8,7 @@
     "build": "vite build && node scripts/write-deploy-check.mjs && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
+    "check:conflicts": "node scripts/check-conflicts.mjs",
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
