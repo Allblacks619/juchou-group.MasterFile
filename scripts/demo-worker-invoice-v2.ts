@@ -4,8 +4,11 @@
  *
  * Run: npx tsx scripts/demo-worker-invoice-v2.ts
  *
- * This exercises the pure core (server/workerInvoiceV2Core.ts) so you can see the
- * exact shape/numbers a worker invoice will produce before any UI is wired up.
+ * The 日報 (monthly work report) is rendered to match the real 出面表 layout:
+ * one row per calendar day, site name only on worked days, plus overtime and
+ * transport columns and a 昼勤/夜勤/残業 summary — "余計な情報を省く".
+ *
+ * Sample data reproduces 大木 充 / 2026年5月 (16 day-shifts, 0 night, 5h overtime).
  */
 import {
   computeWorkerInvoiceDraft,
@@ -13,59 +16,63 @@ import {
   type ExpenseLineLike,
 } from "../server/workerInvoiceV2Core";
 
-const WORKER_ID = 10;
-const WORKER_NAME = "田中 太郎";
-const TARGET_MONTH = "2026-04";
+const WORKER_ID = 30;
+const WORKER_NAME = "大木 充";
+const COMPANY = "充寵グループ";
+const TARGET_MONTH = "2026-05";
 
 const PROJECT_NAMES: Record<number, string> = {
-  101: "新宿ビル新築電気工事",
-  102: "渋谷店舗改修工事",
+  201: "読売ランド　新南山水族館",
+  202: "箱根　小涌園ホテル改修工事",
 };
-
 const RATES: Record<string, number> = {
-  "101:day": 18000,
-  "101:night": 22000,
-  "102:day": 17000,
+  "201:day": 19000,
+  "202:day": 19000,
 };
 
 const yen = (n: number) => "¥" + n.toLocaleString("ja-JP");
+const DOW = ["日", "月", "火", "水", "木", "金", "土"];
+const dow = (dateStr: string) => DOW[new Date(dateStr + "T00:00:00Z").getUTCDay()];
+const daysInMonth = (ym: string) => {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+};
 
-// --- sample attendance (出面表) ---------------------------------------------
-function days(project: number, shift: string, dates: string[]): AttendanceRecordLike[] {
-  return dates.map((d) => ({
-    employeeId: WORKER_ID,
-    projectId: project,
-    shiftType: shift,
-    workDate: `${TARGET_MONTH}-${d}`,
-    hoursWorked: 80, // stored as hours×10 → 8.0h = 1 day
-    workType: "normal",
-  }));
-}
-
-const attendanceRecords: AttendanceRecordLike[] = [
-  ...days(101, "day", ["01", "02", "03", "04", "07", "08", "09", "10", "11", "14", "15", "16"]), // 12 days
-  ...days(101, "night", ["17", "18", "21"]), // 3 nights
-  ...days(102, "day", ["22", "23", "24", "25", "28"]), // 5 days
-  // a day-off and another worker's record — must be ignored:
-  { employeeId: WORKER_ID, projectId: 101, shiftType: "day", workDate: `${TARGET_MONTH}-29`, hoursWorked: 0, workType: "day_off" },
-  { employeeId: 11, projectId: 101, shiftType: "day", workDate: `${TARGET_MONTH}-01`, hoursWorked: 80, workType: "normal" },
+// --- sample attendance (出面表) — 読売ランド常駐、26/27のみ箱根で残業 ---------
+type Day = { d: string; project: number; ot?: number };
+const worked: Day[] = [
+  { d: "07", project: 201 }, { d: "08", project: 201 },
+  { d: "11", project: 201 }, { d: "12", project: 201 }, { d: "13", project: 201 },
+  { d: "14", project: 201 }, { d: "15", project: 201 },
+  { d: "18", project: 201 }, { d: "19", project: 201 },
+  { d: "21", project: 201 }, { d: "22", project: 201 },
+  { d: "25", project: 201 },
+  { d: "26", project: 202, ot: 40 }, // 4.0h overtime
+  { d: "27", project: 202, ot: 10 }, // 1.0h overtime
+  { d: "28", project: 201 }, { d: "29", project: 201 },
 ];
 
-// --- sample V2 expense lines -------------------------------------------------
+const attendanceRecords: AttendanceRecordLike[] = worked.map((w) => ({
+  employeeId: WORKER_ID,
+  projectId: w.project,
+  shiftType: "day",
+  workDate: `${TARGET_MONTH}-${w.d}`,
+  hoursWorked: 80,
+  overtimeHours: w.ot ?? 0,
+  workType: "normal",
+}));
+
+// --- transport: ONE monthly total per project (as V2 stores it). The core does the
+//     日割り計算 across 読売ランドの出面日のみ → ¥1,751×13 + ¥1,752 (= ¥24,515 ÷ 14日). ----
 const expenseLines: ExpenseLineLike[] = [
-  { id: 1, projectId: 101, expenseType: "transportation", amount: 8400, paymentMethod: "paid_by_worker" },
-  { id: 2, projectId: 102, expenseType: "transportation", amount: 5200, paymentMethod: "paid_by_worker" },
-  { id: 3, projectId: 101, expenseType: "other", amount: 3000, paymentMethod: "paid_by_worker" }, // 消耗品
-  { id: 4, projectId: 102, expenseType: "transportation", amount: 6000, paymentMethod: "company_card" }, // 会社カード → 除外
+  { projectId: 201, expenseType: "transportation", amount: 24515, paymentMethod: "paid_by_worker" },
 ];
-
-const SHIFT_LABEL: Record<string, string> = { day: "日勤", night: "夜勤" };
 
 async function main() {
   const draft = await computeWorkerInvoiceDraft({
     workerId: WORKER_ID,
     targetMonth: TARGET_MONTH,
-    submissionStatus: "submitted", // 月締め提出済み
+    submissionStatus: "submitted",
     attendanceRecords,
     expenseLines,
     resolveRate: ({ projectId, shiftType }) => RATES[`${projectId}:${shiftType}`] ?? null,
@@ -74,70 +81,63 @@ async function main() {
 
   const out: string[] = [];
   const p = (s = "") => out.push(s);
+  const byDate = new Map<string, typeof draft.attendanceBreakdown>();
+  for (const day of draft.attendanceBreakdown) {
+    if (!byDate.has(day.workDate)) byDate.set(day.workDate, []);
+    byDate.get(day.workDate)!.push(day);
+  }
 
-  p("══════════════════════════════════════════════════════════");
-  p("  作業員請求書（月締めV2から自動生成）");
-  p("══════════════════════════════════════════════════════════");
-  p(`  対象月   : ${draft.targetMonth}`);
-  p(`  作業員   : ${WORKER_NAME}（ID: ${draft.workerId}）`);
-  p(`  月締め状態: ${draft.submissionStatus}`);
+  // ============== 日報（作業報告）== 出面表の清書 ==========================
+  p("════════════════════════════════════════════════════════════════════");
+  p(`  日報（作業報告）   ${COMPANY}      ${WORKER_NAME}        ${TARGET_MONTH.replace("-", "年")}月`);
+  p("════════════════════════════════════════════════════════════════════");
+  p("  日付 曜日  現場名                              残業時間   交通費");
+  p("  ──────────────────────────────────────────────────────────────");
+  let dayDays = 0, nightDays = 0, otTotal = 0, transportTotal = 0;
+  for (let i = 1; i <= daysInMonth(TARGET_MONTH); i++) {
+    const dd = String(i).padStart(2, "0");
+    const dateStr = `${TARGET_MONTH}-${dd}`;
+    const recs = byDate.get(dateStr) || [];
+    const w = dow(dateStr);
+    const head = `  ${String(i).padStart(2, " ")}日 ${w}`;
+    if (recs.length === 0) {
+      p(head);
+      continue;
+    }
+    for (const r of recs) {
+      if (r.shiftType === "night") nightDays += r.days; else dayDays += r.days;
+      otTotal += r.overtimeHours;
+      transportTotal += r.transport;
+      const mark = r.shiftType === "night" ? "【夜】" : "";
+      const site = `${mark}${r.projectName ?? `現場${r.projectId}`}`;
+      const ot = `残業 ${r.overtimeHours}h`;
+      const tr = r.transport ? `交通費 ¥${r.transport.toLocaleString("ja-JP")}` : "交通費 —";
+      p(`${head}  ${site}　/　${ot}　/　${tr}`);
+    }
+  }
+  p("  ──────────────────────────────────────────────────────────────");
+  p(`  集計   昼勤出勤日数 ${dayDays}日    夜勤出勤日数 ${nightDays}日    残業時間(h) ${otTotal}`);
+  p(`         交通費合計 ${yen(transportTotal)}`);
   p("");
-  p("  ── 明細 ─────────────────────────────────────────────");
+  p("  → 締め提出と同時にこれが出るので、出勤状況をひと目で確認できます。");
+  p("");
+  p("");
+
+  // ============== 作業員請求書（金額の書類。日報とは別物）================
+  p("════════════════════════════════════════════════════════════════════");
+  p(`  作業員請求書        ${WORKER_NAME}        ${TARGET_MONTH}`);
+  p("════════════════════════════════════════════════════════════════════");
   const catLabel: Record<string, string> = { labor: "労務費", transport: "交通費", expense: "経費" };
   for (const item of draft.items) {
-    const qty = item.unit === "日" ? `${item.quantity}${item.unit}` : `${item.quantity}${item.unit}`;
     p(`  [${catLabel[item.category]}] ${item.label}`);
-    p(`      ${qty} × ${yen(item.unitPrice)} = ${yen(item.amount)}  (税${item.taxRate}%)`);
+    p(`      ${item.quantity}${item.unit} × ${yen(item.unitPrice)} = ${yen(item.amount)}  (税${item.taxRate}%)`);
   }
-  p("  ─────────────────────────────────────────────────────");
-  p(`  労務費計 : ${yen(draft.laborAmount)}`);
-  p(`  交通費計 : ${yen(draft.transportAmount)}`);
-  p(`  経費計   : ${yen(draft.expenseAmount)}`);
-  p(`  小計     : ${yen(draft.subtotal)}`);
-  p(`  消費税   : ${yen(draft.taxAmount)}`);
-  p(`  合計     : ${yen(draft.totalAmount)}`);
+  p("  ──────────────────────────────────────────────────────────────");
+  p(`  労務費計 ${yen(draft.laborAmount)}   交通費計 ${yen(draft.transportAmount)}   経費計 ${yen(draft.expenseAmount)}`);
+  p(`  小計 ${yen(draft.subtotal)} → 消費税 ${yen(draft.taxAmount)} → 合計 ${yen(draft.totalAmount)}`);
   p("");
-
-  if (draft.excludedExpenseLines.length) {
-    p("  ── 請求対象外（会社/取引先負担として記録のみ）──────────");
-    for (const ex of draft.excludedExpenseLines) {
-      const name = ex.projectId ? PROJECT_NAMES[ex.projectId] ?? `現場${ex.projectId}` : "現場未割当";
-      p(`  ・${name} / ${ex.expenseType} ${yen(ex.amount)}（支払=${ex.paymentMethod}）`);
-    }
-    p("");
-  }
-
-  if (draft.warnings.length) {
-    p("  ── 警告 ─────────────────────────────────────────────");
-    for (const w of draft.warnings) p(`  ⚠ ${w}`);
-    p("");
-  }
-
-  // --- 日報（作業報告）作業員×月で1枚 ---
-  p("══════════════════════════════════════════════════════════");
-  p("  日報（作業報告）  作業員 × 月で1枚");
-  p("══════════════════════════════════════════════════════════");
-  p(`  ${WORKER_NAME} / ${draft.targetMonth}`);
-  p("");
-  const byProject = new Map<number, typeof draft.attendanceBreakdown>();
-  for (const d of draft.attendanceBreakdown) {
-    if (!byProject.has(d.projectId)) byProject.set(d.projectId, []);
-    byProject.get(d.projectId)!.push(d);
-  }
-  let grandDays = 0;
-  for (const [projectId, list] of byProject) {
-    const total = list.reduce((s, d) => s + d.days, 0);
-    grandDays += total;
-    p(`  ◆ ${list[0].projectName ?? `現場${projectId}`}（計 ${total}日）`);
-    for (const d of list) {
-      p(`      ${d.workDate}  ${SHIFT_LABEL[d.shiftType] ?? d.shiftType}  ${d.days}日`);
-    }
-    p("");
-  }
-  p(`  ── 合計出面: ${grandDays}日 ──`);
-  p("");
-  p("  ※ 請求書の労務費（出面×単価）と、この日報の出面日数が一致していることが");
-  p("     「いつ・どの現場・何日」の裏付けになります。");
+  p("  ※ 交通費計と日報の交通費合計が一致 → 金額の裏付けになる。");
+  p(`  ※ 残業 ${otTotal}h は単価ルール未確定のため未計上（要・確認）。`);
 
   console.log(out.join("\n"));
 }

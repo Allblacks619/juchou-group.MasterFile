@@ -49,6 +49,10 @@ export type WorkerInvoiceV2AttendanceDay = {
   workType: string;
   /** worked days for this record on a 1.0 = full-day scale */
   days: number;
+  /** overtime hours for the day (1.0 = 1 hour) */
+  overtimeHours: number;
+  /** transport recorded for this day+project (¥), from V2 transportation expense lines with an expenseDate */
+  transport: number;
 };
 
 export type WorkerInvoiceV2ExcludedExpense = {
@@ -89,6 +93,8 @@ export type AttendanceRecordLike = {
   shiftType?: string | null;
   workDate: Date | string;
   hoursWorked?: number | null;
+  /** overtime hours × 10 (e.g. 15 = 1.5h), matching attendance.overtimeHours */
+  overtimeHours?: number | null;
   workType: string;
 };
 
@@ -96,6 +102,7 @@ export type ExpenseLineLike = {
   id?: number | null;
   projectId?: number | null;
   expenseType?: string | null;
+  expenseDate?: string | null;
   amount?: number | null;
   paymentMethod?: string | null;
 };
@@ -197,7 +204,37 @@ export async function computeWorkerInvoiceDraft(input: {
       shiftType,
       workType: String(record.workType),
       days: daysTimes10 / 10,
+      overtimeHours: Number(record.overtimeHours || 0) / 10,
+      transport: 0, // filled by 日割り (daily proration) below
     });
+  }
+
+  // 日報 transport: the worker submits one transport total per project; allocate it by
+  // 日割り計算 (daily proration) across only that project's worked days. Base = floor(total/days),
+  // and the remainder lands on the last worked day (matches the 出面表 rounding).
+  const transportTotalPerProject = new Map<number, number>();
+  for (const line of input.expenseLines) {
+    if (String(line.expenseType || "other") !== "transportation") continue;
+    if (line.paymentMethod !== "paid_by_worker" || line.projectId == null) continue;
+    const amount = Number(line.amount || 0);
+    if (amount <= 0) continue;
+    transportTotalPerProject.set(line.projectId, (transportTotalPerProject.get(line.projectId) || 0) + amount);
+  }
+  const breakdownByProject = new Map<number, WorkerInvoiceV2AttendanceDay[]>();
+  for (const day of attendanceBreakdown) {
+    if (!breakdownByProject.has(day.projectId)) breakdownByProject.set(day.projectId, []);
+    breakdownByProject.get(day.projectId)!.push(day);
+  }
+  for (const [projectId, total] of Array.from(transportTotalPerProject.entries())) {
+    const projectDays = (breakdownByProject.get(projectId) || []).slice().sort((a, b) => a.workDate.localeCompare(b.workDate));
+    if (projectDays.length === 0) {
+      warnings.push(`交通費 ${total.toLocaleString("ja-JP")}円 の按分先（現場${projectId}の出面）がありません`);
+      continue;
+    }
+    const base = Math.floor(total / projectDays.length);
+    const remainder = total - base * projectDays.length;
+    for (const day of projectDays) day.transport = base;
+    projectDays[projectDays.length - 1].transport += remainder;
   }
 
   const items: WorkerInvoiceV2DraftItem[] = [];
@@ -300,7 +337,7 @@ export async function computeWorkerInvoiceDraft(input: {
     });
   }
 
-  // Fill project names into the attendance breakdown for the 日報.
+  // Fill project names into the attendance breakdown for the 日報 (transport already prorated above).
   for (const day of attendanceBreakdown) {
     day.projectName = await projectName(day.projectId);
   }

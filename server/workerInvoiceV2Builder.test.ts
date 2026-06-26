@@ -102,4 +102,34 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
     expect(draft.taxAmount).toBe(4800); // labor 10% only
     expect(draft.totalAmount).toBe(58800);
   });
+
+  it("交通費は現場ごとに出面日数で日割り按分し、端数は最終日に乗せる", async () => {
+    state.attendance = [
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-01", hoursWorked: 80, workType: "normal" },
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-02", hoursWorked: 80, workType: "normal" },
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-03", hoursWorked: 80, workType: "normal" },
+    ];
+    // one monthly transport total for project 1 (¥10,000) → ¥3,333 ×2 + ¥3,334 on the last day
+    state.expenseLines = [
+      { id: 1, workerId: 10, targetMonth: "2026-04", projectId: 1, expenseType: "transportation", amount: 10000, paymentMethod: "paid_by_worker" },
+    ];
+    const draft = await build();
+    const byDate = Object.fromEntries(draft.attendanceBreakdown.map((d) => [d.workDate, d.transport]));
+    expect(byDate["2026-04-01"]).toBe(3333);
+    expect(byDate["2026-04-02"]).toBe(3333);
+    expect(byDate["2026-04-03"]).toBe(3334); // remainder on the last worked day
+    // sum of prorated per-day == invoice transport total
+    const perDaySum = draft.attendanceBreakdown.reduce((s, d) => s + d.transport, 0);
+    expect(perDaySum).toBe(10000);
+    expect(draft.transportAmount).toBe(10000);
+  });
+
+  it("日報の出面内訳に残業時間を持つ", async () => {
+    state.attendance = [
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-01", hoursWorked: 80, overtimeHours: 40, workType: "normal" },
+    ];
+    state.expenseLines = [];
+    const draft = await build();
+    expect(draft.attendanceBreakdown[0].overtimeHours).toBe(4); // 40 / 10 = 4.0h
+  });
 });
