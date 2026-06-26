@@ -161,6 +161,34 @@ export async function getMonthlyClosingV2ExpenseLinesByWorkerProjectMonth(
   );
 }
 
+/** Single worker monthly submission for a target month (月締めV2 提出状況・1件) */
+export async function getMonthlyClosingV2WorkerSubmission(workerId: number, targetMonth: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(monthlyClosingV2WorkerSubmissions).where(
+    and(
+      eq(monthlyClosingV2WorkerSubmissions.workerId, workerId),
+      eq(monthlyClosingV2WorkerSubmissions.targetMonth, targetMonth),
+    )
+  ).limit(1);
+  return result[0];
+}
+
+/**
+ * All expense lines (transportation + other, all projects) for a worker in a target month.
+ * Used by the worker invoice V2 draft builder.
+ */
+export async function getMonthlyClosingV2ExpenseLinesByWorkerMonth(workerId: number, targetMonth: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(monthlyClosingV2ExpenseLines).where(
+    and(
+      eq(monthlyClosingV2ExpenseLines.workerId, workerId),
+      eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
+    )
+  );
+}
+
 export async function getMonthlyClosingV2ExpenseLinesByProjectMonth(
   projectId: number,
   targetMonth: string
