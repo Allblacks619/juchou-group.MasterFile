@@ -4,12 +4,14 @@ const state = vi.hoisted(() => ({
   submission: undefined as any,
   attendance: [] as any[],
   expenseLines: [] as any[],
+  v1Submissions: [] as any[],
 }));
 
 vi.mock("./db", () => ({
   getMonthlyClosingV2WorkerSubmission: vi.fn(async () => state.submission),
   getAttendanceByDateRange: vi.fn(async () => state.attendance),
   getMonthlyClosingV2ExpenseLinesByWorkerMonth: vi.fn(async () => state.expenseLines),
+  getClosingSubmissionsByEmployeeMonth: vi.fn(async () => state.v1Submissions),
   getProjectById: vi.fn(async (id: number) =>
     id === 1 ? { id: 1, name: "現場A", clientId: 77 } : id === 2 ? { id: 2, name: "現場B", clientId: 77 } : undefined
   ),
@@ -44,6 +46,7 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
       { id: 3, workerId: 10, targetMonth: "2026-04", projectId: 1, expenseType: "other", amount: 2000, paymentMethod: "paid_by_worker" },
       { id: 4, workerId: 10, targetMonth: "2026-04", projectId: null, expenseType: "transportation", amount: 1000, paymentMethod: "paid_by_worker" },
     ];
+    state.v1Submissions = [];
   });
 
   it("月締め未提出（not_submitted）では生成不可", async () => {
@@ -131,5 +134,38 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
     state.expenseLines = [];
     const draft = await build();
     expect(draft.attendanceBreakdown[0].overtimeHours).toBe(4); // 40 / 10 = 4.0h
+  });
+
+  it("V2提出があるときは submissionSource=v2", async () => {
+    const draft = await build();
+    expect(draft.submissionSource).toBe("v2");
+  });
+
+  it("V2未提出でもV1（旧月締め）提出があればブリッジして生成する", async () => {
+    state.submission = undefined; // no V2 submission
+    state.expenseLines = []; // no V2 expense lines
+    state.attendance = [
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-01", hoursWorked: 80, workType: "normal" },
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-02", hoursWorked: 80, workType: "normal" },
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-03", hoursWorked: 80, workType: "normal" },
+    ];
+    state.v1Submissions = [
+      { submissionId: 1, projectId: 1, status: "submitted", transportAmount: 10000, expenseAmount: 2000 },
+    ];
+    const draft = await build();
+    expect(draft.submissionSource).toBe("v1_bridge");
+    expect(draft.warnings.some((w) => w.includes("V1"))).toBe(true);
+    expect(draft.laborAmount).toBe(45000); // 3日 × 15000
+    expect(draft.transportAmount).toBe(10000); // V1 transport bridged + 日割り
+    expect(draft.expenseAmount).toBe(2000); // V1 expense bridged
+    // 交通費 prorated across the 3 days: 3333 + 3333 + 3334
+    const byDate = Object.fromEntries(draft.attendanceBreakdown.map((d) => [d.workDate, d.transport]));
+    expect(byDate["2026-04-03"]).toBe(3334);
+  });
+
+  it("V1も未提出なら従来どおり生成不可", async () => {
+    state.submission = undefined;
+    state.v1Submissions = [{ submissionId: 1, projectId: 1, status: "pending", transportAmount: 0, expenseAmount: 0 }];
+    await expect(build()).rejects.toBeInstanceOf(WorkerMonthlyClosingNotSubmittedError);
   });
 });
