@@ -18,6 +18,7 @@ import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from
 import { generateInvoicePdf } from "./pdfInvoice";
 import { buildInvoiceDraftFromProjects } from "./invoiceBuilder";
 import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./workerInvoicePdf";
+import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } from "./workerInvoiceV2Builder";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 
 const BCRYPT_ROUNDS = 12;
@@ -4839,6 +4840,40 @@ export const appRouter = router({
       const items = invoice?.id ? await db.getWorkerInvoiceItems(invoice.id) : [];
       return { ...invoice, items };
     }),
+    /**
+     * Build an editable worker-invoice draft from Monthly Closing V2 data (admin/manager only).
+     * Labor (出勤日数×単価), transport (日割り), and expense are computed by the V2 builder.
+     * Tax rates are provisional and overridable per request (明細可変); read-only preview, no DB write.
+     */
+    getV2Draft: leaderOrAdminProcedure
+      .input(z.object({
+        workerId: z.number().int().positive(),
+        targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        taxRates: z.object({
+          labor: z.number().min(0).max(100).optional(),
+          transport: z.number().min(0).max(100).optional(),
+          expense: z.number().min(0).max(100).optional(),
+        }).optional(),
+      }))
+      .query(async ({ input }) => {
+        try {
+          const draft = await buildWorkerInvoiceDraftFromV2({
+            workerId: input.workerId,
+            targetMonth: input.targetMonth,
+            taxRates: input.taxRates,
+          });
+          const worker = await db.getEmployeeById(input.workerId);
+          return {
+            ...draft,
+            workerName: worker?.nameKanji || worker?.nameRomaji || `従業員ID:${input.workerId}`,
+          };
+        } catch (error) {
+          if (error instanceof WorkerMonthlyClosingNotSubmittedError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
+      }),
     saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional() })).optional() })).mutation(async ({ ctx, input }) => {
       const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
