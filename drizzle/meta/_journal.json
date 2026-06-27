@@ -197,6 +197,13 @@
       "when": 1780900000000,
       "tag": "0027_monthly_closing_v2_phase_2b_reviews",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "5",
+      "when": 1781000000000,
+      "tag": "0028_attendance_workdate_index",
+      "breakpoints": true
     }
   ]
 }
