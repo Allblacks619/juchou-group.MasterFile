@@ -475,6 +475,10 @@ export const attendance = mysqlTable("attendance", {
 }, (table) => ([
   uniqueIndex("attendance_emp_proj_date").on(table.employeeId, table.projectId, table.workDate),
   uniqueIndex("attendance_guest_proj_date").on(table.guestName, table.projectId, table.workDate),
+  // Speeds up month-range scans (getAttendanceByDateRange) used by the monthly-close
+  // dashboard, worker invoice, and closings — previously a full table scan on workDate.
+  index("attendance_workdate_idx").on(table.workDate),
+  index("attendance_proj_workdate_idx").on(table.projectId, table.workDate),
 ]));
 
 export type Attendance = typeof attendance.$inferSelect;

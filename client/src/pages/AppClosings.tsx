@@ -247,7 +247,13 @@ export default function AppClosings() {
     () => (Array.isArray(detail?.submissions) ? detail.submissions : []),
     [detail?.submissions]
   );
-  const sameClientProjects = Array.isArray(sameClientCandidatesQuery.data) ? sameClientCandidatesQuery.data : [];
+  // Memoized so the "no data" case keeps a stable [] reference. A fresh [] every render
+  // would make the eligibleSameClientProjects memo (and effect below) re-run every render,
+  // causing setInvoiceProjectIds([]) → re-render → loop (Maximum update depth exceeded).
+  const sameClientProjects = useMemo(
+    () => (Array.isArray(sameClientCandidatesQuery.data) ? sameClientCandidatesQuery.data : []),
+    [sameClientCandidatesQuery.data]
+  );
   const detailClosing = detail?.closing ?? null;
   const eligibleSameClientProjects = useMemo(
     () => sameClientProjects.filter((project: any) => project.isEligible),
@@ -261,7 +267,7 @@ export default function AppClosings() {
 
   useEffect(() => {
     if (!selectedProjectId) {
-      setInvoiceProjectIds([]);
+      setInvoiceProjectIds((prev) => (prev.length === 0 ? prev : []));
       autoSelectionKeyRef.current = "";
       return;
     }
