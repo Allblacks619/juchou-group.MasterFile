@@ -1,11 +1,11 @@
-# KNOWN ISSUES
+# KNOWN ISSUES (2026-04-30)
 
-最終更新: 2026-06-25
-
-1. `pnpm build` は `index.html` の分析用環境変数プレースホルダ未設定による既存の非ブロッキング警告を出す（本リポジトリの設定変更対象外）。
-2. `pnpm build` は本番バンドルで大きなチャンクサイズ警告を出すが、既存の事象であり本対応の範囲外。
-3. `pnpm test` の `customAuth` 招待テストでは、DB利用不可に関する想定内の stderr が出力されるが、テスト自体はパスする（既存挙動）。
-4. 未完了の機能フェーズ（追加実装・検証が必要）:
-   - 作業員請求書 Phase 4A（明細エディタ、単位/カテゴリ列、税率選択、PDFのロゴ/社印）
-   - 月締めV2 の領収書アップロード本実装（現状はプレースホルダ）
-   - 複数プロジェクト請求の選択ダイアログ（バックエンドは実装済み、UIとテストが未完）
+<<<<<<< Updated upstream
+1. `pnpm build` emits existing non-blocking warnings for missing analytics env placeholders in `index.html`; this patch does not alter analytics configuration.
+2. `pnpm build` still reports large chunk-size warnings in production bundle; this is pre-existing and out of scope.
+3. `pnpm test` prints expected stderr lines in `customAuth` invitation tests about DB unavailability while tests still pass; this is pre-existing test behavior.
+=======
+1. This checkout cannot pull from `origin/main` because no git remote is configured in the current environment.
+2. Full multi-phase feature completion (employee super_admin controls, bulk hard delete safety UX, full closing state recovery matrix, same-client merge hardening, and mobile refinements) still requires additional implementation and verification work.
+3. Build produces existing non-blocking warnings for missing analytics env placeholders and large chunk size.
+>>>>>>> Stashed changes
