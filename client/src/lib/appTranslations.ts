@@ -49,6 +49,7 @@ const dict = {
   nav_invoices: { ja: "請求書", pt: "Faturas" },
   nav_closings: { ja: "締め管理", pt: "Fechamento" },
   nav_monthlyCloseV2: { ja: "月締めV2", pt: "Fechamento V2" },
+  nav_workerInvoiceV2: { ja: "作業員請求書V2", pt: "Fatura do trabalhador V2" },
   nav_confirmationPdf: { ja: "確認表PDF", pt: "PDF de Confirmação" },
   confirmation_pdf_title: { ja: "作業出面・交通費確認表", pt: "Confirmação de Presença e Transporte" },
   nav_payments: { ja: "支払管理", pt: "Pagamentos" },

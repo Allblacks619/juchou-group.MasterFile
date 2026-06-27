@@ -1,34 +1,29 @@
-# TEST REPORT (2026-04-30)
+# TEST REPORT
 
-## Commands run
+## 検証コマンド
 - `pnpm check`
 - `pnpm build`
 - `pnpm test`
 
-## Results
+## 結果（2026-04-30 時点の記録）
 - check: pass
-<<<<<<< Updated upstream
-- build: pass (with existing non-blocking Vite env/chunk warnings)
+- build: pass（既存の非ブロッキングな Vite 警告あり: 分析用 env プレースホルダ未設定 / バンドルサイズ警告）
 - test: pass (85/85)
 
-## Behavior validation completed
-- Desktop table:
-  - all rows expose edit/delete,
-  - delete uses confirmation + `trpc.rate.delete`,
-  - edit saves via `trpc.rate.update`.
-- Mobile card list:
-  - all cards expose visible `編集` / `削除` buttons,
-  - inline edit UI is stacked and tappable,
-  - no horizontal action overflow introduced.
-- Validation:
-  - both empty rejected,
-  - billing-only accepted,
-  - payment-only accepted,
-  - both accepted.
-=======
-- build: pass (with existing non-blocking Vite warnings)
-- test: pass (85/85)
+## 挙動検証（AppRates 編集・削除の復旧）
+- デスクトップのテーブル:
+  - 全行に編集／削除アクションを表示
+  - 削除は確認ダイアログ + `trpc.rate.delete` を使用
+  - 編集保存は `trpc.rate.update` を使用
+- モバイルのカード一覧:
+  - 全カードに `編集` / `削除` ボタンを表示
+  - インライン編集UIは縦積みでタップ可能
+  - アクションの横スクロール溢れなし
+- バリデーション:
+  - 両方空 → 却下
+  - 売上単価のみ → 許可
+  - 支払単価のみ → 許可
+  - 両方あり → 許可
 
-## Notes
-- Build warnings seen were existing environment/build warnings (analytics env placeholders and bundle-size warning), not hard failures.
->>>>>>> Stashed changes
+## 最新の検証（2026-06-25）
+- `pnpm test`: 190 passed / 3 skipped（21 ファイル）。
