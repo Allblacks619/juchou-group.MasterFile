@@ -1,93 +1,93 @@
-<<<<<<< Updated upstream
 # MANUS HANDOFF PROMPT
 
-Please verify the **AppRates critical fix** with this checklist.
+## A) AppRates 重要修正の検証チェックリスト
 
-## 1) Edit/delete availability
-- Confirm every rate record has edit/delete actions on desktop table.
-- Confirm every rate record has visible `編集` and `削除` buttons on mobile cards.
+### 1) 編集／削除の存在
+- すべての単価レコードに、デスクトップのテーブルで編集／削除アクションがあること。
+- すべての単価レコードに、モバイルカードで `編集`・`削除` ボタンが見えること。
 
-## 2) Mutation wiring
-- Confirm delete path calls existing `trpc.rate.delete` mutation.
-- Confirm edit save calls existing `trpc.rate.update` mutation.
+### 2) ミューテーション結線
+- 削除パスが既存の `trpc.rate.delete` を呼ぶこと。
+- 編集保存が既存の `trpc.rate.update` を呼ぶこと。
 
-## 3) Delete behavior
-- Confirm delete prompts user confirmation first.
-- Confirm only the selected record is deleted.
+### 3) 削除の挙動
+- 削除前にユーザー確認を促すこと。
+- 選択したレコードのみ削除されること。
 
-## 4) Edit behavior (billing/payment separation)
-- Confirm existing records can be edited regardless of current shape:
-  - billing-only record can be edited without forcing payment,
-  - payment-only record can be edited without forcing billing,
-  - both present can edit both.
-- Confirm no 0-yen fallback is auto-submitted for missing side.
+### 4) 編集の挙動（売上／支払の分離）
+- 現在の形に関わらず既存レコードを編集できること:
+  - 売上のみのレコードを、支払を強制せず編集できる
+  - 支払のみのレコードを、売上を強制せず編集できる
+  - 両方あればどちらも編集できる
+- 欠けている側に 0円フォールバックを自動送信しないこと。
 
-## 5) Validation
-- Confirm both empty is rejected.
-- Confirm billing-only is accepted.
-- Confirm payment-only is accepted.
-- Confirm both is accepted.
+### 5) バリデーション
+- 両方空は却下。
+- 売上のみは許可。
+- 支払のみは許可。
+- 両方は許可。
 
-## 6) Mobile layout
-- Confirm action buttons are tappable and not clipped.
-- Confirm no horizontal overflow in card actions/edit area.
-- Confirm stacked actions layout remains visible without horizontal scroll.
-=======
-# MANUS HANDOFF PROMPT (2026-04-30)
+### 6) モバイルレイアウト
+- アクションボタンがタップ可能で見切れないこと。
+- カードのアクション／編集領域で横溢れがないこと。
+- アクションの縦積みレイアウトが横スクロールなしで見えること。
 
-Please continue implementation in phases and validate each stage with tests.
+---
 
-## 0) Environment prerequisite
-1. Ensure repository has a valid remote configured.
-2. Run:
+## B) 段階的実装プラン（2026-04-30）
+
+各段階をテストで検証しながらフェーズ単位で進める。
+
+### 0) 環境前提
+1. リポジトリに有効なリモートが設定されていること。
+2. 実行:
    - `git remote -v`
    - `git fetch origin`
    - `git checkout main && git pull --ff-only origin main`
-   - rebase/merge working branch on latest main safely.
+   - 作業ブランチを最新 main に安全に rebase / merge。
 
-## 1) Phase 1 — Employee roles & bulk hard delete
-- Enforce super_admin-only role change and hard-delete (single/bulk).
-- Prevent admin from changing/deleting super_admin.
-- Add impact-preview API/UI with counts (attendance/project memberships/closing-payment-submission/invoice items/user link/audit logs).
-- Add double-confirm dialog.
-- Implement safe deletion order and explicit blocking errors when integrity risks exist.
+### 1) Phase 1 — 従業員ロール & 一括ハードデリート
+- super_admin 限定のロール変更とハードデリート（単体／一括）を強制。
+- admin が super_admin を変更／削除できないようにする。
+- 影響プレビュー API/UI（出面・プロジェクト所属・締め支払提出・請求明細・ユーザーリンク・監査ログの件数）を追加。
+- 二重確認ダイアログを追加。
+- 安全な削除順序と、整合性リスク時の明示的ブロックエラーを実装。
 
-## 2) Phase 2 — Closing reopen / edit recovery
-- Reopen transitions must restore worker editability immediately.
-- Returned/rejected submissions editable by target worker.
-- Preserve close/reclose cycles.
-- Add/verify audit logs for reopen/return-reject/resubmit/reclose.
+### 2) Phase 2 — 締めの reopen / 編集リカバリ
+- reopen 遷移で作業員の編集可能性を即時復元。
+- 差し戻し／却下された提出を対象作業員が編集可能に。
+- 締め／再締めサイクルを維持。
+- reopen/差し戻し却下/再提出/再締めの監査ログを追加・検証。
 
-## 3) Phase 3 — Same-client multi-project merge
-- Show clear candidate project names and warning badges.
-- Include already-invoiced/draft projects with warnings (not silent exclusion).
-- Generate one editable invoice draft from selected projects.
-- Return `invoiceId` + `editUrl` and redirect to `/app/invoices?invoiceId=<id>`.
-- Split lines by project + unit price.
-- Never generate PDF directly from closing.
+### 3) Phase 3 — 同一取引先・複数プロジェクトのまとめ
+- 候補プロジェクト名と警告バッジを明示。
+- 請求済み／ドラフトのプロジェクトも（黙って除外せず）警告付きで含める。
+- 選択したプロジェクトから編集可能な請求書ドラフトを1枚生成。
+- `invoiceId` + `editUrl` を返し `/app/invoices?invoiceId=<id>` へリダイレクト。
+- 明細はプロジェクト + 単価で分割。
+- 締めから直接PDFを生成しない。
 
-## 4) Phase 4 — Mobile-first UI fixes
-- Remove horizontal overflow.
-- Ensure visible checkbox labels/action buttons/bulk action bar.
-- Use cards instead of wide tables where needed.
+### 4) Phase 4 — モバイルファースト UI 修正
+- 横溢れを除去。
+- チェックボックスのラベル／アクションボタン／一括操作バーを可視化。
+- 必要箇所では広いテーブルの代わりにカードを使用。
 
-## 5) Validation commands
+### 5) 検証コマンド
 - `pnpm install`
 - `pnpm check`
 - `pnpm build`
 - `pnpm test`
 
-## 6) Requested automated tests to add/update
-1. super_admin role change allowed
-2. non-super_admin role change denied
-3. bulk role change
-4. hard delete safety
-5. closed closing blocks worker edit
-6. reopened closing enables all worker edits
-7. returned submission enables selected worker edit
-8. same-client candidates include names and warnings
-9. selected multiple projects generate one invoice draft
-10. already invoiced project warning but selectable
-11. guest excluded from closing/invoice gate
-12. no direct PDF generation from closing
->>>>>>> Stashed changes
+### 6) 追加・更新する自動テスト
+1. super_admin のロール変更が許可される
+2. 非 super_admin のロール変更が拒否される
+3. 一括ロール変更
+4. ハードデリートの安全性
+5. 締め済みは作業員編集をブロック
+6. reopen 済みは全作業員編集を有効化
+7. 差し戻し提出は対象作業員の編集を有効化
+8. 同一取引先候補に名前と警告が含まれる
+9. 複数プロジェクト選択で請求書ドラフトが1枚生成される
+10. 請求済みプロジェクトは警告付きだが選択可能
+11. ゲストは締め／請求ゲートから除外
+12. 締めから直接PDFを生成しない

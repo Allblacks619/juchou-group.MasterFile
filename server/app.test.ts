@@ -109,6 +109,33 @@ describe("company router - access control", () => {
   });
 });
 
+describe("workerInvoice.getV2Draft - access control", () => {
+  const input = { workerId: 5, targetMonth: "2026-04" };
+
+  it("rejects unauthenticated user", async () => {
+    const caller = appRouter.createCaller(createMockContext(null));
+    await expect(caller.workerInvoice.getV2Draft(input)).rejects.toThrow();
+  });
+
+  it("rejects worker role (internal financial info is admin/manager only)", async () => {
+    const worker = createUser({ appRole: "worker", role: "user" });
+    const caller = appRouter.createCaller(createMockContext(worker));
+    await expect(caller.workerInvoice.getV2Draft(input)).rejects.toThrow(/権限/);
+  });
+
+  it("allows manager past the permission gate (fails later, not on permission)", async () => {
+    const manager = createUser({ appRole: "manager", role: "user" });
+    const caller = appRouter.createCaller(createMockContext(manager));
+    let permissionBlocked = false;
+    try {
+      await caller.workerInvoice.getV2Draft(input);
+    } catch (error: any) {
+      permissionBlocked = /権限/.test(String(error?.message || ""));
+    }
+    expect(permissionBlocked).toBe(false);
+  });
+});
+
 describe("employee router - access control", () => {
   it("rejects unauthenticated user from listing employees", async () => {
     const ctx = createMockContext(null);
