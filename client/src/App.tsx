@@ -30,6 +30,7 @@ const AppMyClosing = lazy(() => import("./pages/AppMyClosing"));
 const AppInvoices = lazy(() => import("./pages/AppInvoices"));
 const AppClosings = lazy(() => import("./pages/AppClosings"));
 const AppMonthlyCloseV2 = lazy(() => import("./pages/AppMonthlyCloseV2"));
+const AppWorkerInvoiceV2 = lazy(() => import("./pages/AppWorkerInvoiceV2"));
 const AppPayments = lazy(() => import("./pages/AppPayments"));
 const AppReceivables = lazy(() => import("./pages/AppReceivables"));
 const AppAuditLogs = lazy(() => import("./pages/AppAuditLogs"));
@@ -99,6 +100,9 @@ function AppRoutes() {
           </Route>
           <Route path="/app/monthly-close-v2">
             <RoleGuard allowed={ADMIN_LEADER}><AppMonthlyCloseV2 /></RoleGuard>
+          </Route>
+          <Route path="/app/worker-invoice-v2">
+            <RoleGuard allowed={ADMIN_LEADER}><AppWorkerInvoiceV2 /></RoleGuard>
           </Route>
           <Route path="/app/closings">
             <RoleGuard allowed={ADMIN_LEADER}><AppClosings /></RoleGuard>
