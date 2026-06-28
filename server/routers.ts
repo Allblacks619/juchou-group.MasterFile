@@ -2915,7 +2915,8 @@ export const appRouter = router({
         const projectWorkerMap = new Map<number, Map<number, { attendanceCount: number }>>();
         for (const record of excludeRemovedGuestMarkers(recordsRaw as any[])) {
           if (!record.employeeId) continue;
-          if (!isWorkedType(record.workType)) continue; // 休・欠勤は出勤日数に数えない
+          // 出勤日数: 出面表と同じく、出勤扱い かつ 実働時間>0 のみ。休・欠勤・時間0は数えない。
+          if (!isWorkedType(record.workType) || Number(record.hoursWorked || 0) <= 0) continue;
           const projectId = Number(record.projectId);
           const workerId = Number(record.employeeId);
           if (!projectWorkerMap.has(projectId)) projectWorkerMap.set(projectId, new Map());
@@ -3170,8 +3171,9 @@ export const appRouter = router({
             projectGroup.participants.push(participant);
           }
 
-          // 出勤日数: count only worked days. 休（day_off）・欠勤（absence）は出勤に数えない。
-          if (isWorkedType(record.workType)) {
+          // 出勤日数: count only actual worked days, matching the 出面表 (pdfAttendance):
+          // worked type AND hoursWorked > 0. 休・欠勤、および時間0のレコードは数えない。
+          if (isWorkedType(record.workType) && Number(record.hoursWorked || 0) > 0) {
             participant.attendanceCount += 1;
             projectGroup.attendanceCount += 1;
           }
