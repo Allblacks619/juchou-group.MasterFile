@@ -19,6 +19,7 @@ import { generateInvoicePdf } from "./pdfInvoice";
 import { buildInvoiceDraftFromProjects } from "./invoiceBuilder";
 import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./workerInvoicePdf";
 import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } from "./workerInvoiceV2Builder";
+import { seedBetaFixture, BETA_TEST_MONTH } from "./betaFixture";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 
 const BCRYPT_ROUNDS = 12;
@@ -926,6 +927,24 @@ async function generateWorkerInvoiceNumber(projectId: number, closingMonth: stri
 
 export const appRouter = router({
   system: systemRouter,
+
+  /**
+   * Beta test fixture (固定Betaセット) — super_admin only. Creates/resets the fixed Beta set
+   * (Beta_Client_01 / Beta_Worker_01 / Beta_Project_01, month 2024-01) for reproducible
+   * verification. Only touches Beta_* entities + 2024-01; never production data.
+   */
+  betaFixture: router({
+    seed: superAdminProcedure.mutation(async ({ ctx }) => {
+      const result = await seedBetaFixture();
+      await safeAuditLog(ctx.user.id, "betaFixture.seed", "beta_fixture", {
+        employeeId: result.workerId,
+        projectId: result.projectId,
+        note: `Beta検証データを作成/リセット (${result.targetMonth})`,
+      });
+      return result;
+    }),
+    info: superAdminProcedure.query(() => ({ targetMonth: BETA_TEST_MONTH })),
+  }),
 
   diagnostic: router({
     runtimeInfo: protectedProcedure.query(() => {
