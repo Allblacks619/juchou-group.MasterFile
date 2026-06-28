@@ -139,6 +139,36 @@ describe("monthlyClosingV2.dashboard", () => {
     expect(result.rows[0].warningCount).toBe(2);
   });
 
+  it("休・欠勤は出勤日数に数えない（#3）", async () => {
+    const extra = [
+      { id: 9001, projectId: 1, employeeId: 101, guestName: null, workDate: new Date("2026-05-10"), workType: "day_off" },
+      { id: 9002, projectId: 1, employeeId: 101, guestName: null, workDate: new Date("2026-05-11"), workType: "absence" },
+    ];
+    fixture.attendance.push(...(extra as any));
+    try {
+      const caller = appRouter.createCaller(createCtx(createUser()));
+      const result = await caller.monthlyClosingV2.dashboard({ targetMonth: "2026-05" });
+      const mitsuru = result.rows[0].participants.find((p: any) => p.workerName === "大木充");
+      expect(mitsuru.attendanceCount).toBe(1); // 1 worked record; day_off/absence not counted
+    } finally {
+      fixture.attendance.splice(fixture.attendance.length - extra.length, extra.length);
+    }
+  });
+
+  it("参加者が全員締め完了なら、古い『差し戻しあり』は解消される（#2 reconcile）", async () => {
+    (db.getMonthlyClosingV2ParticipantReviewsByMonth as any).mockResolvedValueOnce([
+      { projectId: 1, participantKey: "worker:100", individualStatus: "締め完了", isAggregationExcluded: false },
+      { projectId: 1, participantKey: "worker:101", individualStatus: "締め完了", isAggregationExcluded: false },
+      { projectId: 1, participantKey: "worker:102", individualStatus: "締め完了", isAggregationExcluded: false },
+    ]);
+    (db.getMonthlyClosingV2ProjectReviewsByMonth as any).mockResolvedValueOnce([
+      { projectId: 1, status: "差し戻しあり" },
+    ]);
+    const caller = appRouter.createCaller(createCtx(createUser()));
+    const result = await caller.monthlyClosingV2.dashboard({ targetMonth: "2026-05" });
+    expect(result.rows[0].closingStatus).toBe("締め完了");
+  });
+
   it("persists project review status edits in V2-specific storage", async () => {
     const caller = appRouter.createCaller(createCtx(createUser()));
     const result = await caller.monthlyClosingV2.updateProjectStatus({
