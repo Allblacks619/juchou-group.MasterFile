@@ -16,7 +16,7 @@ import { eq, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from "./pdfRoster";
 import { generateInvoicePdf } from "./pdfInvoice";
-import { buildInvoiceDraftFromProjects } from "./invoiceBuilder";
+import { buildClientInvoiceDraftFromV2 } from "./clientInvoiceV2Builder";
 import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./workerInvoicePdf";
 import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } from "./workerInvoiceV2Builder";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
@@ -3853,13 +3853,11 @@ export const appRouter = router({
         if (!selectedProjectIds.length) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "案件が選択されていません" });
         }
-        const { start, end } = getMonthDateRange(input.closingMonth);
-        const draft = await buildInvoiceDraftFromProjects({
+        // 月締めV2を主軸に: 締め完了現場をV2から、交通費はV2のクライアント請求対象集計から、
+        // 残業はV2の出面から。V1締めしか無い現場は自動でV1ブリッジ。
+        const draft = await buildClientInvoiceDraftFromV2({
           projectIds: selectedProjectIds,
-          periodStart: start,
-          periodEnd: end,
-          allowedClosingStatuses: ["ready", "closed", "locked"],
-          taxRate: 10,
+          targetMonth: input.closingMonth,
           includeProjectSectionHeaders: selectedProjectIds.length > 1,
         });
         const billableItems = draft.items.filter((item: any) => item.itemType !== "text");
@@ -3933,7 +3931,10 @@ export const appRouter = router({
           totalAmount: draft.totalAmount,
           status: "draft",
           editUrl: `/app/invoices?invoiceId=${invoice.id}`,
-          message: "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
+          warnings: draft.warnings,
+          message: draft.warnings.length
+            ? `請求書ドラフトを作成しました（要確認 ${draft.warnings.length}件）。PDF出力前に内容を確認・編集してください。`
+            : "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
         };
       }),
 
@@ -4325,13 +4326,11 @@ export const appRouter = router({
         if (!selectedProjectIds.length) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "案件が選択されていません" });
         }
-        const { start, end } = getMonthDateRange(input.closingMonth);
-        const draft = await buildInvoiceDraftFromProjects({
+        // 月締めV2を主軸に: 締め完了現場をV2から、交通費はV2のクライアント請求対象集計から、
+        // 残業はV2の出面から。V1締めしか無い現場は自動でV1ブリッジ。
+        const draft = await buildClientInvoiceDraftFromV2({
           projectIds: selectedProjectIds,
-          periodStart: start,
-          periodEnd: end,
-          allowedClosingStatuses: ["ready", "closed", "locked"],
-          taxRate: 10,
+          targetMonth: input.closingMonth,
           includeProjectSectionHeaders: selectedProjectIds.length > 1,
         });
         const billableItems = draft.items.filter((item: any) => item.itemType !== "text");
@@ -4405,7 +4404,10 @@ export const appRouter = router({
           totalAmount: draft.totalAmount,
           status: "draft",
           editUrl: `/app/invoices?invoiceId=${invoice.id}`,
-          message: "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
+          warnings: draft.warnings,
+          message: draft.warnings.length
+            ? `請求書ドラフトを作成しました（要確認 ${draft.warnings.length}件）。PDF出力前に内容を確認・編集してください。`
+            : "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
         };
       }),
     sameClientInvoiceCandidates: leaderOrAdminProcedure
@@ -4458,14 +4460,12 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "請求対象期間は1ヶ月単位で指定してください" });
         }
 
-        const draft = await buildInvoiceDraftFromProjects({
+        const draft = await buildClientInvoiceDraftFromV2({
           projectIds: input.projectIds,
-          periodStart: parseDateString(input.periodStart),
-          periodEnd: parseDateString(input.periodEnd),
-          allowedClosingStatuses: ["ready", "closed", "locked"],
+          targetMonth: closingMonth,
           expectedClientId: input.clientId,
-          taxRate: input.taxRate,
-          withholding: input.withholding,
+          // 取引先請求書は行ごとに税率を持つ（作業費=指定税率 / 交通費=0%）。源泉は支払い側の話なのでここでは適用しない。
+          taxRates: { labor: input.taxRate, overtime: input.taxRate },
           subject: input.subject,
           includeProjectSectionHeaders: input.projectIds.length > 1,
         });
@@ -4536,7 +4536,7 @@ export const appRouter = router({
           note: `請求書自動作成 ${invoiceNumber}`,
           payload: { projectIds: input.projectIds, clientId: draft.clientId },
         });
-        return { id: invoice.id, invoiceNumber, totalAmount: draft.totalAmount };
+        return { id: invoice.id, invoiceNumber, totalAmount: draft.totalAmount, warnings: draft.warnings };
       }),
 
     /** Generate PDF for an invoice */

@@ -175,6 +175,13 @@ export default function AppClosings() {
   const generateInvoiceMutation = trpc.closing.generateForClosing.useMutation({
     onSuccess: (data: any) => {
       toast.success(data.message || "請求書ドラフトを作成しました");
+      // 単価未設定・残業単価・V1ブリッジなどの要確認事項を、編集画面に移動しても残る形で表示。
+      if (Array.isArray(data.warnings) && data.warnings.length) {
+        toast.warning(`要確認 ${data.warnings.length}件`, {
+          description: data.warnings.join("\n"),
+          duration: 15000,
+        });
+      }
       if (data.editUrl) {
         setLocation(data.editUrl);
       } else if (data.invoiceId) {
