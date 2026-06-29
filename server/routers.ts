@@ -19,6 +19,7 @@ import { generateInvoicePdf } from "./pdfInvoice";
 import { buildClientInvoiceDraftFromV2 } from "./clientInvoiceV2Builder";
 import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./workerInvoicePdf";
 import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } from "./workerInvoiceV2Builder";
+import { seedBetaFixture, BETA_TEST_MONTH } from "./betaFixture";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 
 const BCRYPT_ROUNDS = 12;
@@ -926,6 +927,24 @@ async function generateWorkerInvoiceNumber(projectId: number, closingMonth: stri
 
 export const appRouter = router({
   system: systemRouter,
+
+  /**
+   * Beta test fixture (固定Betaセット) — super_admin only. Creates/resets the fixed Beta set
+   * (Beta_Client_01 / Beta_Worker_01 / Beta_Project_01, month 2024-01) for reproducible
+   * verification. Only touches Beta_* entities + 2024-01; never production data.
+   */
+  betaFixture: router({
+    seed: superAdminProcedure.mutation(async ({ ctx }) => {
+      const result = await seedBetaFixture();
+      await safeAuditLog(ctx.user.id, "betaFixture.seed", "beta_fixture", {
+        employeeId: result.workerId,
+        projectId: result.projectId,
+        note: `Beta検証データを作成/リセット (${result.targetMonth})`,
+      });
+      return result;
+    }),
+    info: superAdminProcedure.query(() => ({ targetMonth: BETA_TEST_MONTH })),
+  }),
 
   diagnostic: router({
     runtimeInfo: protectedProcedure.query(() => {
@@ -2896,6 +2915,8 @@ export const appRouter = router({
         const projectWorkerMap = new Map<number, Map<number, { attendanceCount: number }>>();
         for (const record of excludeRemovedGuestMarkers(recordsRaw as any[])) {
           if (!record.employeeId) continue;
+          // 出勤日数: 出面表と同じく、出勤扱い かつ 実働時間>0 のみ。休・欠勤・時間0は数えない。
+          if (!isWorkedType(record.workType) || Number(record.hoursWorked || 0) <= 0) continue;
           const projectId = Number(record.projectId);
           const workerId = Number(record.employeeId);
           if (!projectWorkerMap.has(projectId)) projectWorkerMap.set(projectId, new Map());
@@ -3084,6 +3105,20 @@ export const appRouter = router({
           return "未着手";
         };
 
+        // A stored (manual) project status is only honored when the current participants still
+        // support it; otherwise it is stale — e.g. 差し戻しあり left over after the participant was
+        // resolved to 締め完了 — and we fall back to the status derived from the participants.
+        const reconcileProjectStatus = (stored: string | undefined, participants: any[]) => {
+          const derived = deriveProjectStatus(participants);
+          if (!stored) return derived;
+          const aggregate = participants.filter((p) => !p.isAggregationExcluded);
+          const someStatus = (s: string) => aggregate.some((p) => p.individualStatus === s);
+          if (stored === "差し戻しあり") return someStatus("差し戻し") ? stored : derived;
+          if (stored === "情報不足") return (someStatus("情報不足") || someStatus("交通費未入力")) ? stored : derived;
+          if (stored === "締め完了") return aggregate.length > 0 && aggregate.every((p) => p.individualStatus === "締め完了") ? stored : derived;
+          return stored;
+        };
+
         for (const record of excludeRemovedGuestMarkers(recordsRaw as any[])) {
           const projectId = Number(record.projectId);
           const project = projectMap.get(projectId);
@@ -3136,8 +3171,12 @@ export const appRouter = router({
             projectGroup.participants.push(participant);
           }
 
-          participant.attendanceCount += 1;
-          projectGroup.attendanceCount += 1;
+          // 出勤日数: count only actual worked days, matching the 出面表 (pdfAttendance):
+          // worked type AND hoursWorked > 0. 休・欠勤、および時間0のレコードは数えない。
+          if (isWorkedType(record.workType) && Number(record.hoursWorked || 0) > 0) {
+            participant.attendanceCount += 1;
+            projectGroup.attendanceCount += 1;
+          }
           projectGroups.set(projectId, projectGroup);
         }
 
@@ -3151,7 +3190,7 @@ export const appRouter = router({
             .filter((participant: any) => !participant.isAggregationExcluded)
             .reduce((sum: number, participant: any) => sum + participant.warningCount, 0);
           projectGroup.warnings = projectGroup.warningCount > 0 ? [`${projectGroup.warningCount}件`] : [];
-          projectGroup.closingStatus = projectReviewMap.get(projectGroup.projectId)?.status || deriveProjectStatus(projectGroup.participants);
+          projectGroup.closingStatus = reconcileProjectStatus(projectReviewMap.get(projectGroup.projectId)?.status, projectGroup.participants);
           return projectGroup;
         });
 

@@ -16,13 +16,13 @@ const fixture = vi.hoisted(() => ({
     { id: 2, name: "SHIRAHAMA", clientId: null },
   ],
   attendance: [
-    { id: 1, projectId: 1, employeeId: 100, guestName: null, workDate: new Date("2026-05-01") },
-    { id: 2, projectId: 1, employeeId: 100, guestName: null, workDate: new Date("2026-05-02") },
-    { id: 3, projectId: 1, employeeId: 101, guestName: null, workDate: new Date("2026-05-03") },
-    { id: 4, projectId: 1, employeeId: 102, guestName: null, workDate: new Date("2026-05-04") },
-    { id: 5, projectId: 1, employeeId: null, guestName: "応援ゲスト", workDate: new Date("2026-05-05") },
-    { id: 6, projectId: 2, employeeId: 100, guestName: null, workDate: new Date("2026-05-06") },
-    { id: 7, projectId: 1, employeeId: 100, guestName: null, workDate: new Date("2026-04-30") },
+    { id: 1, projectId: 1, employeeId: 100, guestName: null, workDate: new Date("2026-05-01"), hoursWorked: 80 },
+    { id: 2, projectId: 1, employeeId: 100, guestName: null, workDate: new Date("2026-05-02"), hoursWorked: 80 },
+    { id: 3, projectId: 1, employeeId: 101, guestName: null, workDate: new Date("2026-05-03"), hoursWorked: 80 },
+    { id: 4, projectId: 1, employeeId: 102, guestName: null, workDate: new Date("2026-05-04"), hoursWorked: 80 },
+    { id: 5, projectId: 1, employeeId: null, guestName: "応援ゲスト", workDate: new Date("2026-05-05"), hoursWorked: 80 },
+    { id: 6, projectId: 2, employeeId: 100, guestName: null, workDate: new Date("2026-05-06"), hoursWorked: 80 },
+    { id: 7, projectId: 1, employeeId: 100, guestName: null, workDate: new Date("2026-04-30"), hoursWorked: 80 },
   ],
   submissions: [
     { workerId: 100, targetMonth: "2026-05", status: "accepted", sendBackReason: null },
@@ -137,6 +137,38 @@ describe("monthlyClosingV2.dashboard", () => {
     });
     expect(result.rows[0].participantCount).toBe(3);
     expect(result.rows[0].warningCount).toBe(2);
+  });
+
+  it("休・欠勤・時間0は出勤日数に数えない（出面表と一致）（#3）", async () => {
+    const extra = [
+      // 休（day_off）は時間があっても出勤に数えない
+      { id: 9001, projectId: 1, employeeId: 101, guestName: null, workDate: new Date("2026-05-10"), workType: "day_off", hoursWorked: 80 },
+      // 「出勤扱い」でも実働時間0は数えない（休を normal/0h で記録した場合の取りこぼし対策）
+      { id: 9002, projectId: 1, employeeId: 101, guestName: null, workDate: new Date("2026-05-11"), workType: "normal", hoursWorked: 0 },
+    ];
+    fixture.attendance.push(...(extra as any));
+    try {
+      const caller = appRouter.createCaller(createCtx(createUser()));
+      const result = await caller.monthlyClosingV2.dashboard({ targetMonth: "2026-05" });
+      const mitsuru = result.rows[0].participants.find((p: any) => p.workerName === "大木充");
+      expect(mitsuru.attendanceCount).toBe(1); // 1 worked record (80h); day_off and 0h not counted
+    } finally {
+      fixture.attendance.splice(fixture.attendance.length - extra.length, extra.length);
+    }
+  });
+
+  it("参加者が全員締め完了なら、古い『差し戻しあり』は解消される（#2 reconcile）", async () => {
+    (db.getMonthlyClosingV2ParticipantReviewsByMonth as any).mockResolvedValueOnce([
+      { projectId: 1, participantKey: "worker:100", individualStatus: "締め完了", isAggregationExcluded: false },
+      { projectId: 1, participantKey: "worker:101", individualStatus: "締め完了", isAggregationExcluded: false },
+      { projectId: 1, participantKey: "worker:102", individualStatus: "締め完了", isAggregationExcluded: false },
+    ]);
+    (db.getMonthlyClosingV2ProjectReviewsByMonth as any).mockResolvedValueOnce([
+      { projectId: 1, status: "差し戻しあり" },
+    ]);
+    const caller = appRouter.createCaller(createCtx(createUser()));
+    const result = await caller.monthlyClosingV2.dashboard({ targetMonth: "2026-05" });
+    expect(result.rows[0].closingStatus).toBe("締め完了");
   });
 
   it("persists project review status edits in V2-specific storage", async () => {

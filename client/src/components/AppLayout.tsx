@@ -79,7 +79,7 @@ function getNavGroups(): NavGroup[] {
       groupKey: "nav_finance",
       icon: DollarSign,
       items: navItems.filter(item => 
-        ["nav_invoices", "nav_monthlyCloseV2", "nav_closings", "nav_confirmationPdf", "nav_payments", "nav_receivables"].includes(item.labelKey)
+        ["nav_invoices", "nav_monthlyCloseV2", "nav_workerInvoiceV2", "nav_closings", "nav_confirmationPdf", "nav_payments", "nav_receivables"].includes(item.labelKey)
       ),
     },
   ];

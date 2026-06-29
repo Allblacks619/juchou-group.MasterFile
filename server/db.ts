@@ -1180,6 +1180,33 @@ export async function getClosingSubmissionByClosingEmployee(closingId: number, e
   return result.length > 0 ? result[0] : undefined;
 }
 
+/**
+ * All V1 closing submissions for an employee in a target month, across projects.
+ * Used by the worker-invoice V2 transition bridge: while V2 worker submissions /
+ * expense lines are not yet populated, the submission signal and transport/expense
+ * amounts still live in the legacy `closing_submissions` (joined to project_closings
+ * for the month + projectId).
+ */
+export async function getClosingSubmissionsByEmployeeMonth(employeeId: number, closingMonth: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      submissionId: closingSubmissions.id,
+      closingId: closingSubmissions.closingId,
+      projectId: projectClosings.projectId,
+      status: closingSubmissions.status,
+      transportAmount: closingSubmissions.transportAmount,
+      expenseAmount: closingSubmissions.expenseAmount,
+    })
+    .from(closingSubmissions)
+    .innerJoin(projectClosings, eq(projectClosings.id, closingSubmissions.closingId))
+    .where(and(
+      eq(closingSubmissions.employeeId, employeeId),
+      eq(projectClosings.closingMonth, closingMonth),
+    ));
+}
+
 export async function upsertClosingSubmission(data: InsertClosingSubmission) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

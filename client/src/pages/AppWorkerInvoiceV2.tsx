@@ -7,10 +7,12 @@
  * を読み取り専用で表示します（DB保存はしません）。admin/manager のみ。
  */
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -29,8 +31,20 @@ function currentMonth() {
 export default function AppWorkerInvoiceV2() {
   const [targetMonth, setTargetMonth] = useState(currentMonth());
   const [workerId, setWorkerId] = useState<number | null>(null);
+  const { user } = useAuth();
+  const isSuperAdmin = (user as any)?.appRole === "super_admin";
+  const utils = trpc.useUtils();
 
   const employeesQuery = trpc.employee.list.useQuery();
+  const seedMutation = trpc.betaFixture.seed.useMutation({
+    onSuccess: (res) => {
+      setTargetMonth(res.targetMonth);
+      setWorkerId(res.workerId);
+      utils.employee.list.invalidate();
+      toast.success(`Beta検証データを作成/リセットしました（${res.workerName} / ${res.targetMonth}・出面${res.attendanceDays}日）`);
+    },
+    onError: (e: any) => toast.error(`Beta検証データの作成に失敗: ${e.message}`),
+  });
   const monthValid = /^\d{4}-\d{2}$/.test(targetMonth);
   const draftQuery = trpc.workerInvoice.getV2Draft.useQuery(
     { workerId: workerId ?? 0, targetMonth },
@@ -66,20 +80,53 @@ export default function AppWorkerInvoiceV2() {
     return { dayDays, nightDays, otTotal, transportTotal };
   }, [draft]);
 
+  // Robust month selection (year + month dropdowns). `<input type="month">` is unreliable
+  // on iOS Safari (value resets), so we avoid it.
+  const [yy, mm] = monthValid ? targetMonth.split("-") : currentMonth().split("-");
+  const yearOptions: string[] = [];
+  for (let y = 2024; y <= new Date().getFullYear() + 1; y++) yearOptions.push(String(y));
+  const monthOptions = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+
   return (
     <div className="space-y-6 p-4 md:p-6">
-      <div>
-        <h1 className="text-2xl font-bold">作業員請求書（月締めV2）プレビュー</h1>
-        <p className="text-sm text-muted-foreground">
-          月締め提出済みの作業員について、請求書と日報を確認できます（読み取り専用・DB保存なし）。
-        </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">作業員請求書（月締めV2）プレビュー</h1>
+          <p className="text-sm text-muted-foreground">
+            月締め提出済みの作業員について、請求書と日報を確認できます（読み取り専用・DB保存なし）。
+          </p>
+        </div>
+        {isSuperAdmin && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={seedMutation.isPending}
+            onClick={() => seedMutation.mutate()}
+            title="Beta_Worker_01 / Beta_Project_01 / 2024-01 を作成またはベースラインにリセット（本番データには触れません）"
+          >
+            {seedMutation.isPending ? "作成中..." : "Beta検証データを作成/リセット (2024-01)"}
+          </Button>
+        )}
       </div>
 
       <Card>
         <CardContent className="flex flex-wrap items-end gap-4 pt-6">
           <div className="space-y-1">
-            <Label htmlFor="targetMonth">対象月</Label>
-            <Input id="targetMonth" type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)} className="w-44" />
+            <Label>対象月</Label>
+            <div className="flex items-center gap-2">
+              <Select value={yy} onValueChange={(v) => setTargetMonth(`${v}-${mm}`)}>
+                <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {yearOptions.map((y) => <SelectItem key={y} value={y}>{y}年</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={mm} onValueChange={(v) => setTargetMonth(`${yy}-${v}`)}>
+                <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {monthOptions.map((m) => <SelectItem key={m} value={m}>{Number(m)}月</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="space-y-1">
             <Label>作業員</Label>
