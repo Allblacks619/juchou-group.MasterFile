@@ -1,0 +1,45 @@
+name: CI
+
+# Build + typecheck + test on every push to main and every pull request.
+# This is the safety gate that catches a broken main (e.g. a file that no longer
+# typechecks) BEFORE it can be deployed. Auto-deploy (CD) is a separate concern —
+# see the notes in the PR; it requires the Cloud Run / GCP deploy credentials.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4 # version comes from the "packageManager" field in package.json
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Conflict markers
+        run: pnpm check:conflicts
+
+      - name: Typecheck
+        run: pnpm check
+
+      - name: Tests
+        run: pnpm test
+
+      - name: Build (client + server)
+        run: pnpm build
