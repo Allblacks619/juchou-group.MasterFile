@@ -4480,6 +4480,80 @@ export const appRouter = router({
         return { invoice, items, client, company };
       }),
 
+    /**
+     * Generate the per-project 出面表 (attendance sheet) for a client invoice's project(s) + month,
+     * so the user can attach them when sending the invoice to the client. Reuses the same attendance
+     * PDF as the 出面表 screen. Project list comes from the invoice (its projectId, plus projectIds=
+     * recorded in the internal memo for consolidated multi-project invoices).
+     */
+    generateAttendanceSheets: leaderOrAdminProcedure
+      .input(z.object({ invoiceId: z.number() }))
+      .mutation(async ({ input }) => {
+        const invoice = await db.getInvoiceById(input.invoiceId);
+        if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+
+        const period = invoice.periodStart ? new Date(invoice.periodStart) : new Date();
+        const year = period.getUTCFullYear();
+        const month = period.getUTCMonth() + 1;
+
+        // Project list: parse projectIds=1,2 from the internal memo (consolidated invoices),
+        // otherwise fall back to the invoice's single projectId.
+        const memo = String((invoice as any).internalMemo || "");
+        const memoMatch = memo.match(/projectIds=([\d,]+)/);
+        const projectIds = memoMatch
+          ? Array.from(new Set(memoMatch[1].split(",").map(Number).filter(Boolean)))
+          : invoice.projectId ? [Number(invoice.projectId)] : [];
+        if (!projectIds.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "請求書に紐づく現場が特定できません" });
+        }
+
+        const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+        const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59));
+        const [allEmployees, allProjects] = await Promise.all([db.getAllEmployees(), db.getAllProjects()]);
+        const { generateAttendancePdf } = await import("./pdfAttendance");
+        const { storagePut } = await import("./storage");
+
+        const sheets: Array<{ projectId: number; projectName: string; url: string; fileName: string; hasData: boolean }> = [];
+        for (const projectId of projectIds) {
+          const records = await db.getAttendanceByDateRange(startDate, endDate, projectId);
+          const project = (allProjects as any[]).find((p) => p.id === projectId);
+          const empIds = new Set<number>();
+          const guestNameSet = new Set<string>();
+          for (const rec of records as any[]) {
+            if (rec.employeeId) empIds.add(rec.employeeId);
+            if (rec.guestName) guestNameSet.add(rec.guestName);
+          }
+          const employees = (allEmployees as any[])
+            .filter((e) => empIds.has(e.id))
+            .map((e) => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}` }));
+
+          const pdfBuffer = await generateAttendancePdf({
+            year,
+            month,
+            projectName: project?.name || `Project #${projectId}`,
+            companyName: "充寵グループ",
+            employees,
+            guestNames: Array.from(guestNameSet),
+            records: (records as any[]).map((r) => ({
+              employeeId: r.employeeId,
+              guestName: r.guestName,
+              workDate: r.workDate,
+              hoursWorked: r.hoursWorked,
+              overtimeHours: r.overtimeHours,
+              workType: r.workType,
+              shiftType: r.shiftType || "day",
+              notes: r.notes,
+            })),
+          });
+
+          const fileName = `attendance-invoice-${input.invoiceId}-${projectId}-${year}-${String(month).padStart(2, "0")}.pdf`;
+          const { url } = await storagePut(`attendance/${fileName}`, pdfBuffer, "application/pdf");
+          sheets.push({ projectId, projectName: project?.name || `現場${projectId}`, url, fileName, hasData: records.length > 0 });
+        }
+
+        return { year, month, sheets };
+      }),
+
     /** Create invoice from attendance data */
     createFromAttendance: leaderOrAdminProcedure
       .input(z.object({

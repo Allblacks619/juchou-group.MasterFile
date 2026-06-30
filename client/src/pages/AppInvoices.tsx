@@ -35,6 +35,7 @@ import {
   FileText,
   Plus,
   Download,
+  FileDown,
   Loader2,
   Trash2,
   CheckCircle,
@@ -170,6 +171,19 @@ function InvoiceDetailDialog({
   const [editItem, setEditItem] = useState<InvoiceLineItem | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [activeTab, setActiveTab] = useState<"detail" | "preview">("detail");
+  const [attendanceSheets, setAttendanceSheets] = useState<Array<{ projectId: number; projectName: string; url: string; fileName: string; hasData: boolean }>>([]);
+
+  const generateAttendanceSheetsMutation = trpc.invoice.generateAttendanceSheets.useMutation({
+    onSuccess: (data: any) => {
+      setAttendanceSheets(data.sheets || []);
+      const empty = (data.sheets || []).filter((s: any) => !s.hasData);
+      toast.success(`出面表を生成しました（${(data.sheets || []).length}件）`);
+      if (empty.length) {
+        toast.warning(`出面データが無い現場が ${empty.length}件 あります`, { duration: 10000 });
+      }
+    },
+    onError: (e: any) => toast.error(`出面表生成エラー: ${e.message}`),
+  });
 
   if (detailQuery.isLoading) {
     return (
@@ -288,6 +302,41 @@ function InvoiceDetailDialog({
             <pre className="whitespace-pre-wrap text-xs text-foreground font-sans max-h-32 overflow-y-auto">{(invoice as any).internalMemo}</pre>
           </div>
         )}
+
+        {/* 出面表（添付用）— 取引先へ請求書と一緒に渡すプロジェクト別の出面表を生成 */}
+        <div className="col-span-2 rounded-md border border-border p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-medium">出面表（添付用）</p>
+              <p className="text-[11px] text-muted-foreground">取引先へ請求書と一緒に渡すプロジェクト別の出面表を生成します</p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => generateAttendanceSheetsMutation.mutate({ invoiceId })}
+              disabled={generateAttendanceSheetsMutation.isPending}
+              className="gap-1.5 shrink-0"
+            >
+              {generateAttendanceSheetsMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
+              出面表を生成
+            </Button>
+          </div>
+          {attendanceSheets.length > 0 && (
+            <ul className="mt-3 space-y-1.5">
+              {attendanceSheets.map((s) => (
+                <li key={s.projectId} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="truncate">
+                    {s.projectName}
+                    {!s.hasData && <span className="ml-2 text-[11px] text-amber-500">（出面データなし）</span>}
+                  </span>
+                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-gold hover:text-gold-dim text-xs shrink-0 inline-flex items-center gap-1">
+                    <FileDown className="h-3.5 w-3.5" />ダウンロード
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {/* Items table */}
