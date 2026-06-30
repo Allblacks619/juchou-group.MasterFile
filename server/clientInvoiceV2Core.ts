@@ -20,10 +20,13 @@
  * - 交通費 is billed per PROJECT as a single 0% line, sourced from client-billable
  *   transport only (isClientBillable, paid_by_client already excluded upstream). No
  *   per-worker / per-day breakdown on the client invoice.
- * - 残業代 (overtime) has no dedicated rate in the rate model, so it is derived from the
- *   project's representative day rate via a configurable multiplier and ALWAYS carries a
- *   "verify the rate" warning. Fully editable afterwards. Nothing is hard-coded as a
- *   silent business rule — the multiplier/standard-hours are parameters.
+ * - 残業代 (overtime) is computed PER 請求単価グループ (A/B/C) using the company rule
+ *   (IMG_0293): 残業1時間単価 = 日単価 ÷ 標準時間(既定8) × 割増倍率(既定1.25=時間外). Hours are
+ *   summed per rate over the month, then unit price (rounded) × hours (matches the real
+ *   invoice: 25,000÷8×1.25=3,906 ×5h=19,530). 深夜割増(22:00–翌5:00, ×1.50) cannot be auto-
+ *   detected (attendance has no hour-of-day), so it is NOT auto-applied — every 残業代 line
+ *   carries a "verify, add 深夜 if applicable" warning. Multiplier/standard-hours are
+ *   parameters, never silent hard-coded business rules.
  * - 源泉徴収 (withholding) is a PAYER-side concept (worker invoice). It is NOT applied to
  *   the client invoice here (withholdingAmount is always 0).
  * - Quantities use 「日」/「時間」/「式」 — never 人工日.
@@ -173,8 +176,9 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
       rateSources: Set<string>;
     };
     const buckets = new Map<string, Bucket>();
-    let projectOvertimeHoursTimes10 = 0;
-    let repDayRate: number | null = null; // highest resolved day-shift rate, for overtime derivation
+    // 残業は「電気工事業A/B/Cの請求単価ごと」に計算する（IMG_0293 基本式）。単価ごとに月内合計時間を集計。
+    const overtimeTimes10ByRate = new Map<number, number>();
+    let overtimeTimes10Unresolved = 0;
 
     for (const row of laborRows) {
       if (row.daysTimes10 > 0) {
@@ -191,9 +195,13 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
         if (row.clientRateSource) bucket.rateSources.add(row.clientRateSource);
         buckets.set(key, bucket);
       }
-      projectOvertimeHoursTimes10 += Math.max(0, row.overtimeHoursTimes10 || 0);
-      if (row.shiftType !== "night" && row.clientRate != null) {
-        repDayRate = repDayRate == null ? row.clientRate : Math.max(repDayRate, row.clientRate);
+      const ot = Math.max(0, row.overtimeHoursTimes10 || 0);
+      if (ot > 0) {
+        if (row.clientRate != null) {
+          overtimeTimes10ByRate.set(row.clientRate, (overtimeTimes10ByRate.get(row.clientRate) || 0) + ot);
+        } else {
+          overtimeTimes10Unresolved += ot;
+        }
       }
     }
 
@@ -223,11 +231,17 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
       return a.shiftType.localeCompare(b.shiftType);
     });
 
+    // Map each rate to its A/B/C letter so the matching 残業代 line can be labelled.
+    const rateToLetter = new Map<number, string>();
+
     sortedBuckets.forEach((bucket, index) => {
       const days = bucket.daysTimes10 / 10;
       const unitPrice = bucket.clientRate ?? 0;
       const amount = Math.round(days * unitPrice);
       const letter = bucketLetter(index);
+      if (bucket.clientRate != null && !rateToLetter.has(bucket.clientRate)) {
+        rateToLetter.set(bucket.clientRate, letter);
+      }
       // Night shift is its own row (separate rate bucket); the 日勤/夜勤 distinction is
       // recorded in the internal memo, not printed on the client-facing line (matches the
       // real invoice, which distinguishes night work by its higher unit price).
@@ -257,24 +271,26 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
       });
     });
 
-    // 残業代 — derived from the representative day rate × multiplier. Always verify-warn.
-    if (projectOvertimeHoursTimes10 > 0) {
-      const hours = projectOvertimeHoursTimes10 / 10;
-      const otHourly = repDayRate != null ? Math.round((repDayRate / standardDayHours) * overtimeMultiplier) : 0;
+    // 残業代 — per 請求単価グループ (A/B/C): 残業1時間単価 = 日単価 ÷ 標準時間 × 割増倍率（既定1.25=時間外）。
+    // 時間は単価ごとに月内合計してから単価×時間で算出（日別では切り捨てない）。単価は四捨五入してから時間を掛ける
+    // （実物請求書と一致: 25,000÷8×1.25=3,906 ×5h=19,530）。深夜(22:00–翌5:00, ×1.50)は出面に時間帯情報が無く
+    // 自動判定できないため、該当があれば手動で確認・加算する想定（必ず警告）。
+    const overtimeRates = Array.from(overtimeTimes10ByRate.keys()).sort((a, b) => b - a);
+    const multipleOvertimeGroups = overtimeRates.length > 1;
+    for (const rate of overtimeRates) {
+      const hours = (overtimeTimes10ByRate.get(rate) || 0) / 10;
+      if (hours <= 0) continue;
+      const otHourly = Math.round((rate / standardDayHours) * overtimeMultiplier);
       const amount = Math.round(hours * otHourly);
-      if (otHourly === 0) {
-        warnings.push(
-          `残業代の単価が算出できません（${projectName}：日勤単価が未解決）。残業を請求する場合は単価を入力してください。`
-        );
-      } else {
-        warnings.push(
-          `残業代は日勤単価 ${repDayRate!.toLocaleString("ja-JP")}円 ÷${standardDayHours}h ×${overtimeMultiplier} = ${otHourly.toLocaleString("ja-JP")}円/時 で自動算出しました（${projectName}）。契約に合わせて単価をご確認ください。`
-        );
-      }
+      const letter = rateToLetter.get(rate);
+      const description = multipleOvertimeGroups && letter ? `残業代（${letter}）` : "残業代";
+      warnings.push(
+        `${description}は ${rate.toLocaleString("ja-JP")}円 ÷${standardDayHours}h ×${overtimeMultiplier}(時間外) = ${otHourly.toLocaleString("ja-JP")}円/時 で自動算出しました（${projectName}）。深夜(22:00–翌5:00)は×1.50のため、該当があれば単価をご確認ください。`
+      );
       items.push({
         employeeId: null,
         itemType: "normal",
-        description: "残業代",
+        description,
         quantity: storedQuantity(hours, units.overtime),
         unit: units.overtime,
         unitPrice: otHourly,
@@ -283,6 +299,11 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
         notes: null,
         sortOrder: items.length,
       });
+    }
+    if (overtimeTimes10Unresolved > 0) {
+      warnings.push(
+        `残業 ${(overtimeTimes10Unresolved / 10).toLocaleString("ja-JP")}時間の請求単価が未解決のため自動計算できません（${projectName}）。単価設定後に再生成してください。`
+      );
     }
 
     // 交通費 — one 0% line per project (プロジェクト単位).

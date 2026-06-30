@@ -66,7 +66,7 @@ describe("computeClientInvoiceDraft", () => {
     expect(out.internalRateMemo).toContain("夜勤");
   });
 
-  it("derives overtime hourly from the day rate × multiplier and always warns", () => {
+  it("computes overtime per rate group: 日単価÷8×1.25, rounded unit price × hours, always warns", () => {
     const out = computeClientInvoiceDraft({
       targetMonth: "2025-05",
       projectOrder: [1],
@@ -82,7 +82,28 @@ describe("computeClientInvoiceDraft", () => {
     expect(ot.quantity).toBe(5);
     expect(ot.unitPrice).toBe(3906);
     expect(ot.amount).toBe(19530);
-    expect(out.warnings.some((w) => w.includes("残業代"))).toBe(true);
+    expect(out.warnings.some((w) => w.includes("残業代") && w.includes("深夜"))).toBe(true);
+  });
+
+  it("emits a separate 残業代 line per A/B/C rate when multiple rates have overtime", () => {
+    const out = computeClientInvoiceDraft({
+      targetMonth: "2025-05",
+      projectOrder: [1],
+      projects: [{ projectId: 1, projectName: "現場", transportTotal: 0 }],
+      labor: [
+        labor({ projectId: 1, workerId: 1, daysTimes10: 100, clientRate: 25000, overtimeHoursTimes10: 20 }), // A, 2h OT
+        labor({ projectId: 1, workerId: 2, daysTimes10: 100, clientRate: 18000, overtimeHoursTimes10: 30 }), // B, 3h OT
+      ],
+      overtimeMultiplier: 1.25,
+      standardDayHours: 8,
+      includeProjectSectionHeaders: false,
+    });
+    const ot = out.items.filter((i) => i.description.startsWith("残業代"));
+    // A: 25000/8*1.25=3906 ×2h=7,812 ; B: 18000/8*1.25=2813 (2812.5→2813) ×3h=8,439
+    expect(ot.map((i) => [i.description, i.quantity, i.unitPrice, i.amount])).toEqual([
+      ["残業代（A）", 2, 3906, 7812],
+      ["残業代（B）", 3, 2813, 8439],
+    ]);
   });
 
   it("emits a ¥0 line + warning when the client rate is missing (no hard fail)", () => {
