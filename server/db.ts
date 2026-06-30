@@ -1244,7 +1244,14 @@ export async function updateClosingSubmission(id: number, data: Partial<InsertCl
 export async function listClosingSubmissionDocuments(submissionId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(closingSubmissionDocuments).where(eq(closingSubmissionDocuments.submissionId, submissionId));
+  try {
+    return await db.select().from(closingSubmissionDocuments).where(eq(closingSubmissionDocuments.submissionId, submissionId));
+  } catch (error) {
+    // 添付書類テーブル/列が本番DBに未適用(マイグレーション遅延)でも、月締め画面全体を落とさない。
+    // 書類一覧は空で返し、提出フォームは利用可能にする。
+    console.warn("listClosingSubmissionDocuments failed (returning []):", (error as any)?.message || error);
+    return [];
+  }
 }
 
 export async function createClosingSubmissionDocument(data: InsertClosingSubmissionDocument) {

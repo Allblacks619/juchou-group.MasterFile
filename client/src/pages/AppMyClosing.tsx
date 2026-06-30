@@ -143,7 +143,9 @@ function canWorkerEdit(
 
 export default function AppMyClosing() {
   const [location] = useLocation();
-  const params = useMemo(() => new URLSearchParams(location.split("?")[1] || ""), [location]);
+  // wouter の location はクエリ文字列を含まないため、URLパラメータは window.location.search から読む。
+  // （ダッシュボードの「月締め提出」は ?projectId=..&month=.. を付けて遷移する）
+  const params = useMemo(() => new URLSearchParams(window.location.search), [location]);
   const queryProjectId = Number(params.get("projectId") || 0) || null;
   const queryMonth = params.get("month") || null;
   const queryEmployeeId = Number(params.get("employeeId") || 0) || undefined;
@@ -514,12 +516,20 @@ export default function AppMyClosing() {
         <Card>
           <CardHeader><CardTitle>現場別明細</CardTitle></CardHeader>
           <CardContent className="space-y-2">
+            <p className="text-xs text-muted-foreground">現場をタップすると、その現場の月締めを作業できます。</p>
             {monthlyOverview.projectLines.map((line: any) => (
-              <div key={line.projectId} className="text-sm border rounded p-2">
+              <button
+                type="button"
+                key={line.projectId}
+                onClick={() => setSelectedProjectId(Number(line.projectId))}
+                className={`w-full text-left text-sm border rounded p-2 transition-colors hover:bg-muted/30 ${
+                  Number(selectedProjectId) === Number(line.projectId) ? "border-gold bg-gold/10" : ""
+                }`}
+              >
                 <div className="font-medium">{line.projectName}</div>
                 {/* 工数(時間数)は現時点で運用に不要なため非表示。出勤日数と残業のみ表示。 */}
                 <div className="text-muted-foreground">出勤日数: {line.attendanceDays}日 / 残業: {line.overtimeHours}h</div>
-              </div>
+              </button>
             ))}
           </CardContent>
         </Card>
