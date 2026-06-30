@@ -10,9 +10,12 @@ import * as db from "./db";
  *   2024-01 child data to a known baseline — it never creates duplicate profiles, and it
  *   only ever touches Beta_* entities + month 2024-01. Production data is never touched.
  *
- * The seeded data is complete enough to exercise the worker invoice V2 + 日報 end to end:
- * attendance (day/night + overtime), worker rates (単価), and a submitted V1 closing with
- * transport/expense (which the V2 builder bridges).
+ * The seeded data is complete enough to exercise BOTH invoices end to end:
+ * - Worker invoice V2 + 日報: attendance (day/night + overtime), worker rates (単価), and a
+ *   submitted V1 closing with transport/expense (which the worker-invoice V2 builder bridges).
+ * - Client invoice (取引先請求書): project membership, client rates (請求単価), a V2 「締め完了」
+ *   project review + a confirmed V2 participant review, and a V2 client-billable transport line
+ *   (so the 0% 交通費 line appears). This is the primary V2 path the client-invoice builder uses.
  */
 
 export const BETA_CLIENT_NAME = "Beta_Client_01";
@@ -65,6 +68,7 @@ export type BetaFixtureResult = {
   projectId: number;
   targetMonth: string;
   attendanceDays: number;
+  transportTotal: number;
 };
 
 /**
@@ -113,6 +117,23 @@ export async function seedBetaFixture(): Promise<BetaFixtureResult> {
     transportAmount: BETA_TRANSPORT_TOTAL, expenseAmount: BETA_EXPENSE_TOTAL,
   } as any);
 
+  // ── Client invoice (取引先請求書) prerequisites — the primary Monthly Closing V2 path. ──
+  // Project membership (so the worker is a billable participant of this project).
+  await db.addProjectMember({ projectId, employeeId: workerId, isActive: true } as any);
+  // V2 project review: 締め完了 → the project is billable on the client invoice.
+  await db.upsertMonthlyClosingV2ProjectReview({ targetMonth: BETA_TEST_MONTH, projectId, status: "締め完了" });
+  // V2 participant review: confirmed (締め完了), not aggregation-excluded, real worker (not a guest).
+  await db.upsertMonthlyClosingV2ParticipantReview({
+    targetMonth: BETA_TEST_MONTH, projectId, participantKey: `worker:${workerId}`, workerId,
+    individualStatus: "締め完了", transportationStatus: "確認済み", invoiceInfoStatus: "確認済み",
+    isAggregationExcluded: false,
+  });
+  // V2 client-billable transport (worker fronted, re-billed to the client) → the 0% 交通費 line.
+  await db.upsertMonthlyClosingV2TransportationExpense({
+    workerId, projectId, targetMonth: BETA_TEST_MONTH, payerType: "worker_paid", clientBillable: true,
+    amount: BETA_TRANSPORT_TOTAL, memo: BETA_NOTE,
+  });
+
   return {
     clientId: Number(client.id),
     workerId,
@@ -120,5 +141,6 @@ export async function seedBetaFixture(): Promise<BetaFixtureResult> {
     projectId,
     targetMonth: BETA_TEST_MONTH,
     attendanceDays: BETA_ATTENDANCE.length,
+    transportTotal: BETA_TRANSPORT_TOTAL,
   };
 }

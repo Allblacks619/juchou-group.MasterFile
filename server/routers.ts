@@ -16,7 +16,7 @@ import { eq, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from "./pdfRoster";
 import { generateInvoicePdf } from "./pdfInvoice";
-import { buildInvoiceDraftFromProjects } from "./invoiceBuilder";
+import { buildClientInvoiceDraftFromV2 } from "./clientInvoiceV2Builder";
 import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./workerInvoicePdf";
 import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } from "./workerInvoiceV2Builder";
 import { seedBetaFixture, BETA_TEST_MONTH } from "./betaFixture";
@@ -2800,12 +2800,15 @@ export const appRouter = router({
           .filter(e => empIds.has(e.id))
           .map(e => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}` }));
 
+        const company = await db.getCompanyProfile();
         const { generateAttendancePdf } = await import("./pdfAttendance");
         const pdfBuffer = await generateAttendancePdf({
           year: input.year,
           month: input.month,
           projectName: project?.name || `Project #${input.projectId}`,
-          companyName: "充寵グループ",
+          companyName: company?.companyName || "充寵グループ",
+          logoUrl: company?.logoUrl || undefined,
+          watermarkUrl: company?.watermarkUrl || undefined,
           employees,
           guestNames: Array.from(guestNameSet),
           records: records.map(r => ({
@@ -3892,13 +3895,11 @@ export const appRouter = router({
         if (!selectedProjectIds.length) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "案件が選択されていません" });
         }
-        const { start, end } = getMonthDateRange(input.closingMonth);
-        const draft = await buildInvoiceDraftFromProjects({
+        // 月締めV2を主軸に: 締め完了現場をV2から、交通費はV2のクライアント請求対象集計から、
+        // 残業はV2の出面から。V1締めしか無い現場は自動でV1ブリッジ。
+        const draft = await buildClientInvoiceDraftFromV2({
           projectIds: selectedProjectIds,
-          periodStart: start,
-          periodEnd: end,
-          allowedClosingStatuses: ["ready", "closed", "locked"],
-          taxRate: 10,
+          targetMonth: input.closingMonth,
           includeProjectSectionHeaders: selectedProjectIds.length > 1,
         });
         const billableItems = draft.items.filter((item: any) => item.itemType !== "text");
@@ -3972,7 +3973,10 @@ export const appRouter = router({
           totalAmount: draft.totalAmount,
           status: "draft",
           editUrl: `/app/invoices?invoiceId=${invoice.id}`,
-          message: "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
+          warnings: draft.warnings,
+          message: draft.warnings.length
+            ? `請求書ドラフトを作成しました（要確認 ${draft.warnings.length}件）。PDF出力前に内容を確認・編集してください。`
+            : "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
         };
       }),
 
@@ -4364,13 +4368,11 @@ export const appRouter = router({
         if (!selectedProjectIds.length) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "案件が選択されていません" });
         }
-        const { start, end } = getMonthDateRange(input.closingMonth);
-        const draft = await buildInvoiceDraftFromProjects({
+        // 月締めV2を主軸に: 締め完了現場をV2から、交通費はV2のクライアント請求対象集計から、
+        // 残業はV2の出面から。V1締めしか無い現場は自動でV1ブリッジ。
+        const draft = await buildClientInvoiceDraftFromV2({
           projectIds: selectedProjectIds,
-          periodStart: start,
-          periodEnd: end,
-          allowedClosingStatuses: ["ready", "closed", "locked"],
-          taxRate: 10,
+          targetMonth: input.closingMonth,
           includeProjectSectionHeaders: selectedProjectIds.length > 1,
         });
         const billableItems = draft.items.filter((item: any) => item.itemType !== "text");
@@ -4444,7 +4446,10 @@ export const appRouter = router({
           totalAmount: draft.totalAmount,
           status: "draft",
           editUrl: `/app/invoices?invoiceId=${invoice.id}`,
-          message: "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
+          warnings: draft.warnings,
+          message: draft.warnings.length
+            ? `請求書ドラフトを作成しました（要確認 ${draft.warnings.length}件）。PDF出力前に内容を確認・編集してください。`
+            : "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
         };
       }),
     sameClientInvoiceCandidates: leaderOrAdminProcedure
@@ -4478,6 +4483,82 @@ export const appRouter = router({
         return { invoice, items, client, company };
       }),
 
+    /**
+     * Generate the per-project 出面表 (attendance sheet) for a client invoice's project(s) + month,
+     * so the user can attach them when sending the invoice to the client. Reuses the same attendance
+     * PDF as the 出面表 screen. Project list comes from the invoice (its projectId, plus projectIds=
+     * recorded in the internal memo for consolidated multi-project invoices).
+     */
+    generateAttendanceSheets: leaderOrAdminProcedure
+      .input(z.object({ invoiceId: z.number() }))
+      .mutation(async ({ input }) => {
+        const invoice = await db.getInvoiceById(input.invoiceId);
+        if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+
+        const period = invoice.periodStart ? new Date(invoice.periodStart) : new Date();
+        const year = period.getUTCFullYear();
+        const month = period.getUTCMonth() + 1;
+
+        // Project list: parse projectIds=1,2 from the internal memo (consolidated invoices),
+        // otherwise fall back to the invoice's single projectId.
+        const memo = String((invoice as any).internalMemo || "");
+        const memoMatch = memo.match(/projectIds=([\d,]+)/);
+        const projectIds = memoMatch
+          ? Array.from(new Set(memoMatch[1].split(",").map(Number).filter(Boolean)))
+          : invoice.projectId ? [Number(invoice.projectId)] : [];
+        if (!projectIds.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "請求書に紐づく現場が特定できません" });
+        }
+
+        const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+        const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59));
+        const [allEmployees, allProjects, company] = await Promise.all([db.getAllEmployees(), db.getAllProjects(), db.getCompanyProfile()]);
+        const { generateAttendancePdf } = await import("./pdfAttendance");
+        const { storagePut } = await import("./storage");
+
+        const sheets: Array<{ projectId: number; projectName: string; url: string; fileName: string; hasData: boolean }> = [];
+        for (const projectId of projectIds) {
+          const records = await db.getAttendanceByDateRange(startDate, endDate, projectId);
+          const project = (allProjects as any[]).find((p) => p.id === projectId);
+          const empIds = new Set<number>();
+          const guestNameSet = new Set<string>();
+          for (const rec of records as any[]) {
+            if (rec.employeeId) empIds.add(rec.employeeId);
+            if (rec.guestName) guestNameSet.add(rec.guestName);
+          }
+          const employees = (allEmployees as any[])
+            .filter((e) => empIds.has(e.id))
+            .map((e) => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}` }));
+
+          const pdfBuffer = await generateAttendancePdf({
+            year,
+            month,
+            projectName: project?.name || `Project #${projectId}`,
+            companyName: company?.companyName || "充寵グループ",
+            logoUrl: company?.logoUrl || undefined,
+            watermarkUrl: company?.watermarkUrl || undefined,
+            employees,
+            guestNames: Array.from(guestNameSet),
+            records: (records as any[]).map((r) => ({
+              employeeId: r.employeeId,
+              guestName: r.guestName,
+              workDate: r.workDate,
+              hoursWorked: r.hoursWorked,
+              overtimeHours: r.overtimeHours,
+              workType: r.workType,
+              shiftType: r.shiftType || "day",
+              notes: r.notes,
+            })),
+          });
+
+          const fileName = `attendance-invoice-${input.invoiceId}-${projectId}-${year}-${String(month).padStart(2, "0")}.pdf`;
+          const { url } = await storagePut(`attendance/${fileName}`, pdfBuffer, "application/pdf");
+          sheets.push({ projectId, projectName: project?.name || `現場${projectId}`, url, fileName, hasData: records.length > 0 });
+        }
+
+        return { year, month, sheets };
+      }),
+
     /** Create invoice from attendance data */
     createFromAttendance: leaderOrAdminProcedure
       .input(z.object({
@@ -4497,14 +4578,12 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "請求対象期間は1ヶ月単位で指定してください" });
         }
 
-        const draft = await buildInvoiceDraftFromProjects({
+        const draft = await buildClientInvoiceDraftFromV2({
           projectIds: input.projectIds,
-          periodStart: parseDateString(input.periodStart),
-          periodEnd: parseDateString(input.periodEnd),
-          allowedClosingStatuses: ["ready", "closed", "locked"],
+          targetMonth: closingMonth,
           expectedClientId: input.clientId,
-          taxRate: input.taxRate,
-          withholding: input.withholding,
+          // 取引先請求書は行ごとに税率を持つ（作業費=指定税率 / 交通費=0%）。源泉は支払い側の話なのでここでは適用しない。
+          taxRates: { labor: input.taxRate, overtime: input.taxRate },
           subject: input.subject,
           includeProjectSectionHeaders: input.projectIds.length > 1,
         });
@@ -4575,7 +4654,7 @@ export const appRouter = router({
           note: `請求書自動作成 ${invoiceNumber}`,
           payload: { projectIds: input.projectIds, clientId: draft.clientId },
         });
-        return { id: invoice.id, invoiceNumber, totalAmount: draft.totalAmount };
+        return { id: invoice.id, invoiceNumber, totalAmount: draft.totalAmount, warnings: draft.warnings };
       }),
 
     /** Generate PDF for an invoice */

@@ -46,6 +46,11 @@ vi.mock("./db", () => ({
     const closing = closingsByProject.get(projectId);
     return closing?.closingMonth === closingMonth ? closing : null;
   }),
+  // Monthly Closing V2 is the new primary axis. These mocks return empty so the V2 builder
+  // falls back to the legacy V1 bridge (project_closings + closing_submissions) under test.
+  getMonthlyClosingV2ProjectReviewsByMonth: vi.fn().mockResolvedValue([]),
+  getMonthlyClosingV2ParticipantReviewsByMonth: vi.fn().mockResolvedValue([]),
+  getMonthlyClosingV2ClientTransportationBillingSummary: vi.fn().mockResolvedValue([]),
   getClosingSubmissionsByClosing: vi.fn().mockImplementation(async (closingId: number) => {
     if (closingId === 101) return [{ id: 1001, closingId, employeeId: 10, status: "approved" }];
     if (closingId === 102) return [
