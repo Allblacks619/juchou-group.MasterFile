@@ -17,6 +17,10 @@ const calls = vi.hoisted(() => ({
   upsertAttendance: vi.fn(async (_d: any) => ({ id: 1 })),
   createProjectClosing: vi.fn(async (d: any) => ({ id: 401, ...d })),
   upsertClosingSubmission: vi.fn(async (d: any) => ({ id: 1, ...d })),
+  addProjectMember: vi.fn(async (d: any) => ({ id: 1, ...d })),
+  upsertMonthlyClosingV2ProjectReview: vi.fn(async (d: any) => ({ id: 1, ...d })),
+  upsertMonthlyClosingV2ParticipantReview: vi.fn(async (d: any) => ({ id: 1, ...d })),
+  upsertMonthlyClosingV2TransportationExpense: vi.fn(async (d: any) => ({ id: 1, ...d })),
 }));
 
 vi.mock("./db", () => ({
@@ -60,7 +64,19 @@ describe("seedBetaFixture", () => {
       expect.objectContaining({ status: "submitted", transportAmount: 24000, expenseAmount: 3000 })
     );
 
-    expect(result).toMatchObject({ targetMonth: BETA_TEST_MONTH, attendanceDays: 15, projectId: 301, workerId: 201 });
+    // Client invoice (取引先請求書) V2 prerequisites
+    expect(calls.addProjectMember).toHaveBeenCalledWith(expect.objectContaining({ projectId: 301, employeeId: 201, isActive: true }));
+    expect(calls.upsertMonthlyClosingV2ProjectReview).toHaveBeenCalledWith(
+      expect.objectContaining({ targetMonth: "2024-01", projectId: 301, status: "締め完了" })
+    );
+    expect(calls.upsertMonthlyClosingV2ParticipantReview).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 301, workerId: 201, participantKey: "worker:201", individualStatus: "締め完了", isAggregationExcluded: false })
+    );
+    expect(calls.upsertMonthlyClosingV2TransportationExpense).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 301, workerId: 201, payerType: "worker_paid", clientBillable: true, amount: 24000 })
+    );
+
+    expect(result).toMatchObject({ targetMonth: BETA_TEST_MONTH, attendanceDays: 15, projectId: 301, workerId: 201, transportTotal: 24000 });
   });
 
   it("冪等: 既存のBetaエンティティは再利用し、重複プロフィールを作らない", async () => {
