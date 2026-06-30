@@ -1037,6 +1037,16 @@ export async function deleteInvoiceItemsByInvoice(invoiceId: number) {
 }
 
 /** Generate next invoice number for a given month */
+/**
+ * Auto-generate the next invoice number (請求書番号).
+ *
+ * 管理方法（簡単すぎず難しすぎない中間設計）: `INV-<請求月>-<連番>` 例: `INV-2024-05-001`
+ *  - `INV`     請求書である目印。
+ *  - `<請求月>` 請求対象月 (YYYY-MM)。読みやすく・並び替え可能。
+ *  - `<連番>`   その月内の 3桁ゼロ埋め通し番号 (001, 002 …)。
+ * 取引先コード・現場コードは埋め込まない（過度に複雑にしない）。番号は手入力させず、全作成経路
+ * （手動 / 出面表から / 締めから）で常に自動採番する。同月1000件超は桁あふれ時に自然拡張。
+ */
 export async function getNextInvoiceNumber(yearMonth: string): Promise<string> {
   const db = await getDb();
   if (!db) return `INV-${yearMonth}-001`;
