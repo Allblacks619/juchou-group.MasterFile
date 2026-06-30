@@ -517,7 +517,8 @@ export default function AppMyClosing() {
             {monthlyOverview.projectLines.map((line: any) => (
               <div key={line.projectId} className="text-sm border rounded p-2">
                 <div className="font-medium">{line.projectName}</div>
-                <div className="text-muted-foreground">出勤日数: {line.attendanceDays} / 工数: {line.totalHours}h / 残業: {line.overtimeHours}h</div>
+                {/* 工数(時間数)は現時点で運用に不要なため非表示。出勤日数と残業のみ表示。 */}
+                <div className="text-muted-foreground">出勤日数: {line.attendanceDays}日 / 残業: {line.overtimeHours}h</div>
               </div>
             ))}
           </CardContent>
@@ -551,6 +552,20 @@ export default function AppMyClosing() {
                 ? `${selectedProject?.name || "選択中の現場"} ではこの月の出面が見つかりません。別の現場を選択してください。`
                 : `${closingMonth} の出面実績が見つからないため提出対象外です。`}
             </p>
+          </CardContent>
+        </Card>
+      ) : !detail ? (
+        // 出面はあるが提出明細(detail)がまだ取れていない/取得失敗時。null を参照してクラッシュさせない。
+        <Card>
+          <CardContent className="py-10 space-y-3 text-center">
+            {detailQuery.error ? (
+              <>
+                <div className="text-lg font-medium">月締め情報の取得に失敗しました</div>
+                <p className="text-sm text-muted-foreground">{detailQuery.error.message}</p>
+              </>
+            ) : (
+              <Loader2 className="h-5 w-5 animate-spin text-gold mx-auto" />
+            )}
           </CardContent>
         </Card>
       ) : (

@@ -92,6 +92,19 @@ describe("closing delegation", ()=>{
     expect(result.eligible).toBe(false); // admin has no own attendance this month
   });
 
+  it("attendanceDays counts only worked days, not 休 (day_off/absence) or 0h records", async ()=>{
+    state.attendance = [
+      { projectId: 10, employeeId: 100, workDate: new Date("2026-05-10"), workType: "normal", hoursWorked: 80 },
+      { projectId: 10, employeeId: 100, workDate: new Date("2026-05-11"), workType: "absence", hoursWorked: 0 },
+      { projectId: 10, employeeId: 100, workDate: new Date("2026-05-12"), workType: "day_off", hoursWorked: 0 },
+      { projectId: 10, employeeId: 100, workDate: new Date("2026-05-13"), workType: "normal", hoursWorked: 0 },
+    ];
+    const caller = appRouter.createCaller(ctx({ id:2, appRole:"worker" } as any));
+    const overview = await caller.closing.workerMonthlyOverview({ closingMonth:"2026-05" });
+    const line = overview.projectLines.find((l:any)=>Number(l.projectId)===10);
+    expect(line.attendanceDays).toBe(1); // only the 80h normal day counts
+  });
+
   it("admin-worker can self-submit (defaults to self) when they have attendance", async ()=>{
     // The 大木充 case: an admin who is also a worker submits their own monthly closing.
     state.attendance = [{ projectId: 10, employeeId: 1, workDate: new Date("2026-05-10"), workType: "normal" }];

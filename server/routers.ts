@@ -749,8 +749,10 @@ async function buildWorkerMonthlyOverview(params: {
   }
 
   const lines = await Promise.all(Array.from(grouped.entries()).map(async ([projectId, records]) => {
-    const attendanceDays = new Set(records.map((r: any) => { const d = new Date(r.workDate); return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10); }).filter(Boolean)).size;
-    const totalHours = records.reduce((sum: number, r: any) => sum + Number(r.hoursWorked || 0), 0) / 10;
+    // 出勤日数は実働日のみ（休=day_off/absence や 時間0 は数えない。出面表・ダッシュボードと一致）。
+    const workedRecords = records.filter((r: any) => isWorkedType(r.workType) && Number(r.hoursWorked || 0) > 0);
+    const attendanceDays = new Set(workedRecords.map((r: any) => { const d = new Date(r.workDate); return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10); }).filter(Boolean)).size;
+    const totalHours = workedRecords.reduce((sum: number, r: any) => sum + Number(r.hoursWorked || 0), 0) / 10;
     const overtimeHours = records.reduce((sum: number, r: any) => sum + Number(r.overtimeHours || 0), 0) / 10;
 
     const closing = await db.getProjectClosingByProjectMonth(projectId, params.closingMonth);
