@@ -82,10 +82,23 @@ describe("closing delegation", ()=>{
     expect(overview.projectLines.length).toBe(2);
   });
 
-  it("admin delegated requires employeeId", async ()=>{
+  it("admin without employeeId defaults to their own submission (self)", async ()=>{
+    // Admin (user 1 -> employee 1) has no own attendance; only worker 100 does.
     state.attendance = [{ projectId: 10, employeeId: 100, workDate: new Date("2026-05-10"), workType: "normal" }];
     const caller = appRouter.createCaller(ctx({ id:1, appRole:"admin" } as any));
-    await expect(caller.closing.mySubmission({ projectId:10, closingMonth:"2026-05" } as any)).rejects.toThrow(/target employee required/);
+    const result = await caller.closing.mySubmission({ projectId:10, closingMonth:"2026-05" } as any);
+    // No throw — falls back to the admin's own employee, not the worker.
+    expect(result.employee?.id).toBe(1);
+    expect(result.eligible).toBe(false); // admin has no own attendance this month
+  });
+
+  it("admin-worker can self-submit (defaults to self) when they have attendance", async ()=>{
+    // The 大木充 case: an admin who is also a worker submits their own monthly closing.
+    state.attendance = [{ projectId: 10, employeeId: 1, workDate: new Date("2026-05-10"), workType: "normal" }];
+    const caller = appRouter.createCaller(ctx({ id:1, appRole:"admin" } as any));
+    const result = await caller.closing.mySubmission({ projectId:10, closingMonth:"2026-05" } as any);
+    expect(result.employee?.id).toBe(1);
+    expect(result.eligible).toBe(true);
   });
 
   it("admin delegated works for target employee attendance", async ()=>{

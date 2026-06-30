@@ -660,13 +660,11 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
   if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
   const role = actorRole || "worker";
   const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
-  if (canDelegate && !requestedEmployeeId) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "target employee required for delegated monthly closing" });
-  }
-  const targetEmployeeId = canDelegate && requestedEmployeeId ? requestedEmployeeId : employee.id;
+  // 作業員は自分のみ。管理者は対象未指定なら自分の月締め、指定があればその作業員（代理）。
   if (!canDelegate && requestedEmployeeId && Number(requestedEmployeeId) !== Number(employee.id)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の月締めは参照できません" });
   }
+  const targetEmployeeId = canDelegate && requestedEmployeeId ? Number(requestedEmployeeId) : employee.id;
 
   const overview = await buildWorkerMonthlyOverview({
     closingMonth,
@@ -718,15 +716,19 @@ async function buildWorkerMonthlyOverview(params: {
   const role = params.actorRole || "worker";
   const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
   const actorEmployee = await db.getEmployeeByUserId(params.actorUserId);
-  if (!canDelegate && !actorEmployee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
-  if (canDelegate && !params.employeeId) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "target employee required for delegated monthly closing" });
+  // 管理者は対象未指定なら自分の月締め、指定があればその作業員（代理）。自分の従業員レコードも対象
+  // 指定も無い管理者だけ対象が必要。作業員は常に自分。
+  if (!actorEmployee && !params.employeeId) {
+    throw new TRPCError({
+      code: canDelegate ? "BAD_REQUEST" : "NOT_FOUND",
+      message: canDelegate ? "target employee required for delegated monthly closing" : "従業員情報が見つかりません",
+    });
   }
-
-  const targetEmployeeId = canDelegate ? Number(params.employeeId) : Number(actorEmployee!.id);
   if (!canDelegate && params.employeeId && Number(params.employeeId) != Number(actorEmployee!.id)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の月締めは参照できません" });
   }
+
+  const targetEmployeeId = (canDelegate && params.employeeId) ? Number(params.employeeId) : Number(actorEmployee!.id);
 
   const targetEmployee = targetEmployeeId === Number(actorEmployee?.id)
     ? actorEmployee
