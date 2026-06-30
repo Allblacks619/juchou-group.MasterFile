@@ -132,24 +132,9 @@ export async function generateWorkerInvoicePdf(input: PdfInput): Promise<Buffer>
   const rightX = doc.page.width - 40;
   let y = 40;
 
-  // ── Logo (top-left or configured position) ──
-  const logoSettings: ImageSettings = (company?.logoSettings as ImageSettings) || {};
-  if (company?.logoUrl) {
-    try {
-      const logoBuffer = await downloadImage(company.logoUrl);
-      if (logoBuffer) {
-        const logoX = logoSettings.x ?? leftX;
-        const logoY = logoSettings.y ?? y;
-        const logoW = (logoSettings.width ?? 80) * (logoSettings.scale ?? 1);
-        const logoH = (logoSettings.height ?? 40) * (logoSettings.scale ?? 1);
-        const logoOpacity = logoSettings.opacity ?? 1;
-        doc.save();
-        doc.opacity(logoOpacity);
-        doc.image(logoBuffer, logoX, logoY, { width: logoW, height: logoH, fit: [logoW, logoH] });
-        doc.restore();
-      }
-    } catch { /* skip logo on error */ }
-  }
+  // ── Company logo is intentionally NOT drawn on the worker invoice (作業員請求書). ──
+  // Policy: the company logo appears only on the company→client invoice. Keeping it off
+  // worker-facing documents prevents a worker from lifting the logo for reuse elsewhere.
 
   // ── Title ──
   doc.fontSize(18).text("請求書", leftX, y, { align: "center", width: pageWidth });

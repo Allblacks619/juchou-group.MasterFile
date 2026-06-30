@@ -140,13 +140,27 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   const mR = 40;
   const contentW = pageW - mL - mR;
 
-  // ── Watermark ──
+  // ── Watermark ── uploaded image (company.watermarkUrl) if set, else the company-name text.
   doc.save();
-  doc.opacity(0.03);
-  doc.fontSize(80).fillColor("#c8a96e");
-  doc.translate(pageW / 2, 421);
-  doc.rotate(-35, { origin: [0, 0] });
-  doc.text("充寵グループ", -200, -30, { width: 400, align: "center" });
+  let watermarkDrawn = false;
+  if (company?.watermarkUrl) {
+    try {
+      const wmPath = await downloadImage(company.watermarkUrl);
+      if (wmPath) {
+        doc.opacity(0.05);
+        const wmSize = 300;
+        doc.image(wmPath, (pageW - wmSize) / 2, 421 - wmSize / 2, { width: wmSize, height: wmSize, fit: [wmSize, wmSize] });
+        watermarkDrawn = true;
+      }
+    } catch { /* fall back to text watermark below */ }
+  }
+  if (!watermarkDrawn) {
+    doc.opacity(0.03);
+    doc.fontSize(80).fillColor("#c8a96e");
+    doc.translate(pageW / 2, 421);
+    doc.rotate(-35, { origin: [0, 0] });
+    doc.text("充寵グループ", -200, -30, { width: 400, align: "center" });
+  }
   doc.restore();
 
   let y = 35;

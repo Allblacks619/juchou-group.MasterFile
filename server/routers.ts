@@ -2800,12 +2800,15 @@ export const appRouter = router({
           .filter(e => empIds.has(e.id))
           .map(e => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}` }));
 
+        const company = await db.getCompanyProfile();
         const { generateAttendancePdf } = await import("./pdfAttendance");
         const pdfBuffer = await generateAttendancePdf({
           year: input.year,
           month: input.month,
           projectName: project?.name || `Project #${input.projectId}`,
-          companyName: "充寵グループ",
+          companyName: company?.companyName || "充寵グループ",
+          logoUrl: company?.logoUrl || undefined,
+          watermarkUrl: company?.watermarkUrl || undefined,
           employees,
           guestNames: Array.from(guestNameSet),
           records: records.map(r => ({
@@ -4509,7 +4512,7 @@ export const appRouter = router({
 
         const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
         const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59));
-        const [allEmployees, allProjects] = await Promise.all([db.getAllEmployees(), db.getAllProjects()]);
+        const [allEmployees, allProjects, company] = await Promise.all([db.getAllEmployees(), db.getAllProjects(), db.getCompanyProfile()]);
         const { generateAttendancePdf } = await import("./pdfAttendance");
         const { storagePut } = await import("./storage");
 
@@ -4531,7 +4534,9 @@ export const appRouter = router({
             year,
             month,
             projectName: project?.name || `Project #${projectId}`,
-            companyName: "充寵グループ",
+            companyName: company?.companyName || "充寵グループ",
+            logoUrl: company?.logoUrl || undefined,
+            watermarkUrl: company?.watermarkUrl || undefined,
             employees,
             guestNames: Array.from(guestNameSet),
             records: (records as any[]).map((r) => ({
