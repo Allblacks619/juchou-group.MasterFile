@@ -827,7 +827,9 @@ function AttendanceCalendar() {
                                 const today = isToday(day);
 
                                 if (hasValue) {
-                                  totalDays++;
+                                  // 日数は「出勤(実働)日」だけ数える。休(欠勤/休日)は時間0でも記入セルなので
+                                  // cellHasValue は true になるが、出勤日数には含めない（出面表と一致）。
+                                  if (isWorkedType(rec.workType) && rec.hoursWorked > 0) totalDays++;
                                   totalHours += rec.hoursWorked;
                                   totalOt += rec.overtimeHours;
                                 }
