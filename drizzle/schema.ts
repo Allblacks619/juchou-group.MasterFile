@@ -672,7 +672,10 @@ export const closingSubmissionDocuments = mysqlTable("closing_submission_documen
   fileKey: varchar("fileKey", { length: 512 }).notNull(),
   mimeType: varchar("mimeType", { length: 128 }).notNull(),
   fileSize: int("fileSize").notNull(),
-  documentType: mysqlEnum("closingDocumentType", ["receipt", "company_card", "etc", "other"]).default("receipt").notNull(),
+  // DB column name must match the applied migration 0020 (`documentType`). The schema had drifted
+  // to `closingDocumentType` (only present in an un-journaled migration), so the ORM queried a
+  // column that doesn't exist in the migrated (production) DB → "Failed query". Align to `documentType`.
+  documentType: mysqlEnum("documentType", ["receipt", "company_card", "etc", "other"]).default("receipt").notNull(),
   uploadedByUserId: int("uploadedByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ([
