@@ -26,6 +26,8 @@ import {
   Eye,
   FileDown,
   Plus,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -366,6 +368,17 @@ export default function AppMyClosing() {
         ? [{ ...DEFAULT_INVOICE_ITEM }]
         : prev.filter((_, itemIdx) => itemIdx !== idx)
     );
+  };
+
+  // 行の並び替え（上へ: dir=-1 / 下へ: dir=+1）
+  const moveInvoiceItem = (idx: number, dir: -1 | 1) => {
+    setInvoiceItems(prev => {
+      const next = [...prev];
+      const target = idx + dir;
+      if (target < 0 || target >= next.length) return prev;
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
   };
 
   const openInvoiceConfirmation = () => {
@@ -856,39 +869,22 @@ export default function AppMyClosing() {
                                 />
                               </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3 md:contents">
-                              <div className="space-y-1 md:col-span-1">
-                                <Label className="text-xs text-muted-foreground">
-                                  単位
-                                </Label>
-                                <Input
-                                  value={item.unit}
-                                  onChange={e =>
-                                    updateInvoiceItem(idx, {
-                                      unit: e.target.value,
-                                    })
-                                  }
-                                  placeholder="式"
-                                  disabled={!canEditInvoice || invoiceBusy}
-                                />
-                              </div>
-                              <div className="space-y-1 md:col-span-2">
-                                <Label className="text-xs text-muted-foreground">
-                                  区分
-                                </Label>
-                                <Input
-                                  value={item.category}
-                                  onChange={e =>
-                                    updateInvoiceItem(idx, {
-                                      category: e.target.value,
-                                    })
-                                  }
-                                  placeholder="例：作業費"
-                                  disabled={!canEditInvoice || invoiceBusy}
-                                />
-                              </div>
+                            <div className="space-y-1 md:col-span-2">
+                              <Label className="text-xs text-muted-foreground">
+                                単位
+                              </Label>
+                              <Input
+                                value={item.unit}
+                                onChange={e =>
+                                  updateInvoiceItem(idx, {
+                                    unit: e.target.value,
+                                  })
+                                }
+                                placeholder="式"
+                                disabled={!canEditInvoice || invoiceBusy}
+                              />
                             </div>
-                            <div className="rounded-md bg-muted/40 px-3 py-2 md:col-span-2">
+                            <div className="rounded-md bg-muted/40 px-3 py-2 md:col-span-3">
                               <div className="text-xs text-muted-foreground">
                                 金額
                               </div>
@@ -896,11 +892,31 @@ export default function AppMyClosing() {
                                 {formatYen(rowAmount)}
                               </div>
                             </div>
-                            <div className="flex justify-end md:col-span-1">
+                            <div className="flex justify-end gap-1 md:col-span-1">
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="text-red-400"
+                                className="h-8 w-8"
+                                onClick={() => moveInvoiceItem(idx, -1)}
+                                disabled={!canEditInvoice || invoiceBusy || idx === 0}
+                                aria-label="行を上へ"
+                              >
+                                <ChevronUp className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => moveInvoiceItem(idx, 1)}
+                                disabled={!canEditInvoice || invoiceBusy || idx === invoiceItems.length - 1}
+                                aria-label="行を下へ"
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-red-400 h-8 w-8"
                                 onClick={() => removeInvoiceItem(idx)}
                                 disabled={!canEditInvoice || invoiceBusy}
                                 aria-label="明細行を削除"
