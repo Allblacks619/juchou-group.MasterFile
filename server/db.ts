@@ -165,13 +165,20 @@ export async function getMonthlyClosingV2ExpenseLinesByWorkerProjectMonth(
 export async function getMonthlyClosingV2WorkerSubmission(workerId: number, targetMonth: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(monthlyClosingV2WorkerSubmissions).where(
-    and(
-      eq(monthlyClosingV2WorkerSubmissions.workerId, workerId),
-      eq(monthlyClosingV2WorkerSubmissions.targetMonth, targetMonth),
-    )
-  ).limit(1);
-  return result[0];
+  // 本番でV2テーブルが未マイグレーションだと select が例外を投げ、呼び出し側の自動生成が
+  // まるごと失敗して「明細が空」になる。テーブル未整備時は undefined を返して継続する。
+  try {
+    const result = await db.select().from(monthlyClosingV2WorkerSubmissions).where(
+      and(
+        eq(monthlyClosingV2WorkerSubmissions.workerId, workerId),
+        eq(monthlyClosingV2WorkerSubmissions.targetMonth, targetMonth),
+      )
+    ).limit(1);
+    return result[0];
+  } catch (error) {
+    console.error("[db] getMonthlyClosingV2WorkerSubmission failed (table not migrated?)", error);
+    return undefined;
+  }
 }
 
 /**
@@ -181,12 +188,18 @@ export async function getMonthlyClosingV2WorkerSubmission(workerId: number, targ
 export async function getMonthlyClosingV2ExpenseLinesByWorkerMonth(workerId: number, targetMonth: string) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(monthlyClosingV2ExpenseLines).where(
-    and(
-      eq(monthlyClosingV2ExpenseLines.workerId, workerId),
-      eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
-    )
-  );
+  // V2テーブル未整備でも自動生成（出面×単価）を止めないよう、失敗時は空配列で継続する。
+  try {
+    return await db.select().from(monthlyClosingV2ExpenseLines).where(
+      and(
+        eq(monthlyClosingV2ExpenseLines.workerId, workerId),
+        eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
+      )
+    );
+  } catch (error) {
+    console.error("[db] getMonthlyClosingV2ExpenseLinesByWorkerMonth failed (table not migrated?)", error);
+    return [];
+  }
 }
 
 export async function getMonthlyClosingV2ExpenseLinesByProjectMonth(
