@@ -162,13 +162,25 @@ export async function computeWorkerInvoiceDraft(input: {
   lateNightMultiplier?: number;
   /** 1日の標準労働時間（残業単価の算出に使用）。既定8。 */
   standardDayHours?: number;
+  /**
+   * 発行者（作業員）が適格請求書発行事業者番号（インボイス番号）を登録しているか。
+   * インボイス制度: 未登録（免税事業者）が発行する請求書には消費税10%のルールを適用しない（0%）。
+   * 既定true（＝従来どおり10%）。
+   */
+  issuerHasQualifiedInvoiceNumber?: boolean;
 }): Promise<WorkerInvoiceV2Draft> {
   const { workerId, targetMonth } = input;
   const taxRates = { ...DEFAULT_TAX_RATES, ...(input.taxRates || {}) };
   const overtimeMultiplier = input.overtimeMultiplier ?? 1.25;
   const lateNightMultiplier = input.lateNightMultiplier ?? 1.5;
   const standardDayHours = input.standardDayHours ?? 8;
+  // インボイス番号未登録の発行者は消費税10%が適用されない（労務費・残業代の税率を0%に落とす）。
+  const issuerQualified = input.issuerHasQualifiedInvoiceNumber ?? true;
+  const effectiveLaborTax = issuerQualified ? taxRates.labor : 0;
   const warnings: string[] = [];
+  if (!issuerQualified) {
+    warnings.push("適格請求書発行事業者番号（インボイス番号）が未登録のため、消費税10%は適用していません（0%）。登録番号を登録すると10%で計算されます。");
+  }
 
   // 1) Gate: the worker must have submitted their monthly closing (V2).
   if (!input.submissionStatus || !ALLOWED_SUBMISSION_STATUSES.has(input.submissionStatus)) {
@@ -310,7 +322,7 @@ export async function computeWorkerInvoiceDraft(input: {
       unit: "日",
       unitPrice,
       amount,
-      taxRate: taxRates.labor,
+      taxRate: effectiveLaborTax,
       source: "attendance_auto",
       sortOrder: items.length,
     });
@@ -350,7 +362,7 @@ export async function computeWorkerInvoiceDraft(input: {
         unit: "時間",
         unitPrice: otHourly,
         amount,
-        taxRate: taxRates.labor,
+        taxRate: effectiveLaborTax,
         source: "attendance_auto",
         sortOrder: items.length,
       });

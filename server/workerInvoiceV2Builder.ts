@@ -14,6 +14,14 @@ export type WorkerInvoiceV2DraftWithSource = WorkerInvoiceV2Draft & {
 const V1_SUBMITTED_STATUSES = new Set(["submitted", "approved"]);
 
 /**
+ * インボイス制度: 発行者が適格請求書発行事業者番号（インボイス番号）を登録しているか。
+ * 空・未入力（免税事業者）は未登録扱い＝消費税10%を適用しない。
+ */
+export function hasQualifiedInvoiceNumber(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
  * Build an editable worker-invoice draft for a single worker + month.
  *
  * Primary source is Monthly Closing V2 (`monthly_closing_v2_*`). During the V1→V2 transition,
@@ -36,12 +44,16 @@ export async function buildWorkerInvoiceDraftFromV2(args: {
 }): Promise<WorkerInvoiceV2DraftWithSource> {
   const { workerId, targetMonth } = args;
   const { start, end } = monthRange(targetMonth);
-  const [v2Submission, records, v2ExpenseLines, v1Submissions] = await Promise.all([
+  const [v2Submission, records, v2ExpenseLines, v1Submissions, worker] = await Promise.all([
     db.getMonthlyClosingV2WorkerSubmission(workerId, targetMonth),
     db.getAttendanceByDateRange(start, end),
     db.getMonthlyClosingV2ExpenseLinesByWorkerMonth(workerId, targetMonth),
     db.getClosingSubmissionsByEmployeeMonth(workerId, targetMonth),
+    db.getEmployeeById(workerId),
   ]);
+
+  // インボイス制度: 作業員（発行者）がインボイス番号未登録なら消費税10%を適用しない（0%）。
+  const issuerHasQualifiedInvoiceNumber = hasQualifiedInvoiceNumber((worker as any)?.invoiceIssuerNumber);
 
   // ── Submission gate: V2 status if present, else bridge from a V1 submitted/approved closing.
   let submissionStatus: string | undefined;
@@ -98,6 +110,7 @@ export async function buildWorkerInvoiceDraftFromV2(args: {
       return project?.name ?? null;
     },
     taxRates: args.taxRates,
+    issuerHasQualifiedInvoiceNumber,
   });
 
   const submissionSource: "v2" | "v1_bridge" = bridgedSubmission || bridgedExpense ? "v1_bridge" : "v2";

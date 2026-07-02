@@ -51,6 +51,8 @@ vi.mock("./db", () => ({
   getMonthlyClosingV2ProjectReviewsByMonth: vi.fn().mockResolvedValue([]),
   getMonthlyClosingV2ParticipantReviewsByMonth: vi.fn().mockResolvedValue([]),
   getMonthlyClosingV2ClientTransportationBillingSummary: vi.fn().mockResolvedValue([]),
+  // 自社はインボイス番号登録済み → 作業費・残業代は10%（既存の税計算を維持）。
+  getCompanyProfile: vi.fn().mockResolvedValue({ id: 1, name: "充寵グループ", invoiceIssuerNumber: "T1234567890123" }),
   getClosingSubmissionsByClosing: vi.fn().mockImplementation(async (closingId: number) => {
     if (closingId === 101) return [{ id: 1001, closingId, employeeId: 10, status: "approved" }];
     if (closingId === 102) return [

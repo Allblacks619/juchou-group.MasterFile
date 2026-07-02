@@ -102,12 +102,19 @@ export async function buildClientInvoiceDraftFromV2(args: {
     v2ProjectReviews,
     v2ParticipantReviews,
     v2TransportSummary,
+    companyProfile,
   ] = await Promise.all([
     db.getAllEmployees(),
     db.getMonthlyClosingV2ProjectReviewsByMonth(args.targetMonth),
     db.getMonthlyClosingV2ParticipantReviewsByMonth(args.targetMonth),
     db.getMonthlyClosingV2ClientTransportationBillingSummary(args.targetMonth),
+    db.getCompanyProfile(),
   ]);
+
+  // インボイス制度: 自社（発行者）がインボイス番号未登録なら作業費・残業代に消費税10%を適用しない（作業員請求書と同ルール）。
+  const companyInvoiceNumber = (companyProfile as any)?.invoiceIssuerNumber;
+  const issuerHasQualifiedInvoiceNumber =
+    typeof companyInvoiceNumber === "string" && companyInvoiceNumber.trim().length > 0;
 
   const employeeName = (employeeId: number) => {
     const e = (allEmployees as any[]).find((emp) => Number(emp.id) === Number(employeeId));
@@ -254,6 +261,7 @@ export async function buildClientInvoiceDraftFromV2(args: {
     overtimeMultiplier: args.overtimeMultiplier,
     standardDayHours: args.standardDayHours,
     includeProjectSectionHeaders: args.includeProjectSectionHeaders ?? projectIds.length > 1,
+    issuerHasQualifiedInvoiceNumber,
   });
 
   return {

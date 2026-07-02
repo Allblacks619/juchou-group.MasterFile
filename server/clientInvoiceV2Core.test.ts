@@ -49,6 +49,22 @@ describe("computeClientInvoiceDraft", () => {
     expect(out.withholdingAmount).toBe(0); // 源泉は取引先請求書に載せない
   });
 
+  it("発行者がインボイス番号未登録なら作業費・残業代を0%にする（交通費は元々0%）", () => {
+    const out = computeClientInvoiceDraft({
+      targetMonth: "2025-05",
+      projectOrder: [1],
+      projects: [{ projectId: 1, projectName: "現場", transportTotal: 10000 }],
+      labor: [labor({ projectId: 1, workerId: 1, daysTimes10: 100, overtimeHoursTimes10: 50, clientRate: 25000 })],
+      includeProjectSectionHeaders: false,
+      issuerHasQualifiedInvoiceNumber: false,
+    });
+    const normal = out.items.filter((i) => i.itemType === "normal");
+    expect(normal.every((i) => i.itemTaxRate === 0)).toBe(true);
+    expect(out.taxAmount).toBe(0);
+    expect(out.totalAmount).toBe(out.subtotal);
+    expect(out.warnings.some((w) => w.includes("インボイス番号") && w.includes("0%"))).toBe(true);
+  });
+
   it("puts night shift on its own row marked 夜勤", () => {
     const out = computeClientInvoiceDraft({
       targetMonth: "2025-05",
