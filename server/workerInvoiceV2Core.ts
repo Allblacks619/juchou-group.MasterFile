@@ -150,9 +150,15 @@ export async function computeWorkerInvoiceDraft(input: {
   resolveRate: (args: { projectId: number; shiftType: string; workDate: Date }) => Promise<number | null> | number | null;
   resolveProjectName: (projectId: number) => Promise<string | null> | string | null;
   taxRates?: WorkerInvoiceV2TaxRates;
+  /** 残業1時間単価 = 日単価 ÷ 標準時間 × 割増倍率（既定1.25=時間外）。IMG_0293の基本式。 */
+  overtimeMultiplier?: number;
+  /** 1日の標準労働時間（残業単価の算出に使用）。既定8。 */
+  standardDayHours?: number;
 }): Promise<WorkerInvoiceV2Draft> {
   const { workerId, targetMonth } = input;
   const taxRates = { ...DEFAULT_TAX_RATES, ...(input.taxRates || {}) };
+  const overtimeMultiplier = input.overtimeMultiplier ?? 1.25;
+  const standardDayHours = input.standardDayHours ?? 8;
   const warnings: string[] = [];
 
   // 1) Gate: the worker must have submitted their monthly closing (V2).
@@ -177,6 +183,9 @@ export async function computeWorkerInvoiceDraft(input: {
   };
   const laborBuckets = new Map<string, LaborBucket>();
   const attendanceBreakdown: WorkerInvoiceV2AttendanceDay[] = [];
+  // 残業は現場ごとに月内合計。日単価から時間単価を出すための代表日も現場ごとに保持。
+  const overtimeTimes10ByProject = new Map<number, number>();
+  const projectSampleDate = new Map<number, Date>();
 
   for (const record of input.attendanceRecords) {
     if (Number(record.employeeId) !== Number(workerId)) continue;
@@ -196,6 +205,9 @@ export async function computeWorkerInvoiceDraft(input: {
     const bucket = laborBuckets.get(key) || { projectId, shiftType, daysTimes10: 0, sampleWorkDate: workDate };
     bucket.daysTimes10 += daysTimes10;
     laborBuckets.set(key, bucket);
+
+    overtimeTimes10ByProject.set(projectId, (overtimeTimes10ByProject.get(projectId) || 0) + Math.max(0, Number(record.overtimeHours || 0)));
+    if (!projectSampleDate.has(projectId)) projectSampleDate.set(projectId, workDate);
 
     attendanceBreakdown.push({
       workDate: workDateKey,
@@ -271,6 +283,39 @@ export async function computeWorkerInvoiceDraft(input: {
       quantity: days,
       unit: "日",
       unitPrice,
+      amount,
+      taxRate: taxRates.labor,
+      source: "attendance_auto",
+      sortOrder: items.length,
+    });
+  }
+
+  // 2.5) 残業代: 現場ごとに（作業員の日勤単価 ÷ 標準時間 × 割増倍率）× 残業時間。
+  // 深夜(22:00–翌5:00, ×1.50)は出面に時間帯情報が無く自動判定できないため、必ず要確認の警告を付ける。
+  for (const [projectId, otTimes10] of Array.from(overtimeTimes10ByProject.entries())) {
+    const hours = otTimes10 / 10;
+    if (hours <= 0) continue;
+    const name = await projectName(projectId);
+    const sampleDate = projectSampleDate.get(projectId) || new Date(`${targetMonth}-01T00:00:00.000Z`);
+    const dayRate = await input.resolveRate({ projectId, shiftType: "day", workDate: sampleDate });
+    const otHourly = dayRate != null ? Math.round((Number(dayRate) / standardDayHours) * overtimeMultiplier) : 0;
+    const amount = Math.round(hours * otHourly);
+    laborAmount += amount;
+    if (otHourly === 0) {
+      warnings.push(`残業代の単価が算出できません（${name || `現場${projectId}`}：日勤単価が未解決）。単価設定後に再生成してください。`);
+    } else {
+      warnings.push(`残業代は日勤単価 ${Number(dayRate).toLocaleString("ja-JP")}円 ÷${standardDayHours}h ×${overtimeMultiplier}(時間外) = ${otHourly.toLocaleString("ja-JP")}円/時 で自動算出（${name || `現場${projectId}`}）。深夜(22:00–翌5:00)は×1.50のため、該当があれば単価をご確認ください。`);
+    }
+    items.push({
+      category: "labor",
+      itemType: "normal",
+      label: `残業代 ${name || `現場${projectId}`}`,
+      projectId,
+      projectName: name,
+      shiftType: null,
+      quantity: hours,
+      unit: "時間",
+      unitPrice: otHourly,
       amount,
       taxRate: taxRates.labor,
       source: "attendance_auto",

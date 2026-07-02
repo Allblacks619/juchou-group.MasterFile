@@ -136,6 +136,21 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
     expect(draft.attendanceBreakdown[0].overtimeHours).toBe(4); // 40 / 10 = 4.0h
   });
 
+  it("残業代を日勤単価÷8×1.25で自動計上する", async () => {
+    state.attendance = [
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-01", hoursWorked: 80, overtimeHours: 40, workType: "normal" },
+    ];
+    state.expenseLines = [];
+    const draft = await build();
+    const ot = draft.items.find((i: any) => i.label.startsWith("残業代"))!;
+    // 15000 / 8 * 1.25 = 2343.75 -> 2344 ; × 4h = 9,376
+    expect(ot.unit).toBe("時間");
+    expect(ot.quantity).toBe(4);
+    expect(ot.unitPrice).toBe(2344);
+    expect(ot.amount).toBe(9376);
+    expect(draft.warnings.some((w: string) => w.includes("残業代") && w.includes("深夜"))).toBe(true);
+  });
+
   it("V2提出があるときは submissionSource=v2", async () => {
     const draft = await build();
     expect(draft.submissionSource).toBe("v2");
