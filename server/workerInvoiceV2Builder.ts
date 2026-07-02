@@ -27,6 +27,12 @@ export async function buildWorkerInvoiceDraftFromV2(args: {
   workerId: number;
   targetMonth: string;
   taxRates?: WorkerInvoiceV2TaxRates;
+  /**
+   * Bypass the "worker has submitted their closing" gate. Used by the worker's own draft
+   * preview (getMyDraft), where the worker is still filling in the closing and just wants
+   * the labor/transport auto-calculated. Admin previews keep the gate.
+   */
+  submissionStatusOverride?: string;
 }): Promise<WorkerInvoiceV2DraftWithSource> {
   const { workerId, targetMonth } = args;
   const { start, end } = monthRange(targetMonth);
@@ -45,6 +51,9 @@ export async function buildWorkerInvoiceDraftFromV2(args: {
   } else if ((v1Submissions as any[]).some((s) => V1_SUBMITTED_STATUSES.has(String(s.status)))) {
     submissionStatus = "submitted";
     bridgedSubmission = true;
+  }
+  if (args.submissionStatusOverride) {
+    submissionStatus = args.submissionStatusOverride;
   }
 
   // ── Transport/expense: prefer V2 worker-paid lines; else bridge from V1 amounts (per project).
