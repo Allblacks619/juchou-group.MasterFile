@@ -5024,7 +5024,7 @@ export const appRouter = router({
           throw error;
         }
       }),
-    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional() })).optional() })).mutation(async ({ ctx, input }) => {
+    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional(), itemType: z.enum(["normal", "text"]).optional() })).optional() })).mutation(async ({ ctx, input }) => {
       const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
@@ -5032,18 +5032,21 @@ export const appRouter = router({
       if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "Approved invoice is read-only" });
       const saved = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: existing?.status === "returned" ? "returned" : "draft", subject: input.subject, notes: input.notes });
       if (saved?.id && input.items) {
-        await db.replaceWorkerInvoiceItems(saved.id, input.items.map((item, index) => ({
-          workerInvoiceId: saved.id!,
-          itemType: "normal",
-          label: item.label,
-          description: item.label,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          amount: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
-          unit: item.unit || "式",
-          category: (item.category || undefined) as "labor" | "transport" | "expense" | "materials" | "misc" | undefined,
-          sortOrder: index,
-        })));
+        await db.replaceWorkerInvoiceItems(saved.id, input.items.map((item, index) => {
+          const isText = item.itemType === "text";
+          return {
+            workerInvoiceId: saved.id!,
+            itemType: isText ? "text" : "normal",
+            label: item.label,
+            description: item.label,
+            quantity: isText ? 0 : item.quantity,
+            unitPrice: isText ? 0 : item.unitPrice,
+            amount: isText ? 0 : Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
+            unit: isText ? "" : (item.unit || "式"),
+            category: (item.category || undefined) as "labor" | "transport" | "expense" | "materials" | "misc" | undefined,
+            sortOrder: index,
+          };
+        }));
       }
       return { success: true };
     }),

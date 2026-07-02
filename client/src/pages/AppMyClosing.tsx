@@ -44,6 +44,7 @@ type InvoiceLineItemDraft = {
   unitPrice: number | string;
   unit: string;
   category: string;
+  itemType?: "normal" | "text";
 };
 
 type NormalizedInvoiceLineItem = {
@@ -53,6 +54,7 @@ type NormalizedInvoiceLineItem = {
   unit: string;
   category: string;
   amount: number;
+  itemType: "normal" | "text";
 };
 
 const DEFAULT_INVOICE_ITEM: InvoiceLineItemDraft = {
@@ -61,6 +63,16 @@ const DEFAULT_INVOICE_ITEM: InvoiceLineItemDraft = {
   unitPrice: 0,
   unit: "式",
   category: "",
+  itemType: "normal",
+};
+
+const DEFAULT_TEXT_ITEM: InvoiceLineItemDraft = {
+  label: "",
+  quantity: 0,
+  unitPrice: 0,
+  unit: "",
+  category: "",
+  itemType: "text",
 };
 
 function toFiniteNumber(value: number | string | null | undefined) {
@@ -73,21 +85,24 @@ function normalizeInvoiceItems(
 ): NormalizedInvoiceLineItem[] {
   return items
     .map(item => {
+      const isText = item.itemType === "text";
       const label = String(item.label || "").trim();
-      const quantity = toFiniteNumber(item.quantity);
-      const unitPrice = toFiniteNumber(item.unitPrice);
-      const amount = Math.round(quantity * unitPrice);
+      const quantity = isText ? 0 : toFiniteNumber(item.quantity);
+      const unitPrice = isText ? 0 : toFiniteNumber(item.unitPrice);
+      const amount = isText ? 0 : Math.round(quantity * unitPrice);
 
       return {
         label,
         quantity,
         unitPrice,
-        unit: String(item.unit || "").trim() || "式",
+        unit: isText ? "" : (String(item.unit || "").trim() || "式"),
         category: String(item.category || "").trim(),
         amount,
+        itemType: (isText ? "text" : "normal") as "normal" | "text",
       };
     })
-    .filter(item => item.label && item.amount > 0);
+    // テキスト行は摘要があれば残す。通常行は摘要かつ金額>0のもののみ。
+    .filter(item => item.label && (item.itemType === "text" || item.amount > 0));
 }
 
 function calculateInvoiceTotals(items: NormalizedInvoiceLineItem[]) {
@@ -236,6 +251,7 @@ export default function AppMyClosing() {
             unitPrice: item.unitPrice ?? 0,
             unit: item.unit || "式",
             category: item.category || "",
+            itemType: item.itemType === "text" ? "text" : "normal",
           }))
         : [{ ...DEFAULT_INVOICE_ITEM }]
     );
@@ -271,6 +287,14 @@ export default function AppMyClosing() {
   });
 
   const clearMutation = trpc.closing.deleteMyReceiptDocument.useMutation({
+    onSuccess: () => {
+      toast.success("領収書を解除しました");
+      detailQuery.refetch();
+    },
+    onError: e => toast.error(`解除エラー: ${e.message}`),
+  });
+  // 旧仕様の単一領収書(receiptFileUrl)を作業員が解除するためのミューテーション。
+  const clearLegacyReceiptMutation = trpc.closing.clearMyReceipt.useMutation({
     onSuccess: () => {
       toast.success("領収書を解除しました");
       detailQuery.refetch();
@@ -348,6 +372,7 @@ export default function AppMyClosing() {
       unitPrice: item.unitPrice,
       unit: item.unit,
       category: item.category,
+      itemType: item.itemType,
     })),
   });
 
@@ -738,9 +763,21 @@ export default function AppMyClosing() {
                       </div>
                     ))}
                     {detail?.submission?.receiptFileUrl && (
-                      <a href={detail?.submission?.receiptFileUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate">
-                        <LinkIcon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{detail?.submission?.receiptFileName || "領収書(旧)"}</span>
-                      </a>
+                      <div className="flex items-center gap-2">
+                        <a href={detail?.submission?.receiptFileUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline inline-flex items-center gap-1 max-w-[320px] truncate">
+                          <LinkIcon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{detail?.submission?.receiptFileName || "領収書(旧)"}</span>
+                        </a>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-red-400"
+                          disabled={!canEdit || busy || clearLegacyReceiptMutation.isPending}
+                          onClick={() => clearLegacyReceiptMutation.mutate({ projectId: selectedProjectId!, closingMonth })}
+                          aria-label="領収書を削除"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -787,22 +824,37 @@ export default function AppMyClosing() {
                       <div>
                         <Label>請求明細</Label>
                         <p className="text-xs text-muted-foreground">
-                          スマートフォンでは1明細ずつ確認できます。明細名が空、または金額が0円の行は請求書に含めません。
+                          明細名が空の行、または金額0円の通常行は請求書に含めません。テキスト行は見出し・区切りとして残ります（行は上下ボタンで並び替え可）。
                         </p>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setInvoiceItems(prev => [
-                            ...prev,
-                            { ...DEFAULT_INVOICE_ITEM },
-                          ])
-                        }
-                        disabled={!canEditInvoice || invoiceBusy}
-                      >
-                        行追加
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setInvoiceItems(prev => [
+                              ...prev,
+                              { ...DEFAULT_INVOICE_ITEM },
+                            ])
+                          }
+                          disabled={!canEditInvoice || invoiceBusy}
+                        >
+                          行追加
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setInvoiceItems(prev => [
+                              ...prev,
+                              { ...DEFAULT_TEXT_ITEM },
+                            ])
+                          }
+                          disabled={!canEditInvoice || invoiceBusy}
+                        >
+                          テキスト追加
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="space-y-3">
@@ -811,6 +863,35 @@ export default function AppMyClosing() {
                           toFiniteNumber(item.quantity) *
                             toFiniteNumber(item.unitPrice)
                         );
+                        if (item.itemType === "text") {
+                          return (
+                            <div
+                              key={idx}
+                              className="rounded-lg border border-dashed border-border bg-card/40 p-3 flex items-end gap-2"
+                            >
+                              <div className="flex-1 space-y-1">
+                                <Label className="text-xs text-muted-foreground">テキスト行（見出し・区切り）</Label>
+                                <Input
+                                  placeholder="例：読売ランド新南山水族館 ぶん"
+                                  value={item.label}
+                                  onChange={e => updateInvoiceItem(idx, { label: e.target.value })}
+                                  disabled={!canEditInvoice || invoiceBusy}
+                                />
+                              </div>
+                              <div className="flex gap-1">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => moveInvoiceItem(idx, -1)} disabled={!canEditInvoice || invoiceBusy || idx === 0} aria-label="行を上へ">
+                                  <ChevronUp className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => moveInvoiceItem(idx, 1)} disabled={!canEditInvoice || invoiceBusy || idx === invoiceItems.length - 1} aria-label="行を下へ">
+                                  <ChevronDown className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="text-red-400 h-8 w-8" onClick={() => removeInvoiceItem(idx)} disabled={!canEditInvoice || invoiceBusy} aria-label="テキスト行を削除">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        }
                         return (
                           <div
                             key={idx}
@@ -1151,17 +1232,22 @@ export default function AppMyClosing() {
                         key={`${item.label}-${idx}`}
                         className="p-3 space-y-1 md:flex md:items-center md:justify-between md:gap-3 md:space-y-0"
                       >
-                        <div>
-                          <div className="font-medium">{item.label}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {item.category || "区分なし"} /{" "}
-                            {item.quantity.toLocaleString("ja-JP")} {item.unit}{" "}
-                            × {formatYen(item.unitPrice)}
-                          </div>
-                        </div>
-                        <div className="font-semibold text-right">
-                          {formatYen(item.amount)}
-                        </div>
+                        {item.itemType === "text" ? (
+                          <div className="font-medium text-muted-foreground">{item.label}</div>
+                        ) : (
+                          <>
+                            <div>
+                              <div className="font-medium">{item.label}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {item.quantity.toLocaleString("ja-JP")} {item.unit}{" "}
+                                × {formatYen(item.unitPrice)}
+                              </div>
+                            </div>
+                            <div className="font-semibold text-right">
+                              {formatYen(item.amount)}
+                            </div>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>
