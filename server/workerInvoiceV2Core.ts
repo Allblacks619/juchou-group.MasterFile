@@ -121,6 +121,12 @@ const DEFAULT_TAX_RATES: Required<WorkerInvoiceV2TaxRates> = {
   expense: 0,
 };
 
+/**
+ * 昼勤の残業のうち、この時間（×10, = 4.0h）までは時間外（×1.25）。
+ * 5時間目以降は深夜帯（×1.50）として自動判定する。夜勤の残業は全て深夜帯。
+ */
+const DAY_OT_REGULAR_CAP_TIMES10 = 40;
+
 export function monthRange(targetMonth: string): { start: Date; end: Date } {
   const [year, month] = targetMonth.split("-").map(Number);
   const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
@@ -152,12 +158,15 @@ export async function computeWorkerInvoiceDraft(input: {
   taxRates?: WorkerInvoiceV2TaxRates;
   /** 残業1時間単価 = 日単価 ÷ 標準時間 × 割増倍率（既定1.25=時間外）。IMG_0293の基本式。 */
   overtimeMultiplier?: number;
+  /** 深夜帯残業の割増倍率（既定1.50）。夜勤の残業／昼勤で5時間目以降の残業に適用。 */
+  lateNightMultiplier?: number;
   /** 1日の標準労働時間（残業単価の算出に使用）。既定8。 */
   standardDayHours?: number;
 }): Promise<WorkerInvoiceV2Draft> {
   const { workerId, targetMonth } = input;
   const taxRates = { ...DEFAULT_TAX_RATES, ...(input.taxRates || {}) };
   const overtimeMultiplier = input.overtimeMultiplier ?? 1.25;
+  const lateNightMultiplier = input.lateNightMultiplier ?? 1.5;
   const standardDayHours = input.standardDayHours ?? 8;
   const warnings: string[] = [];
 
@@ -183,8 +192,12 @@ export async function computeWorkerInvoiceDraft(input: {
   };
   const laborBuckets = new Map<string, LaborBucket>();
   const attendanceBreakdown: WorkerInvoiceV2AttendanceDay[] = [];
-  // 残業は現場ごとに月内合計。日単価から時間単価を出すための代表日も現場ごとに保持。
-  const overtimeTimes10ByProject = new Map<number, number>();
+  // 残業は現場ごとに月内合計。深夜帯(×1.50)判定のため band を分けて累積する。
+  //  - 夜勤(night) の残業は全て深夜帯。
+  //  - 昼勤(day) の残業はその日の4hまで=時間外(×1.25)、5時間目以降=深夜帯(×1.50)。
+  // 日単価から時間単価を出すための代表日も現場ごとに保持。
+  const regularOtTimes10ByProject = new Map<number, number>();
+  const lateNightOtTimes10ByProject = new Map<number, number>();
   const projectSampleDate = new Map<number, Date>();
 
   for (const record of input.attendanceRecords) {
@@ -206,7 +219,20 @@ export async function computeWorkerInvoiceDraft(input: {
     bucket.daysTimes10 += daysTimes10;
     laborBuckets.set(key, bucket);
 
-    overtimeTimes10ByProject.set(projectId, (overtimeTimes10ByProject.get(projectId) || 0) + Math.max(0, Number(record.overtimeHours || 0)));
+    // 残業時間(×10)を band 分けして現場ごとに累積（判定は日単位＝レコード単位）。
+    const recordOtTimes10 = Math.max(0, Number(record.overtimeHours || 0));
+    if (recordOtTimes10 > 0) {
+      if (shiftType === "night") {
+        // 夜勤: 残業は全て深夜帯(×1.50)。
+        lateNightOtTimes10ByProject.set(projectId, (lateNightOtTimes10ByProject.get(projectId) || 0) + recordOtTimes10);
+      } else {
+        // 昼勤: その日の4hまでは時間外(×1.25)、5時間目以降は深夜帯(×1.50)。
+        const regularTimes10 = Math.min(recordOtTimes10, DAY_OT_REGULAR_CAP_TIMES10);
+        const lateNightTimes10 = recordOtTimes10 - regularTimes10;
+        if (regularTimes10 > 0) regularOtTimes10ByProject.set(projectId, (regularOtTimes10ByProject.get(projectId) || 0) + regularTimes10);
+        if (lateNightTimes10 > 0) lateNightOtTimes10ByProject.set(projectId, (lateNightOtTimes10ByProject.get(projectId) || 0) + lateNightTimes10);
+      }
+    }
     if (!projectSampleDate.has(projectId)) projectSampleDate.set(projectId, workDate);
 
     attendanceBreakdown.push({
@@ -290,37 +316,51 @@ export async function computeWorkerInvoiceDraft(input: {
     });
   }
 
-  // 2.5) 残業代: 現場ごとに（作業員の日勤単価 ÷ 標準時間 × 割増倍率）× 残業時間。
-  // 深夜(22:00–翌5:00, ×1.50)は出面に時間帯情報が無く自動判定できないため、必ず要確認の警告を付ける。
-  for (const [projectId, otTimes10] of Array.from(overtimeTimes10ByProject.entries())) {
-    const hours = otTimes10 / 10;
-    if (hours <= 0) continue;
+  // 2.5) 残業代: 現場ごとに、時間外(×1.25)と深夜帯(×1.50)を別明細で自動計上する。
+  //  band分け（上の集計）:
+  //   - 夜勤の残業＝全て深夜帯。
+  //   - 昼勤の残業＝その日の4hまで時間外・5時間目以降深夜帯。
+  //  単価 = 日勤単価 ÷ 標準時間 × 割増倍率（IMG_0293の基本式、深夜帯は×1.50）。
+  const overtimeProjectIds = Array.from(
+    new Set<number>([...Array.from(regularOtTimes10ByProject.keys()), ...Array.from(lateNightOtTimes10ByProject.keys())])
+  ).sort((a, b) => a - b);
+  for (const projectId of overtimeProjectIds) {
     const name = await projectName(projectId);
     const sampleDate = projectSampleDate.get(projectId) || new Date(`${targetMonth}-01T00:00:00.000Z`);
     const dayRate = await input.resolveRate({ projectId, shiftType: "day", workDate: sampleDate });
-    const otHourly = dayRate != null ? Math.round((Number(dayRate) / standardDayHours) * overtimeMultiplier) : 0;
-    const amount = Math.round(hours * otHourly);
-    laborAmount += amount;
-    if (otHourly === 0) {
-      warnings.push(`残業代の単価が算出できません（${name || `現場${projectId}`}：日勤単価が未解決）。単価設定後に再生成してください。`);
-    } else {
-      warnings.push(`残業代は日勤単価 ${Number(dayRate).toLocaleString("ja-JP")}円 ÷${standardDayHours}h ×${overtimeMultiplier}(時間外) = ${otHourly.toLocaleString("ja-JP")}円/時 で自動算出（${name || `現場${projectId}`}）。深夜(22:00–翌5:00)は×1.50のため、該当があれば単価をご確認ください。`);
-    }
-    items.push({
-      category: "labor",
-      itemType: "normal",
-      label: `残業代 ${name || `現場${projectId}`}`,
-      projectId,
-      projectName: name,
-      shiftType: null,
-      quantity: hours,
-      unit: "時間",
-      unitPrice: otHourly,
-      amount,
-      taxRate: taxRates.labor,
-      source: "attendance_auto",
-      sortOrder: items.length,
-    });
+    const dayRateNum = dayRate != null ? Number(dayRate) || 0 : null;
+
+    const pushOvertime = (times10: number, multiplier: number, bandLabel: string) => {
+      const hours = times10 / 10;
+      if (hours <= 0) return;
+      const otHourly = dayRateNum != null ? Math.round((dayRateNum / standardDayHours) * multiplier) : 0;
+      const amount = Math.round(hours * otHourly);
+      laborAmount += amount;
+      if (otHourly === 0) {
+        warnings.push(`残業代の単価が算出できません（${name || `現場${projectId}`}：日勤単価が未解決）。単価設定後に再生成してください。`);
+      }
+      items.push({
+        category: "labor",
+        itemType: "normal",
+        label: `残業代（${bandLabel}） ${name || `現場${projectId}`}`,
+        projectId,
+        projectName: name,
+        shiftType: null,
+        quantity: hours,
+        unit: "時間",
+        unitPrice: otHourly,
+        amount,
+        taxRate: taxRates.labor,
+        source: "attendance_auto",
+        sortOrder: items.length,
+      });
+    };
+
+    pushOvertime(regularOtTimes10ByProject.get(projectId) || 0, overtimeMultiplier, "時間外");
+    pushOvertime(lateNightOtTimes10ByProject.get(projectId) || 0, lateNightMultiplier, "深夜");
+  }
+  if (lateNightOtTimes10ByProject.size > 0) {
+    warnings.push("深夜帯残業(×1.50)は「夜勤の残業」と「昼勤で5時間目以降の残業」を自動判定して計上しています。実際の時間帯が異なる場合は明細をご確認ください。");
   }
 
   // 3) Transport / expense: only worker-fronted lines are billable to the company.
