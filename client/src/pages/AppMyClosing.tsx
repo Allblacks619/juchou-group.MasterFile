@@ -127,6 +127,13 @@ function formatYen(amount: number) {
   return `¥${Number(amount || 0).toLocaleString("ja-JP")}`;
 }
 
+/** 請求書件名のデフォルト。closingMonth "YYYY-MM" → "YYYY年M月分請求書" */
+function defaultInvoiceSubject(closingMonth: string): string {
+  const [y, m] = (closingMonth || "").split("-");
+  if (!y || !m) return "請求書";
+  return `${y}年${Number(m)}月分請求書`;
+}
+
 function canWorkerEdit(
   closingStatus?: string | null,
   submissionStatus?: string | null
@@ -166,6 +173,7 @@ export default function AppMyClosing() {
     { ...DEFAULT_INVOICE_ITEM },
   ]);
   const loadedInvoiceDraftKeyRef = useRef<string | null>(null);
+  const loadedSubmissionKeyRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const projectsQuery = trpc.attendance.myProjects.useQuery();
@@ -191,16 +199,18 @@ export default function AppMyClosing() {
   );
 
   React.useEffect(() => {
-    if (detailQuery.data?.submission) {
-      setTransportAmount(detailQuery.data.submission.transportAmount || 0);
-      setExpenseAmount(detailQuery.data.submission.expenseAmount || 0);
-      setNotes(detailQuery.data.submission.notes || "");
-    } else {
-      setTransportAmount(0);
-      setExpenseAmount(0);
-      setNotes("");
-    }
-  }, [detailQuery.data]);
+    if (!selectedProjectId) return;
+    const key = `${selectedProjectId}:${closingMonth}`;
+    // サーバ値はこの現場×月を初めて読んだ時だけ反映する。以降のポーリング(15秒)再取得で
+    // 未保存の入力（交通費・経費・メモ）を上書きしない＝「数秒後に金額が0に戻る」不具合の修正。
+    if (loadedSubmissionKeyRef.current === key) return;
+    if (detailQuery.isLoading) return;
+    const sub = detailQuery.data?.submission;
+    setTransportAmount(sub?.transportAmount || 0);
+    setExpenseAmount(sub?.expenseAmount || 0);
+    setNotes(sub?.notes || "");
+    loadedSubmissionKeyRef.current = key;
+  }, [detailQuery.data, detailQuery.isLoading, selectedProjectId, closingMonth]);
 
   React.useEffect(() => {
     loadedInvoiceDraftKeyRef.current = null;
@@ -314,7 +324,7 @@ export default function AppMyClosing() {
     [normalizedInvoiceItems]
   );
   const invoiceSubjectPreview =
-    invoiceSubject.trim() || `${closingMonth} 作業請求`;
+    invoiceSubject.trim() || defaultInvoiceSubject(closingMonth);
   const supportingDocumentStatus = receiptRequired
     ? detail?.submission?.receiptUploaded
       ? "添付済"
@@ -638,8 +648,9 @@ export default function AppMyClosing() {
                   <Input
                     type="number"
                     inputMode="numeric"
-                    value={transportAmount}
-                    onChange={e => setTransportAmount(Number(e.target.value))}
+                    placeholder="0"
+                    value={transportAmount === 0 ? "" : transportAmount}
+                    onChange={e => setTransportAmount(Number(e.target.value) || 0)}
                     disabled={!canEdit}
                   />
                   <p className="text-xs text-muted-foreground">
@@ -651,8 +662,9 @@ export default function AppMyClosing() {
                   <Input
                     type="number"
                     inputMode="numeric"
-                    value={expenseAmount}
-                    onChange={e => setExpenseAmount(Number(e.target.value))}
+                    placeholder="0"
+                    value={expenseAmount === 0 ? "" : expenseAmount}
+                    onChange={e => setExpenseAmount(Number(e.target.value) || 0)}
                     disabled={!canEdit}
                   />
                   <p className="text-xs text-muted-foreground">
@@ -749,7 +761,7 @@ export default function AppMyClosing() {
                     <Input
                       value={invoiceSubject}
                       onChange={e => setInvoiceSubject(e.target.value)}
-                      placeholder={`${closingMonth} 作業請求`}
+                      placeholder={defaultInvoiceSubject(closingMonth)}
                       disabled={!canEditInvoice || invoiceBusy}
                     />
                     <p className="text-xs text-muted-foreground">
@@ -1001,7 +1013,7 @@ export default function AppMyClosing() {
                       <div>
                         <div className="font-medium">
                           {invoice.subject ||
-                            `${invoice.closingMonth} 作業請求`}
+                            defaultInvoiceSubject(invoice.closingMonth)}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           #{invoice.id} / {invoice.closingMonth} /{" "}
@@ -1330,7 +1342,7 @@ function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; 
   // Initialize local state from server data
   React.useEffect(() => {
     if (invoice && !initialized) {
-      setSubject(invoice.subject || `${closingMonth} 作業請求`);
+      setSubject(invoice.subject || defaultInvoiceSubject(closingMonth));
       setNotes(invoice.notes || "");
       if (invoice.items && invoice.items.length > 0) {
         setItems(invoice.items.map((i: any) => ({

@@ -778,9 +778,7 @@ function AttendanceCalendar() {
                         <th className="border-b border-l border-border px-2 py-2 text-center font-medium min-w-[50px]">
                           {lang === "pt" ? "Dias" : "日数"}
                         </th>
-                        <th className="border-b border-border px-2 py-2 text-center font-medium min-w-[50px]">
-                          {lang === "pt" ? "Horas" : "時間"}
-                        </th>
+                        {/* 時間(工数)列は運用に不要のため非表示 */}
                         <th className="border-b border-border px-2 py-2 text-center font-medium min-w-[50px]">
                           {lang === "pt" ? "HE" : "残業"}
                         </th>
@@ -929,9 +927,7 @@ function AttendanceCalendar() {
                               <td className="border-b border-l border-border px-2 py-1.5 text-center font-medium">
                                 {totalDays}{lang === "pt" ? "d" : "日"}
                               </td>
-                              <td className="border-b border-border px-2 py-1.5 text-center">
-                                {totalHours / 10}h
-                              </td>
+                              {/* 時間(工数)列は運用に不要のため非表示 */}
                               <td className="border-b border-border px-2 py-1.5 text-center">
                                 {totalOt > 0 ? <span className="text-blue-400">{totalOt / 10}h</span> : "-"}
                               </td>
