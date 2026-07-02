@@ -99,6 +99,12 @@ export type ClientInvoiceComputeInput = {
   standardDayHours?: number;
   /** emit a 【現場名】 text header per project (default: true when >1 project) */
   includeProjectSectionHeaders?: boolean;
+  /**
+   * 発行者（自社）が適格請求書発行事業者番号（インボイス番号）を登録しているか。
+   * インボイス制度: 未登録なら作業費・残業代に消費税10%を適用しない（0%）。既定true。
+   * 作業員請求書と同じルール。
+   */
+  issuerHasQualifiedInvoiceNumber?: boolean;
 };
 
 export type ClientInvoiceComputeResult = {
@@ -149,10 +155,17 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
   const overtimeMultiplier = input.overtimeMultiplier ?? DEFAULT_OVERTIME_MULTIPLIER;
   const standardDayHours = input.standardDayHours ?? DEFAULT_STANDARD_DAY_HOURS;
   const includeHeaders = input.includeProjectSectionHeaders ?? input.projectOrder.length > 1;
+  // インボイス番号未登録の発行者は消費税10%を適用しない（作業費・残業代を0%に落とす。交通費は元々0%）。
+  const issuerQualified = input.issuerHasQualifiedInvoiceNumber ?? true;
+  const effectiveLaborTax = issuerQualified ? taxRates.labor : 0;
+  const effectiveOvertimeTax = issuerQualified ? taxRates.overtime : 0;
 
   const items: ClientInvoiceItem[] = [];
   const warnings: string[] = [];
   const internalRateMemoLines: string[] = [];
+  if (!issuerQualified) {
+    warnings.push("自社の適格請求書発行事業者番号（インボイス番号）が未登録のため、消費税10%は適用していません（0%）。会社情報に登録番号を設定すると10%で計算されます。");
+  }
 
   const projectById = new Map(input.projects.map((p) => [p.projectId, p]));
   const laborByProject = new Map<number, ClientInvoiceLaborInput[]>();
@@ -265,7 +278,7 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
         unit: units.labor,
         unitPrice,
         amount,
-        itemTaxRate: taxRates.labor,
+        itemTaxRate: effectiveLaborTax,
         notes: null,
         sortOrder: items.length,
       });
@@ -295,7 +308,7 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
         unit: units.overtime,
         unitPrice: otHourly,
         amount,
-        itemTaxRate: taxRates.overtime,
+        itemTaxRate: effectiveOvertimeTax,
         notes: null,
         sortOrder: items.length,
       });

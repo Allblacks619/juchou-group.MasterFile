@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   attendance: [] as any[],
   expenseLines: [] as any[],
   v1Submissions: [] as any[],
+  workerInvoiceIssuerNumber: "T1234567890123" as string | null,
 }));
 
 vi.mock("./db", () => ({
@@ -12,6 +13,7 @@ vi.mock("./db", () => ({
   getAttendanceByDateRange: vi.fn(async () => state.attendance),
   getMonthlyClosingV2ExpenseLinesByWorkerMonth: vi.fn(async () => state.expenseLines),
   getClosingSubmissionsByEmployeeMonth: vi.fn(async () => state.v1Submissions),
+  getEmployeeById: vi.fn(async (id: number) => ({ id, invoiceIssuerNumber: state.workerInvoiceIssuerNumber })),
   getProjectById: vi.fn(async (id: number) =>
     id === 1 ? { id: 1, name: "現場A", clientId: 77 } : id === 2 ? { id: 2, name: "現場B", clientId: 77 } : undefined
   ),
@@ -47,6 +49,7 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
       { id: 4, workerId: 10, targetMonth: "2026-04", projectId: null, expenseType: "transportation", amount: 1000, paymentMethod: "paid_by_worker" },
     ];
     state.v1Submissions = [];
+    state.workerInvoiceIssuerNumber = "T1234567890123";
   });
 
   it("月締め未提出（not_submitted）では生成不可", async () => {
@@ -104,6 +107,25 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
     expect(draft.subtotal).toBe(54000);
     expect(draft.taxAmount).toBe(4800); // labor 10% only
     expect(draft.totalAmount).toBe(58800);
+  });
+
+  it("作業員がインボイス番号未登録なら労務費の消費税10%を適用しない（0%）", async () => {
+    state.workerInvoiceIssuerNumber = null; // 適格請求書発行事業者番号 未登録
+    const draft = await build();
+    const labor = draft.items.filter((i) => i.category === "labor");
+    expect(labor.length).toBeGreaterThan(0);
+    expect(labor.every((i) => i.taxRate === 0)).toBe(true);
+    expect(draft.taxAmount).toBe(0);
+    expect(draft.totalAmount).toBe(draft.subtotal);
+    expect(draft.warnings.some((w) => w.includes("インボイス番号") && w.includes("0%"))).toBe(true);
+  });
+
+  it("作業員がインボイス番号を登録済みなら労務費は10%", async () => {
+    state.workerInvoiceIssuerNumber = "T9876543210987";
+    const draft = await build();
+    const labor = draft.items.filter((i) => i.category === "labor");
+    expect(labor.every((i) => i.taxRate === 10)).toBe(true);
+    expect(draft.taxAmount).toBe(4800);
   });
 
   it("交通費は現場ごとに出面日数で日割り按分し、端数は最終日に乗せる", async () => {
