@@ -586,6 +586,8 @@ export default function AppMyClosing() {
           </CardContent>
         </Card>
       )}
+
+      <MonthlyInvoicePanel closingMonth={closingMonth} />
 {!selectedProjectId ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
@@ -1403,6 +1405,132 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
         {value}
       </div>
     </div>
+  );
+}
+
+/**
+ * 月次請求書（全現場まとめ）パネル。
+ * ・請求書は月に1枚（全現場まとめ、FREEEの見本と同じ形）。
+ * ・全現場の月締め提出が完了すると発行できる（②B: 途中でも下書きプレビューは見える）。
+ * ・各現場の月締め状況をチェックリストで表示。交通費0円は「なし(0円)」＝入力済み扱い。
+ */
+function MonthlyInvoicePanel({ closingMonth }: { closingMonth: string }) {
+  const monthlyQuery = trpc.workerInvoice.getMyMonthlyInvoice.useQuery(
+    { closingMonth },
+    { enabled: !!closingMonth }
+  );
+  const data = monthlyQuery.data as any;
+
+  if (monthlyQuery.isLoading) {
+    return (
+      <Card>
+        <CardContent className="py-6 flex justify-center">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </CardContent>
+      </Card>
+    );
+  }
+  if (!data || !Array.isArray(data.sites) || data.sites.length === 0) return null;
+
+  const { sites, canIssue, pendingSites, draft } = data;
+  const items: any[] = draft?.items || [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>月次請求書（全現場まとめ）</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          請求書は月に1枚（全現場まとめ）です。全現場の月締め提出が完了すると発行できます。下は現在の自動計算プレビューです。
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* 現場ごとの月締め状況（チェックリスト） */}
+        <div className="space-y-2">
+          <div className="text-sm font-medium">現場ごとの月締め状況</div>
+          {sites.map((s: any) => (
+            <div
+              key={s.projectId}
+              className="flex items-center justify-between gap-2 text-sm border rounded-lg px-3 py-2"
+            >
+              <div className="min-w-0">
+                <div className="font-medium truncate">{s.projectName}</div>
+                <div className="text-xs text-muted-foreground">
+                  出勤{s.attendanceDays}日 ・ 交通費 {s.transportAmount > 0 ? formatYen(s.transportAmount) : "なし(0円)"}
+                  {s.expenseAmount > 0 ? ` ・ 経費 ${formatYen(s.expenseAmount)}` : ""}
+                </div>
+              </div>
+              <span
+                className={`shrink-0 text-xs px-2 py-1 rounded-full border ${
+                  s.submitted
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                    : "border-amber-500/40 bg-amber-500/10 text-amber-400"
+                }`}
+              >
+                {s.submitted ? "提出済み" : "未提出"}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* 発行ゲート */}
+        {canIssue ? (
+          <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
+            全現場の月締めが完了しました。請求書を発行できます。
+          </div>
+        ) : (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+            未提出の現場があります：{(pendingSites || []).join("、")}。全現場の月締め提出が終わると請求書を発行できます。
+          </div>
+        )}
+
+        {/* 集計プレビュー（自動計算） */}
+        <div className="space-y-1">
+          <div className="text-sm font-medium">請求プレビュー（自動計算）</div>
+          {items.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              まだ明細がありません。マイ出面表の出面や単価設定をご確認ください。
+            </p>
+          ) : (
+            <div className="rounded-lg border divide-y divide-border">
+              {items.map((it: any, idx: number) =>
+                it.itemType === "text" ? (
+                  <div key={idx} className="px-3 py-2 text-sm font-semibold bg-muted/30">
+                    {it.label}
+                  </div>
+                ) : (
+                  <div key={idx} className="px-3 py-2 flex items-center justify-between gap-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="truncate">{it.label}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {it.quantity}
+                        {it.unit} × {formatYen(it.unitPrice)}（税{it.taxRate || 0}%）
+                      </div>
+                    </div>
+                    <div className="shrink-0 font-medium">{formatYen(it.amount)}</div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+          {items.length > 0 && (
+            <div className="flex justify-end gap-6 text-sm pt-1">
+              <span className="text-muted-foreground">小計 {formatYen(draft.subtotal)}</span>
+              <span className="text-muted-foreground">消費税 {formatYen(draft.taxAmount)}</span>
+              <span className="font-semibold text-gold">合計 {formatYen(draft.totalAmount)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* 要確認（自動計算の警告） */}
+        {Array.isArray(draft?.warnings) && draft.warnings.length > 0 && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300 space-y-1">
+            {draft.warnings.map((w: string, i: number) => (
+              <p key={i}>・{w}</p>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

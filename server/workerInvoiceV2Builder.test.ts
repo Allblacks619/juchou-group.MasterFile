@@ -29,7 +29,12 @@ vi.mock("./rateResolver", () => ({
 
 import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } from "./workerInvoiceV2Builder";
 
-const build = () => buildWorkerInvoiceDraftFromV2({ workerId: 10, targetMonth: "2026-04" });
+const build = (opts?: { includeProjectSectionHeaders?: boolean }) =>
+  buildWorkerInvoiceDraftFromV2({
+    workerId: 10,
+    targetMonth: "2026-04",
+    includeProjectSectionHeaders: opts?.includeProjectSectionHeaders ?? false,
+  });
 
 describe("buildWorkerInvoiceDraftFromV2", () => {
   beforeEach(() => {
@@ -205,6 +210,20 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
     expect(ot[0].quantity).toBe(3); // 3h 全て深夜帯
     expect(ot[0].unitPrice).toBe(2813); // 日勤単価 15000/8*1.5
     expect(ot[0].amount).toBe(8439); // 2813 × 3h
+  });
+
+  it("includeProjectSectionHeaders=trueで現場ごとに【現場名】見出し行を差し込む", async () => {
+    const draft = await build({ includeProjectSectionHeaders: true });
+    const headers = draft.items.filter((i: any) => i.itemType === "text");
+    // 現場A・現場B＋現場未割当（projectId=nullの交通費）の見出し
+    expect(headers.map((h: any) => h.label)).toEqual(["【現場A】", "【現場B】", "【現場未割当】"]);
+    // 見出しは金額に影響しない
+    expect(headers.every((h: any) => h.amount === 0)).toBe(true);
+    // 最初の明細は現場Aの見出し
+    expect(draft.items[0].itemType).toBe("text");
+    expect(draft.items[0].label).toBe("【現場A】");
+    // 見出しを入れても小計は変わらない
+    expect(draft.subtotal).toBe(54000);
   });
 
   it("V2提出があるときは submissionSource=v2", async () => {

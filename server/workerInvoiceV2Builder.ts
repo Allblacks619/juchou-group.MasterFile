@@ -41,6 +41,8 @@ export async function buildWorkerInvoiceDraftFromV2(args: {
    * the labor/transport auto-calculated. Admin previews keep the gate.
    */
   submissionStatusOverride?: string;
+  /** 現場ごとに【現場名】見出しを差し込むか（月次まとめ=true / 現場単票=false）。 */
+  includeProjectSectionHeaders?: boolean;
 }): Promise<WorkerInvoiceV2DraftWithSource> {
   const { workerId, targetMonth } = args;
   const { start, end } = monthRange(targetMonth);
@@ -111,6 +113,7 @@ export async function buildWorkerInvoiceDraftFromV2(args: {
     },
     taxRates: args.taxRates,
     issuerHasQualifiedInvoiceNumber,
+    includeProjectSectionHeaders: args.includeProjectSectionHeaders,
   });
 
   const submissionSource: "v2" | "v1_bridge" = bridgedSubmission || bridgedExpense ? "v1_bridge" : "v2";

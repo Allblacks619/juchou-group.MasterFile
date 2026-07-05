@@ -4988,12 +4988,14 @@ export const appRouter = router({
           workerId: me.id,
           targetMonth: input.closingMonth,
           submissionStatusOverride: "submitted",
+          includeProjectSectionHeaders: false, // 現場ごとの単票なので見出しは不要
         });
         warnings.push(...(draft.warnings || []));
         autoItems = draft.items
-          .filter((it: any) => Number(it.projectId) === Number(input.projectId))
+          .filter((it: any) => it.itemType !== "text" && Number(it.projectId) === Number(input.projectId))
           .map((it: any, idx: number) => ({
             label: it.label,
+            itemType: it.itemType || "normal",
             quantity: it.quantity,
             unit: it.unit,
             unitPrice: it.unitPrice,
@@ -5030,6 +5032,96 @@ export const appRouter = router({
         warnings,
       };
     }),
+    /**
+     * 月次（全現場まとめ）の作業員請求書プレビュー＋各現場の月締め完了チェックリスト。
+     * ・請求書は月に1枚（全現場まとめ、FREEEの見本と同じ形）。
+     * ・発行(確定)は「全現場の月締め提出が完了」してから（canIssue）。
+     * ・入力途中でも自動計算の下書きプレビューは見られる（②B）。
+     */
+    getMyMonthlyInvoice: protectedProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        const me = await db.getEmployeeByUserId(ctx.user.id);
+        if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+
+        // 月内に出面のある全現場と、各現場の提出状況を集める。
+        const overview = await buildWorkerMonthlyOverview({
+          closingMonth: input.closingMonth,
+          actorUserId: ctx.user.id,
+          actorRole: (ctx.user as any).appRole,
+          employeeId: me.id,
+        });
+        const projectLines = overview?.projectLines || [];
+
+        const SUBMITTED_STATUSES = new Set(["submitted", "accepted", "ready_to_close", "closed", "approved"]);
+        const sites = await Promise.all(
+          projectLines.map(async (line: any) => {
+            const closing = await db.getProjectClosingByProjectMonth(Number(line.projectId), input.closingMonth);
+            const submission = closing?.id ? await db.getClosingSubmissionByClosingEmployee(closing.id, me.id) : null;
+            const status = String(line.submissionStatus || submission?.status || "not_submitted");
+            const transportAmount = Number(submission?.transportAmount || 0);
+            const expenseAmount = Number(submission?.expenseAmount || 0);
+            return {
+              projectId: Number(line.projectId),
+              projectName: line.projectName,
+              attendanceDays: Number(line.attendanceDays || 0),
+              transportAmount,
+              expenseAmount,
+              // 0円は「交通費なし」＝入力済み扱い（提出済みなら確定）。未提出のときのみ未確定。
+              transportEntered: SUBMITTED_STATUSES.has(status),
+              receiptUploaded: !!submission?.receiptUploaded,
+              submissionStatus: status,
+              submitted: SUBMITTED_STATUSES.has(status),
+            };
+          })
+        );
+
+        const canIssue = sites.length > 0 && sites.every((site) => site.submitted);
+        const pendingSites = sites.filter((site) => !site.submitted).map((site) => site.projectName);
+
+        // 全現場まとめの集計プレビュー（②B: 途中でも見える）。失敗しても理由を warnings で返す。
+        const [year, month] = input.closingMonth.split("-").map(Number);
+        let draft: any = {
+          items: [],
+          subtotal: 0,
+          taxAmount: 0,
+          totalAmount: 0,
+          laborAmount: 0,
+          transportAmount: 0,
+          expenseAmount: 0,
+          warnings: [] as string[],
+        };
+        try {
+          const d = await buildWorkerInvoiceDraftFromV2({
+            workerId: me.id,
+            targetMonth: input.closingMonth,
+            submissionStatusOverride: "submitted",
+            includeProjectSectionHeaders: true,
+          });
+          draft = {
+            items: d.items,
+            subtotal: d.subtotal,
+            taxAmount: d.taxAmount,
+            totalAmount: d.totalAmount,
+            laborAmount: d.laborAmount,
+            transportAmount: d.transportAmount,
+            expenseAmount: d.expenseAmount,
+            warnings: d.warnings,
+          };
+        } catch (error: any) {
+          console.error("[workerInvoice.getMyMonthlyInvoice] aggregate failed", error);
+          draft.warnings = [`請求明細の自動集計に失敗しました: ${error?.message || String(error)}`];
+        }
+
+        return {
+          closingMonth: input.closingMonth,
+          subject: `${year}年${month}月分請求書`,
+          sites,
+          canIssue,
+          pendingSites,
+          draft,
+        };
+      }),
     /**
      * Build an editable worker-invoice draft from Monthly Closing V2 data (admin/manager only).
      * Labor (出勤日数×単価), transport (日割り), and expense are computed by the V2 builder.
