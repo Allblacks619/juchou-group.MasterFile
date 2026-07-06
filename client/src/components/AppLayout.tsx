@@ -19,12 +19,14 @@ import {
   Wallet,
   ClipboardList,
   ChevronDown,
+  HardHat,
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useAppLang } from "@/contexts/AppLanguageContext";
 import { isManagerLikeAppRole } from "@/lib/appRoles";
+import { trpc } from "@/lib/trpc";
 import type { TranslationKey } from "@/lib/appTranslations";
 
 type NavAudience = "super_admin" | "manager" | "worker";
@@ -40,6 +42,7 @@ const navItems: NavItem[] = [
   { path: "/app", labelKey: "nav_dashboard", icon: LayoutDashboard, roles: ["manager", "worker"] },
   { path: "/app/my-profile", labelKey: "nav_myProfile", icon: UserCircle, roles: ["manager", "worker"] },
   { path: "/app/my-closing", labelKey: "nav_myClosing", icon: FileCheck2, roles: ["worker"] },
+  { path: "/app/genba", labelKey: "nav_genba", icon: HardHat, roles: ["manager", "worker"] },
   { path: "/app/invitations", labelKey: "nav_invitations", icon: UserPlus, roles: ["manager"] },
   { path: "/app/company", labelKey: "nav_company", icon: Building2, roles: ["manager"] },
   { path: "/app/employees", labelKey: "nav_employees", icon: Users, roles: ["manager"] },
@@ -91,6 +94,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["nav_basicInfo", "nav_siteManagement", "nav_finance"]));
   const { lang, toggleLang, t } = useAppLang();
+  // 現場ビジョン: GENBA_ENABLED=false のときサーバーが FORBIDDEN を返すため、成功時のみナビに表示
+  const genbaMe = trpc.genba.me.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const genbaAvailable = !!genbaMe.data;
 
   // Check if user must change password
   useEffect(() => {
@@ -171,7 +181,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
             {/* Dashboard and Profile - Always visible at top */}
             {navItems
-              .filter((item) => ["nav_dashboard", "nav_myProfile", "nav_myClosing"].includes(item.labelKey) && isNavItemVisible(item, appRole))
+              .filter((item) => ["nav_dashboard", "nav_myProfile", "nav_myClosing", ...(genbaAvailable ? ["nav_genba"] : [])].includes(item.labelKey) && isNavItemVisible(item, appRole))
               .map((item) => {
                 const isActive = location === item.path || (item.path !== "/app" && location.startsWith(item.path));
                 return (
