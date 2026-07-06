@@ -21,6 +21,7 @@ import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./
 import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } from "./workerInvoiceV2Builder";
 import { seedBetaFixture, BETA_TEST_MONTH } from "./betaFixture";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
+import { genbaRouter } from "./genba/router";
 
 const BCRYPT_ROUNDS = 12;
 const RESET_LINK_TTL_MS = 60 * 60 * 1000;
@@ -931,6 +932,12 @@ async function generateWorkerInvoiceNumber(projectId: number, closingMonth: stri
 
 export const appRouter = router({
   system: systemRouter,
+
+  /**
+   * 現場ビジョン (genba) — M1基盤。加算専用の独立ルーター (server/genba/router.ts)。
+   * GENBA_ENABLED=false で全手続きが FORBIDDEN を返す。
+   */
+  genba: genbaRouter,
 
   /**
    * Beta test fixture (固定Betaセット) — super_admin only. Creates/resets the fixed Beta set
