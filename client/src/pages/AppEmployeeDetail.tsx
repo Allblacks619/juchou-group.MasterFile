@@ -725,7 +725,7 @@ export default function AppEmployeeDetail() {
                 </div>
               </div>
               <div className="pt-4 border-t">
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-wrap">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -736,14 +736,22 @@ export default function AppEmployeeDetail() {
                     <span className="text-sm">適格請求書発行事業者</span>
                   </label>
                   {form.isInvoiceIssuer && (
-                    <Input
-                      value={form.invoiceIssuerNumber}
-                      onChange={(e) => updateField("invoiceIssuerNumber", e.target.value)}
-                      placeholder="T1234567890123"
-                      className="max-w-xs"
-                    />
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-2 rounded-md border border-border bg-muted text-sm font-medium select-none">T</span>
+                      <Input
+                        inputMode="numeric"
+                        value={String(form.invoiceIssuerNumber || "").replace(/[^0-9]/g, "").slice(0, 13)}
+                        onChange={(e) => updateField("invoiceIssuerNumber", e.target.value.replace(/[^0-9]/g, "").slice(0, 13))}
+                        placeholder="1234567890123"
+                        maxLength={13}
+                        className="max-w-xs"
+                      />
+                    </div>
                   )}
                 </div>
+                {form.isInvoiceIssuer && String(form.invoiceIssuerNumber || "").replace(/[^0-9]/g, "").length !== 13 && (
+                  <p className="text-xs text-amber-500 mt-1">数字13桁で入力してください。先頭のTは自動で付きます。</p>
+                )}
               </div>
               <Button onClick={handleSave} disabled={updateMutation.isPending} className="bg-gold text-background hover:bg-gold-dim">
                 {updateMutation.isPending ? "保存中..." : "保存"}

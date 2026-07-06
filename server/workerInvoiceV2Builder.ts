@@ -41,6 +41,8 @@ export async function buildWorkerInvoiceDraftFromV2(args: {
    * the labor/transport auto-calculated. Admin previews keep the gate.
    */
   submissionStatusOverride?: string;
+  /** 現場ごとに【現場名】見出しを差し込むか（月次まとめ=true / 現場単票=false）。 */
+  includeProjectSectionHeaders?: boolean;
 }): Promise<WorkerInvoiceV2DraftWithSource> {
   const { workerId, targetMonth } = args;
   const { start, end } = monthRange(targetMonth);
@@ -52,8 +54,10 @@ export async function buildWorkerInvoiceDraftFromV2(args: {
     db.getEmployeeById(workerId),
   ]);
 
-  // インボイス制度: 作業員（発行者）がインボイス番号未登録なら消費税10%を適用しない（0%）。
-  const issuerHasQualifiedInvoiceNumber = hasQualifiedInvoiceNumber((worker as any)?.invoiceIssuerNumber);
+  // インボイス制度: 作業員（発行者）がインボイス対応事業者（チェックON）かつ登録番号ありのときだけ
+  // 消費税10%を適用する。チェックOFF（未対応事業者）は番号が残っていても0%。
+  const issuerHasQualifiedInvoiceNumber =
+    Boolean((worker as any)?.isInvoiceIssuer) && hasQualifiedInvoiceNumber((worker as any)?.invoiceIssuerNumber);
 
   // ── Submission gate: V2 status if present, else bridge from a V1 submitted/approved closing.
   let submissionStatus: string | undefined;
@@ -111,6 +115,7 @@ export async function buildWorkerInvoiceDraftFromV2(args: {
     },
     taxRates: args.taxRates,
     issuerHasQualifiedInvoiceNumber,
+    includeProjectSectionHeaders: args.includeProjectSectionHeaders,
   });
 
   const submissionSource: "v2" | "v1_bridge" = bridgedSubmission || bridgedExpense ? "v1_bridge" : "v2";

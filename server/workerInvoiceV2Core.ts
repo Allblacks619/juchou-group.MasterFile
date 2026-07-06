@@ -26,7 +26,8 @@ export type WorkerInvoiceV2DraftCategory = "labor" | "transport" | "expense";
 
 export type WorkerInvoiceV2DraftItem = {
   category: WorkerInvoiceV2DraftCategory;
-  itemType: "normal";
+  /** "text" = 現場見出し等の区切り行（金額に含めない）。 */
+  itemType: "normal" | "text";
   label: string;
   projectId: number | null;
   projectName: string | null;
@@ -168,6 +169,11 @@ export async function computeWorkerInvoiceDraft(input: {
    * 既定true（＝従来どおり10%）。
    */
   issuerHasQualifiedInvoiceNumber?: boolean;
+  /**
+   * 現場ごとに【現場名】の見出し行（テキスト行）を差し込み、FREEEの見本のように
+   * 現場単位で明細をまとめて表示する。既定は現場が2件以上のとき有効。
+   */
+  includeProjectSectionHeaders?: boolean;
 }): Promise<WorkerInvoiceV2Draft> {
   const { workerId, targetMonth } = input;
   const taxRates = { ...DEFAULT_TAX_RATES, ...(input.taxRates || {}) };
@@ -442,15 +448,59 @@ export async function computeWorkerInvoiceDraft(input: {
     a.workDate.localeCompare(b.workDate) || a.projectId - b.projectId
   );
 
-  const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
-  const taxAmount = items.reduce((sum, item) => sum + Math.round((item.amount * item.taxRate) / 100), 0);
+  // 現場ごとにまとめ、FREEEの見本のように【現場名】見出し行（テキスト行）を差し込む。
+  // 既定は現場が2件以上のとき有効。金額のある行はそのまま（見出しは amount=0）。
+  const projectIdsWithItems = new Set<number>();
+  for (const it of items) if (it.projectId != null) projectIdsWithItems.add(Number(it.projectId));
+  const includeHeaders = input.includeProjectSectionHeaders ?? projectIdsWithItems.size > 1;
+
+  let orderedItems = items;
+  if (includeHeaders && items.length > 0) {
+    // 現場の登場順を保持しつつ現場ID昇順で並べ、現場未割当(null)は末尾へ。
+    const groupKeys: (number | null)[] = [];
+    const seen = new Set<string>();
+    for (const it of items) {
+      const pid = it.projectId == null ? null : Number(it.projectId);
+      const key = pid == null ? "null" : String(pid);
+      if (!seen.has(key)) { seen.add(key); groupKeys.push(pid); }
+    }
+    groupKeys.sort((a, b) => (a == null ? 1 : b == null ? -1 : a - b));
+
+    const grouped: WorkerInvoiceV2DraftItem[] = [];
+    for (const pid of groupKeys) {
+      const groupItems = items.filter((it) => (it.projectId == null ? null : Number(it.projectId)) === pid);
+      if (groupItems.length === 0) continue;
+      const name = pid == null ? null : (groupItems.find((g) => g.projectName)?.projectName ?? `現場${pid}`);
+      grouped.push({
+        category: "labor",
+        itemType: "text",
+        label: pid == null ? "【現場未割当】" : `【${name}】`,
+        projectId: pid,
+        projectName: name,
+        shiftType: null,
+        quantity: 0,
+        unit: "",
+        unitPrice: 0,
+        amount: 0,
+        taxRate: 0,
+        source: "attendance_auto",
+        sortOrder: 0,
+      });
+      for (const g of groupItems) grouped.push(g);
+    }
+    grouped.forEach((it, idx) => (it.sortOrder = idx));
+    orderedItems = grouped;
+  }
+
+  const subtotal = orderedItems.reduce((sum, item) => sum + item.amount, 0);
+  const taxAmount = orderedItems.reduce((sum, item) => sum + Math.round((item.amount * item.taxRate) / 100), 0);
   const totalAmount = subtotal + taxAmount;
 
   return {
     workerId,
     targetMonth,
     submissionStatus: input.submissionStatus,
-    items,
+    items: orderedItems,
     laborAmount,
     transportAmount,
     expenseAmount,

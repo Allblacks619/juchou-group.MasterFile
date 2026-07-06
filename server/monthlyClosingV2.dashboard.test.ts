@@ -52,6 +52,8 @@ vi.mock("./db", () => ({
   ),
   getMonthlyClosingV2ProjectReviewsByMonth: vi.fn(async () => []),
   getMonthlyClosingV2ParticipantReviewsByMonth: vi.fn(async () => []),
+  // 既定は「交通費未入力」の従来挙動を保つため空。入力済み判定のテストでは mockResolvedValueOnce で上書きする。
+  getMonthlyClosingV2TransportationLinesByMonth: vi.fn(async () => []),
   getMonthlyClosingV2ParticipantReview: vi.fn(async () => undefined),
   upsertMonthlyClosingV2ProjectReview: vi.fn(async (data) => ({ id: 1, ...data })),
   upsertMonthlyClosingV2ParticipantReview: vi.fn(async (data) => ({ id: 1, ...data })),
@@ -155,6 +157,33 @@ describe("monthlyClosingV2.dashboard", () => {
     } finally {
       fixture.attendance.splice(fixture.attendance.length - extra.length, extra.length);
     }
+  });
+
+  it("交通費が入力済み（0円=交通費なし含む）なら『交通費未入力』の警告を出さない", async () => {
+    // worker:100 は月締め未提出だが、管理者が交通費なし（amount 0, none→other）を保存済み。
+    (db.getMonthlyClosingV2TransportationLinesByMonth as any).mockResolvedValueOnce([
+      { id: 901, workerId: 100, projectId: 1, targetMonth: "2026-05", expenseType: "transportation", amount: 0, paymentMethod: "other" },
+    ]);
+    const caller = appRouter.createCaller(createCtx(createUser()));
+    const result = await caller.monthlyClosingV2.dashboard({ targetMonth: "2026-05" });
+    const teriki = result.rows[0].participants.find((p: any) => p.workerName === "大木テリキ");
+    expect(teriki.individualStatus).not.toBe("交通費未入力");
+    expect(teriki.transportationStatus).toBe("入力済み");
+    expect(teriki.warningCount).toBe(0);
+  });
+
+  it("保存済みの『交通費未入力』ステータスも、交通費入力後は陳腐化として自動解除する", async () => {
+    (db.getMonthlyClosingV2TransportationLinesByMonth as any).mockResolvedValueOnce([
+      { id: 902, workerId: 100, projectId: 1, targetMonth: "2026-05", expenseType: "transportation", amount: 0, paymentMethod: "other" },
+    ]);
+    (db.getMonthlyClosingV2ParticipantReviewsByMonth as any).mockResolvedValueOnce([
+      { projectId: 1, participantKey: "worker:100", individualStatus: "交通費未入力", transportationStatus: "未入力", isAggregationExcluded: false },
+    ]);
+    const caller = appRouter.createCaller(createCtx(createUser()));
+    const result = await caller.monthlyClosingV2.dashboard({ targetMonth: "2026-05" });
+    const teriki = result.rows[0].participants.find((p: any) => p.workerName === "大木テリキ");
+    expect(teriki.individualStatus).not.toBe("交通費未入力");
+    expect(teriki.warningCount).toBe(0);
   });
 
   it("参加者が全員締め完了なら、古い『差し戻しあり』は解消される（#2 reconcile）", async () => {

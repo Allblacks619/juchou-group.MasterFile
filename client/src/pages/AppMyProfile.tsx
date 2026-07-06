@@ -111,9 +111,9 @@ export default function AppMyProfile() {
         accountType: profile.accountType || "ordinary",
         accountNumber: profile.accountNumber || "",
         accountHolder: profile.accountHolder || "",
-        // Invoice
+        // Invoice — 入力欄は数字13桁のみ（先頭のTは表示・保存時に自動付与）
         isInvoiceIssuer: profile.isInvoiceIssuer || false,
-        invoiceIssuerNumber: profile.invoiceIssuerNumber || "",
+        invoiceIssuerNumber: (profile.invoiceIssuerNumber || "").replace(/[^0-9]/g, "").slice(0, 13),
       });
     }
   }, [profile]);
@@ -122,6 +122,17 @@ export default function AppMyProfile() {
 
   const handleSave = () => {
     const data: any = { ...form };
+    // インボイス: 対応事業者なら数字13桁を必須にし、保存値は T+13桁 に組み立てる。
+    const invoiceDigits = String(form.invoiceIssuerNumber || "").replace(/[^0-9]/g, "");
+    if (form.isInvoiceIssuer) {
+      if (invoiceDigits.length !== 13) {
+        toast.error("インボイス登録番号は数字13桁で入力してください（先頭のTは自動で付きます）");
+        return;
+      }
+      data.invoiceIssuerNumber = invoiceDigits; // サーバ側で T が付与される
+    } else {
+      data.invoiceIssuerNumber = ""; // 未対応事業者は番号をクリア（消費税10%判定に残さない）
+    }
     for (const key of Object.keys(data)) {
       if (data[key] === "") data[key] = undefined;
     }
@@ -399,6 +410,47 @@ export default function AppMyProfile() {
                   <Input id="careerUpNumber" value={form.careerUpNumber || ""} onChange={(e) => set("careerUpNumber", e.target.value)} placeholder="CCUS番号" />
                 </div>
               </div>
+
+              {/* インボイス（適格請求書発行事業者） */}
+              <div className="border-t border-border pt-4 mt-4">
+                <h3 className="text-sm font-medium mb-3">適格請求書発行事業者（インボイス）</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="isInvoiceIssuer"
+                      checked={form.isInvoiceIssuer || false}
+                      onChange={(e) => set("isInvoiceIssuer", e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <Label htmlFor="isInvoiceIssuer" className="cursor-pointer">インボイス対応事業者</Label>
+                  </div>
+                  {form.isInvoiceIssuer && (
+                    <div>
+                      <Label htmlFor="invoiceIssuerNumber">登録番号（数字13桁）<span className="text-red-500">*</span></Label>
+                      <div className="flex items-center gap-2">
+                        <span className="px-3 py-2 rounded-md border border-border bg-muted text-sm font-medium select-none">T</span>
+                        <Input
+                          id="invoiceIssuerNumber"
+                          inputMode="numeric"
+                          value={form.invoiceIssuerNumber || ""}
+                          onChange={(e) => set("invoiceIssuerNumber", e.target.value.replace(/[^0-9]/g, "").slice(0, 13))}
+                          placeholder="1234567890123"
+                          maxLength={13}
+                        />
+                      </div>
+                      <p className={`text-xs mt-1 ${String(form.invoiceIssuerNumber || "").length === 13 ? "text-muted-foreground" : "text-amber-500"}`}>
+                        {String(form.invoiceIssuerNumber || "").length === 13
+                          ? `登録番号: T${form.invoiceIssuerNumber}`
+                          : `数字13桁で入力してください（現在 ${String(form.invoiceIssuerNumber || "").length}桁）。先頭のTは自動で付きます。`}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  未対応事業者（チェックなし）の場合、請求書の消費税10%は適用されません。
+                </p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -560,28 +612,6 @@ export default function AppMyProfile() {
                 </div>
               </div>
 
-              {/* インボイス */}
-              <div className="border-t border-border pt-4 mt-4">
-                <h3 className="text-sm font-medium mb-3">適格請求書発行事業者</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="isInvoiceIssuer"
-                      checked={form.isInvoiceIssuer || false}
-                      onChange={(e) => set("isInvoiceIssuer", e.target.checked)}
-                      className="h-4 w-4"
-                    />
-                    <Label htmlFor="isInvoiceIssuer" className="cursor-pointer">インボイス対応事業者</Label>
-                  </div>
-                  {form.isInvoiceIssuer && (
-                    <div>
-                      <Label htmlFor="invoiceIssuerNumber">登録番号（T+13桁）</Label>
-                      <Input id="invoiceIssuerNumber" value={form.invoiceIssuerNumber || ""} onChange={(e) => set("invoiceIssuerNumber", e.target.value)} placeholder="T1234567890123" />
-                    </div>
-                  )}
-                </div>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
