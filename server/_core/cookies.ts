@@ -39,10 +39,16 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  // The app is served first-party / same-origin (SPA and API share the origin),
+  // so "lax" is the correct SameSite policy. Crucially, "none" requires the
+  // Secure attribute — over plain HTTP (before HTTPS/reverse-proxy is set up)
+  // the browser rejects a SameSite=None cookie that is not Secure, which drops
+  // the session entirely ("ログインが必要です" after a successful login). "lax"
+  // works over both HTTP and HTTPS for same-origin requests.
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
+    sameSite: "lax",
     secure: isSecureRequest(req),
   };
 }
