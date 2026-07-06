@@ -221,19 +221,20 @@ class SDKServer {
       });
       const { openId, appId, name } = payload as Record<string, unknown>;
 
-      if (
-        !isNonEmptyString(openId) ||
-        !isNonEmptyString(appId) ||
-        !isNonEmptyString(name)
-      ) {
-        console.warn("[Auth] Session payload missing required fields");
+      // The token is HMAC-signed with JWT_SECRET (verified above), so we only
+      // require the identity field (openId). appId/name are informational; in a
+      // self-hosted single-app deployment VITE_APP_ID is often unset, which
+      // makes appId an empty string — that must NOT invalidate an otherwise
+      // valid session (previously caused "ログインが必要です" after login).
+      if (!isNonEmptyString(openId)) {
+        console.warn("[Auth] Session payload missing openId");
         return null;
       }
 
       return {
         openId,
-        appId,
-        name,
+        appId: isNonEmptyString(appId) ? appId : "",
+        name: isNonEmptyString(name) ? name : "",
       };
     } catch (error) {
       console.warn("[Auth] Session verification failed", String(error));
