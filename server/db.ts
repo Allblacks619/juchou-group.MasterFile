@@ -217,6 +217,26 @@ export async function getMonthlyClosingV2ExpenseLinesByProjectMonth(
   );
 }
 
+/**
+ * 月内すべての交通費行（全現場・全作業員）。月締めV2ダッシュボードで
+ * 「交通費が入力済みか（0円=交通費なし も入力済み扱い）」を判定するのに使う。
+ */
+export async function getMonthlyClosingV2TransportationLinesByMonth(targetMonth: string) {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    return await db.select().from(monthlyClosingV2ExpenseLines).where(
+      and(
+        eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
+        eq(monthlyClosingV2ExpenseLines.expenseType, "transportation"),
+      )
+    );
+  } catch (error) {
+    console.error("[db] getMonthlyClosingV2TransportationLinesByMonth failed (table not migrated?)", error);
+    return [];
+  }
+}
+
 export type MonthlyClosingV2PayerType =
   | "none"
   | "worker_paid"

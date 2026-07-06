@@ -1580,6 +1580,19 @@ export const appRouter = router({
         if (input.residenceCardExpiry) data.residenceCardExpiry = parseDateString(input.residenceCardExpiry);
         if (input.passportExpiry) data.passportExpiry = parseDateString(input.passportExpiry);
         if (input.healthCheckDate) data.healthCheckDate = parseDateString(input.healthCheckDate);
+        // インボイス登録番号: 数字13桁を強制し、先頭のTはサーバ側で自動付与する。
+        // 未対応事業者（チェック解除）にした場合は番号もクリアし、消費税10%判定に残らないようにする。
+        if (input.invoiceIssuerNumber !== undefined) {
+          const digits = String(input.invoiceIssuerNumber).replace(/[^0-9]/g, "");
+          if (digits.length === 0) {
+            data.invoiceIssuerNumber = null;
+          } else if (digits.length === 13) {
+            data.invoiceIssuerNumber = `T${digits}`;
+          } else {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "インボイス登録番号は数字13桁で入力してください（先頭のTは自動で付きます）" });
+          }
+        }
+        if (input.isInvoiceIssuer === false) data.invoiceIssuerNumber = null;
         return db.updateEmployee(profile.id, data);
       }),
 
@@ -1745,6 +1758,18 @@ export const appRouter = router({
         if (updateData.residenceCardExpiry) data.residenceCardExpiry = parseDateString(updateData.residenceCardExpiry);
         if (updateData.passportExpiry) data.passportExpiry = parseDateString(updateData.passportExpiry);
         if (updateData.healthCheckDate) data.healthCheckDate = parseDateString(updateData.healthCheckDate);
+        // インボイス登録番号: マイプロフィール側と同じ正規化（数字13桁必須・Tは自動付与、チェックOFFでクリア）。
+        if (updateData.invoiceIssuerNumber !== undefined) {
+          const digits = String(updateData.invoiceIssuerNumber).replace(/[^0-9]/g, "");
+          if (digits.length === 0) {
+            data.invoiceIssuerNumber = null;
+          } else if (digits.length === 13) {
+            data.invoiceIssuerNumber = `T${digits}`;
+          } else {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "インボイス登録番号は数字13桁で入力してください（先頭のTは自動で付きます）" });
+          }
+        }
+        if (updateData.isInvoiceIssuer === false) data.invoiceIssuerNumber = null;
         return db.updateEmployee(id, data);
       }),
 
@@ -3002,7 +3027,7 @@ export const appRouter = router({
       .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const { start, end } = getMonthDateRange(input.targetMonth);
-        const [recordsRaw, employees, projects, clients, submissions, projectReviews, participantReviews] = await Promise.all([
+        const [recordsRaw, employees, projects, clients, submissions, projectReviews, participantReviews, transportationLines] = await Promise.all([
           db.getAttendanceByDateRange(start, end),
           db.getAllEmployees(),
           db.getAllProjects(),
@@ -3010,7 +3035,14 @@ export const appRouter = router({
           db.getMonthlyClosingV2WorkerSubmissionsByMonth(input.targetMonth),
           db.getMonthlyClosingV2ProjectReviewsByMonth(input.targetMonth),
           db.getMonthlyClosingV2ParticipantReviewsByMonth(input.targetMonth),
+          db.getMonthlyClosingV2TransportationLinesByMonth(input.targetMonth),
         ]);
+
+        // 交通費が入力済みの (現場, 作業員)。行が存在すれば 0円（交通費なし）でも「入力済み」。
+        // 「交通費未入力」の警告は、提出も交通費入力も無い場合だけに出す。
+        const transportEnteredKeys = new Set<string>(
+          (transportationLines as any[]).map((line) => `${Number(line.projectId)}:${Number(line.workerId)}`)
+        );
 
         const employeeMap = new Map<number, any>(employees.map((employee: any) => [Number(employee.id), employee]));
         const projectMap = new Map<number, any>(projects.map((project: any) => [Number(project.id), project]));
@@ -3025,7 +3057,7 @@ export const appRouter = router({
           return employee?.nameKanji || employee?.nameRomaji || `従業員ID:${workerId}`;
         };
 
-        const buildParticipantStatuses = (submission: any | undefined, isGuest: boolean) => {
+        const buildParticipantStatuses = (submission: any | undefined, isGuest: boolean, hasTransportEntry: boolean) => {
           if (isGuest) {
             return {
               transportationStatus: "集計対象外",
@@ -3038,6 +3070,17 @@ export const appRouter = router({
           }
 
           if (!submission) {
+            // 交通費が入力済み（0円=交通費なし を含む）なら「交通費未入力」の警告は出さない。
+            if (hasTransportEntry) {
+              return {
+                transportationStatus: "入力済み",
+                invoiceInfoStatus: "確認待ち",
+                individualStatus: "出面確認済み",
+                sendBackReason: "",
+                missingInfo: "",
+                warningCount: 0,
+              };
+            }
             return {
               transportationStatus: "未入力",
               invoiceInfoStatus: "確認待ち",
@@ -3152,10 +3195,13 @@ export const appRouter = router({
           if (!participant) {
             const workerId = record.employeeId ? Number(record.employeeId) : null;
             const submission = workerId ? submissionMap.get(workerId) : undefined;
-            const statuses = buildParticipantStatuses(submission, isGuest);
+            const hasTransportEntry = workerId != null && transportEnteredKeys.has(`${projectId}:${workerId}`);
+            const statuses = buildParticipantStatuses(submission, isGuest, hasTransportEntry);
             const review = participantReviewMap.get(`${projectId}:${participantKey}`);
             const isAggregationExcluded = review?.isAggregationExcluded ?? isGuest;
-            const reviewedStatus = review?.individualStatus;
+            // 保存済みステータスが「交通費未入力」でも、その後交通費が入力済みなら陳腐化と見なして自動導出に戻す。
+            const staleTransportReview = review?.individualStatus === "交通費未入力" && hasTransportEntry;
+            const reviewedStatus = staleTransportReview ? undefined : review?.individualStatus;
             const warningCount = isAggregationExcluded ? 0 : reviewedStatus ? (["交通費未入力", "情報不足", "差し戻し"].includes(reviewedStatus) ? 1 : 0) : statuses.warningCount;
             participant = {
               participantKey,
@@ -3165,9 +3211,9 @@ export const appRouter = router({
               isGuest,
               isAggregationExcluded,
               attendanceCount: 0,
-              transportationStatus: review?.transportationStatus || (isAggregationExcluded && isGuest ? "集計対象外" : statuses.transportationStatus),
+              transportationStatus: (staleTransportReview ? undefined : review?.transportationStatus) || (isAggregationExcluded && isGuest ? "集計対象外" : statuses.transportationStatus),
               invoiceInfoStatus: review?.invoiceInfoStatus || (isAggregationExcluded && isGuest ? "集計対象外" : statuses.invoiceInfoStatus),
-              individualStatus: review?.individualStatus || statuses.individualStatus,
+              individualStatus: reviewedStatus || statuses.individualStatus,
               sendBackReason: review?.sendBackReason || statuses.sendBackReason,
               missingInfo: review?.missingInfo || (isAggregationExcluded && isGuest ? "ゲストのため集計対象外" : statuses.missingInfo),
               aggregationOverrideReason: review?.aggregationOverrideReason || "",

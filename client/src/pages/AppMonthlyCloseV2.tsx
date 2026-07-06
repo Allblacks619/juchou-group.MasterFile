@@ -604,21 +604,30 @@ function ParticipantRow({
     try {
       // Derive transportationStatus from category
       let transportationStatus = participant.transportationStatus;
+      let individualStatus = localIndividualStatus;
+      let resolvedMissingInfo = missingInfo;
       if (canManageTransportation && !isGuest && workerId != null) {
         if (payerType === "none") {
           transportationStatus = "確認済み";
         } else {
           transportationStatus = "入力済み";
         }
+        // 交通費を入力して保存する（交通費なし=0円含む）なら「交通費未入力」の警告は自動で解除する。
+        if (individualStatus === "交通費未入力") {
+          individualStatus = "出面確認済み";
+          if (resolvedMissingInfo === "交通費・請求情報の確認が必要です") resolvedMissingInfo = "";
+        }
       }
 
       await onUpdate(row, participant, {
-        individualStatus: localIndividualStatus,
+        individualStatus,
         transportationStatus,
         invoiceInfoStatus: localInvoiceStatus,
         sendBackReason,
-        missingInfo,
+        missingInfo: resolvedMissingInfo,
       });
+      setLocalIndividualStatus(individualStatus);
+      if (resolvedMissingInfo !== missingInfo) setMissingInfo(resolvedMissingInfo);
 
       // Also persist internal transportation settings before closing the edit panel.
       if (canManageTransportation && !isGuest && workerId != null) {

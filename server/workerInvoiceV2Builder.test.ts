@@ -13,7 +13,11 @@ vi.mock("./db", () => ({
   getAttendanceByDateRange: vi.fn(async () => state.attendance),
   getMonthlyClosingV2ExpenseLinesByWorkerMonth: vi.fn(async () => state.expenseLines),
   getClosingSubmissionsByEmployeeMonth: vi.fn(async () => state.v1Submissions),
-  getEmployeeById: vi.fn(async (id: number) => ({ id, invoiceIssuerNumber: state.workerInvoiceIssuerNumber })),
+  getEmployeeById: vi.fn(async (id: number) => ({
+    id,
+    isInvoiceIssuer: state.workerInvoiceIssuerNumber != null,
+    invoiceIssuerNumber: state.workerInvoiceIssuerNumber,
+  })),
   getProjectById: vi.fn(async (id: number) =>
     id === 1 ? { id: 1, name: "現場A", clientId: 77 } : id === 2 ? { id: 2, name: "現場B", clientId: 77 } : undefined
   ),

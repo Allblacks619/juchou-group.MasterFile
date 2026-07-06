@@ -54,8 +54,10 @@ export async function buildWorkerInvoiceDraftFromV2(args: {
     db.getEmployeeById(workerId),
   ]);
 
-  // インボイス制度: 作業員（発行者）がインボイス番号未登録なら消費税10%を適用しない（0%）。
-  const issuerHasQualifiedInvoiceNumber = hasQualifiedInvoiceNumber((worker as any)?.invoiceIssuerNumber);
+  // インボイス制度: 作業員（発行者）がインボイス対応事業者（チェックON）かつ登録番号ありのときだけ
+  // 消費税10%を適用する。チェックOFF（未対応事業者）は番号が残っていても0%。
+  const issuerHasQualifiedInvoiceNumber =
+    Boolean((worker as any)?.isInvoiceIssuer) && hasQualifiedInvoiceNumber((worker as any)?.invoiceIssuerNumber);
 
   // ── Submission gate: V2 status if present, else bridge from a V1 submitted/approved closing.
   let submissionStatus: string | undefined;
