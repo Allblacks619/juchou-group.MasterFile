@@ -38,6 +38,7 @@ const AppConfirmationPdf = lazy(() => import("./pages/AppConfirmationPdf"));
 const AppSupport = lazy(() => import("./pages/AppSupport"));
 const AppPasswordResets = lazy(() => import("./pages/AppPasswordResets"));
 const AppResetPassword = lazy(() => import("./pages/AppResetPassword"));
+const AppGenba = lazy(() => import("./pages/AppGenba"));
 
 function ScrollToTop() {
   const [location] = useLocation();
@@ -70,6 +71,7 @@ function AppRoutes() {
           <Route path="/app/my-profile" component={AppMyProfile} />
           <Route path="/app/my-closing" component={AppMyClosing} />
           <Route path="/app/support" component={AppSupport} />
+          <Route path="/app/genba" component={AppGenba} />
 
           {/* Admin/Leader only */}
           <Route path="/app/invitations">
