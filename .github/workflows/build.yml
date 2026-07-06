@@ -1,17 +1,66 @@
-name: Build & Push Docker Image (ARM64)
+name: Build & Push Docker Image (amd64+arm64)
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
-  packages: write
   contents: read
 
 jobs:
+  migration-test:
+    name: Validate DB migrations (MariaDB 11)
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: citest
+          MARIADB_DATABASE: juchou_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Syntax-check runtime scripts
+        run: node --check scripts/migrate.mjs && node --check scripts/seed-owner.mjs
+
+      - name: Run all migrations against MariaDB 11
+        env:
+          DATABASE_URL: mysql://root:citest@127.0.0.1:3306/juchou_ci
+        run: node scripts/migrate.mjs
+
+      - name: Re-run migrations (idempotency check)
+        env:
+          DATABASE_URL: mysql://root:citest@127.0.0.1:3306/juchou_ci
+        run: node scripts/migrate.mjs
+
   build:
     runs-on: ubuntu-latest
+    needs: migration-test
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - uses: actions/checkout@v4
@@ -38,10 +87,16 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_REPO }}:latest
           build-args: |
             VITE_APP_ID=${{ vars.VITE_APP_ID }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify multi-arch manifest
+        run: |
+          docker buildx imagetools inspect ghcr.io/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_REPO }}:latest | tee manifest.txt
+          grep -q 'linux/amd64' manifest.txt
+          grep -q 'linux/arm64' manifest.txt
