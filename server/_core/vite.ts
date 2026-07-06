@@ -3,10 +3,22 @@ import fs from "fs";
 import { type Server } from "http";
 import { nanoid } from "nanoid";
 import path from "path";
-import { createServer as createViteServer } from "vite";
-import viteConfig from "../../vite.config";
 
 export async function setupVite(app: Express, server: Server) {
+  // Vite and its config pull in dev-only dependencies (@vitejs/plugin-react,
+  // @tailwindcss/vite, etc.) that are not installed in the production image.
+  // Load them lazily here so that merely importing this module for
+  // serveStatic() in production never resolves them. This function is only
+  // called when NODE_ENV=development.
+  const { createServer: createViteServer } = await import("vite");
+  // Indirect the specifier so esbuild does not statically follow and inline
+  // vite.config — inlining would hoist its dev-only plugin imports
+  // (@vitejs/plugin-react, @tailwindcss/vite, ...) into the production bundle.
+  // In development this module runs from source via tsx, so the relative path
+  // resolves correctly; the production bundle never calls setupVite.
+  const viteConfigSpecifier = ["..", "..", "vite.config"].join("/");
+  const { default: viteConfig } = await import(viteConfigSpecifier);
+
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
