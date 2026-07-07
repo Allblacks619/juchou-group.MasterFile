@@ -253,14 +253,27 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   }
 
   // Company seal (if enabled and available)
+  // 位置・大きさ・濃さは会社設定の sealSettings で調整（会社設定の社印プレビューと同じ座標系: A4 絶対座標/pt）。
+  // 未設定(0,0)のときは既定位置。基準サイズ40pt。会社設定の SealPositionPreview と定数を一致させること。
   if (showSeal && company?.sealUrl) {
     try {
       const sealPath = await downloadImage(company.sealUrl);
       if (sealPath) {
-        // Draw seal overlapping the company info area (semi-transparent effect)
+        const ss = (company.sealSettings || {}) as any;
+        const SEAL_BASE = 40;
+        const SEAL_DEFAULT_X = 480;
+        const SEAL_DEFAULT_Y = 110;
+        const sx = Number(ss.x || 0);
+        const sy = Number(ss.y || 0);
+        const isUnset = sx === 0 && sy === 0;
+        const sealX = isUnset ? SEAL_DEFAULT_X : sx;
+        const sealY = isUnset ? SEAL_DEFAULT_Y : sy;
+        const sealScale = Number(ss.scale) > 0 ? Number(ss.scale) : 1;
+        const size = SEAL_BASE * sealScale;
+        const sealOpacity = ss.opacity != null && ss.opacity !== "" ? Number(ss.opacity) : 0.85;
         doc.save();
-        doc.opacity(0.85);
-        doc.image(sealPath, metaX + 155, metaY - 35, { width: 40, height: 40, fit: [40, 40] });
+        doc.opacity(sealOpacity);
+        doc.image(sealPath, sealX, sealY, { width: size, height: size, fit: [size, size] });
         doc.restore();
       }
     } catch { /* ignore seal errors */ }
