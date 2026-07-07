@@ -1,7 +1,9 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   genbaSites, GenbaSite, InsertGenbaSite,
   genbaFloors, GenbaFloor, InsertGenbaFloor,
+  genbaZones, GenbaZone, InsertGenbaZone,
+  genbaTasks, GenbaTask,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { getDb } from "../db";
@@ -74,6 +76,90 @@ export async function deleteGenbaFloor(id: string): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(genbaFloors).where(eq(genbaFloors.id, id));
+}
+
+// ── genba_zones ──
+
+/**
+ * MariaDB は JSON カラムを文字列で返し、drizzle mysql も自動パースしないため、
+ * polygon を配列に正規化してから返す (クライアントが Pt[] として扱えるように)。
+ */
+export function normalizeZone(z: GenbaZone): GenbaZone {
+  if (z && typeof z.polygon === "string") {
+    try {
+      return { ...z, polygon: JSON.parse(z.polygon) };
+    } catch {
+      return z;
+    }
+  }
+  return z;
+}
+
+export async function listGenbaZonesByFloor(floorId: string): Promise<GenbaZone[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(genbaZones).where(eq(genbaZones.floorId, floorId)).orderBy(asc(genbaZones.createdAt));
+  return rows.map(normalizeZone);
+}
+
+export async function getGenbaZoneById(id: string): Promise<GenbaZone | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaZones).where(eq(genbaZones.id, id)).limit(1);
+  return rows[0] ? normalizeZone(rows[0]) : null;
+}
+
+export async function createGenbaZone(data: InsertGenbaZone): Promise<GenbaZone | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaZones).values(data);
+  return getGenbaZoneById(data.id);
+}
+
+export async function updateGenbaZone(
+  id: string,
+  patch: Partial<Pick<InsertGenbaZone, "name" | "polygon" | "priority" | "workStatus" | "parentZoneId">>,
+): Promise<GenbaZone | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaZones).set(patch).where(eq(genbaZones.id, id));
+  return getGenbaZoneById(id);
+}
+
+/**
+ * ゾーンを子孫ゾーン・配下タスクごと削除 (プロトタイプの deleteZone と同挙動)。
+ * 同フロアのゾーンを1回取得し、親子関係から部分木を辿って一括削除する。
+ */
+export async function deleteGenbaZoneCascade(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const target = await getGenbaZoneById(id);
+  if (!target) return;
+  const floorZones = await listGenbaZonesByFloor(target.floorId);
+  const childrenOf = new Map<string, string[]>();
+  for (const z of floorZones) {
+    if (z.parentZoneId) {
+      const arr = childrenOf.get(z.parentZoneId) || [];
+      arr.push(z.id);
+      childrenOf.set(z.parentZoneId, arr);
+    }
+  }
+  const subtree: string[] = [];
+  const stack = [id];
+  while (stack.length) {
+    const zid = stack.pop()!;
+    subtree.push(zid);
+    for (const c of childrenOf.get(zid) || []) stack.push(c);
+  }
+  await db.delete(genbaTasks).where(inArray(genbaTasks.zoneId, subtree));
+  await db.delete(genbaZones).where(inArray(genbaZones.id, subtree));
+}
+
+/** フロア配下ゾーン群のタスクをまとめて取得 (進捗集計用) */
+export async function listGenbaTasksByZoneIds(zoneIds: string[]): Promise<GenbaTask[]> {
+  const db = await getDb();
+  if (!db || zoneIds.length === 0) return [];
+  return db.select().from(genbaTasks).where(inArray(genbaTasks.zoneId, zoneIds));
 }
 
 // ── genba_user_settings ──

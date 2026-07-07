@@ -7,6 +7,7 @@ import * as db from "../db";
 import * as genbaDb from "./db";
 import { storageGet, storagePut } from "../storage";
 import { validateFile } from "../../shared/uploadValidation";
+import { computeZoneAggregates } from "./aggregate";
 
 /**
  * 現場ビジョン (genba) ルーター — M1骨組み。
@@ -252,11 +253,91 @@ const floorsRouter = router({
     }),
 });
 
+// ── zones (M2-B) ──
+
+const polygonSchema = z.array(z.object({ x: z.number(), y: z.number() })).min(3, "頂点は3点以上必要です");
+const zonePrioritySchema = z.number().int().min(1).max(4).nullish();
+const zoneWorkStatusSchema = z.union([z.literal("paused"), z.null()]).optional();
+
 const zonesRouter = router({
-  listByFloor: genbaProcedure.input(z.object({ floorId: genbaIdSchema })).query(notImplemented),
-  create: genbaFieldProcedure.input(z.object({ id: genbaIdSchema.optional(), floorId: genbaIdSchema, parentZoneId: genbaIdSchema.nullish(), name: z.string().trim().min(1).max(120), polygon: z.array(z.object({ x: z.number(), y: z.number() })).optional() })).mutation(notImplemented),
-  update: genbaFieldProcedure.input(z.object({ id: genbaIdSchema, name: z.string().trim().min(1).max(120).optional(), polygon: z.array(z.object({ x: z.number(), y: z.number() })).optional(), priority: z.number().int().nullish(), workStatus: z.string().max(16).nullish() })).mutation(notImplemented),
-  remove: genbaFieldProcedure.input(z.object({ id: genbaIdSchema })).mutation(notImplemented),
+  /** フロアのエリア一覧 + 進捗/問題数を同梱 (集計はサーバー側 = 全タスクをフロントに流さない) */
+  listByFloor: genbaProcedure.input(z.object({ floorId: genbaIdSchema })).query(async ({ input }) => {
+    const zones = await genbaDb.listGenbaZonesByFloor(input.floorId);
+    const tasks = await genbaDb.listGenbaTasksByZoneIds(zones.map((z) => z.id));
+    const agg = computeZoneAggregates(
+      zones.map((z) => ({ id: z.id, parentZoneId: z.parentZoneId })),
+      tasks.map((t) => ({ id: t.id, zoneId: t.zoneId, parentTaskId: t.parentTaskId, status: t.status, percent: t.percent })),
+    );
+    return zones.map((z) => {
+      const a = agg.get(z.id) ?? { progress: 0, issues: 0 };
+      return { ...z, progress: a.progress, issues: a.issues };
+    });
+  }),
+
+  /** エリア(ポリゴン)の作成。作業テンプレートの自動適用は M2-C で追加する */
+  create: genbaFieldProcedure
+    .input(z.object({
+      id: genbaIdSchema.optional(),
+      floorId: genbaIdSchema,
+      parentZoneId: genbaIdSchema.nullish(),
+      name: z.string().trim().min(1).max(120),
+      polygon: polygonSchema,
+      priority: zonePrioritySchema,
+      workStatus: zoneWorkStatusSchema,
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const floor = await genbaDb.getGenbaFloorById(input.floorId);
+      if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "フロアが見つかりません" });
+      if (input.parentZoneId) {
+        const parent = await genbaDb.getGenbaZoneById(input.parentZoneId);
+        if (!parent) throw new TRPCError({ code: "NOT_FOUND", message: "親エリアが見つかりません" });
+      }
+      const id = input.id ?? nanoid(21);
+      const zone = await genbaDb.createGenbaZone({
+        id,
+        floorId: input.floorId,
+        parentZoneId: input.parentZoneId ?? null,
+        name: input.name,
+        polygon: input.polygon,
+        priority: input.priority ?? null,
+        workStatus: input.workStatus ?? null,
+      });
+      await safeGenbaAuditLog(ctx.user.id, "genba.zones.create", { entityId: id, note: `エリアを作成: ${input.name}` });
+      return zone;
+    }),
+
+  /** 名前・ポリゴン範囲・優先度・稼働状態の更新 */
+  update: genbaFieldProcedure
+    .input(z.object({
+      id: genbaIdSchema,
+      name: z.string().trim().min(1).max(120).optional(),
+      polygon: polygonSchema.optional(),
+      priority: zonePrioritySchema,
+      workStatus: zoneWorkStatusSchema,
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaZoneById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
+      const patch: { name?: string; polygon?: { x: number; y: number }[]; priority?: number | null; workStatus?: "paused" | null } = {};
+      if (input.name !== undefined) patch.name = input.name;
+      if (input.polygon !== undefined) patch.polygon = input.polygon;
+      if (input.priority !== undefined) patch.priority = input.priority;
+      if (input.workStatus !== undefined) patch.workStatus = input.workStatus;
+      const zone = await genbaDb.updateGenbaZone(input.id, patch);
+      await safeGenbaAuditLog(ctx.user.id, "genba.zones.update", { entityId: input.id, note: `エリアを更新: ${existing.name}` });
+      return zone;
+    }),
+
+  /** エリア削除 (サブエリア・配下作業も削除) */
+  remove: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaZoneById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
+      await genbaDb.deleteGenbaZoneCascade(input.id);
+      await safeGenbaAuditLog(ctx.user.id, "genba.zones.remove", { entityId: input.id, note: `エリアを削除: ${existing.name}` });
+      return { success: true as const };
+    }),
 });
 
 const genbaTaskStatusSchema = z.enum(["todo", "progress", "done", "issue"]);
