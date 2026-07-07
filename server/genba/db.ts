@@ -80,17 +80,33 @@ export async function deleteGenbaFloor(id: string): Promise<void> {
 
 // ── genba_zones ──
 
+/**
+ * MariaDB は JSON カラムを文字列で返し、drizzle mysql も自動パースしないため、
+ * polygon を配列に正規化してから返す (クライアントが Pt[] として扱えるように)。
+ */
+export function normalizeZone(z: GenbaZone): GenbaZone {
+  if (z && typeof z.polygon === "string") {
+    try {
+      return { ...z, polygon: JSON.parse(z.polygon) };
+    } catch {
+      return z;
+    }
+  }
+  return z;
+}
+
 export async function listGenbaZonesByFloor(floorId: string): Promise<GenbaZone[]> {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(genbaZones).where(eq(genbaZones.floorId, floorId)).orderBy(asc(genbaZones.createdAt));
+  const rows = await db.select().from(genbaZones).where(eq(genbaZones.floorId, floorId)).orderBy(asc(genbaZones.createdAt));
+  return rows.map(normalizeZone);
 }
 
 export async function getGenbaZoneById(id: string): Promise<GenbaZone | null> {
   const db = await getDb();
   if (!db) return null;
   const rows = await db.select().from(genbaZones).where(eq(genbaZones.id, id)).limit(1);
-  return rows[0] ?? null;
+  return rows[0] ? normalizeZone(rows[0]) : null;
 }
 
 export async function createGenbaZone(data: InsertGenbaZone): Promise<GenbaZone | null> {
