@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,8 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Loader2, HardHat, Link2, Pencil, FolderOpen } from "lucide-react";
+import { Plus, Loader2, HardHat, Link2, Pencil, FolderOpen, Settings, HelpCircle } from "lucide-react";
 import FloorWorkspace from "@/components/genba/FloorWorkspace";
+import GenbaSettingsPanel from "@/components/genba/GenbaSettingsPanel";
+import GuideModal from "@/components/genba/GuideModal";
+import { resolveGenbaTheme } from "@shared/genba/themes";
+import type { GenbaLang } from "@shared/genba/i18n";
 
 /**
  * 現場ビジョン (genba) — 現場一覧 + 図面ワークスペース(M2-A)。
@@ -27,6 +31,22 @@ export default function AppGenba() {
   const [editName, setEditName] = useState("");
   const [editDriveUrl, setEditDriveUrl] = useState("");
   const [openSiteId, setOpenSiteId] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+
+  const settings = me?.settings ?? { theme: "dark", lang: "ja", color: null, guideSeen: false };
+  const theme = resolveGenbaTheme(settings.theme);
+  const lang = (settings.lang === "pt" ? "pt" : "ja") as GenbaLang;
+
+  const settingsMut = trpc.genba.settings.update.useMutation({ onSuccess: () => utils.genba.me.invalidate() });
+  // 初回のみ使い方ガイドを自動表示 → 既読で以後表示しない
+  useEffect(() => {
+    if (me && !me.settings?.guideSeen) {
+      setShowGuide(true);
+      settingsMut.mutate({ guideSeen: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.userId]);
 
   const createSite = trpc.genba.sites.create.useMutation({
     onSuccess: () => {
@@ -85,32 +105,49 @@ export default function AppGenba() {
   const editingSite = (sites || []).find((s) => s.id === editSiteId) || null;
   const openSite = (sites || []).find((s) => s.id === openSiteId) || null;
 
+  const panels = (
+    <>
+      {showSettings && <GenbaSettingsPanel settings={settings} open={showSettings} onOpenChange={setShowSettings} onOpenGuide={() => { setShowSettings(false); setShowGuide(true); }} />}
+      {showGuide && <GuideModal lang={lang} isAdmin={me.genbaRole === "admin"} open={showGuide} onOpenChange={setShowGuide} />}
+    </>
+  );
+
   if (openSite) {
     return (
-      <FloorWorkspace
-        siteId={openSite.id}
-        siteName={openSite.name}
-        driveUrl={openSite.driveUrl}
-        canEdit={canEdit}
-        isAdmin={me.genbaRole === "admin"}
-        meUserId={me.userId ?? null}
-        onBack={() => setOpenSiteId(null)}
-      />
+      <>
+        <FloorWorkspace
+          siteId={openSite.id}
+          siteName={openSite.name}
+          driveUrl={openSite.driveUrl}
+          canEdit={canEdit}
+          isAdmin={me.genbaRole === "admin"}
+          meUserId={me.userId ?? null}
+          onBack={() => setOpenSiteId(null)}
+        />
+        {panels}
+      </>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 rounded-xl p-4 -m-1" style={{ background: theme.appBg }}>
+      <div className="h-1 rounded-full" style={{ background: theme.accent }} />
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <HardHat className="h-6 w-6 text-gold" />
+            <HardHat className="h-6 w-6" style={{ color: theme.accent }} />
             現場ビジョン
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {me.name || "ユーザー"} さん（{genbaRoleLabel[me.genbaRole] || me.genbaRole}） — 現場を開いて図面を管理（エリア・作業は順次追加）
+            {me.name || "ユーザー"} さん（{genbaRoleLabel[me.genbaRole] || me.genbaRole}）
           </p>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => settingsMut.mutate({ lang: lang === "ja" ? "pt" : "ja" })} className="px-2.5 py-1.5 rounded-lg text-sm border border-border" title="日本語 / Português">
+            {lang === "ja" ? "🇯🇵" : "🇧🇷"}
+          </button>
+          <Button size="sm" variant="outline" onClick={() => setShowGuide(true)}><HelpCircle className="h-4 w-4 mr-1" />ガイド</Button>
+          <Button size="sm" variant="outline" onClick={() => setShowSettings(true)}><Settings className="h-4 w-4 mr-1" />設定</Button>
         {canEdit && (
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
@@ -146,6 +183,7 @@ export default function AppGenba() {
             </DialogContent>
           </Dialog>
         )}
+        </div>
       </div>
 
       {sitesLoading ? (
@@ -250,6 +288,7 @@ export default function AppGenba() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {panels}
     </div>
   );
 }
