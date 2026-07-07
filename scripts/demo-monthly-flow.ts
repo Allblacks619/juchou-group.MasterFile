@@ -48,8 +48,8 @@ const ATTENDANCE: Record<number, Att[]> = {
     { day: 4, project: 101 }, { day: 5, project: 101 },
     { day: 8, project: 101 }, { day: 9, project: 101 }, { day: 10, project: 101 },
     { day: 11, project: 101, shift: "night" }, { day: 12, project: 101, shift: "night" },
-    { day: 15, project: 103, ot: 40 }, // 昼勤 4.0h残業（全て時間外）
-    { day: 16, project: 103, ot: 60 }, // 昼勤 6.0h残業（4h時間外 + 2h深夜帯）
+    { day: 15, project: 103, ot: 40 }, // 昼勤 4.0h残業（全て時間外・5h以内）
+    { day: 16, project: 103, ot: 60 }, // 昼勤 6.0h残業（5h時間外 + 1h深夜帯）
     { day: 17, project: 103 },
   ],
   31: [
@@ -150,7 +150,7 @@ async function main() {
 
   // 3) 取引先請求書（会社→取引先：現場ごと A/B/C ＋ 交通費）
   H(`STEP 3. 取引先請求書（${CLIENT.name}宛）— 現場ごと・電気工事業A/B/C`);
-  const OT_DAY_CAP = 40; // 4.0h（作業員請求書と共通の band 分け）
+  const OT_DAY_CAP = 50; // 5.0h（昼勤は5hまで時間外・6時間目以降が深夜帯。作業員請求書と共通）
   const labor: ClientInvoiceLaborInput[] = [];
   for (const w of WORKERS) {
     // (project, shift) 単位に日数・残業を集計。残業は日単位で時間外/深夜に分割してから積み上げる。

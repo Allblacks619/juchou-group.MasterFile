@@ -167,24 +167,24 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
     expect(draft.attendanceBreakdown[0].overtimeHours).toBe(4); // 40 / 10 = 4.0h
   });
 
-  it("昼勤の残業は4hまで時間外(×1.25)で自動計上する", async () => {
+  it("昼勤の残業は5hまで時間外(×1.25)で自動計上する（深夜帯は発生しない）", async () => {
     state.attendance = [
-      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-01", hoursWorked: 80, overtimeHours: 40, workType: "normal" },
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-01", hoursWorked: 80, overtimeHours: 50, workType: "normal" },
     ];
     state.expenseLines = [];
     const draft = await build();
     const ot = draft.items.filter((i: any) => i.label.startsWith("残業代"));
-    // 4h ちょうど → 全て時間外、深夜帯は発生しない
+    // 5h ちょうど → 全て時間外、深夜帯は発生しない
     expect(ot).toHaveLength(1);
     expect(ot[0].label).toContain("時間外");
     expect(ot[0].unit).toBe("時間");
-    expect(ot[0].quantity).toBe(4);
-    // 15000 / 8 * 1.25 = 2343.75 -> 2344 ; × 4h = 9,376
+    expect(ot[0].quantity).toBe(5);
+    // 15000 / 8 * 1.25 = 2343.75 -> 2344 ; × 5h = 11,720
     expect(ot[0].unitPrice).toBe(2344);
-    expect(ot[0].amount).toBe(9376);
+    expect(ot[0].amount).toBe(11720);
   });
 
-  it("昼勤の残業は5時間目以降を深夜帯(×1.50)で自動計上する", async () => {
+  it("昼勤の残業は6時間目以降(5時間超)を深夜帯(×1.50)で自動計上する", async () => {
     state.attendance = [
       { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-01", hoursWorked: 80, overtimeHours: 60, workType: "normal" },
     ];
@@ -192,13 +192,13 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
     const draft = await build();
     const regular = draft.items.find((i: any) => i.label.includes("残業代（時間外）"))!;
     const late = draft.items.find((i: any) => i.label.includes("残業代（深夜）"))!;
-    // 6h の残業 → 4h 時間外 + 2h 深夜帯
-    expect(regular.quantity).toBe(4);
+    // 6h の残業 → 5h 時間外 + 1h 深夜帯
+    expect(regular.quantity).toBe(5);
     expect(regular.unitPrice).toBe(2344); // 15000/8*1.25
-    expect(regular.amount).toBe(9376);
-    expect(late.quantity).toBe(2);
+    expect(regular.amount).toBe(11720);
+    expect(late.quantity).toBe(1);
     expect(late.unitPrice).toBe(2813); // 15000/8*1.5 = 2812.5 -> 2813
-    expect(late.amount).toBe(5626); // 2813 × 2h
+    expect(late.amount).toBe(2813); // 2813 × 1h
     expect(draft.warnings.some((w: string) => w.includes("深夜帯残業"))).toBe(true);
   });
 

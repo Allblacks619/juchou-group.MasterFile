@@ -123,10 +123,12 @@ const DEFAULT_TAX_RATES: Required<WorkerInvoiceV2TaxRates> = {
 };
 
 /**
- * 昼勤の残業のうち、この時間（×10, = 4.0h）までは時間外（×1.25）。
- * 5時間目以降は深夜帯（×1.50）として自動判定する。夜勤の残業は全て深夜帯。
+ * 昼勤の残業のうち、この時間（×10, = 5.0h）までは時間外（×1.25）。
+ * それを超える分（＝6時間目以降）は深夜帯（×1.50）として自動判定する。夜勤の残業は全て深夜帯。
+ * 例: 昼勤6時間残業 → 5時間=時間外 + 1時間=深夜帯。
+ * （定時17:00終わり→残業5時間で22:00＝深夜帯の起点、という実務に合わせた境界）
  */
-const DAY_OT_REGULAR_CAP_TIMES10 = 40;
+const DAY_OT_REGULAR_CAP_TIMES10 = 50;
 
 export function monthRange(targetMonth: string): { start: Date; end: Date } {
   const [year, month] = targetMonth.split("-").map(Number);
@@ -212,7 +214,7 @@ export async function computeWorkerInvoiceDraft(input: {
   const attendanceBreakdown: WorkerInvoiceV2AttendanceDay[] = [];
   // 残業は現場ごとに月内合計。深夜帯(×1.50)判定のため band を分けて累積する。
   //  - 夜勤(night) の残業は全て深夜帯。
-  //  - 昼勤(day) の残業はその日の4hまで=時間外(×1.25)、5時間目以降=深夜帯(×1.50)。
+  //  - 昼勤(day) の残業はその日の5hまで=時間外(×1.25)、6時間目以降(5時間超)=深夜帯(×1.50)。
   // 日単価から時間単価を出すための代表日も現場ごとに保持。
   const regularOtTimes10ByProject = new Map<number, number>();
   const lateNightOtTimes10ByProject = new Map<number, number>();
@@ -244,7 +246,7 @@ export async function computeWorkerInvoiceDraft(input: {
         // 夜勤: 残業は全て深夜帯(×1.50)。
         lateNightOtTimes10ByProject.set(projectId, (lateNightOtTimes10ByProject.get(projectId) || 0) + recordOtTimes10);
       } else {
-        // 昼勤: その日の4hまでは時間外(×1.25)、5時間目以降は深夜帯(×1.50)。
+        // 昼勤: その日の5hまでは時間外(×1.25)、6時間目以降(5時間超)は深夜帯(×1.50)。
         const regularTimes10 = Math.min(recordOtTimes10, DAY_OT_REGULAR_CAP_TIMES10);
         const lateNightTimes10 = recordOtTimes10 - regularTimes10;
         if (regularTimes10 > 0) regularOtTimes10ByProject.set(projectId, (regularOtTimes10ByProject.get(projectId) || 0) + regularTimes10);
@@ -337,7 +339,7 @@ export async function computeWorkerInvoiceDraft(input: {
   // 2.5) 残業代: 現場ごとに、時間外(×1.25)と深夜帯(×1.50)を別明細で自動計上する。
   //  band分け（上の集計）:
   //   - 夜勤の残業＝全て深夜帯。
-  //   - 昼勤の残業＝その日の4hまで時間外・5時間目以降深夜帯。
+  //   - 昼勤の残業＝その日の5hまで時間外・6時間目以降(5時間超)深夜帯。
   //  単価 = 日勤単価 ÷ 標準時間 × 割増倍率（IMG_0293の基本式、深夜帯は×1.50）。
   const overtimeProjectIds = Array.from(
     new Set<number>([...Array.from(regularOtTimes10ByProject.keys()), ...Array.from(lateNightOtTimes10ByProject.keys())])
@@ -378,7 +380,7 @@ export async function computeWorkerInvoiceDraft(input: {
     pushOvertime(lateNightOtTimes10ByProject.get(projectId) || 0, lateNightMultiplier, "深夜");
   }
   if (lateNightOtTimes10ByProject.size > 0) {
-    warnings.push("深夜帯残業(×1.50)は「夜勤の残業」と「昼勤で5時間目以降の残業」を自動判定して計上しています。実際の時間帯が異なる場合は明細をご確認ください。");
+    warnings.push("深夜帯残業(×1.50)は「夜勤の残業」と「昼勤で6時間目以降(5時間超)の残業」を自動判定して計上しています。実際の時間帯が異なる場合は明細をご確認ください。");
   }
 
   // 3) Transport / expense: only worker-fronted lines are billable to the company.
