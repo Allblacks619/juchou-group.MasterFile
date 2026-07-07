@@ -11,6 +11,9 @@ const mockGenbaDb = vi.hoisted(() => ({
   updateGenbaZone: vi.fn(),
   deleteGenbaZoneCascade: vi.fn(),
   listGenbaTasksByZoneIds: vi.fn(),
+  // M2-C: zone.create が作業テンプレートを自動適用するため
+  listGenbaTaskTemplates: vi.fn(),
+  createGenbaTasksBulk: vi.fn(),
 }));
 
 const mockDb = vi.hoisted(() => ({ createAuditLog: vi.fn() }));
@@ -41,7 +44,12 @@ const POLY = [{ x: 10, y: 10 }, { x: 100, y: 10 }, { x: 100, y: 100 }];
 const ZONE = { id: "Genba_Beta_Zone_01", floorId: FLOOR.id, parentZoneId: null, name: "1工区", polygon: POLY, priority: 1, workStatus: null, createdAt: new Date(), updatedAt: new Date() };
 
 describe("genba.zones", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // 既定: テンプレート未設定 → zone.create の自動適用は既定テンプレを一括作成 (noop mock)
+    mockGenbaDb.listGenbaTaskTemplates.mockResolvedValue([]);
+    mockGenbaDb.createGenbaTasksBulk.mockResolvedValue(undefined);
+  });
   afterEach(() => { delete process.env.GENBA_ENABLED; });
 
   const leader = () => appRouter.createCaller(ctx(createUser({ appRole: "manager" as any })));

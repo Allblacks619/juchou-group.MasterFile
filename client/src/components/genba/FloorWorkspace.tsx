@@ -2,11 +2,12 @@ import { useRef, useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff } from "lucide-react";
+import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, type Pt } from "@/lib/genbaMap";
 import ProgressBadge from "./ProgressBadge";
 import ZoneSheet, { type ZoneWithAgg } from "./ZoneSheet";
+import TemplateEditor from "./TemplateEditor";
 
 type FloorWorkspaceProps = {
   siteId: string;
@@ -31,6 +32,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, on
 
   const [activeFloorId, setActiveFloorId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [showTemplate, setShowTemplate] = useState(false);
 
   // ゾーン描画/編集の状態機械
   const [mode, setMode] = useState<Mode>("view");
@@ -201,7 +203,10 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, on
           </a>
         )}
         {canEdit && (
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setShowTemplate(true)}>
+              <ListChecks className="h-4 w-4 mr-1" /> 作業テンプレート
+            </Button>
             <input ref={fileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={onFileChosen} />
             <Button size="sm" onClick={() => fileRef.current?.click()} disabled={!!busy}>
               {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
@@ -210,6 +215,8 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, on
           </div>
         )}
       </div>
+
+      {showTemplate && <TemplateEditor open={showTemplate} onOpenChange={setShowTemplate} />}
 
       {/* フロアバー */}
       {list.length > 0 && (
@@ -375,6 +382,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, on
               onStartEditRange={() => startEditRange(selectedZone)}
               onAddSubArea={() => { setMode("draw"); setDraftParentZoneId(selectedZone.id); setSelectedZoneId(null); }}
               onDelete={() => { if (confirm(`「${selectedZone.name}」を削除しますか？\n(サブエリア・作業も削除されます)`)) removeZone.mutate({ id: selectedZone.id }); }}
+              onTasksChanged={() => { invalidateZones(); }}
             />
           )}
 
