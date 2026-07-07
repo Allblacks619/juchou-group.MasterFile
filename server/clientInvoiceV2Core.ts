@@ -79,7 +79,7 @@ export type ClientInvoiceLaborInput = {
    * overtimeHoursTimes10 ではなくこちらを使う。
    */
   overtimeRegularTimes10?: number;
-  /** 残業のうち深夜帯(×1.50)分の時間×10（夜勤の残業／昼勤で5時間目以降）。 */
+  /** 残業のうち深夜帯(×1.50)分の時間×10（夜勤の残業／昼勤で6時間目以降(5時間超)）。 */
   overtimeLateNightTimes10?: number;
   /** resolved client daily rate; null = no rate configured (line emitted at ¥0 + warning) */
   clientRate: number | null;
@@ -103,7 +103,7 @@ export type ClientInvoiceComputeInput = {
   units?: ClientInvoiceUnits;
   /** overtime hourly = round(repDayRate / standardDayHours * overtimeMultiplier). Default 1.25. */
   overtimeMultiplier?: number;
-  /** 深夜帯残業の割増倍率（既定1.50）。夜勤の残業／昼勤で5時間目以降に適用。作業員請求書と同ルール。 */
+  /** 深夜帯残業の割増倍率（既定1.50）。夜勤の残業／昼勤で6時間目以降(5時間超)に適用。作業員請求書と同ルール。 */
   lateNightMultiplier?: number;
   /** standard hours in one work-day, used for the overtime derivation. Default 8. */
   standardDayHours?: number;
@@ -304,7 +304,7 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
 
     // 残業代 — per 請求単価グループ (A/B/C): 残業1時間単価 = 日単価 ÷ 標準時間 × 割増倍率。
     // 時間外(×1.25)と深夜帯(×1.50)を別明細で計上（作業員請求書と同ルール）。深夜帯は「夜勤の残業」と
-    // 「昼勤で5時間目以降の残業」を日単位で自動判定した値を積み上げている。単価は四捨五入してから時間を掛ける
+    // 「昼勤で6時間目以降(5時間超)の残業」を日単位で自動判定した値を積み上げている。単価は四捨五入してから時間を掛ける
     // （実物請求書と一致: 25,000÷8×1.25=3,906 ×5h=19,530）。
     const overtimeRates = Array.from(new Set<number>([...Array.from(regularOtByRate.keys()), ...Array.from(lateNightOtByRate.keys())])).sort((a, b) => b - a);
     const multipleOvertimeGroups = overtimeRates.length > 1;
@@ -337,7 +337,7 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
     if (overtimeRates.length > 0) {
       warnings.push(
         `残業代は請求単価 ÷${standardDayHours}h ×${overtimeMultiplier}(時間外)${anyLateNight ? `／×${lateNightMultiplier}(深夜)` : ""} で自動算出しました（${projectName}）。` +
-          (anyLateNight ? "深夜帯は「夜勤の残業」と「昼勤で5時間目以降の残業」を自動判定しています。時間帯が異なる場合は明細をご確認ください。" : "")
+          (anyLateNight ? "深夜帯は「夜勤の残業」と「昼勤で6時間目以降(5時間超)の残業」を自動判定しています。時間帯が異なる場合は明細をご確認ください。" : "")
       );
     }
     if (overtimeTimes10Unresolved > 0) {
