@@ -20,13 +20,15 @@ export type ZoneWithAgg = {
  * 作業ツリー(タスク)は M2-C で追加する。
  */
 export default function ZoneSheet({
-  zone, children, parent, canEdit,
+  zone, children, parent, canEdit, siteId, meUserId,
   onClose, onSelectZone, onSetPriority, onTogglePaused, onRename, onStartEditRange, onAddSubArea, onDelete, onTasksChanged,
 }: {
   zone: ZoneWithAgg;
   children: ZoneWithAgg[];
   parent: ZoneWithAgg | null;
   canEdit: boolean;
+  siteId: string;
+  meUserId: number | null;
   onClose: () => void;
   onSelectZone: (id: string) => void;
   onSetPriority: (priority: number | null) => void;
@@ -121,9 +123,9 @@ export default function ZoneSheet({
         </Button>
       )}
 
-      {/* 作業ツリー (M2-C) */}
+      {/* 作業ツリー (M2-C) + 担当割当 (M3-A) */}
       <div className="border-t border-border pt-2">
-        <TaskTree zoneId={zone.id} canEdit={canEdit} onChanged={onTasksChanged} />
+        <TaskTree zoneId={zone.id} siteId={siteId} meUserId={meUserId} canEdit={canEdit} onChanged={onTasksChanged} />
       </div>
     </div>
   );

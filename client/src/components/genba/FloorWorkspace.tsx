@@ -2,18 +2,20 @@ import { useRef, useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks } from "lucide-react";
+import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, type Pt } from "@/lib/genbaMap";
 import ProgressBadge from "./ProgressBadge";
 import ZoneSheet, { type ZoneWithAgg } from "./ZoneSheet";
 import TemplateEditor from "./TemplateEditor";
+import TeamManager from "./TeamManager";
 
 type FloorWorkspaceProps = {
   siteId: string;
   siteName: string;
   driveUrl: string | null;
   canEdit: boolean;
+  meUserId: number | null;
   onBack: () => void;
 };
 
@@ -24,7 +26,7 @@ type Mode = "view" | "draw" | "edit";
  * 図面アップロード/表示(M2-A) + エリア(ゾーン)のポリゴン描画・頂点編集・優先度・
  * 稼働状態・階層・進捗表示(M2-B)。作業(タスク)は M2-C。
  */
-export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, onBack }: FloorWorkspaceProps) {
+export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, meUserId, onBack }: FloorWorkspaceProps) {
   const utils = trpc.useUtils();
   const fileRef = useRef<HTMLInputElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -33,6 +35,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, on
   const [activeFloorId, setActiveFloorId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [showTemplate, setShowTemplate] = useState(false);
+  const [showTeams, setShowTeams] = useState(false);
 
   // ゾーン描画/編集の状態機械
   const [mode, setMode] = useState<Mode>("view");
@@ -204,6 +207,9 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, on
         )}
         {canEdit && (
           <div className="ml-auto flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setShowTeams(true)}>
+              <Users className="h-4 w-4 mr-1" /> 班管理
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setShowTemplate(true)}>
               <ListChecks className="h-4 w-4 mr-1" /> 作業テンプレート
             </Button>
@@ -217,6 +223,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, on
       </div>
 
       {showTemplate && <TemplateEditor open={showTemplate} onOpenChange={setShowTemplate} />}
+      {showTeams && <TeamManager siteId={siteId} open={showTeams} onOpenChange={setShowTeams} />}
 
       {/* フロアバー */}
       {list.length > 0 && (
@@ -371,6 +378,8 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, on
               children={zoneList.filter((z) => z.parentZoneId === selectedZone.id)}
               parent={selectedZone.parentZoneId ? zoneList.find((z) => z.id === selectedZone.parentZoneId) ?? null : null}
               canEdit={canEdit}
+              siteId={siteId}
+              meUserId={meUserId}
               onClose={() => setSelectedZoneId(null)}
               onSelectZone={setSelectedZoneId}
               onSetPriority={(priority) => updateZone.mutate({ id: selectedZone.id, priority })}
