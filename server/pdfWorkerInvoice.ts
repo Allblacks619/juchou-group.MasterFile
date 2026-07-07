@@ -182,16 +182,25 @@ export async function generateWorkerInvoicePdf(input: PdfInput): Promise<Buffer>
   y += 10;
 
   // ── Seal/Stamp (near worker info) ──
+  // 社印は会社設定の sealSettings（A4 絶対座標/pt・基準40pt・未設定(0,0)は既定位置）で描画。
+  // 取引先請求書PDF/会社設定の社印プレビューと同じ座標系に統一している。
   const sealSettings: ImageSettings = (company?.sealSettings as ImageSettings) || {};
   if (company?.sealUrl) {
     try {
       const sealBuffer = await downloadImage(company.sealUrl);
       if (sealBuffer) {
-        const sealX = sealSettings.x ?? (rightX - 80);
-        const sealY = sealSettings.y ?? (y - 50);
-        const sealW = (sealSettings.width ?? 60) * (sealSettings.scale ?? 1);
-        const sealH = (sealSettings.height ?? 60) * (sealSettings.scale ?? 1);
-        const sealOpacity = sealSettings.opacity ?? 0.8;
+        const SEAL_BASE = 40;
+        const SEAL_DEFAULT_X = 480;
+        const SEAL_DEFAULT_Y = 110;
+        const sx = Number(sealSettings.x || 0);
+        const sy = Number(sealSettings.y || 0);
+        const isUnset = sx === 0 && sy === 0;
+        const sealX = isUnset ? SEAL_DEFAULT_X : sx;
+        const sealY = isUnset ? SEAL_DEFAULT_Y : sy;
+        const sealScaleNum = Number(sealSettings.scale) > 0 ? Number(sealSettings.scale) : 1;
+        const sealW = SEAL_BASE * sealScaleNum;
+        const sealH = SEAL_BASE * sealScaleNum;
+        const sealOpacity = sealSettings.opacity != null ? Number(sealSettings.opacity) : 0.85;
         doc.save();
         doc.opacity(sealOpacity);
         doc.image(sealBuffer, sealX, sealY, { width: sealW, height: sealH, fit: [sealW, sealH] });

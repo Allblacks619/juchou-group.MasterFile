@@ -40,7 +40,6 @@ export default function AppCompany() {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [registrationNumber, setRegistrationNumber] = useState("");
   const [invoiceIssuerNumber, setInvoiceIssuerNumber] = useState("");
   const [bankName, setBankName] = useState("");
   const [branchName, setBranchName] = useState("");
@@ -60,7 +59,6 @@ export default function AppCompany() {
     setAddress(company.address || "");
     setPhone(company.phone || "");
     setEmail(company.email || "");
-    setRegistrationNumber(company.registrationNumber || "");
     setInvoiceIssuerNumber(company.invoiceIssuerNumber || "");
     setBankName(company.bankName || "");
     setBranchName(company.branchName || "");
@@ -82,7 +80,6 @@ export default function AppCompany() {
       address: address || undefined,
       phone: phone || undefined,
       email: email || undefined,
-      registrationNumber: registrationNumber || undefined,
       invoiceIssuerNumber: invoiceIssuerNumber || undefined,
       bankName: bankName || undefined,
       branchName: branchName || undefined,
@@ -180,20 +177,46 @@ export default function AppCompany() {
                   <Label>メールアドレス</Label>
                   <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
                 </div>
-                <div className="space-y-2">
-                  <Label>登録番号</Label>
-                  <Input value={registrationNumber} onChange={(e) => setRegistrationNumber(e.target.value)} />
-                </div>
-                <div className="space-y-2">
+                <div className="space-y-2 md:col-span-2">
                   <Label>適格請求書発行事業者番号</Label>
                   <Input value={invoiceIssuerNumber} onChange={(e) => setInvoiceIssuerNumber(e.target.value)} placeholder="T6810341010660" />
+                  <p className="text-xs text-muted-foreground">取引先への請求書には、この番号が自社の登録番号として表示されます。</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="space-y-2"><Label>社印X</Label><Input type="number" value={sealX} onChange={(e)=>setSealX(Number(e.target.value))} /></div>
-                <div className="space-y-2"><Label>社印Y</Label><Input type="number" value={sealY} onChange={(e)=>setSealY(Number(e.target.value))} /></div>
-                <div className="space-y-2"><Label>社印Scale</Label><Input type="number" step="0.1" value={sealScale} onChange={(e)=>setSealScale(Number(e.target.value))} /></div>
-                <div className="space-y-2"><Label>社印Opacity</Label><Input type="number" min="0" max="1" step="0.1" value={sealOpacity} onChange={(e)=>setSealOpacity(Number(e.target.value))} /></div>
+
+              {/* 社印の位置（取引先請求書プレビュー） */}
+              <div className="space-y-3 pt-2 border-t border-border">
+                <div className="pt-3">
+                  <Label>社印の位置（取引先請求書プレビュー）</Label>
+                  <p className="text-xs text-muted-foreground">プレビュー上で社印をドラッグして位置を決めてください。大きさ・濃さは下のスライダーで調整できます。「保存」で確定します。</p>
+                </div>
+                <SealPositionPreview
+                  sealUrl={company?.sealUrl || null}
+                  x={sealX}
+                  y={sealY}
+                  scale={sealScale}
+                  opacity={sealOpacity}
+                  onChange={(nx, ny) => { setSealX(nx); setSealY(ny); }}
+                />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs">大きさ（Scale）：{sealScale.toFixed(1)}倍</Label>
+                    <input type="range" min="0.3" max="3" step="0.1" value={sealScale} onChange={(e)=>setSealScale(Number(e.target.value))} className="w-full accent-gold" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">濃さ（Opacity）：{Math.round(sealOpacity*100)}%</Label>
+                    <input type="range" min="0.1" max="1" step="0.05" value={sealOpacity} onChange={(e)=>setSealOpacity(Number(e.target.value))} className="w-full accent-gold" />
+                  </div>
+                </div>
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer">数値で微調整</summary>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
+                    <div className="space-y-1"><Label className="text-xs">X</Label><Input type="number" value={sealX} onChange={(e)=>setSealX(Number(e.target.value))} /></div>
+                    <div className="space-y-1"><Label className="text-xs">Y</Label><Input type="number" value={sealY} onChange={(e)=>setSealY(Number(e.target.value))} /></div>
+                    <div className="space-y-1"><Label className="text-xs">Scale</Label><Input type="number" step="0.1" value={sealScale} onChange={(e)=>setSealScale(Number(e.target.value))} /></div>
+                    <div className="space-y-1"><Label className="text-xs">Opacity</Label><Input type="number" min="0" max="1" step="0.1" value={sealOpacity} onChange={(e)=>setSealOpacity(Number(e.target.value))} /></div>
+                  </div>
+                </details>
               </div>
               <Button
                 onClick={handleSave}
@@ -345,6 +368,124 @@ export default function AppCompany() {
           </div>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ── 社印の位置プレビュー ──
+// 取引先請求書PDF(server/pdfInvoice.ts)と同じ座標系。A4(pt)絶対座標・左上原点。
+// 数値はこの定数を server 側と一致させること（社印の見た目が揃う）。
+const SEAL_A4_W = 595.28;
+const SEAL_A4_H = 841.89;
+const SEAL_BASE = 40; // 拡大率1のときの社印の一辺(pt)
+const SEAL_DEFAULT_X = 480;
+const SEAL_DEFAULT_Y = 110;
+
+function SealPositionPreview({
+  sealUrl,
+  x,
+  y,
+  scale,
+  opacity,
+  onChange,
+}: {
+  sealUrl: string | null;
+  x: number;
+  y: number;
+  scale: number;
+  opacity: number;
+  onChange: (x: number, y: number) => void;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+
+  // 未設定(0,0)は既定位置を表示（PDF側も同じ既定に落とす）。
+  const isUnset = x === 0 && y === 0;
+  const effX = isUnset ? SEAL_DEFAULT_X : x;
+  const effY = isUnset ? SEAL_DEFAULT_Y : y;
+  const sealPt = SEAL_BASE * (scale > 0 ? scale : 1);
+
+  const moveTo = (clientX: number, clientY: number) => {
+    const box = boxRef.current;
+    if (!box) return;
+    const r = box.getBoundingClientRect();
+    // カーソル位置を社印の中心にする → 左上座標に変換
+    let nx = ((clientX - r.left) / r.width) * SEAL_A4_W - sealPt / 2;
+    let ny = ((clientY - r.top) / r.height) * SEAL_A4_H - sealPt / 2;
+    nx = Math.max(0, Math.min(SEAL_A4_W - sealPt, nx));
+    ny = Math.max(0, Math.min(SEAL_A4_H - sealPt, ny));
+    onChange(Math.round(nx), Math.round(ny));
+  };
+
+  return (
+    <div>
+      <div
+        ref={boxRef}
+        onPointerDown={(e) => { dragging.current = true; (e.target as HTMLElement).setPointerCapture?.(e.pointerId); moveTo(e.clientX, e.clientY); }}
+        onPointerMove={(e) => { if (dragging.current) moveTo(e.clientX, e.clientY); }}
+        onPointerUp={() => { dragging.current = false; }}
+        onPointerCancel={() => { dragging.current = false; }}
+        className="relative mx-auto w-full max-w-[360px] rounded-md border border-border bg-white overflow-hidden select-none touch-none cursor-crosshair"
+        style={{ aspectRatio: `${SEAL_A4_W} / ${SEAL_A4_H}` }}
+      >
+        {/* 請求書レイアウトの簡易ワイヤーフレーム（位置の目安） */}
+        <div className="absolute inset-0 p-[6%] text-[#333]" style={{ pointerEvents: "none" }}>
+          <div className="text-center font-bold" style={{ fontSize: "min(3.2vw,15px)" }}>請求書</div>
+          <div className="mt-[3%] flex justify-between text-[8px] text-[#999]">
+            <div className="space-y-1">
+              <div className="h-2 w-24 bg-[#eee] rounded" />
+              <div className="h-2 w-16 bg-[#eee] rounded" />
+            </div>
+            <div className="space-y-1 text-right">
+              <div className="h-2 w-24 bg-[#eee] rounded ml-auto" />
+              <div className="h-2 w-20 bg-[#eee] rounded ml-auto" />
+              <div className="h-2 w-16 bg-[#eee] rounded ml-auto" />
+            </div>
+          </div>
+          <div className="mt-[8%] space-y-1">
+            <div className="h-3 w-full bg-[#f3f3f3] rounded" />
+            <div className="h-3 w-full bg-[#f7f7f7] rounded" />
+            <div className="h-3 w-full bg-[#f7f7f7] rounded" />
+          </div>
+        </div>
+
+        {/* 社印 */}
+        {sealUrl ? (
+          <img
+            src={sealUrl}
+            alt="社印"
+            draggable={false}
+            onPointerDown={(e) => { e.stopPropagation(); dragging.current = true; (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); }}
+            className="absolute cursor-move"
+            style={{
+              left: `${(effX / SEAL_A4_W) * 100}%`,
+              top: `${(effY / SEAL_A4_H) * 100}%`,
+              width: `${(sealPt / SEAL_A4_W) * 100}%`,
+              height: `${(sealPt / SEAL_A4_H) * 100}%`,
+              opacity: opacity,
+              objectFit: "contain",
+            }}
+          />
+        ) : (
+          <div
+            className="absolute flex items-center justify-center rounded-full border-2 border-dashed border-red-400 text-[9px] text-red-400 text-center leading-tight"
+            style={{
+              left: `${(effX / SEAL_A4_W) * 100}%`,
+              top: `${(effY / SEAL_A4_H) * 100}%`,
+              width: `${(sealPt / SEAL_A4_W) * 100}%`,
+              height: `${(sealPt / SEAL_A4_H) * 100}%`,
+              opacity: opacity,
+            }}
+          >
+            社印
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground mt-1 text-center">
+        {sealUrl
+          ? (isUnset ? "既定位置（未設定）。ドラッグして位置を決めてください。" : `位置 X:${x} / Y:${y}`)
+          : "「ロゴ・社印・ウォーターマーク」タブで社印画像をアップロードすると表示されます。"}
+      </p>
     </div>
   );
 }
