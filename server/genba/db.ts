@@ -248,10 +248,9 @@ function normalizeTaskEvent(e: GenbaTaskEvent): GenbaTaskEvent {
 export async function createGenbaTaskEvent(data: InsertGenbaTaskEvent): Promise<GenbaTaskEvent | null> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(genbaTaskEvents).values(data);
-  const insertedId = (result as any)[0]?.insertId;
-  if (insertedId == null) return null;
-  const rows = await db.select().from(genbaTaskEvents).where(eq(genbaTaskEvents.id, insertedId)).limit(1);
+  // id は varchar(24) のクライアント生成 (autoincrementではない)
+  await db.insert(genbaTaskEvents).values(data);
+  const rows = await db.select().from(genbaTaskEvents).where(eq(genbaTaskEvents.id, data.id)).limit(1);
   return rows[0] ? normalizeTaskEvent(rows[0]) : null;
 }
 

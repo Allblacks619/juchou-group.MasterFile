@@ -463,8 +463,9 @@ const tasksRouter = router({
         issueText: input.status === "issue" ? (input.issueText ?? "") : null,
       });
 
-      // 履歴イベント (status / issue) を記録
+      // 履歴イベント (status / issue) を記録。id はクライアント生成 varchar
       await genbaDb.createGenbaTaskEvent({
+        id: nanoid(21),
         taskId: input.id,
         kind: input.status === "issue" ? "issue" : "status",
         byUserId: ctx.user.id,

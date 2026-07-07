@@ -1,6 +1,7 @@
 import { PRIORITY } from "@/lib/genbaMap";
 import { Button } from "@/components/ui/button";
 import { X, Pencil, Trash2, Plus, ChevronLeft } from "lucide-react";
+import TaskTree from "./TaskTree";
 
 export type ZoneWithAgg = {
   id: string;
@@ -20,7 +21,7 @@ export type ZoneWithAgg = {
  */
 export default function ZoneSheet({
   zone, children, parent, canEdit,
-  onClose, onSelectZone, onSetPriority, onTogglePaused, onRename, onStartEditRange, onAddSubArea, onDelete,
+  onClose, onSelectZone, onSetPriority, onTogglePaused, onRename, onStartEditRange, onAddSubArea, onDelete, onTasksChanged,
 }: {
   zone: ZoneWithAgg;
   children: ZoneWithAgg[];
@@ -34,6 +35,7 @@ export default function ZoneSheet({
   onStartEditRange: () => void;
   onAddSubArea: () => void;
   onDelete: () => void;
+  onTasksChanged: () => void;
 }) {
   return (
     <div className="rounded-xl border border-border bg-card p-3 space-y-3">
@@ -119,7 +121,10 @@ export default function ZoneSheet({
         </Button>
       )}
 
-      <p className="text-xs text-muted-foreground">作業(タスク)の追加・進捗登録は次の更新で有効になります。</p>
+      {/* 作業ツリー (M2-C) */}
+      <div className="border-t border-border pt-2">
+        <TaskTree zoneId={zone.id} canEdit={canEdit} onChanged={onTasksChanged} />
+      </div>
     </div>
   );
 }

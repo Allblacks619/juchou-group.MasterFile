@@ -72,9 +72,13 @@ describe("genba.tasks", () => {
       expect(mockGenbaDb.updateGenbaTask).toHaveBeenCalledWith(TASK.id, expect.objectContaining({ status: "todo", percent: null }));
     });
 
-    it("status変更で履歴イベント(kind=status)を作成", async () => {
+    it("status変更で履歴イベント(kind=status)を作成 (id はクライアント生成)", async () => {
       await worker().genba.tasks.setStatus({ id: TASK.id, status: "done" });
-      expect(mockGenbaDb.createGenbaTaskEvent).toHaveBeenCalledWith(expect.objectContaining({ taskId: TASK.id, kind: "status" }));
+      const evt = mockGenbaDb.createGenbaTaskEvent.mock.calls[0][0];
+      // id が無いと task_events (varchar PK, autoincrementでない) の insert が失敗する
+      expect(typeof evt.id).toBe("string");
+      expect(evt.id.length).toBeGreaterThan(0);
+      expect(evt).toMatchObject({ taskId: TASK.id, kind: "status" });
     });
 
     it("問題報告: 写真をR2へPUTし、キーのみイベントに保存 (base64はDBに渡さない)", async () => {
