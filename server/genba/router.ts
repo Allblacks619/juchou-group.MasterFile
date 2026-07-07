@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { genbaRoleOf } from "../../shared/genba/roles";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import * as db from "../db";
 import * as genbaDb from "./db";
 import { storageGet, storagePut } from "../storage";
@@ -10,6 +10,7 @@ import { validateFile } from "../../shared/uploadValidation";
 import { computeZoneAggregates } from "./aggregate";
 import { computeBoard } from "./board";
 import { computeBudget } from "./budget";
+import { buildShareView, SHARE_SCOPES } from "./share";
 import { buildTemplateTree, DEFAULT_TEMPLATE_DATA, type TemplateNode, type TemplateTreeNode } from "../../shared/genba/template";
 
 /** テンプレートツリーから新規ゾーン用の作業タスク行を生成 (親子リンク付き) */
@@ -911,10 +912,78 @@ const templatesRouter = router({
     }),
 });
 
+const shareScopesSchema = z.array(z.enum(SHARE_SCOPES)).min(1, "公開範囲を1つ以上選択してください");
+
 const sharesRouter = router({
-  list: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(notImplemented),
-  create: genbaFieldProcedure.input(z.object({ siteId: genbaIdSchema, name: z.string().trim().min(1).max(120), scopes: z.array(z.string()).optional(), expiresAt: z.string().nullish() })).mutation(notImplemented),
-  revoke: genbaFieldProcedure.input(z.object({ id: genbaIdSchema })).mutation(notImplemented),
+  /** 共有リンク一覧 (field)。token を含むので URL 生成に使える */
+  list: genbaFieldProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    return genbaDb.listGenbaSharesBySite(input.siteId);
+  }),
+
+  /** 共有リンク作成 (field)。token を生成し、scopes/expiresAt を保存 */
+  create: genbaFieldProcedure
+    .input(z.object({
+      siteId: genbaIdSchema,
+      name: z.string().trim().min(1).max(120),
+      scopes: shareScopesSchema,
+      expiresAt: z.string().datetime().nullish(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const site = await genbaDb.getGenbaSiteById(input.siteId);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      const id = nanoid(21);
+      const token = nanoid(32);
+      const share = await genbaDb.createGenbaShare({
+        id, siteId: input.siteId, name: input.name, token,
+        scopes: input.scopes,
+        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      });
+      await safeGenbaAuditLog(ctx.user.id, "genba.shares.create", { entityId: id, note: `共有リンクを作成: ${input.name} [${input.scopes.join(",")}]` });
+      return share;
+    }),
+
+  /** 共有リンクの失効 (field) */
+  revoke: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaShareById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "共有リンクが見つかりません" });
+      await genbaDb.deleteGenbaShare(input.id);
+      await safeGenbaAuditLog(ctx.user.id, "genba.shares.revoke", { entityId: input.id, note: `共有リンクを失効: ${existing.name}` });
+      return { success: true as const };
+    }),
+
+  /**
+   * ★非認証★ 公開ビュー。token のみでアクセス可能 (ログイン不要)。
+   * 期限切れ・不正 token は NOT_FOUND (存在を明かさない)。
+   * 返すデータは buildShareView がホワイトリストでサニタイズ (社内メモ/Drive/予算/担当者を含めない)。
+   */
+  publicView: publicProcedure
+    .input(z.object({ token: z.string().min(1).max(64) }))
+    .query(async ({ input }) => {
+      assertGenbaEnabled();
+      const notFound = () => new TRPCError({ code: "NOT_FOUND", message: "共有リンクが見つからないか、期限切れです" });
+      const share = await genbaDb.getGenbaShareByToken(input.token);
+      if (!share) throw notFound();
+      if (share.expiresAt && new Date(share.expiresAt).getTime() < Date.now()) throw notFound();
+      const site = await genbaDb.getGenbaSiteById(share.siteId);
+      if (!site || site.archived) throw notFound();
+
+      const graph = await genbaDb.collectSiteGraph(share.siteId);
+      const scopes = share.scopes;
+      // 図面画像は map スコープのときだけ署名 URL を付与
+      const floors = scopes.includes("map")
+        ? await withFloorImageUrls(graph.floors)
+        : graph.floors.map((f) => ({ ...f, imageUrl: null }));
+
+      return buildShareView({
+        scopes,
+        site: { name: site.name }, // driveUrl は渡さない
+        floors: floors.map((f) => ({ id: f.id, name: f.name, w: f.w, h: f.h, imageUrl: (f as any).imageUrl ?? null })),
+        zones: graph.zones.map((z) => ({ id: z.id, floorId: z.floorId, parentZoneId: z.parentZoneId, name: z.name, polygon: z.polygon, priority: z.priority, workStatus: z.workStatus })),
+        tasks: graph.tasks.map((t) => ({ id: t.id, zoneId: t.zoneId, parentTaskId: t.parentTaskId, name: t.name, romaji: t.romaji, status: t.status, percent: t.percent, dueDate: t.dueDate })),
+      });
+    }),
 });
 
 const ymdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日付は YYYY-MM-DD 形式");

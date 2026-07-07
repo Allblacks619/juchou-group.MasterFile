@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package, Wallet } from "lucide-react";
+import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package, Wallet, Share2 } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, type Pt } from "@/lib/genbaMap";
 import ProgressBadge from "./ProgressBadge";
@@ -13,6 +13,7 @@ import InstructionsPanel from "./InstructionsPanel";
 import BoardPanel from "./BoardPanel";
 import MaterialsPanel from "./MaterialsPanel";
 import BudgetPanel from "./BudgetPanel";
+import SharesPanel from "./SharesPanel";
 
 type FloorWorkspaceProps = {
   siteId: string;
@@ -45,6 +46,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
   const [showBoard, setShowBoard] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
+  const [showShares, setShowShares] = useState(false);
 
   const { data: unreadCount } = trpc.genba.instructions.unreadCount.useQuery({ siteId }, { retry: false, staleTime: 30 * 1000 });
 
@@ -243,6 +245,9 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
             <Button size="sm" variant="outline" onClick={() => setShowTemplate(true)}>
               <ListChecks className="h-4 w-4 mr-1" /> 作業テンプレート
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowShares(true)}>
+              <Share2 className="h-4 w-4 mr-1" /> 共有
+            </Button>
             <input ref={fileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={onFileChosen} />
             <Button size="sm" onClick={() => fileRef.current?.click()} disabled={!!busy}>
               {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
@@ -266,6 +271,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
       {showBoard && <BoardPanel siteId={siteId} meUserId={meUserId} open={showBoard} onOpenChange={setShowBoard} />}
       {showMaterials && <MaterialsPanel siteId={siteId} canEdit={canEdit} meUserId={meUserId} open={showMaterials} onOpenChange={setShowMaterials} />}
       {showBudget && <BudgetPanel siteId={siteId} siteName={siteName} open={showBudget} onOpenChange={setShowBudget} />}
+      {showShares && <SharesPanel siteId={siteId} open={showShares} onOpenChange={setShowShares} />}
 
       {/* フロアバー */}
       {list.length > 0 && (
