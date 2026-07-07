@@ -17,6 +17,7 @@ import {
   genbaMaterialRequestItems, GenbaMaterialRequestItem, InsertGenbaMaterialRequestItem,
   genbaBudgets, GenbaBudget, InsertGenbaBudget,
   genbaBudgetAttendance, GenbaBudgetAttendance, InsertGenbaBudgetAttendance,
+  genbaShares, GenbaShare, InsertGenbaShare,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { users, attendance, projects } from "../../drizzle/schema";
@@ -722,4 +723,59 @@ export async function getProjectPeriod(projectId: number): Promise<{ id: number;
   const rows = await db.select({ id: projects.id, name: projects.name, startDate: projects.startDate, endDate: projects.endDate })
     .from(projects).where(eq(projects.id, projectId)).limit(1);
   return rows[0] ?? null;
+}
+
+// ── genba_shares ──
+
+/** json 列 (scopes) を文字列配列へ正規化 */
+export function normalizeShare(row: GenbaShare): GenbaShare & { scopes: string[] } {
+  let scopes: string[] = [];
+  const raw = row.scopes as unknown;
+  if (Array.isArray(raw)) scopes = raw as string[];
+  else if (typeof raw === "string" && raw.trim()) {
+    try { const p = JSON.parse(raw); if (Array.isArray(p)) scopes = p; } catch { /* noop */ }
+  }
+  return { ...row, scopes };
+}
+
+export async function listGenbaSharesBySite(siteId: string): Promise<(GenbaShare & { scopes: string[] })[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(genbaShares).where(eq(genbaShares.siteId, siteId)).orderBy(desc(genbaShares.createdAt));
+  return rows.map(normalizeShare);
+}
+
+export async function getGenbaShareById(id: string): Promise<(GenbaShare & { scopes: string[] }) | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaShares).where(eq(genbaShares.id, id)).limit(1);
+  return rows[0] ? normalizeShare(rows[0]) : null;
+}
+
+export async function getGenbaShareByToken(token: string): Promise<(GenbaShare & { scopes: string[] }) | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaShares).where(eq(genbaShares.token, token)).limit(1);
+  return rows[0] ? normalizeShare(rows[0]) : null;
+}
+
+export async function createGenbaShare(data: InsertGenbaShare): Promise<(GenbaShare & { scopes: string[] }) | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaShares).values(data);
+  return getGenbaShareById(data.id);
+}
+
+export async function deleteGenbaShare(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaShares).where(eq(genbaShares.id, id));
+}
+
+/** 共有ビュー用に現場のフロア/ゾーン/タスクをまとめて取得 (画像URL付与は呼び出し側) */
+export async function collectSiteGraph(siteId: string): Promise<{ floors: GenbaFloor[]; zones: GenbaZone[]; tasks: GenbaTask[] }> {
+  const floors = await listGenbaFloorsBySite(siteId);
+  const zones = await listGenbaZonesByFloorIds(floors.map((f) => f.id));
+  const tasks = await listGenbaTasksByZoneIds(zones.map((z) => z.id));
+  return { floors, zones, tasks };
 }

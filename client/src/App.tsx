@@ -39,6 +39,7 @@ const AppSupport = lazy(() => import("./pages/AppSupport"));
 const AppPasswordResets = lazy(() => import("./pages/AppPasswordResets"));
 const AppResetPassword = lazy(() => import("./pages/AppResetPassword"));
 const AppGenba = lazy(() => import("./pages/AppGenba"));
+const AppGenbaShare = lazy(() => import("./pages/AppGenbaShare"));
 
 function ScrollToTop() {
   const [location] = useLocation();
@@ -151,6 +152,11 @@ function Router() {
         <Route path="/en" component={Home} />
         <Route path="/en/recruit" component={Recruit} />
         <Route path="/en/contact" component={Contact} />
+
+        {/* 外部共有ビュー (非認証・AppLayout外・閲覧専用) */}
+        <Route path="/app/share/:token">
+          <Suspense fallback={<AppFallback />}><AppGenbaShare /></Suspense>
+        </Route>
 
         {/* Custom Auth Pages (no AppLayout wrapper, no auth required) */}
         <Route path="/app/login" component={AppLogin} />
