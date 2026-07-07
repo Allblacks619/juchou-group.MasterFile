@@ -61,6 +61,7 @@ import {
 import { ja } from "date-fns/locale";
 import { useLocation } from "wouter";
 import { isManagerLikeAppRole } from "@/lib/appRoles";
+import { usePdfViewer } from "@/components/PdfViewer";
 import {
   type WorkType,
   type ShiftType,
@@ -276,6 +277,7 @@ export default function AppAttendance() {
   const lastProjectQuery = trpc.attendance.lastProject.useQuery();
   const employeesQuery = trpc.employee.list.useQuery();
   const utils = trpc.useUtils();
+  const pdfViewer = usePdfViewer();
 
   // Get project members for the selected project
   const projectMembersQuery = trpc.project.members.useQuery(
@@ -309,7 +311,7 @@ export default function AppAttendance() {
   const generatePdfMutation = trpc.attendance.generatePdf.useMutation({
     onSuccess: (data) => {
       toast.success("PDF生成完了");
-      window.open(data.url, "_blank");
+      pdfViewer.open(data.url, "出面表.pdf", "出面表");
     },
     onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
   });
@@ -1265,6 +1267,7 @@ export default function AppAttendance() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {pdfViewer.dialog}
     </div>
   );
 }
