@@ -9,8 +9,10 @@
  * - 現場ステータスもチップ型
  */
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,6 +37,10 @@ import {
   Upload,
   Users,
   Flag,
+  RotateCcw,
+  UserCog,
+  Lock,
+  Sparkles,
 } from "lucide-react";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -151,6 +157,20 @@ function canManageTransportationRole(appRole: unknown) {
   return ["super_admin", "admin", "manager", "leader", "supervisor", "accounting-manager"].includes(String(appRole || ""));
 }
 
+// 「承認済み」とみなす個別ステータス（＝この作業員は会社確認OK）。
+const PARTICIPANT_OK_STATUSES = ["確認済み", "締め完了"] as const;
+
+/** 現場の参加者から提出状況の内訳（OK / 差し戻し / 未対応）と完了可否を集計する。 */
+function summarizeParticipants(participants: any[]) {
+  const active = (participants ?? []).filter((p: any) => !p.isAggregationExcluded);
+  const ok = active.filter((p: any) => (PARTICIPANT_OK_STATUSES as readonly string[]).includes(p.individualStatus)).length;
+  const sentBack = active.filter((p: any) => p.individualStatus === "差し戻し").length;
+  const pending = active.length - ok - sentBack;
+  const allClosed = active.length > 0 && active.every((p: any) => p.individualStatus === "締め完了");
+  const allOk = active.length > 0 && active.every((p: any) => (PARTICIPANT_OK_STATUSES as readonly string[]).includes(p.individualStatus));
+  return { total: active.length, ok, sentBack, pending, allClosed, allOk };
+}
+
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 // ─── Chip Button ─────────────────────────────────────────────────────────────
@@ -193,6 +213,8 @@ export default function AppMonthlyCloseV2() {
   const canManageTransportation = canManageTransportationRole(appRole);
   const [targetMonth, setTargetMonth] = useState(getCurrentMonth);
   const [openProjectIds, setOpenProjectIds] = useState<Set<string>>(new Set());
+  const [completingId, setCompletingId] = useState<number | null>(null);
+  const [, navigate] = useLocation();
   const queryInput = useMemo(() => ({ targetMonth }), [targetMonth]);
   const utils = trpc.useUtils();
 
@@ -262,6 +284,102 @@ export default function AppMonthlyCloseV2() {
     [canChangeAggregation, updateParticipant]
   );
 
+  // ── クイックアクション：承認 / 差し戻し / 代行 / プロジェクト締め完了 ──────────
+  const approveParticipant = useCallback(
+    async (row: any, participant: any) => {
+      try {
+        await updateParticipant(row, participant, {
+          individualStatus: "確認済み",
+          invoiceInfoStatus: "確認済み",
+          sendBackReason: "",
+        });
+        toast.success(`${participant.workerName} を承認しました`);
+      } catch {
+        toast.error("承認に失敗しました");
+      }
+    },
+    [updateParticipant]
+  );
+
+  const sendBackParticipant = useCallback(
+    async (row: any, participant: any) => {
+      const reason = window.prompt(
+        `${participant.workerName} を差し戻します。理由を入力してください（作業員に表示されます）。`,
+        toText(participant.sendBackReason)
+      );
+      if (reason == null) return;
+      if (reason.trim().length === 0) {
+        toast.error("差し戻し理由を入力してください");
+        return;
+      }
+      try {
+        await updateParticipant(row, participant, {
+          individualStatus: "差し戻し",
+          invoiceInfoStatus: "確認中",
+          sendBackReason: reason.trim(),
+          missingInfo: reason.trim(),
+        });
+        toast.success(`${participant.workerName} を差し戻しました`);
+      } catch {
+        toast.error("差し戻しに失敗しました");
+      }
+    },
+    [updateParticipant]
+  );
+
+  const delegateParticipant = useCallback(
+    (row: any, participant: any) => {
+      if (!participant.workerId) {
+        toast.error("ゲストは代行できません");
+        return;
+      }
+      navigate(`/app/my-closing?projectId=${row.projectId}&month=${targetMonth}&employeeId=${participant.workerId}`);
+    },
+    [navigate, targetMonth]
+  );
+
+  const completeProject = useCallback(
+    async (row: any) => {
+      const active = (row.participants ?? []).filter((p: any) => !p.isAggregationExcluded);
+      if (active.length === 0) return;
+      const notOk = active.filter((p: any) => !(PARTICIPANT_OK_STATUSES as readonly string[]).includes(p.individualStatus));
+      if (notOk.length > 0) {
+        toast.error("未承認の作業員がいます。全員を承認してから締め完了できます。");
+        return;
+      }
+      setCompletingId(Number(row.projectId));
+      try {
+        // 全員を締め完了に確定してから、現場ステータスを締め完了へ。
+        for (const p of active) {
+          if (p.individualStatus !== "締め完了") {
+            await updateParticipant(row, p, { individualStatus: "締め完了", invoiceInfoStatus: "確認済み" });
+          }
+        }
+        await projectStatusMutation.mutateAsync({ targetMonth, projectId: Number(row.projectId), status: "締め完了" });
+        toast.success(`${row.projectName} を締め完了にしました`);
+      } catch {
+        toast.error("締め完了処理に失敗しました");
+      } finally {
+        setCompletingId(null);
+      }
+    },
+    [updateParticipant, projectStatusMutation, targetMonth]
+  );
+
+  // 取引先ごとにプロジェクトをグルーピング（projectRows は取引先→現場名の順で整列済み）。
+  const clientGroups = useMemo(() => {
+    const groups = new Map<string, any[]>();
+    for (const row of projectRows) {
+      const key = row.clientName || "未設定";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(row);
+    }
+    return Array.from(groups.entries()).map(([clientName, rows]) => {
+      const closedCount = rows.filter((r: any) => r.closingStatus === "締め完了").length;
+      return { clientName, rows, closedCount, total: rows.length, allClosed: rows.length > 0 && closedCount === rows.length };
+    });
+  }, [projectRows]);
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -271,7 +389,7 @@ export default function AppMonthlyCloseV2() {
             <FileCheck2 className="h-5 w-5 text-gold" />
             月締め管理
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">対象月 × 現場／プロジェクト単位で月締めを管理</p>
+          <p className="text-xs text-muted-foreground mt-0.5">取引先 › 現場 › 作業員。提出を確認して承認／差し戻し、全員承認で現場を締め完了。</p>
         </div>
         <div className="flex items-center gap-2">
           {/* Month selector */}
@@ -316,150 +434,211 @@ export default function AppMonthlyCloseV2() {
           {formatMonth(targetMonth)} のデータがありません
         </div>
       ) : (
-        <div className="space-y-4">
-          {projectRows.map((row: any) => {
-            const projectKey = `project:${row.projectId}`;
-            const isOpen = openProjectIds.has(projectKey);
-            const participants = row.participants ?? [];
-
-            return (
-              <Card key={projectKey} className="overflow-hidden">
-                {/* Project card header */}
-                <div
-                  className="flex items-center gap-4 p-4 cursor-pointer hover:bg-muted/10 transition-colors"
-                  onClick={() => toggleProject(row.projectId)}
-                >
-                  {/* Building icon */}
-                  <div className="shrink-0 w-12 h-12 rounded-md bg-muted/30 border flex items-center justify-center">
-                    <Building2 className="h-6 w-6 text-muted-foreground" />
-                  </div>
-
-                  {/* Project name + client */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="text-base font-bold text-left hover:underline truncate"
-                        onClick={(e) => { e.stopPropagation(); toggleProject(row.projectId); }}
-                      >
-                        {row.projectName}
-                      </button>
-                      {isOpen ? (
-                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">{row.clientName}</p>
-                  </div>
-
-                  {/* Stats */}
-                  <div className="hidden sm:flex items-center gap-6 shrink-0">
-                    {/* 参加 */}
-                    <div className="text-center">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5">
-                        <Users className="h-3 w-3" />参加
-                      </div>
-                      <div className="text-lg font-bold">{row.participantCount}<span className="text-xs font-normal text-muted-foreground ml-0.5">名</span></div>
-                    </div>
-                    {/* 出勤日数 */}
-                    <div className="text-center">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5">
-                        <CalendarDays className="h-3 w-3" />出勤日数
-                      </div>
-                      <div className="text-lg font-bold">{row.attendanceCount}<span className="text-xs font-normal text-muted-foreground ml-0.5">日</span></div>
-                    </div>
-                    {/* 警告 */}
-                    <div className="text-center">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5">
-                        <AlertTriangle className="h-3 w-3" />警告
-                      </div>
-                      <div className={`text-lg font-bold ${row.warningCount > 0 ? "text-amber-500" : "text-muted-foreground"}`}>
-                        {row.warningCount}<span className="text-xs font-normal ml-0.5">件</span>
-                      </div>
-                    </div>
-                    {/* 月締めステータス */}
-                    <div className="text-center min-w-[80px]">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5 justify-center">
-                        <Flag className="h-3 w-3" />月締めステータス
-                      </div>
-                      <ProjectStatusSelector
-                        value={row.closingStatus}
-                        onChange={(value) =>
-                          projectStatusMutation.mutate({
-                            targetMonth,
-                            projectId: Number(row.projectId),
-                            status: value as any,
-                          })
-                        }
-                        disabled={projectStatusMutation.isPending}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Mobile stats */}
-                  <div className="sm:hidden flex flex-col items-end gap-1 shrink-0">
-                    <Badge
-                      variant="outline"
-                      className={`text-xs ${PROJECT_STATUS_CHIP[row.closingStatus] || PROJECT_STATUS_CHIP.未着手}`}
-                    >
-                      {row.closingStatus}
-                    </Badge>
-                    <div className="flex gap-2 text-xs text-muted-foreground">
-                      <span>{row.participantCount}名</span>
-                      <span>{row.attendanceCount}日</span>
-                      {row.warningCount > 0 && (
-                        <span className="text-amber-500">{row.warningCount}件警告</span>
-                      )}
-                    </div>
-                  </div>
+        <div className="space-y-8">
+          {clientGroups.map((group) => (
+            <section key={group.clientName} className="space-y-3">
+              {/* 取引先ヘッダー */}
+              <div className="flex items-center gap-3 border-b border-gold/20 pb-2">
+                <div className="shrink-0 w-8 h-8 rounded-md bg-gold/10 border border-gold/30 flex items-center justify-center">
+                  <Building2 className="h-4 w-4 text-gold" />
                 </div>
-
-                {/* Expanded participant section */}
-                {isOpen && (
-                  <div className="border-t">
-                    {/* Participant table header — desktop */}
-                    <div className={`hidden md:grid ${canManageTransportation ? "md:grid-cols-[minmax(0,2fr)_80px_minmax(0,1.5fr)_110px_minmax(0,1.2fr)_minmax(0,1.2fr)_80px]" : "md:grid-cols-[minmax(0,2fr)_80px_minmax(0,1.5fr)_minmax(0,1.2fr)_80px]"} gap-x-3 px-5 py-2 text-xs font-medium text-muted-foreground bg-muted/20 border-b`}>
-                      <span>作業員名</span>
-                      <span className="text-center">出勤日数</span>
-                      <span>個別状態</span>
-                      {canManageTransportation && <span>交通費金額</span>}
-                      {canManageTransportation && <span>領収書状況</span>}
-                      <span>請求情報状態</span>
-                      <span></span>
-                    </div>
-
-                    {/* Mobile participant header */}
-                    <div className="md:hidden px-4 py-2 text-xs font-medium text-muted-foreground bg-muted/20 border-b">
-                      参加者明細
-                    </div>
-
-                    {participants.length === 0 ? (
-                      <div className="px-5 py-8 text-center text-sm text-muted-foreground">
-                        参加者明細がありません
-                      </div>
-                    ) : (
-                      <div className="divide-y">
-                        {participants.map((participant: any) => (
-                          <ParticipantRow
-                            key={participant.participantKey}
-                            row={row}
-                            participant={participant}
-                            targetMonth={targetMonth}
-                            canChangeAggregation={canChangeAggregation}
-                            canManageTransportation={canManageTransportation}
-                            isSavingStatus={participantStatusMutation.isPending}
-                            onUpdate={updateParticipant}
-                            onChangeAggregation={changeAggregation}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm font-bold truncate">{group.clientName}</h2>
+                  <p className="text-[11px] text-muted-foreground">現場 {group.closedCount}/{group.total} 締め完了</p>
+                </div>
+                {group.allClosed ? (
+                  <Badge variant="outline" className="shrink-0 gap-1 border-emerald-500/40 bg-emerald-500/10 text-emerald-500 text-xs">
+                    <Sparkles className="h-3 w-3" />全現場締め完了 · 請求可能
+                  </Badge>
+                ) : (
+                  <span className="shrink-0 text-xs text-muted-foreground">残り {group.total - group.closedCount} 現場</span>
                 )}
-              </Card>
-            );
-          })}
+              </div>
+
+              <div className="space-y-4">
+                {group.rows.map((row: any) => {
+                  const projectKey = `project:${row.projectId}`;
+                  const isOpen = openProjectIds.has(projectKey);
+                  const participants = row.participants ?? [];
+                  const summary = summarizeParticipants(participants);
+                  const isClosed = row.closingStatus === "締め完了";
+                  const canComplete = summary.total > 0 && summary.allOk && !isClosed;
+
+                  return (
+                    <Card key={projectKey} className="overflow-hidden">
+                      {/* Project card header */}
+                      <div
+                        className="flex items-center gap-4 p-4 cursor-pointer hover:bg-muted/10 transition-colors"
+                        onClick={() => toggleProject(row.projectId)}
+                      >
+                        {/* Building icon */}
+                        <div className="shrink-0 w-12 h-12 rounded-md bg-muted/30 border flex items-center justify-center">
+                          <Building2 className="h-6 w-6 text-muted-foreground" />
+                        </div>
+
+                        {/* Project name + status summary */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="text-base font-bold text-left hover:underline truncate"
+                              onClick={(e) => { e.stopPropagation(); toggleProject(row.projectId); }}
+                            >
+                              {row.projectName}
+                            </button>
+                            {isOpen ? (
+                              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            )}
+                          </div>
+                          {/* 提出状況の内訳 */}
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] border border-emerald-500/30 bg-emerald-500/10 text-emerald-500">
+                              承認 {summary.ok}/{summary.total}
+                            </span>
+                            {summary.sentBack > 0 && (
+                              <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] border border-red-500/30 bg-red-500/10 text-red-500">
+                                差戻 {summary.sentBack}
+                              </span>
+                            )}
+                            {summary.pending > 0 && (
+                              <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] border border-amber-500/30 bg-amber-500/10 text-amber-500">
+                                未対応 {summary.pending}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Stats */}
+                        <div className="hidden sm:flex items-center gap-6 shrink-0">
+                          {/* 参加 */}
+                          <div className="text-center">
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5">
+                              <Users className="h-3 w-3" />参加
+                            </div>
+                            <div className="text-lg font-bold">{row.participantCount}<span className="text-xs font-normal text-muted-foreground ml-0.5">名</span></div>
+                          </div>
+                          {/* 出勤日数 */}
+                          <div className="text-center">
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5">
+                              <CalendarDays className="h-3 w-3" />出勤日数
+                            </div>
+                            <div className="text-lg font-bold">{row.attendanceCount}<span className="text-xs font-normal text-muted-foreground ml-0.5">日</span></div>
+                          </div>
+                          {/* 月締めステータス */}
+                          <div className="text-center min-w-[80px]">
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5 justify-center">
+                              <Flag className="h-3 w-3" />月締めステータス
+                            </div>
+                            <ProjectStatusSelector
+                              value={row.closingStatus}
+                              onChange={(value) =>
+                                projectStatusMutation.mutate({
+                                  targetMonth,
+                                  projectId: Number(row.projectId),
+                                  status: value as any,
+                                })
+                              }
+                              disabled={projectStatusMutation.isPending}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Mobile stats */}
+                        <div className="sm:hidden flex flex-col items-end gap-1 shrink-0">
+                          <Badge
+                            variant="outline"
+                            className={`text-xs ${PROJECT_STATUS_CHIP[row.closingStatus] || PROJECT_STATUS_CHIP.未着手}`}
+                          >
+                            {row.closingStatus}
+                          </Badge>
+                          <div className="flex gap-2 text-xs text-muted-foreground">
+                            <span>{row.participantCount}名</span>
+                            <span>{row.attendanceCount}日</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 締め完了アクションバー（全員承認済み時／完了済み時） */}
+                      {(canComplete || isClosed) && (
+                        <div className="flex items-center justify-between gap-3 border-t bg-muted/10 px-4 py-2.5">
+                          <span className="text-xs text-muted-foreground">
+                            {isClosed ? "この現場は締め完了しています。" : "全作業員が承認済みです。現場を締め完了にできます。"}
+                          </span>
+                          {isClosed ? (
+                            <Badge variant="outline" className="shrink-0 gap-1 border-emerald-500/40 bg-emerald-500/10 text-emerald-500 text-xs">
+                              <Lock className="h-3 w-3" />締め完了
+                            </Badge>
+                          ) : (
+                            <Button
+                              size="sm"
+                              className="h-8 shrink-0 gap-1 bg-gold text-black hover:bg-gold/90"
+                              disabled={completingId === Number(row.projectId)}
+                              onClick={(e) => { e.stopPropagation(); completeProject(row); }}
+                            >
+                              {completingId === Number(row.projectId) ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                              )}
+                              現場を締め完了にする
+                            </Button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Expanded participant section */}
+                      {isOpen && (
+                        <div className="border-t">
+                          {/* Participant table header — desktop */}
+                          <div className={`hidden md:grid ${canManageTransportation ? "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_100px_minmax(0,1.1fr)_minmax(0,1.1fr)_150px]" : "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_minmax(0,1.1fr)_150px]"} gap-x-3 px-5 py-2 text-xs font-medium text-muted-foreground bg-muted/20 border-b`}>
+                            <span>作業員名</span>
+                            <span className="text-center">出勤日数</span>
+                            <span>個別状態</span>
+                            {canManageTransportation && <span>交通費金額</span>}
+                            {canManageTransportation && <span>領収書状況</span>}
+                            <span>請求情報状態</span>
+                            <span className="text-right">操作</span>
+                          </div>
+
+                          {/* Mobile participant header */}
+                          <div className="md:hidden px-4 py-2 text-xs font-medium text-muted-foreground bg-muted/20 border-b">
+                            参加者明細
+                          </div>
+
+                          {participants.length === 0 ? (
+                            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+                              参加者明細がありません
+                            </div>
+                          ) : (
+                            <div className="divide-y">
+                              {participants.map((participant: any) => (
+                                <ParticipantRow
+                                  key={participant.participantKey}
+                                  row={row}
+                                  participant={participant}
+                                  targetMonth={targetMonth}
+                                  canChangeAggregation={canChangeAggregation}
+                                  canManageTransportation={canManageTransportation}
+                                  isSavingStatus={participantStatusMutation.isPending}
+                                  onUpdate={updateParticipant}
+                                  onChangeAggregation={changeAggregation}
+                                  onApprove={approveParticipant}
+                                  onSendBack={sendBackParticipant}
+                                  onDelegate={delegateParticipant}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </div>
@@ -516,6 +695,9 @@ function ParticipantRow({
   isSavingStatus,
   onUpdate,
   onChangeAggregation,
+  onApprove,
+  onSendBack,
+  onDelegate,
 }: {
   row: any;
   participant: any;
@@ -525,6 +707,9 @@ function ParticipantRow({
   isSavingStatus: boolean;
   onUpdate: (row: any, participant: any, patch: Record<string, unknown>) => Promise<void>;
   onChangeAggregation: (row: any, participant: any) => void;
+  onApprove: (row: any, participant: any) => void;
+  onSendBack: (row: any, participant: any) => void;
+  onDelegate: (row: any, participant: any) => void;
 }) {
   const utils = trpc.useUtils();
   const [isEditing, setIsEditing] = useState(false);
@@ -684,9 +869,68 @@ function ParticipantRow({
     reader.readAsDataURL(file);
   };
 
+  const individualStatus = toText(participant.individualStatus);
+  const isApproved = (PARTICIPANT_OK_STATUSES as readonly string[]).includes(individualStatus);
+  const isSentBack = individualStatus === "差し戻し";
+  const isLocked = individualStatus === "締め完了";
+
+  // アイコン式クイックアクション（承認 / 差し戻し / 代行入力 / 詳細編集）。
+  const quickActions = (
+    <div className="flex items-center justify-end gap-0.5">
+      {!isApproved && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title="承認"
+          disabled={isSavingStatus}
+          className="h-7 w-7 text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-500"
+          onClick={() => onApprove(row, participant)}
+        >
+          <CheckCircle2 className="h-4 w-4" />
+        </Button>
+      )}
+      {!isSentBack && !isLocked && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title="差し戻し"
+          disabled={isSavingStatus}
+          className="h-7 w-7 text-red-500 hover:bg-red-500/10 hover:text-red-500"
+          onClick={() => onSendBack(row, participant)}
+        >
+          <RotateCcw className="h-4 w-4" />
+        </Button>
+      )}
+      {!isGuest && workerId != null && !isLocked && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title="代行入力（交通費・提出を代行）"
+          className="h-7 w-7 text-blue-500 hover:bg-blue-500/10 hover:text-blue-500"
+          onClick={() => onDelegate(row, participant)}
+        >
+          <UserCog className="h-4 w-4" />
+        </Button>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        title="詳細編集"
+        className="h-7 w-7 text-muted-foreground hover:bg-muted"
+        onClick={() => setIsEditing(true)}
+      >
+        <Pencil className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+
   // ── Collapsed read-only row (desktop) ────────────────────────────────────
   const desktopReadRow = (
-    <div className={`hidden md:grid ${canManageTransportation ? "md:grid-cols-[minmax(0,2fr)_80px_minmax(0,1.5fr)_110px_minmax(0,1.2fr)_minmax(0,1.2fr)_80px]" : "md:grid-cols-[minmax(0,2fr)_80px_minmax(0,1.5fr)_minmax(0,1.2fr)_80px]"} gap-x-3 px-5 py-2.5 items-center hover:bg-muted/5 transition-colors`}>
+    <div className={`hidden md:grid ${canManageTransportation ? "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_100px_minmax(0,1.1fr)_minmax(0,1.1fr)_150px]" : "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_minmax(0,1.1fr)_150px]"} gap-x-3 px-5 py-2.5 items-center hover:bg-muted/5 transition-colors`}>
       {/* 作業員名 */}
       <div className="flex flex-col min-w-0">
         <span className={`text-sm font-medium truncate ${isExcluded ? "text-muted-foreground" : ""}`}>
@@ -744,18 +988,7 @@ function ParticipantRow({
       )}
       {/* 操作 */}
       {!isExcluded ? (
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs px-3"
-            onClick={() => setIsEditing(true)}
-          >
-            <Pencil className="h-3 w-3 mr-1" />
-            編集
-          </Button>
-        </div>
+        quickActions
       ) : (
         <div className="flex justify-end">
           {canChangeAggregation && (
@@ -815,18 +1048,7 @@ function ParticipantRow({
             )}
           </div>
         </div>
-        {!isExcluded && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs px-2 shrink-0"
-            onClick={() => setIsEditing(true)}
-          >
-            <Pencil className="h-3 w-3 mr-1" />
-            編集
-          </Button>
-        )}
+        {!isExcluded && <div className="shrink-0">{quickActions}</div>}
       </div>
     </div>
   );
