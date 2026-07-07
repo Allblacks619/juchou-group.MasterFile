@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   genbaSites, GenbaSite, InsertGenbaSite,
   genbaFloors, GenbaFloor, InsertGenbaFloor,
@@ -12,6 +12,9 @@ import {
   genbaTaskTeams, GenbaTaskTeam, InsertGenbaTaskTeam,
   genbaInstructions, GenbaInstruction, InsertGenbaInstruction,
   genbaInstructionReads, GenbaInstructionRead, InsertGenbaInstructionRead,
+  genbaMaterialPresets, GenbaMaterialPreset, InsertGenbaMaterialPreset,
+  genbaMaterialRequests, GenbaMaterialRequest, InsertGenbaMaterialRequest,
+  genbaMaterialRequestItems, GenbaMaterialRequestItem, InsertGenbaMaterialRequestItem,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { users } from "../../drizzle/schema";
@@ -470,4 +473,148 @@ export async function upsertGenbaUserSettings(userId: number, patch: Partial<Pic
     guideSeen: patch.guideSeen ?? GENBA_DEFAULT_USER_SETTINGS.guideSeen,
   }).onDuplicateKeyUpdate({ set: Object.keys(patch).length ? patch : { userId } });
   return getGenbaUserSettings(userId);
+}
+
+// ── genba_material_presets ──
+
+/** MariaDB は json 列を文字列で返すため parts を配列へ正規化する (normalizeZone と同方針) */
+export function normalizeMaterialPreset(row: GenbaMaterialPreset): GenbaMaterialPreset & { parts: string[] } {
+  let parts: string[] = [];
+  const raw = row.parts as unknown;
+  if (Array.isArray(raw)) parts = raw as string[];
+  else if (typeof raw === "string" && raw.trim()) {
+    try { const p = JSON.parse(raw); if (Array.isArray(p)) parts = p; } catch { /* noop */ }
+  }
+  return { ...row, parts };
+}
+
+/** プリセット一覧。siteId 指定時は「全現場共通(null) + その現場」を返す */
+export async function listGenbaMaterialPresets(siteId?: string | null): Promise<(GenbaMaterialPreset & { parts: string[] })[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = siteId
+    ? await db.select().from(genbaMaterialPresets)
+        .where(or(isNull(genbaMaterialPresets.siteId), eq(genbaMaterialPresets.siteId, siteId)))
+        .orderBy(asc(genbaMaterialPresets.createdAt))
+    : await db.select().from(genbaMaterialPresets).orderBy(asc(genbaMaterialPresets.createdAt));
+  return rows.map(normalizeMaterialPreset);
+}
+
+export async function getGenbaMaterialPresetById(id: string): Promise<GenbaMaterialPreset | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaMaterialPresets).where(eq(genbaMaterialPresets.id, id)).limit(1);
+  return rows[0] ? normalizeMaterialPreset(rows[0]) : null;
+}
+
+export async function createGenbaMaterialPreset(data: InsertGenbaMaterialPreset): Promise<GenbaMaterialPreset | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaMaterialPresets).values(data);
+  return getGenbaMaterialPresetById(data.id);
+}
+
+export async function updateGenbaMaterialPreset(id: string, patch: Partial<Pick<InsertGenbaMaterialPreset, "workName" | "parts" | "siteId">>): Promise<GenbaMaterialPreset | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaMaterialPresets).set(patch).where(eq(genbaMaterialPresets.id, id));
+  return getGenbaMaterialPresetById(id);
+}
+
+export async function deleteGenbaMaterialPreset(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaMaterialPresets).where(eq(genbaMaterialPresets.id, id));
+}
+
+// ── genba_material_requests / genba_material_request_items ──
+
+export async function listGenbaMaterialRequestsBySite(siteId: string): Promise<GenbaMaterialRequest[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaMaterialRequests)
+    .where(eq(genbaMaterialRequests.siteId, siteId))
+    .orderBy(desc(genbaMaterialRequests.createdAt));
+}
+
+export async function getGenbaMaterialRequestById(id: string): Promise<GenbaMaterialRequest | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaMaterialRequests).where(eq(genbaMaterialRequests.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function listGenbaMaterialRequestItems(requestIds: string[]): Promise<GenbaMaterialRequestItem[]> {
+  const db = await getDb();
+  if (!db || requestIds.length === 0) return [];
+  return db.select().from(genbaMaterialRequestItems)
+    .where(inArray(genbaMaterialRequestItems.requestId, requestIds))
+    .orderBy(asc(genbaMaterialRequestItems.createdAt));
+}
+
+/** 依頼 + 明細を一括作成 */
+export async function createGenbaMaterialRequest(
+  request: InsertGenbaMaterialRequest,
+  items: InsertGenbaMaterialRequestItem[],
+): Promise<GenbaMaterialRequest | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaMaterialRequests).values(request);
+  if (items.length) await db.insert(genbaMaterialRequestItems).values(items);
+  return getGenbaMaterialRequestById(request.id);
+}
+
+export async function updateGenbaMaterialRequest(
+  id: string,
+  patch: Partial<Pick<InsertGenbaMaterialRequest, "status" | "orderedAt" | "deliveredAt" | "note">>,
+): Promise<GenbaMaterialRequest | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaMaterialRequests).set(patch).where(eq(genbaMaterialRequests.id, id));
+  return getGenbaMaterialRequestById(id);
+}
+
+/** 依頼を明細ごと削除 (取り消し) */
+export async function deleteGenbaMaterialRequestCascade(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaMaterialRequestItems).where(eq(genbaMaterialRequestItems.requestId, id));
+  await db.delete(genbaMaterialRequests).where(eq(genbaMaterialRequests.id, id));
+}
+
+export type MaterialAggregateRow = { name: string; unit: string; qty: number; count: number };
+
+/**
+ * Σ 集計 (発注用): 明細を name×unit で GROUP BY し、数量合計と依頼件数を返す。
+ * 全タスク/明細をフロントに流さず DB 側で集計する (ROADMAP: Σ集計=DB側GROUP BY)。
+ * boundary=null で全期間、指定時は request.createdAt >= boundary。pendingOnly で依頼中のみ。
+ */
+export async function aggregateGenbaMaterials(
+  siteId: string,
+  boundary: Date | null,
+  pendingOnly: boolean,
+): Promise<MaterialAggregateRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [eq(genbaMaterialRequests.siteId, siteId)];
+  if (boundary) conds.push(gte(genbaMaterialRequests.createdAt, boundary));
+  if (pendingOnly) conds.push(eq(genbaMaterialRequests.status, "pending"));
+  const rows = await db
+    .select({
+      name: genbaMaterialRequestItems.name,
+      unit: genbaMaterialRequestItems.unit,
+      qty: sql<number>`SUM(${genbaMaterialRequestItems.qty})`,
+      count: sql<number>`COUNT(*)`,
+    })
+    .from(genbaMaterialRequestItems)
+    .innerJoin(genbaMaterialRequests, eq(genbaMaterialRequestItems.requestId, genbaMaterialRequests.id))
+    .where(and(...conds))
+    .groupBy(genbaMaterialRequestItems.name, genbaMaterialRequestItems.unit)
+    .orderBy(desc(sql`SUM(${genbaMaterialRequestItems.qty})`));
+  return rows.map((r) => ({
+    name: r.name,
+    unit: r.unit ?? "個",
+    qty: Number(r.qty) || 0,
+    count: Number(r.count) || 0,
+  }));
 }
