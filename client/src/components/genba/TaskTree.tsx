@@ -4,24 +4,35 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { ChevronDown, Plus } from "lucide-react";
 import { PRIORITY, STATUS } from "@/lib/genbaMap";
+import { colorForKey } from "@/lib/genbaTeamColor";
 import { childrenMap, computeTaskProgress, rootTasks, fmtDate, todayStr, type GenbaTaskDto } from "@/lib/genbaTask";
 import StatusModal, { type SetStatusPayload } from "./StatusModal";
 import TaskDetailModal from "./TaskDetailModal";
+import AssignPicker from "./AssignPicker";
 
-/** ゾーン配下の作業ツリー (プロトタイプ TaskTree/TaskRow 移植)。進捗登録・詳細・追加。 */
-export default function TaskTree({ zoneId, canEdit, onChanged }: { zoneId: string; canEdit: boolean; onChanged: () => void }) {
+/** ゾーン配下の作業ツリー (プロトタイプ TaskTree/TaskRow 移植)。進捗登録・詳細・追加・担当割当。 */
+export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged }: { zoneId: string; siteId: string; meUserId: number | null; canEdit: boolean; onChanged: () => void }) {
   const utils = trpc.useUtils();
   const { data: tasks } = trpc.genba.tasks.listByZone.useQuery({ zoneId }, { retry: false });
+  const { data: users } = trpc.genba.users.listAssignable.useQuery(undefined, { retry: false, enabled: canEdit, staleTime: 5 * 60 * 1000 });
+  const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { retry: false, staleTime: 60 * 1000 });
   const [statusTask, setStatusTask] = useState<GenbaTaskDto | null>(null);
   const [detailTask, setDetailTask] = useState<GenbaTaskDto | null>(null);
 
   const refresh = () => { utils.genba.tasks.listByZone.invalidate({ zoneId }); onChanged(); };
 
   const setStatus = trpc.genba.tasks.setStatus.useMutation();
+  const assignUser = trpc.genba.tasks.assignUser.useMutation({ onSuccess: () => utils.genba.tasks.listByZone.invalidate({ zoneId }), onError: (e) => toast.error(e.message) });
+  const assignTeam = trpc.genba.tasks.assignTeam.useMutation({ onSuccess: () => utils.genba.tasks.listByZone.invalidate({ zoneId }), onError: (e) => toast.error(e.message) });
   const createTask = trpc.genba.tasks.create.useMutation({
     onSuccess: () => { refresh(); toast.success("作業を追加しました"); },
     onError: (e) => toast.error(e.message),
   });
+
+  const userList = (users || []) as { id: number; name: string | null; appRole: string }[];
+  const teamList = (teams || []) as { id: string; name: string; memberIds: number[] }[];
+  const userName = (id: number) => userList.find((u) => u.id === id)?.name || `user#${id}`;
+  const myTeamIds = new Set(teamList.filter((g) => meUserId != null && g.memberIds.includes(meUserId)).map((g) => g.id));
 
   const list = (tasks || []) as GenbaTaskDto[];
   const byParent = childrenMap(list);
@@ -40,9 +51,12 @@ export default function TaskTree({ zoneId, canEdit, onChanged }: { zoneId: strin
     const st = STATUS[task.status];
     const pr = task.priority ? PRIORITY[task.priority] : null;
     const overdue = task.dueDate && task.status !== "done" && task.dueDate < todayStr();
+    const assigneeIds = task.assigneeIds || [];
+    const tTeamIds = task.teamIds || [];
+    const isMine = meUserId != null && (assigneeIds.includes(meUserId) || tTeamIds.some((id) => myTeamIds.has(id)));
     return (
       <div key={task.id}>
-        <div className="flex items-center gap-2 py-1.5" style={{ paddingLeft: 4 + depth * 16, borderLeft: pr ? `4px solid ${pr.color}` : "4px solid transparent" }}>
+        <div className="flex items-center gap-2 py-1.5" style={{ paddingLeft: 4 + depth * 16, borderLeft: pr ? `4px solid ${pr.color}` : "4px solid transparent", background: isMine ? "rgba(0,90,255,0.06)" : undefined }}>
           {isLeaf ? (
             <button
               onClick={() => canEdit || true ? setStatusTask(task) : undefined}
@@ -61,6 +75,13 @@ export default function TaskTree({ zoneId, canEdit, onChanged }: { zoneId: strin
               {task.dueDate && <span className={`text-[11px] px-1.5 py-0.5 rounded ${overdue ? "bg-destructive/10 text-destructive font-bold" : "bg-muted text-muted-foreground"}`}>📅 {fmtDate(task.dueDate)}{overdue ? " 期限超過" : ""}</span>}
               {task.memo && task.memoVisible && <span title="メモあり">📝</span>}
               {task.linkUrl && <span title="図面リンク">📐</span>}
+              {tTeamIds.map((id) => {
+                const g = teamList.find((t) => t.id === id);
+                return g ? <span key={id} className="text-[10px] px-1.5 py-0.5 rounded font-bold text-white" style={{ background: colorForKey(id) }}>{g.name}</span> : null;
+              })}
+              {assigneeIds.map((id) => (
+                <span key={id} className="text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }}>{userName(id)}</span>
+              ))}
             </div>
             {!isLeaf && (
               <div className="mt-1 h-1.5 rounded bg-muted overflow-hidden">
@@ -69,6 +90,16 @@ export default function TaskTree({ zoneId, canEdit, onChanged }: { zoneId: strin
             )}
             {task.status === "issue" && task.issueText && <div className="text-xs text-[#b91c1c] mt-0.5">⚠ {task.issueText}</div>}
           </div>
+          {canEdit && isLeaf && (
+            <AssignPicker
+              assigneeIds={assigneeIds}
+              teamIds={tTeamIds}
+              users={userList}
+              teams={teamList}
+              onToggleUser={(userId, on) => assignUser.mutate({ taskId: task.id, userId, on })}
+              onToggleTeam={(teamId, on) => assignTeam.mutate({ taskId: task.id, teamId, on })}
+            />
+          )}
         </div>
         {kids.sort((a, b) => a.sortOrder - b.sortOrder).map((c) => renderRow(c, depth + 1))}
       </div>

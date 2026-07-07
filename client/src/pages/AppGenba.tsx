@@ -92,6 +92,7 @@ export default function AppGenba() {
         siteName={openSite.name}
         driveUrl={openSite.driveUrl}
         canEdit={canEdit}
+        meUserId={me.userId ?? null}
         onBack={() => setOpenSiteId(null)}
       />
     );

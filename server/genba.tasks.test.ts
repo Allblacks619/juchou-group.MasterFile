@@ -43,9 +43,10 @@ describe("genba.tasks", () => {
   });
   afterEach(() => { delete process.env.GENBA_ENABLED; });
 
-  it("listByZone は worker でも取得可", async () => {
+  it("listByZone は worker でも取得可 (担当者/班を同梱)", async () => {
     mockGenbaDb.listGenbaTasksByZone.mockResolvedValue([TASK]);
-    await expect(worker().genba.tasks.listByZone({ zoneId: ZONE.id })).resolves.toEqual([TASK]);
+    const res = await worker().genba.tasks.listByZone({ zoneId: ZONE.id });
+    expect(res[0]).toMatchObject({ id: TASK.id, assigneeIds: [], teamIds: [] });
   });
 
   it("create は leader 可 / worker 403", async () => {

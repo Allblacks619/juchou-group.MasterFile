@@ -16,6 +16,8 @@ export type GenbaTaskDto = {
   memoVisible: boolean;
   linkUrl: string | null;
   sortOrder: number;
+  assigneeIds?: number[];
+  teamIds?: string[];
 };
 
 export function leafProgress(t: Pick<GenbaTaskDto, "status" | "percent">): number {
