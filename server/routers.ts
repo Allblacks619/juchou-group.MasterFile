@@ -20,6 +20,7 @@ import { buildClientInvoiceDraftFromV2 } from "./clientInvoiceV2Builder";
 import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./workerInvoicePdf";
 import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } from "./workerInvoiceV2Builder";
 import { seedBetaFixture, BETA_TEST_MONTH } from "./betaFixture";
+import { seedSimulationFixture } from "./simulationFixture";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 import { genbaRouter } from "./genba/router";
 
@@ -955,6 +956,17 @@ export const appRouter = router({
       return result;
     }),
     info: superAdminProcedure.query(() => ({ targetMonth: BETA_TEST_MONTH })),
+    /**
+     * 本格シミュレーション（取引先1・現場3・作業員2, 2025-01）を作成/リセット。super_admin のみ。
+     * SIM_* エンティティ + 2025-01 のみを操作し、本番データには触れない。
+     */
+    seedSimulation: superAdminProcedure.mutation(async ({ ctx }) => {
+      const result = await seedSimulationFixture();
+      await safeAuditLog(ctx.user.id, "betaFixture.seedSimulation", "beta_fixture", {
+        note: `シミュレーション検証データを作成/リセット (${result.targetMonth}, 現場${result.projects.length}/作業員${result.workers.length}/出面${result.attendanceRecords})`,
+      });
+      return result;
+    }),
   }),
 
   diagnostic: router({
