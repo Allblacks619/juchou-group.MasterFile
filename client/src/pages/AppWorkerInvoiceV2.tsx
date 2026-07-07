@@ -45,6 +45,15 @@ export default function AppWorkerInvoiceV2() {
     },
     onError: (e: any) => toast.error(`Beta検証データの作成に失敗: ${e.message}`),
   });
+  const simSeedMutation = trpc.betaFixture.seedSimulation.useMutation({
+    onSuccess: (res: any) => {
+      setTargetMonth(res.targetMonth);
+      if (res.workers?.[0]?.id) setWorkerId(res.workers[0].id);
+      utils.employee.list.invalidate();
+      toast.success(`シミュレーションデータを作成/リセットしました（現場${res.projects.length}・作業員${res.workers.length}・出面${res.attendanceRecords}件 / ${res.targetMonth}）`);
+    },
+    onError: (e: any) => toast.error(`シミュレーションデータの作成に失敗: ${e.message}`),
+  });
   const monthValid = /^\d{4}-\d{2}$/.test(targetMonth);
   const draftQuery = trpc.workerInvoice.getV2Draft.useQuery(
     { workerId: workerId ?? 0, targetMonth },
@@ -97,15 +106,26 @@ export default function AppWorkerInvoiceV2() {
           </p>
         </div>
         {isSuperAdmin && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={seedMutation.isPending}
-            onClick={() => seedMutation.mutate()}
-            title="Beta_Worker_01 / Beta_Project_01 / 2024-01 を作成またはベースラインにリセット（本番データには触れません）"
-          >
-            {seedMutation.isPending ? "作成中..." : "Beta検証データを作成/リセット (2024-01)"}
-          </Button>
+          <div className="flex flex-col gap-2 sm:items-end">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={seedMutation.isPending}
+              onClick={() => seedMutation.mutate()}
+              title="Beta_Worker_01 / Beta_Project_01 / 2024-01 を作成またはベースラインにリセット（本番データには触れません）"
+            >
+              {seedMutation.isPending ? "作成中..." : "Beta検証データを作成/リセット (2024-01)"}
+            </Button>
+            <Button
+              size="sm"
+              disabled={simSeedMutation.isPending}
+              onClick={() => simSeedMutation.mutate()}
+              className="bg-gold text-background hover:bg-gold-dim"
+              title="取引先1・現場3・作業員2の本格シミュレーション（2025-01）を作成/リセット（SIM_*・2025-01のみ、本番データには触れません）"
+            >
+              {simSeedMutation.isPending ? "作成中..." : "シミュレーション作成/リセット (2025-01)"}
+            </Button>
+          </div>
         )}
       </div>
 
