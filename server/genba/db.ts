@@ -118,6 +118,14 @@ export async function getGenbaZoneById(id: string): Promise<GenbaZone | null> {
   return rows[0] ? normalizeZone(rows[0]) : null;
 }
 
+/** 複数フロア配下のゾーンをまとめて取得 (配置ボード用) */
+export async function listGenbaZonesByFloorIds(floorIds: string[]): Promise<GenbaZone[]> {
+  const db = await getDb();
+  if (!db || floorIds.length === 0) return [];
+  const rows = await db.select().from(genbaZones).where(inArray(genbaZones.floorId, floorIds)).orderBy(asc(genbaZones.createdAt));
+  return rows.map(normalizeZone);
+}
+
 export async function createGenbaZone(data: InsertGenbaZone): Promise<GenbaZone | null> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
