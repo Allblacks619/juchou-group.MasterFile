@@ -6,8 +6,13 @@ import {
   genbaTasks, GenbaTask, InsertGenbaTask,
   genbaTaskEvents, GenbaTaskEvent, InsertGenbaTaskEvent,
   genbaTaskTemplates, GenbaTaskTemplate, InsertGenbaTaskTemplate,
+  genbaTeams, GenbaTeam, InsertGenbaTeam,
+  genbaTeamMembers, GenbaTeamMember, InsertGenbaTeamMember,
+  genbaTaskAssignees, GenbaTaskAssignee, InsertGenbaTaskAssignee,
+  genbaTaskTeams, GenbaTaskTeam, InsertGenbaTaskTeam,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
+import { users } from "../../drizzle/schema";
 import { getDb } from "../db";
 
 /**
@@ -259,6 +264,120 @@ export async function listGenbaTaskEvents(taskId: string): Promise<GenbaTaskEven
   if (!db) return [];
   const rows = await db.select().from(genbaTaskEvents).where(eq(genbaTaskEvents.taskId, taskId)).orderBy(asc(genbaTaskEvents.createdAt));
   return rows.map(normalizeTaskEvent);
+}
+
+// ── 割り当て可能ユーザー (既存 users テーブルを読み取り専用で参照) ──
+
+export type AssignableUser = { id: number; name: string | null; appRole: string };
+
+export async function listAssignableUsers(): Promise<AssignableUser[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ id: users.id, name: users.name, appRole: users.appRole }).from(users).orderBy(asc(users.name));
+  return rows as AssignableUser[];
+}
+
+// ── genba_teams / genba_team_members ──
+
+export async function listGenbaTeamsBySite(siteId: string): Promise<GenbaTeam[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaTeams).where(eq(genbaTeams.siteId, siteId)).orderBy(asc(genbaTeams.createdAt));
+}
+
+export async function getGenbaTeamById(id: string): Promise<GenbaTeam | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaTeams).where(eq(genbaTeams.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createGenbaTeam(data: InsertGenbaTeam): Promise<GenbaTeam | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaTeams).values(data);
+  return getGenbaTeamById(data.id);
+}
+
+export async function updateGenbaTeam(id: string, patch: Partial<Pick<InsertGenbaTeam, "name">>): Promise<GenbaTeam | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaTeams).set(patch).where(eq(genbaTeams.id, id));
+  return getGenbaTeamById(id);
+}
+
+/** 班を削除 (メンバー・タスク班割当も一緒に削除) */
+export async function deleteGenbaTeamCascade(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaTeamMembers).where(eq(genbaTeamMembers.teamId, id));
+  await db.delete(genbaTaskTeams).where(eq(genbaTaskTeams.teamId, id));
+  await db.delete(genbaTeams).where(eq(genbaTeams.id, id));
+}
+
+export async function listGenbaTeamMembers(teamIds: string[]): Promise<GenbaTeamMember[]> {
+  const db = await getDb();
+  if (!db || teamIds.length === 0) return [];
+  return db.select().from(genbaTeamMembers).where(inArray(genbaTeamMembers.teamId, teamIds));
+}
+
+export async function addGenbaTeamMember(data: InsertGenbaTeamMember): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db.select().from(genbaTeamMembers)
+    .where(and(eq(genbaTeamMembers.teamId, data.teamId), eq(genbaTeamMembers.userId, data.userId))).limit(1);
+  if (existing[0]) return;
+  await db.insert(genbaTeamMembers).values(data);
+}
+
+export async function removeGenbaTeamMember(teamId: string, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaTeamMembers).where(and(eq(genbaTeamMembers.teamId, teamId), eq(genbaTeamMembers.userId, userId)));
+}
+
+// ── genba_task_assignees / genba_task_teams ──
+
+export async function listTaskAssigneesByTaskIds(taskIds: string[]): Promise<GenbaTaskAssignee[]> {
+  const db = await getDb();
+  if (!db || taskIds.length === 0) return [];
+  return db.select().from(genbaTaskAssignees).where(inArray(genbaTaskAssignees.taskId, taskIds));
+}
+
+export async function listTaskTeamsByTaskIds(taskIds: string[]): Promise<GenbaTaskTeam[]> {
+  const db = await getDb();
+  if (!db || taskIds.length === 0) return [];
+  return db.select().from(genbaTaskTeams).where(inArray(genbaTaskTeams.taskId, taskIds));
+}
+
+export async function addTaskAssignee(data: InsertGenbaTaskAssignee): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db.select().from(genbaTaskAssignees)
+    .where(and(eq(genbaTaskAssignees.taskId, data.taskId), eq(genbaTaskAssignees.userId, data.userId))).limit(1);
+  if (existing[0]) return;
+  await db.insert(genbaTaskAssignees).values(data);
+}
+
+export async function removeTaskAssignee(taskId: string, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaTaskAssignees).where(and(eq(genbaTaskAssignees.taskId, taskId), eq(genbaTaskAssignees.userId, userId)));
+}
+
+export async function addTaskTeam(data: InsertGenbaTaskTeam): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db.select().from(genbaTaskTeams)
+    .where(and(eq(genbaTaskTeams.taskId, data.taskId), eq(genbaTaskTeams.teamId, data.teamId))).limit(1);
+  if (existing[0]) return;
+  await db.insert(genbaTaskTeams).values(data);
+}
+
+export async function removeTaskTeam(taskId: string, teamId: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaTaskTeams).where(and(eq(genbaTaskTeams.taskId, taskId), eq(genbaTaskTeams.teamId, teamId)));
 }
 
 // ── genba_task_templates ──
