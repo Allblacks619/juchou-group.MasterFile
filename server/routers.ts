@@ -5176,6 +5176,88 @@ export const appRouter = router({
         };
       }),
     /**
+     * 月次まとめ請求書の確定発行（月に1枚・全現場まとめ・②B）。
+     * 全現場の月締め提出が完了しているときのみPDFを生成する。既存の作業員請求書PDF生成器を
+     * 再利用し、現場見出し付きの集計明細を1枚にレンダリングする（新規テーブル不要）。
+     */
+    issueMyMonthlyInvoice: protectedProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .mutation(async ({ ctx, input }) => {
+        const me = await db.getEmployeeByUserId(ctx.user.id);
+        if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+
+        // ── 発行ゲート: 対象月に出面のある全現場の月締めが提出済みであること。
+        const overview = await buildWorkerMonthlyOverview({
+          closingMonth: input.closingMonth,
+          actorUserId: ctx.user.id,
+          actorRole: (ctx.user as any).appRole,
+          employeeId: me.id,
+        });
+        const projectLines = overview?.projectLines || [];
+        if (projectLines.length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "対象月に出面のある現場がありません。" });
+        }
+        const SUBMITTED_STATUSES = new Set(["submitted", "accepted", "ready_to_close", "closed", "approved"]);
+        const pending: string[] = [];
+        for (const line of projectLines) {
+          const closing = await db.getProjectClosingByProjectMonth(Number(line.projectId), input.closingMonth);
+          const submission = closing?.id ? await db.getClosingSubmissionByClosingEmployee(closing.id, me.id) : null;
+          const status = String(line.submissionStatus || submission?.status || "not_submitted");
+          if (!SUBMITTED_STATUSES.has(status)) pending.push(String(line.projectName));
+        }
+        if (pending.length > 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `未提出の現場があるため発行できません：${pending.join("、")}` });
+        }
+
+        // ── 全現場まとめの明細（現場見出し付き）を集計。
+        const draft = await buildWorkerInvoiceDraftFromV2({
+          workerId: me.id,
+          targetMonth: input.closingMonth,
+          submissionStatusOverride: "submitted",
+          includeProjectSectionHeaders: true,
+        });
+        if (!draft.items.some((it: any) => it.itemType !== "text")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "請求できる明細がありません。出面・単価をご確認ください。" });
+        }
+
+        const [year, month] = input.closingMonth.split("-").map(Number);
+        const monthPart = input.closingMonth.replace(/-/g, "");
+        const invoiceNumber = `WM-${monthPart}-W${String(me.id).padStart(4, "0")}`;
+        const subject = `${year}年${month}月分請求書`;
+        const company = await db.getCompanyProfile();
+
+        const invoice = {
+          invoiceNumber,
+          subject,
+          closingMonth: input.closingMonth,
+          issueDate: new Date(),
+          submittedAt: new Date(),
+          subtotalAmount: draft.subtotal,
+          taxAmount: draft.taxAmount,
+          totalAmount: draft.totalAmount,
+          notes: null,
+        };
+
+        const { generateWorkerInvoicePdf } = await import("./pdfWorkerInvoice");
+        const pdfBuffer = await generateWorkerInvoicePdf({
+          invoice,
+          items: draft.items,
+          employee: me,
+          project: { name: "全現場（月次まとめ）" },
+          company,
+          snapshotData: { docs: [] },
+        });
+        const fileKey = `worker-invoices/monthly/${me.id}-${input.closingMonth}-${Date.now()}.pdf`;
+        const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
+
+        await safeAuditLog(ctx.user.id, "workerInvoice.issueMonthly", "worker_invoice", {
+          employeeId: me.id,
+          note: `${subject} 月次まとめ請求書を発行（${invoiceNumber} / 合計 ${draft.totalAmount}）`,
+        });
+
+        return { url, invoiceNumber, subject, totalAmount: draft.totalAmount };
+      }),
+    /**
      * Build an editable worker-invoice draft from Monthly Closing V2 data (admin/manager only).
      * Labor (出勤日数×単価), transport (日割り), and expense are computed by the V2 builder.
      * Tax rates are provisional and overridable per request (明細可変); read-only preview, no DB write.
