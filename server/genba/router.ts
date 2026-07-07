@@ -5,6 +5,8 @@ import { genbaRoleOf } from "../../shared/genba/roles";
 import { protectedProcedure, router } from "../_core/trpc";
 import * as db from "../db";
 import * as genbaDb from "./db";
+import { storageGet, storagePut } from "../storage";
+import { validateFile } from "../../shared/uploadValidation";
 
 /**
  * 現場ビジョン (genba) ルーター — M1骨組み。
@@ -151,13 +153,103 @@ const settingsRouter = router({
     }),
 });
 
-// ── サブルーター (M2以降: typed スタブ) ──
+// ── R2キーの安全化 + 署名URL付与ヘルパ ──
+
+/** R2オブジェクトキーに使えない文字を _ に置換 (既存アップロードと同方針) */
+function safeKeyPart(name: string): string {
+  return name.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80) || "file";
+}
+
+/** フロア群に署名付きGET URL (imageUrl) を都度付与して返す。TTL切れを避けるため保存済みURLは使わない */
+async function withFloorImageUrls<T extends { imageKey: string | null }>(floors: T[]): Promise<(T & { imageUrl: string | null })[]> {
+  return Promise.all(
+    floors.map(async (f) => {
+      let imageUrl: string | null = null;
+      if (f.imageKey) {
+        try {
+          imageUrl = (await storageGet(f.imageKey)).url;
+        } catch (error) {
+          console.warn("[genba.floors] signed URL failed:", error);
+        }
+      }
+      return { ...f, imageUrl };
+    }),
+  );
+}
+
+// ── floors (M2) ──
 
 const floorsRouter = router({
-  list: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(notImplemented),
-  create: genbaFieldProcedure.input(z.object({ id: genbaIdSchema.optional(), siteId: genbaIdSchema, name: z.string().trim().min(1).max(120), imageKey: z.string().max(200).optional(), w: z.number().int().positive().optional(), h: z.number().int().positive().optional() })).mutation(notImplemented),
-  update: genbaFieldProcedure.input(z.object({ id: genbaIdSchema, name: z.string().trim().min(1).max(120).optional(), imageKey: z.string().max(200).nullish(), w: z.number().int().positive().nullish(), h: z.number().int().positive().nullish(), sortOrder: z.number().int().optional() })).mutation(notImplemented),
-  remove: genbaFieldProcedure.input(z.object({ id: genbaIdSchema })).mutation(notImplemented),
+  /** 現場のフロア一覧 (署名付き画像URL同梱) */
+  list: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const floors = await genbaDb.listGenbaFloorsBySite(input.siteId);
+    return withFloorImageUrls(floors);
+  }),
+
+  /** 図面画像のアップロード: base64 → validateFile → storagePut(R2) → floor作成。DBにはimageKeyのみ保存 */
+  create: genbaFieldProcedure
+    .input(z.object({
+      id: genbaIdSchema.optional(),
+      siteId: genbaIdSchema,
+      name: z.string().trim().min(1).max(120),
+      base64: z.string().min(1),
+      mimeType: z.string(),
+      fileName: z.string().min(1).max(200),
+      w: z.number().int().positive(),
+      h: z.number().int().positive(),
+      sortOrder: z.number().int().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const site = await genbaDb.getGenbaSiteById(input.siteId);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+
+      const buffer = Buffer.from(input.base64, "base64");
+      const validationError = validateFile(input.fileName, input.mimeType, buffer.length);
+      if (validationError) throw new TRPCError({ code: "BAD_REQUEST", message: validationError });
+
+      const id = input.id ?? nanoid(21);
+      const imageKey = `genba/${input.siteId}/floor-${id}-${safeKeyPart(input.fileName)}`;
+      await storagePut(imageKey, buffer, input.mimeType);
+
+      const floor = await genbaDb.createGenbaFloor({
+        id,
+        siteId: input.siteId,
+        name: input.name,
+        imageKey,
+        w: input.w,
+        h: input.h,
+        sortOrder: input.sortOrder ?? 0,
+      });
+      await safeGenbaAuditLog(ctx.user.id, "genba.floors.create", { entityId: id, note: `図面を追加: ${input.name} (${site.name})` });
+      const [withUrl] = await withFloorImageUrls(floor ? [floor] : []);
+      return withUrl ?? null;
+    }),
+
+  /** フロア名・並び順の更新 (画像は差し替えず、リネーム/並べ替えのみ) */
+  update: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema, name: z.string().trim().min(1).max(120).optional(), sortOrder: z.number().int().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaFloorById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "フロアが見つかりません" });
+      const patch: { name?: string; sortOrder?: number } = {};
+      if (input.name !== undefined) patch.name = input.name;
+      if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder;
+      const floor = await genbaDb.updateGenbaFloor(input.id, patch);
+      await safeGenbaAuditLog(ctx.user.id, "genba.floors.update", { entityId: input.id, note: `フロアを更新: ${existing.name}` });
+      const [withUrl] = await withFloorImageUrls(floor ? [floor] : []);
+      return withUrl ?? null;
+    }),
+
+  /** フロア削除 (DB行のみ。R2オブジェクトは既存アップロードと同様に保持) */
+  remove: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaFloorById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "フロアが見つかりません" });
+      await genbaDb.deleteGenbaFloor(input.id);
+      await safeGenbaAuditLog(ctx.user.id, "genba.floors.remove", { entityId: input.id, note: `図面を削除: ${existing.name}` });
+      return { success: true as const };
+    }),
 });
 
 const zonesRouter = router({

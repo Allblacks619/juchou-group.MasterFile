@@ -1,6 +1,7 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import {
   genbaSites, GenbaSite, InsertGenbaSite,
+  genbaFloors, GenbaFloor, InsertGenbaFloor,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { getDb } from "../db";
@@ -37,6 +38,42 @@ export async function updateGenbaSite(id: string, patch: Partial<Pick<InsertGenb
   if (!db) throw new Error("Database not available");
   await db.update(genbaSites).set(patch).where(eq(genbaSites.id, id));
   return getGenbaSiteById(id);
+}
+
+// ── genba_floors ──
+
+export async function listGenbaFloorsBySite(siteId: string): Promise<GenbaFloor[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaFloors).where(eq(genbaFloors.siteId, siteId))
+    .orderBy(asc(genbaFloors.sortOrder), asc(genbaFloors.createdAt));
+}
+
+export async function getGenbaFloorById(id: string): Promise<GenbaFloor | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaFloors).where(eq(genbaFloors.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createGenbaFloor(data: InsertGenbaFloor): Promise<GenbaFloor | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaFloors).values(data);
+  return getGenbaFloorById(data.id);
+}
+
+export async function updateGenbaFloor(id: string, patch: Partial<Pick<InsertGenbaFloor, "name" | "sortOrder">>): Promise<GenbaFloor | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaFloors).set(patch).where(eq(genbaFloors.id, id));
+  return getGenbaFloorById(id);
+}
+
+export async function deleteGenbaFloor(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaFloors).where(eq(genbaFloors.id, id));
 }
 
 // ── genba_user_settings ──
