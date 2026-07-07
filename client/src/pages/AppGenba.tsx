@@ -7,11 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Loader2, HardHat, Link2, Pencil } from "lucide-react";
+import { Plus, Loader2, HardHat, Link2, Pencil, FolderOpen } from "lucide-react";
+import FloorWorkspace from "@/components/genba/FloorWorkspace";
 
 /**
- * 現場ビジョン (genba) — M1 入口プレースホルダ。
- * 現場一覧 + 作成/リネーム/Driveリンク設定のみ。本移植 (図面・ゾーン・タスク) は M2。
+ * 現場ビジョン (genba) — 現場一覧 + 図面ワークスペース(M2-A)。
+ * 現場の作成/リネーム/Driveリンク設定(M1) + 現場を開いて図面を管理(M2-A)。
+ * エリア・作業は M2-B / M2-C。
  */
 export default function AppGenba() {
   const utils = trpc.useUtils();
@@ -24,6 +26,7 @@ export default function AppGenba() {
   const [editSiteId, setEditSiteId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDriveUrl, setEditDriveUrl] = useState("");
+  const [openSiteId, setOpenSiteId] = useState<string | null>(null);
 
   const createSite = trpc.genba.sites.create.useMutation({
     onSuccess: () => {
@@ -80,6 +83,19 @@ export default function AppGenba() {
   };
 
   const editingSite = (sites || []).find((s) => s.id === editSiteId) || null;
+  const openSite = (sites || []).find((s) => s.id === openSiteId) || null;
+
+  if (openSite) {
+    return (
+      <FloorWorkspace
+        siteId={openSite.id}
+        siteName={openSite.name}
+        driveUrl={openSite.driveUrl}
+        canEdit={canEdit}
+        onBack={() => setOpenSiteId(null)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -90,7 +106,7 @@ export default function AppGenba() {
             現場ビジョン
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {me.name || "ユーザー"} さん（{genbaRoleLabel[me.genbaRole] || me.genbaRole}） — 図面・タスク管理は M2 で移植予定
+            {me.name || "ユーザー"} さん（{genbaRoleLabel[me.genbaRole] || me.genbaRole}） — 現場を開いて図面を管理（エリア・作業は順次追加）
           </p>
         </div>
         {canEdit && (
@@ -154,7 +170,7 @@ export default function AppGenba() {
                   )}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
                 {site.projectId && <Badge variant="outline">工事案件 #{site.projectId} 連携</Badge>}
                 {site.driveUrl ? (
                   <a
@@ -169,6 +185,10 @@ export default function AppGenba() {
                 ) : (
                   <p className="text-xs">共有フォルダ未設定</p>
                 )}
+                <Button variant="outline" size="sm" className="w-full" onClick={() => setOpenSiteId(site.id)}>
+                  <FolderOpen className="h-4 w-4 mr-1" />
+                  図面を開く
+                </Button>
               </CardContent>
             </Card>
           ))}
