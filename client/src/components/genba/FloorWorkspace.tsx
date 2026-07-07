@@ -2,13 +2,14 @@ import { useRef, useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users } from "lucide-react";
+import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, type Pt } from "@/lib/genbaMap";
 import ProgressBadge from "./ProgressBadge";
 import ZoneSheet, { type ZoneWithAgg } from "./ZoneSheet";
 import TemplateEditor from "./TemplateEditor";
 import TeamManager from "./TeamManager";
+import InstructionsPanel from "./InstructionsPanel";
 
 type FloorWorkspaceProps = {
   siteId: string;
@@ -36,6 +37,9 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
   const [busy, setBusy] = useState<string | null>(null);
   const [showTemplate, setShowTemplate] = useState(false);
   const [showTeams, setShowTeams] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
+
+  const { data: unreadCount } = trpc.genba.instructions.unreadCount.useQuery({ siteId }, { retry: false, staleTime: 30 * 1000 });
 
   // ゾーン描画/編集の状態機械
   const [mode, setMode] = useState<Mode>("view");
@@ -205,6 +209,14 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
             <Link2 className="h-3.5 w-3.5" /> 図面(Drive)
           </a>
         )}
+        <div className={canEdit ? "flex items-center gap-2" : "ml-auto flex items-center gap-2"}>
+          <Button size="sm" variant="outline" className="relative" onClick={() => setShowInstructions(true)}>
+            <Megaphone className="h-4 w-4 mr-1" /> 指示
+            {!!unreadCount && unreadCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#FF4B00] text-white text-[10px] font-bold flex items-center justify-center">{unreadCount}</span>
+            )}
+          </Button>
+        </div>
         {canEdit && (
           <div className="ml-auto flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => setShowTeams(true)}>
@@ -224,6 +236,15 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
 
       {showTemplate && <TemplateEditor open={showTemplate} onOpenChange={setShowTemplate} />}
       {showTeams && <TeamManager siteId={siteId} open={showTeams} onOpenChange={setShowTeams} />}
+      {showInstructions && (
+        <InstructionsPanel
+          siteId={siteId}
+          canEdit={canEdit}
+          open={showInstructions}
+          onOpenChange={setShowInstructions}
+          onReadChanged={() => utils.genba.instructions.unreadCount.invalidate({ siteId })}
+        />
+      )}
 
       {/* フロアバー */}
       {list.length > 0 && (

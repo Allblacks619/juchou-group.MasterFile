@@ -5,25 +5,33 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Trash2, Plus, ExternalLink } from "lucide-react";
+import { Trash2, Plus, ExternalLink, Share2 } from "lucide-react";
 import { romanize } from "@/lib/genbaRomaji";
 import { todayStr, fmtDate, type GenbaTaskDto } from "@/lib/genbaTask";
 
-/** 作業詳細 (プロトタイプ TaskDetailModal 移植): 名前/ローマ字/期限/リンク/メモ/問題写真/削除/サブ作業 */
+/** 作業詳細 (プロトタイプ TaskDetailModal 移植): 名前/ローマ字/期限/リンク/メモ/問題写真/引き継ぎ/削除/サブ作業 */
 export default function TaskDetailModal({
-  task, zoneId, canEdit, open, onOpenChange, onChanged,
+  task, zoneId, canEdit, meUserId, open, onOpenChange, onChanged,
 }: {
   task: GenbaTaskDto;
   zoneId: string;
   canEdit: boolean;
+  meUserId: number | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onChanged: () => void;
 }) {
   const [name, setName] = useState(task.name);
   const [memo, setMemo] = useState(task.memo || "");
+  const [hoTarget, setHoTarget] = useState("");
+  const [hoNote, setHoNote] = useState("");
 
   const events = trpc.genba.tasks.events.useQuery({ taskId: task.id }, { enabled: open, retry: false });
+  const usersQ = trpc.genba.users.listAssignable.useQuery(undefined, { enabled: open, retry: false });
+  const handover = trpc.genba.tasks.handover.useMutation({
+    onSuccess: () => { onChanged(); setHoTarget(""); setHoNote(""); toast.success("引き継ぎました（相手に指示を送信）"); },
+    onError: (e) => toast.error(e.message),
+  });
   const update = trpc.genba.tasks.update.useMutation({ onSuccess: onChanged, onError: (e) => toast.error(e.message) });
   const create = trpc.genba.tasks.create.useMutation({
     onSuccess: () => { onChanged(); toast.success("サブ作業を追加しました"); },
@@ -131,6 +139,24 @@ export default function TaskDetailModal({
               )}
             </div>
           )}
+
+          {/* 引き継ぎ (worker も可) */}
+          <div className="space-y-1 border-t border-border pt-3">
+            <Label className="text-xs text-muted-foreground flex items-center gap-1"><Share2 className="h-3.5 w-3.5" /> 引き継ぎ（担当を相手に渡し、指示を自動送信）</Label>
+            <div className="flex gap-2">
+              <select value={hoTarget} onChange={(e) => setHoTarget(e.target.value)} className="flex-1 rounded-md border border-border bg-background p-2 text-sm">
+                <option value="">相手を選択…</option>
+                {(usersQ.data || []).filter((u: any) => u.id !== meUserId).map((u: any) => (
+                  <option key={u.id} value={u.id}>{u.name || `user#${u.id}`}</option>
+                ))}
+              </select>
+              <Button size="sm" disabled={!hoTarget || handover.isPending}
+                onClick={() => handover.mutate({ taskId: task.id, toUserId: Number(hoTarget), note: hoNote.trim() || undefined })}>
+                引き継ぐ
+              </Button>
+            </div>
+            <Input value={hoNote} onChange={(e) => setHoNote(e.target.value)} placeholder="申し送り（任意）" className="text-xs" />
+          </div>
 
           {canEdit && (
             <div className="flex gap-2 pt-1">

@@ -127,7 +127,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
         <StatusModal task={statusTask} open={!!statusTask} onOpenChange={(v) => !v && setStatusTask(null)} onSubmit={submitStatus} />
       )}
       {detailTask && (
-        <TaskDetailModal task={detailTask} zoneId={zoneId} canEdit={canEdit} open={!!detailTask}
+        <TaskDetailModal task={detailTask} zoneId={zoneId} canEdit={canEdit} meUserId={meUserId} open={!!detailTask}
           onOpenChange={(v) => !v && setDetailTask(null)} onChanged={refresh} />
       )}
     </div>

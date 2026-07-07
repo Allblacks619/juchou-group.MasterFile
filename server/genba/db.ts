@@ -10,6 +10,8 @@ import {
   genbaTeamMembers, GenbaTeamMember, InsertGenbaTeamMember,
   genbaTaskAssignees, GenbaTaskAssignee, InsertGenbaTaskAssignee,
   genbaTaskTeams, GenbaTaskTeam, InsertGenbaTaskTeam,
+  genbaInstructions, GenbaInstruction, InsertGenbaInstruction,
+  genbaInstructionReads, GenbaInstructionRead, InsertGenbaInstructionRead,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { users } from "../../drizzle/schema";
@@ -378,6 +380,43 @@ export async function removeTaskTeam(taskId: string, teamId: string): Promise<vo
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(genbaTaskTeams).where(and(eq(genbaTaskTeams.taskId, taskId), eq(genbaTaskTeams.teamId, teamId)));
+}
+
+// ── genba_instructions / genba_instruction_reads ──
+
+export async function listGenbaInstructionsBySite(siteId: string): Promise<GenbaInstruction[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaInstructions).where(eq(genbaInstructions.siteId, siteId)).orderBy(asc(genbaInstructions.createdAt));
+}
+
+export async function getGenbaInstructionById(id: string): Promise<GenbaInstruction | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaInstructions).where(eq(genbaInstructions.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createGenbaInstruction(data: InsertGenbaInstruction): Promise<GenbaInstruction | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaInstructions).values(data);
+  return getGenbaInstructionById(data.id);
+}
+
+export async function listGenbaInstructionReads(instructionIds: string[]): Promise<GenbaInstructionRead[]> {
+  const db = await getDb();
+  if (!db || instructionIds.length === 0) return [];
+  return db.select().from(genbaInstructionReads).where(inArray(genbaInstructionReads.instructionId, instructionIds));
+}
+
+export async function addGenbaInstructionRead(data: InsertGenbaInstructionRead): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db.select().from(genbaInstructionReads)
+    .where(and(eq(genbaInstructionReads.instructionId, data.instructionId), eq(genbaInstructionReads.userId, data.userId))).limit(1);
+  if (existing[0]) return;
+  await db.insert(genbaInstructionReads).values(data);
 }
 
 // ── genba_task_templates ──

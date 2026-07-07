@@ -532,6 +532,42 @@ const tasksRouter = router({
       await safeGenbaAuditLog(ctx.user.id, "genba.tasks.assignTeam", { entityId: input.taskId, note: `班 ${input.on ? "追加" : "解除"}: ${input.teamId}` });
       return { success: true as const };
     }),
+
+  /**
+   * 引き継ぎ (M3-B, worker も可): 担当を相手に付け替え、履歴イベント(handover)を残し、
+   * 相手宛ての指示を自動生成する。指示の siteId はゾーン→フロア→現場から解決する。
+   */
+  handover: genbaProcedure
+    .input(z.object({ taskId: genbaIdSchema, toUserId: z.number().int().positive(), note: z.string().max(500).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const task = await genbaDb.getGenbaTaskById(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      if (input.toUserId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "自分自身には引き継げません" });
+
+      // 担当の付け替え: 相手を追加し、自分を外す
+      await genbaDb.addTaskAssignee({ id: nanoid(21), taskId: input.taskId, userId: input.toUserId });
+      await genbaDb.removeTaskAssignee(input.taskId, ctx.user.id);
+
+      // 履歴イベント (handover)
+      const note = input.note?.trim();
+      await genbaDb.createGenbaTaskEvent({
+        id: nanoid(21), taskId: input.taskId, kind: "handover", byUserId: ctx.user.id,
+        text: `引き継ぎ${note ? " — " + note : ""}`, photoKeys: null,
+      } as any);
+
+      // 相手宛ての指示を自動生成 (現場は zone→floor→site で解決)
+      const zone = await genbaDb.getGenbaZoneById(task.zoneId);
+      const floor = zone ? await genbaDb.getGenbaFloorById(zone.floorId) : null;
+      if (floor) {
+        await genbaDb.createGenbaInstruction({
+          id: nanoid(21), siteId: floor.siteId,
+          text: `🤝 引き継ぎ: 「${task.name}」を引き継ぎました。${note ? "\n申し送り: " + note : ""}`,
+          targetKind: "worker", targetId: String(input.toUserId), zoneId: task.zoneId, byUserId: ctx.user.id,
+        });
+      }
+      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.handover", { entityId: input.taskId, note: `${task.name} を user#${input.toUserId} へ引き継ぎ` });
+      return { success: true as const };
+    }),
 });
 
 // ── teams (M3-A) ──
@@ -598,11 +634,82 @@ const usersRouter = router({
   }),
 });
 
+// ── instructions (M3-B) ──
+
+/** 指定ユーザーが所属する現場の班IDセット */
+async function myTeamIdsForSite(siteId: string, userId: number): Promise<Set<string>> {
+  const teams = await genbaDb.listGenbaTeamsBySite(siteId);
+  const members = await genbaDb.listGenbaTeamMembers(teams.map((t) => t.id));
+  return new Set(members.filter((m) => m.userId === userId).map((m) => m.teamId));
+}
+
+/** 指示が自分宛てか (all / 自分の班 / 自分個人) */
+function instructionTargetedTo(inst: { targetKind: string; targetId: string | null }, userId: number, myTeamIds: Set<string>): boolean {
+  if (inst.targetKind === "all") return true;
+  if (inst.targetKind === "team") return !!inst.targetId && myTeamIds.has(inst.targetId);
+  if (inst.targetKind === "worker") return inst.targetId === String(userId);
+  return false;
+}
+
 const instructionsRouter = router({
-  list: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(notImplemented),
-  create: genbaFieldProcedure.input(z.object({ id: genbaIdSchema.optional(), siteId: genbaIdSchema, text: z.string().trim().min(1), targetKind: z.enum(["all", "team", "worker"]).default("all"), targetId: genbaIdSchema.nullish(), zoneId: genbaIdSchema.nullish() })).mutation(notImplemented),
+  /** 自分宛ての指示一覧 (field は全件)。既読フラグ・既読者ID付き */
+  listForMe: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ ctx, input }) => {
+    const all = await genbaDb.listGenbaInstructionsBySite(input.siteId);
+    const myTeamIds = await myTeamIdsForSite(input.siteId, ctx.user.id);
+    const visible = ctx.genbaRole === "worker"
+      ? all.filter((i) => instructionTargetedTo(i, ctx.user.id, myTeamIds))
+      : all;
+    const reads = await genbaDb.listGenbaInstructionReads(visible.map((i) => i.id));
+    const readersByInst = new Map<string, number[]>();
+    for (const r of reads) { const arr = readersByInst.get(r.instructionId) || []; arr.push(r.userId); readersByInst.set(r.instructionId, arr); }
+    return visible
+      .map((i) => {
+        const readerIds = readersByInst.get(i.id) || [];
+        return { ...i, readerIds, read: readerIds.includes(ctx.user.id), mine: instructionTargetedTo(i, ctx.user.id, myTeamIds) };
+      })
+      .reverse(); // 新しい順
+  }),
+
+  /** 自分宛ての未読件数 */
+  unreadCount: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ ctx, input }) => {
+    const all = await genbaDb.listGenbaInstructionsBySite(input.siteId);
+    const myTeamIds = await myTeamIdsForSite(input.siteId, ctx.user.id);
+    const mine = all.filter((i) => instructionTargetedTo(i, ctx.user.id, myTeamIds));
+    const reads = await genbaDb.listGenbaInstructionReads(mine.map((i) => i.id));
+    const readSet = new Set(reads.filter((r) => r.userId === ctx.user.id).map((r) => r.instructionId));
+    return mine.filter((i) => !readSet.has(i.id)).length;
+  }),
+
+  create: genbaFieldProcedure
+    .input(z.object({
+      id: genbaIdSchema.optional(),
+      siteId: genbaIdSchema,
+      text: z.string().trim().min(1),
+      targetKind: z.enum(["all", "team", "worker"]).default("all"),
+      targetId: z.string().trim().max(24).nullish(),
+      zoneId: genbaIdSchema.nullish(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if ((input.targetKind === "team" || input.targetKind === "worker") && !input.targetId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "対象を指定してください" });
+      }
+      const id = input.id ?? nanoid(21);
+      const inst = await genbaDb.createGenbaInstruction({
+        id, siteId: input.siteId, text: input.text,
+        targetKind: input.targetKind, targetId: input.targetId ?? null,
+        zoneId: input.zoneId ?? null, byUserId: ctx.user.id,
+      });
+      await safeGenbaAuditLog(ctx.user.id, "genba.instructions.create", { entityId: id, note: `指示を送信 (${input.targetKind})` });
+      return inst;
+    }),
+
   /** 現場入力: 既読は worker も可 */
-  markRead: genbaProcedure.input(z.object({ instructionId: genbaIdSchema })).mutation(notImplemented),
+  markRead: genbaProcedure.input(z.object({ instructionId: genbaIdSchema })).mutation(async ({ ctx, input }) => {
+    const inst = await genbaDb.getGenbaInstructionById(input.instructionId);
+    if (!inst) throw new TRPCError({ code: "NOT_FOUND", message: "指示が見つかりません" });
+    await genbaDb.addGenbaInstructionRead({ id: nanoid(21), instructionId: input.instructionId, userId: ctx.user.id });
+    return { success: true as const };
+  }),
 });
 
 const materialsRouter = router({
