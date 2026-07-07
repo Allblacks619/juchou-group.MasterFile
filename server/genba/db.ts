@@ -18,6 +18,7 @@ import {
   genbaBudgets, GenbaBudget, InsertGenbaBudget,
   genbaBudgetAttendance, GenbaBudgetAttendance, InsertGenbaBudgetAttendance,
   genbaShares, GenbaShare, InsertGenbaShare,
+  genbaActivityLogs, GenbaActivityLog, InsertGenbaActivityLog,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { users, attendance, projects } from "../../drizzle/schema";
@@ -778,4 +779,29 @@ export async function collectSiteGraph(siteId: string): Promise<{ floors: GenbaF
   const zones = await listGenbaZonesByFloorIds(floors.map((f) => f.id));
   const tasks = await listGenbaTasksByZoneIds(zones.map((z) => z.id));
   return { floors, zones, tasks };
+}
+
+// ── genba_activity_logs (学習・改善提案の元データ) ──
+
+/** payload を JSON 文字列で保存 (高頻度追記・autoincrement PK) */
+export async function addGenbaActivityLog(type: string, byUserId: number | null, payload: unknown): Promise<void> {
+  const db = await getDb();
+  if (!db) return; // ログは失敗しても本処理を止めない (呼び出し側で握り潰す)
+  // json 列には生の値を渡す (drizzle が直列化)。二重 stringify しないこと (polygon 等と同方針)
+  await db.insert(genbaActivityLogs).values({ type, byUserId, payload } as InsertGenbaActivityLog);
+}
+
+/** payload を parse した利用ログを新しい順に取得 (直近 limit 件) */
+export async function listGenbaActivityLogs(type: string | undefined, limit: number): Promise<{ id: number; type: string; byUserId: number | null; payload: any; createdAt: Date }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const base = db.select().from(genbaActivityLogs);
+  const rows = type
+    ? await base.where(eq(genbaActivityLogs.type, type)).orderBy(desc(genbaActivityLogs.createdAt)).limit(limit)
+    : await base.orderBy(desc(genbaActivityLogs.createdAt)).limit(limit);
+  return rows.map((r) => {
+    let payload: any = r.payload;
+    if (typeof payload === "string") { try { payload = JSON.parse(payload); } catch { /* keep raw */ } }
+    return { id: r.id, type: r.type, byUserId: r.byUserId, payload, createdAt: r.createdAt };
+  });
 }

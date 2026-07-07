@@ -193,10 +193,11 @@ describe("genba.sites", () => {
     });
   });
 
-  describe("M4以降のスタブ", () => {
-    it("logs.list は NOT_IMPLEMENTED を返す (M4-Dで実装予定)", async () => {
+  describe("M4 サブルーターが実装済み (スタブ解消)", () => {
+    it("logs.list は admin で呼べる (NOT_IMPLEMENTED でない)", async () => {
+      mockGenbaDb.listGenbaActivityLogs?.mockResolvedValue?.([]);
       const adminCaller = appRouter.createCaller(ctx(createUser({ appRole: "admin" as any, role: "admin" })));
-      await expect(adminCaller.genba.logs.list()).rejects.toThrow("M2以降で実装");
+      await expect(adminCaller.genba.logs.list()).resolves.toBeDefined();
     });
   });
 });

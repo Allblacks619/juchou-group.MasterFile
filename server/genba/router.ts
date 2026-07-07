@@ -11,6 +11,8 @@ import { computeZoneAggregates } from "./aggregate";
 import { computeBoard } from "./board";
 import { computeBudget } from "./budget";
 import { buildShareView, SHARE_SCOPES } from "./share";
+import { computeInsights } from "./insights";
+import { CATALOG_LABELS } from "../../shared/genba/catalog";
 import { buildTemplateTree, DEFAULT_TEMPLATE_DATA, type TemplateNode, type TemplateTreeNode } from "../../shared/genba/template";
 
 /** テンプレートツリーから新規ゾーン用の作業タスク行を生成 (親子リンク付き) */
@@ -91,6 +93,15 @@ async function safeGenbaAuditLog(userId: number | null | undefined, action: stri
     } as any);
   } catch (error) {
     console.warn("[GenbaAuditLog] failed:", error);
+  }
+}
+
+/** 学習・改善提案用の利用ログ (genba_activity_logs)。失敗しても本処理は落とさない */
+async function safeGenbaActivity(type: string, userId: number | null | undefined, payload: unknown) {
+  try {
+    await genbaDb.addGenbaActivityLog(type, userId ?? null, payload);
+  } catch (error) {
+    console.warn("[GenbaActivity] failed:", error);
   }
 }
 
@@ -487,6 +498,12 @@ const tasksRouter = router({
       } as any);
 
       await safeGenbaAuditLog(ctx.user.id, "genba.tasks.setStatus", { entityId: input.id, note: `${existing.name}: ${input.status}` });
+      // 学習ログ: 完了/問題を記録 (ゾーン単位で現場に紐づく)
+      if (input.status === "issue") {
+        await safeGenbaActivity("issue", ctx.user.id, { taskId: input.id, taskName: existing.name, zoneId: existing.zoneId });
+      } else {
+        await safeGenbaActivity("status", ctx.user.id, { taskId: input.id, taskName: existing.name, zoneId: existing.zoneId, status: input.status });
+      }
       return task;
     }),
 
@@ -792,6 +809,10 @@ const materialsRouter = router({
         items,
       );
       await safeGenbaAuditLog(ctx.user.id, "genba.materials.createRequest", { entityId: id, note: `資材依頼 (${items.length}品目, ${site.name})` });
+      // 学習ログ: カタログ外(自由入力)判定して記録
+      for (const it of items) {
+        await safeGenbaActivity("material", ctx.user.id, { siteId: input.siteId, name: it.name, qty: it.qty, unit: it.unit, freeInput: !CATALOG_LABELS.has(it.name) });
+      }
       return request ? { ...request, items: items.map((it) => ({ id: it.id, name: it.name, qty: it.qty, unit: it.unit })) } : null;
     }),
 
@@ -1096,7 +1117,32 @@ const budgetsRouter = router({
 });
 
 const logsRouter = router({
-  list: genbaProcedure.input(z.object({ type: z.string().max(24).optional(), limit: z.number().int().min(1).max(200).default(50) }).optional()).query(notImplemented),
+  /** 利用ログの一覧 (field・直近 limit 件) */
+  list: genbaFieldProcedure
+    .input(z.object({ type: z.string().max(24).optional(), limit: z.number().int().min(1).max(200).default(50) }).optional())
+    .query(async ({ input }) => {
+      return genbaDb.listGenbaActivityLogs(input?.type, input?.limit ?? 50);
+    }),
+
+  /** 学習と改善提案 (field)。利用ログ + 現場のタスク/テンプレ/ゾーン/プリセットから集計 */
+  insights: genbaFieldProcedure
+    .input(z.object({ siteId: genbaIdSchema }))
+    .query(async ({ input }) => {
+      const logs = await genbaDb.listGenbaActivityLogs(undefined, 1000);
+      const graph = await genbaDb.collectSiteGraph(input.siteId);
+      const templateRows = await genbaDb.listGenbaTaskTemplates();
+      const parentIds = new Set(templateRows.map((r) => r.parentId).filter((p): p is string => !!p));
+      const templateLeafNames = templateRows.filter((r) => !parentIds.has(r.id)).map((r) => r.name);
+      const presets = await genbaDb.listGenbaMaterialPresets(input.siteId);
+      return computeInsights({
+        logs: logs.map((l) => ({ type: l.type, payload: l.payload })),
+        taskNames: graph.tasks.map((t) => t.name),
+        templateLeafNames,
+        zones: graph.zones.map((z) => ({ id: z.id, name: z.name })),
+        presetLabels: presets.flatMap((p) => p.parts),
+        siteId: input.siteId,
+      });
+    }),
 });
 
 // ── genbaRouter 本体 ──
