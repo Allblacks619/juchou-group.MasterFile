@@ -740,13 +740,133 @@ const instructionsRouter = router({
   }),
 });
 
+/** Σ集計の期間境界を求める (today=本日0時 / week=今週月曜0時 / all=null) */
+function materialAggBoundary(period: "today" | "week" | "all"): Date | null {
+  if (period === "all") return null;
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  if (period === "week") start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  return start;
+}
+
 const materialsRouter = router({
-  listRequests: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(notImplemented),
+  /** 依頼一覧 (明細を items として同梱, 新しい順) */
+  listRequests: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const requests = await genbaDb.listGenbaMaterialRequestsBySite(input.siteId);
+    const items = await genbaDb.listGenbaMaterialRequestItems(requests.map((r) => r.id));
+    const byReq = new Map<string, typeof items>();
+    for (const it of items) { const arr = byReq.get(it.requestId) || []; arr.push(it); byReq.set(it.requestId, arr); }
+    return requests.map((r) => ({
+      ...r,
+      items: (byReq.get(r.id) || []).map((it) => ({ id: it.id, name: it.name, qty: it.qty, unit: it.unit })),
+    }));
+  }),
+
   /** 現場入力: 資材依頼は worker も可 */
-  createRequest: genbaProcedure.input(z.object({ id: genbaIdSchema.optional(), siteId: genbaIdSchema, note: z.string().optional(), items: z.array(z.object({ name: z.string().trim().min(1).max(200), qty: z.number().int().positive(), unit: z.string().max(8).optional() })).min(1) })).mutation(notImplemented),
-  updateRequestStatus: genbaFieldProcedure.input(z.object({ id: genbaIdSchema, status: z.enum(["pending", "ordered", "delivered"]) })).mutation(notImplemented),
-  listPresets: genbaProcedure.input(z.object({ siteId: genbaIdSchema.nullish() }).optional()).query(notImplemented),
-  savePreset: genbaFieldProcedure.input(z.object({ id: genbaIdSchema.optional(), siteId: genbaIdSchema.nullish(), workName: z.string().trim().min(1).max(120), parts: z.array(z.string().trim().min(1)) })).mutation(notImplemented),
+  createRequest: genbaProcedure
+    .input(z.object({
+      id: genbaIdSchema.optional(),
+      siteId: genbaIdSchema,
+      note: z.string().max(500).optional(),
+      items: z.array(z.object({
+        name: z.string().trim().min(1).max(200),
+        qty: z.number().int().positive(),
+        unit: z.string().max(8).optional(),
+      })).min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const site = await genbaDb.getGenbaSiteById(input.siteId);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      const id = input.id ?? nanoid(21);
+      const items = input.items.map((it) => ({
+        id: nanoid(21),
+        requestId: id,
+        name: it.name,
+        qty: it.qty,
+        unit: it.unit || "個",
+      }));
+      const request = await genbaDb.createGenbaMaterialRequest(
+        { id, siteId: input.siteId, byUserId: ctx.user.id, status: "pending", note: input.note?.trim() || null },
+        items,
+      );
+      await safeGenbaAuditLog(ctx.user.id, "genba.materials.createRequest", { entityId: id, note: `資材依頼 (${items.length}品目, ${site.name})` });
+      return request ? { ...request, items: items.map((it) => ({ id: it.id, name: it.name, qty: it.qty, unit: it.unit })) } : null;
+    }),
+
+  /** ステータス進行 (依頼中→発注済→納品済)。orderedAt/deliveredAt を打刻 */
+  updateRequestStatus: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema, status: z.enum(["pending", "ordered", "delivered"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaMaterialRequestById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "依頼が見つかりません" });
+      const now = new Date();
+      const patch: { status: "pending" | "ordered" | "delivered"; orderedAt?: Date; deliveredAt?: Date } = { status: input.status };
+      if (input.status === "ordered" && !existing.orderedAt) patch.orderedAt = now;
+      if (input.status === "delivered" && !existing.deliveredAt) patch.deliveredAt = now;
+      const request = await genbaDb.updateGenbaMaterialRequest(input.id, patch);
+      await safeGenbaAuditLog(ctx.user.id, "genba.materials.updateStatus", { entityId: input.id, note: `資材依頼を${input.status}に変更` });
+      return request;
+    }),
+
+  /** 依頼の取り消し: 自分の依頼中のみ (field は任意の依頼を取り消せる) */
+  cancelRequest: genbaProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaMaterialRequestById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "依頼が見つかりません" });
+      const isField = ctx.genbaRole !== "worker";
+      if (!isField && !(existing.byUserId === ctx.user.id && existing.status === "pending")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "この依頼は取り消せません" });
+      }
+      await genbaDb.deleteGenbaMaterialRequestCascade(input.id);
+      await safeGenbaAuditLog(ctx.user.id, "genba.materials.cancelRequest", { entityId: input.id, note: "資材依頼を取り消し" });
+      return { success: true as const };
+    }),
+
+  /** Σ集計 (発注用・field): name×unit で数量合計。DB側 GROUP BY */
+  aggregate: genbaFieldProcedure
+    .input(z.object({ siteId: genbaIdSchema, period: z.enum(["today", "week", "all"]).default("week"), pendingOnly: z.boolean().default(true) }))
+    .query(async ({ input }) => {
+      const rows = await genbaDb.aggregateGenbaMaterials(input.siteId, materialAggBoundary(input.period), input.pendingOnly);
+      return { period: input.period, pendingOnly: input.pendingOnly, rows };
+    }),
+
+  /** プリセット一覧 (siteId 指定で 共通(null)+その現場) */
+  listPresets: genbaProcedure.input(z.object({ siteId: genbaIdSchema.nullish() }).optional()).query(async ({ input }) => {
+    return genbaDb.listGenbaMaterialPresets(input?.siteId ?? null);
+  }),
+
+  /** プリセットの作成/更新 (id 指定で更新) */
+  savePreset: genbaFieldProcedure
+    .input(z.object({
+      id: genbaIdSchema.optional(),
+      siteId: genbaIdSchema.nullish(),
+      workName: z.string().trim().min(1).max(120),
+      parts: z.array(z.string().trim().min(1).max(200)).min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.id) {
+        const existing = await genbaDb.getGenbaMaterialPresetById(input.id);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "プリセットが見つかりません" });
+        const preset = await genbaDb.updateGenbaMaterialPreset(input.id, { workName: input.workName, parts: input.parts });
+        await safeGenbaAuditLog(ctx.user.id, "genba.materials.savePreset", { entityId: input.id, note: `プリセットを更新: ${input.workName}` });
+        return preset;
+      }
+      const id = nanoid(21);
+      const preset = await genbaDb.createGenbaMaterialPreset({ id, siteId: input.siteId ?? null, workName: input.workName, parts: input.parts });
+      await safeGenbaAuditLog(ctx.user.id, "genba.materials.savePreset", { entityId: id, note: `プリセットを作成: ${input.workName}` });
+      return preset;
+    }),
+
+  removePreset: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaMaterialPresetById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "プリセットが見つかりません" });
+      await genbaDb.deleteGenbaMaterialPreset(input.id);
+      await safeGenbaAuditLog(ctx.user.id, "genba.materials.removePreset", { entityId: input.id, note: `プリセットを削除: ${existing.workName}` });
+      return { success: true as const };
+    }),
 });
 
 // 作業テンプレートのツリー入力 (最大3階層)

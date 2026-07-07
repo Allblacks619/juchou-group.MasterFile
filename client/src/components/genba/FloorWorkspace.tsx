@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid } from "lucide-react";
+import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, type Pt } from "@/lib/genbaMap";
 import ProgressBadge from "./ProgressBadge";
@@ -11,6 +11,7 @@ import TemplateEditor from "./TemplateEditor";
 import TeamManager from "./TeamManager";
 import InstructionsPanel from "./InstructionsPanel";
 import BoardPanel from "./BoardPanel";
+import MaterialsPanel from "./MaterialsPanel";
 
 type FloorWorkspaceProps = {
   siteId: string;
@@ -40,6 +41,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
   const [showTeams, setShowTeams] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
   const [showBoard, setShowBoard] = useState(false);
+  const [showMaterials, setShowMaterials] = useState(false);
 
   const { data: unreadCount } = trpc.genba.instructions.unreadCount.useQuery({ siteId }, { retry: false, staleTime: 30 * 1000 });
 
@@ -221,6 +223,9 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
           <Button size="sm" variant="outline" onClick={() => setShowBoard(true)}>
             <LayoutGrid className="h-4 w-4 mr-1" /> 配置
           </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowMaterials(true)}>
+            <Package className="h-4 w-4 mr-1" /> 材料
+          </Button>
         </div>
         {canEdit && (
           <div className="ml-auto flex items-center gap-2">
@@ -251,6 +256,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
         />
       )}
       {showBoard && <BoardPanel siteId={siteId} meUserId={meUserId} open={showBoard} onOpenChange={setShowBoard} />}
+      {showMaterials && <MaterialsPanel siteId={siteId} canEdit={canEdit} meUserId={meUserId} open={showMaterials} onOpenChange={setShowMaterials} />}
 
       {/* フロアバー */}
       {list.length > 0 && (

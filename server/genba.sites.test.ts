@@ -194,9 +194,9 @@ describe("genba.sites", () => {
   });
 
   describe("M4以降のスタブ", () => {
-    it("materials.listRequests は NOT_IMPLEMENTED を返す (M4で実装予定)", async () => {
+    it("shares.list は NOT_IMPLEMENTED を返す (M4-Cで実装予定)", async () => {
       const adminCaller = appRouter.createCaller(ctx(createUser({ appRole: "admin" as any, role: "admin" })));
-      await expect(adminCaller.genba.materials.listRequests({ siteId: "Genba_Beta_Site_01" })).rejects.toThrow("M2以降で実装");
+      await expect(adminCaller.genba.shares.list({ siteId: "Genba_Beta_Site_01" })).rejects.toThrow("M2以降で実装");
     });
   });
 });
