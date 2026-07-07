@@ -1,0 +1,7 @@
+www.juchou-group.com, juchou-group.com {
+	reverse_proxy app:3000
+}
+
+storage.juchou-group.com {
+	reverse_proxy minio:9000
+}
