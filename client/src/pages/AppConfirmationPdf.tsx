@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Loader2, FileDown, History, FileText } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useAppLang } from "@/contexts/AppLanguageContext";
+import { usePdfViewer } from "@/components/PdfViewer";
 
 function buildMonthString(year: string, month: string): string {
   return `${year}-${month.padStart(2, "0")}`;
@@ -30,6 +31,7 @@ export default function AppConfirmationPdf() {
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
+  const pdfViewer = usePdfViewer();
 
   const closingMonth = buildMonthString(selectedYear, selectedMonth);
 
@@ -59,7 +61,7 @@ export default function AppConfirmationPdf() {
   const generateMutation = trpc.closing.generateConfirmationPdf.useMutation({
     onSuccess: (data) => {
       toast.success("確認表PDFを生成しました");
-      window.open(data.url, "_blank");
+      pdfViewer.open(data.url, "確認表.pdf", "確認表PDF");
       historyQuery.refetch();
     },
     onError: (error) => {
@@ -230,6 +232,7 @@ export default function AppConfirmationPdf() {
           )}
         </CardContent>
       </Card>
+      {pdfViewer.dialog}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { usePdfViewer } from "@/components/PdfViewer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -1420,11 +1421,12 @@ function MonthlyInvoicePanel({ closingMonth }: { closingMonth: string }) {
     { enabled: !!closingMonth }
   );
   const data = monthlyQuery.data as any;
+  const pdfViewer = usePdfViewer();
 
   const issueMutation = trpc.workerInvoice.issueMyMonthlyInvoice.useMutation({
     onSuccess: (res: any) => {
       toast.success(`請求書を発行しました（${res?.invoiceNumber || ""}）`);
-      if (res?.url) window.open(res.url, "_blank");
+      if (res?.url) pdfViewer.open(res.url, `${res?.subject || "請求書"}.pdf`, res?.subject || "請求書");
     },
     onError: (e) => toast.error(`発行エラー: ${e.message}`),
   });
@@ -1444,6 +1446,8 @@ function MonthlyInvoicePanel({ closingMonth }: { closingMonth: string }) {
   const items: any[] = draft?.items || [];
 
   return (
+    <>
+    {pdfViewer.dialog}
     <Card>
       <CardHeader>
         <CardTitle>月次請求書（全現場まとめ）</CardTitle>
@@ -1547,6 +1551,7 @@ function MonthlyInvoicePanel({ closingMonth }: { closingMonth: string }) {
         )}
       </CardContent>
     </Card>
+    </>
   );
 }
 

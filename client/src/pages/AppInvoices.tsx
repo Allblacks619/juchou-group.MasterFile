@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import InvoicePreview from "@/components/InvoicePreview";
+import { usePdfViewer } from "@/components/PdfViewer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -1297,6 +1298,7 @@ export default function AppInvoices() {
   const [showCreate, setShowCreate] = useState(false);
   const [showAutoCreate, setShowAutoCreate] = useState(false);
   const [detailInvoiceId, setDetailInvoiceId] = useState<number | null>(null);
+  const pdfViewer = usePdfViewer();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1336,7 +1338,7 @@ export default function AppInvoices() {
 
   const generatePdfMutation = trpc.invoice.generatePdf.useMutation({
     onSuccess: (data: any) => {
-      window.open(data.url, "_blank");
+      pdfViewer.open(data.url, "請求書.pdf", "取引先請求書");
       toast.success("PDFを生成しました");
       invoicesQuery.refetch();
     },
@@ -1680,7 +1682,7 @@ export default function AppInvoices() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => window.open(inv.pdfUrl!, "_blank")}
+                                onClick={() => pdfViewer.open(inv.pdfUrl!, "請求書.pdf", "取引先請求書")}
                                 title="PDF表示"
                               >
                                 <FileText className="h-3.5 w-3.5" />
@@ -1710,6 +1712,7 @@ export default function AppInvoices() {
           )}
         </CardContent>
       </Card>
+      {pdfViewer.dialog}
     </div>
   );
 }

@@ -192,45 +192,58 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
   let headerY = startY;
   if (logoBuffer) {
     try {
-      doc.image(logoBuffer, startX, headerY, { height: 30 });
+      doc.image(logoBuffer, startX, headerY, { height: 34 });
     } catch { /* ignore */ }
   }
-  doc.font("Bold").fontSize(10).text(
+  doc.font("Bold").fontSize(12).text(
     companyName || "充寵グループ",
-    startX + (logoBuffer ? 35 : 0),
-    headerY + 5,
-    { width: 200 }
+    startX + (logoBuffer ? 42 : 0),
+    headerY + 6,
+    { width: 240 }
   );
 
   // Title centered
-  doc.font("Bold").fontSize(14).text(
+  doc.font("Bold").fontSize(18).text(
     `出面表 ${year}年${month}月`,
     startX,
     headerY,
     { align: "center", width: pageW }
   );
-  doc.font("Regular").fontSize(9).text(
+  doc.font("Regular").fontSize(11).text(
     `現場: ${projectName}`,
     startX,
-    headerY + 20,
+    headerY + 24,
     { align: "center", width: pageW }
   );
 
-  const tableY = headerY + 45;
-  const nameColW = 85;
-  const summaryColW = 32;
-  const dayColW = Math.min(20, (pageW - nameColW - summaryColW * 3) / numDays);
-  const rowH = 20;
-  const headerRowH = 28;
+  // ── レイアウト: 用紙(A4横)を縦にも使い切るよう行の高さを行数から自動調整し、文字も大きくする ──
+  const tableY = headerY + 52;
+  const nameColW = 108;
+  const summaryColW = 42;
+  const dayColW = (pageW - nameColW - summaryColW * 3) / numDays;
+  const headerRowH = 34;
+  // 凡例＋フッターの予約を差し引いた残り高さを行数で割る。読みやすさのため 26〜48pt にクランプ。
+  // 予約は「凡例(y+=10 → +30チェック)＋フッター」が1ページ目に収まる十分な余白にする。
+  const bottomReserve = 74;
+  const availH = (pageH - startY - bottomReserve) - (tableY - startY) - headerRowH;
+  const rowH = rows.length > 0
+    ? Math.max(26, Math.min(48, availH / rows.length))
+    : 32;
+  // 行高に応じて記号フォントを拡大（残業併記があるときは少し控えめに）。
+  const markFont = Math.max(12, Math.min(18, Math.round(rowH * 0.48)));
+  const markFontOt = Math.max(11, markFont - 2);
+  const otFont = Math.max(7, Math.min(10, Math.round(rowH * 0.24)));
+  const nameFont = Math.max(9, Math.min(13, Math.round(rowH * 0.36)));
+  const sumFont = Math.max(10, Math.min(14, Math.round(rowH * 0.4)));
+  // セル内で1行テキストを縦中央に置くためのtop（ざっくりアセント補正）。
+  const vc = (h: number, f: number) => (h - f) / 2 - 1;
 
   // --- Table Header ---
-  doc.font("Regular").fontSize(6);
-
   // Name column header
   doc.save();
   doc.rect(startX, tableY, nameColW, headerRowH).fill("#F3F4F6").stroke("#D1D5DB");
   doc.restore();
-  doc.fillColor("#111827").font("Bold").fontSize(7).text("氏名", startX + 3, tableY + 9, { width: nameColW - 6 });
+  doc.fillColor("#111827").font("Bold").fontSize(10).text("氏名", startX + 5, tableY + vc(headerRowH, 10), { width: nameColW - 10 });
 
   let x = startX + nameColW;
   for (const day of days) {
@@ -251,8 +264,8 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
     doc.rect(x, tableY, dayColW, headerRowH).stroke("#D1D5DB");
 
     doc.fillColor(isSun ? "#DC2626" : isSat ? "#2563EB" : "#111827");
-    doc.font("Bold").fontSize(7).text(format(day, "d"), x, tableY + 3, { width: dayColW, align: "center" });
-    doc.font("Regular").fontSize(5).text(DAY_LABELS[dayOfWeek], x, tableY + 15, { width: dayColW, align: "center" });
+    doc.font("Bold").fontSize(10).text(format(day, "d"), x, tableY + 4, { width: dayColW, align: "center" });
+    doc.font("Regular").fontSize(7).text(DAY_LABELS[dayOfWeek], x, tableY + 19, { width: dayColW, align: "center" });
     x += dayColW;
   }
 
@@ -262,7 +275,7 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
     doc.save();
     doc.rect(x, tableY, summaryColW, headerRowH).fill("#F3F4F6").stroke("#D1D5DB");
     doc.restore();
-    doc.fillColor("#111827").font("Bold").fontSize(6).text(label, x, tableY + 9, { width: summaryColW, align: "center" });
+    doc.fillColor("#111827").font("Bold").fontSize(9).text(label, x, tableY + vc(headerRowH, 9), { width: summaryColW, align: "center" });
     x += summaryColW;
   }
 
@@ -271,7 +284,7 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
   let rowIndex = 0;
 
   for (const row of rows) {
-    if (y + rowH > pageH - 40) {
+    if (y + rowH > pageH - bottomReserve) {
       // New page
       doc.addPage({ size: "A4", layout: "landscape", margins: { top: 30, bottom: 30, left: 30, right: 30 } });
       drawWatermark();
@@ -287,11 +300,11 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
     }
     doc.restore();
     doc.rect(startX, y, nameColW, rowH).stroke("#D1D5DB");
-    doc.fillColor("#111827").font("Regular").fontSize(6).text(
+    doc.fillColor("#111827").font("Regular").fontSize(nameFont).text(
       row.label,
-      startX + 3,
-      y + 6,
-      { width: nameColW - 6, lineBreak: false }
+      startX + 5,
+      y + vc(rowH, nameFont),
+      { width: nameColW - 10, lineBreak: false }
     );
 
     let cx = startX + nameColW;
@@ -323,10 +336,10 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
         // Day off / absence — NOT counted as worked days
         const mark = WORK_TYPE_MARKS[rec.workType] || "休";
         const markColor = rec.workType === "absence" ? "#DC2626" : "#6B7280";
-        doc.fillColor(markColor).font("Bold").fontSize(7).text(
+        doc.fillColor(markColor).font("Bold").fontSize(markFont).text(
           mark,
           cx,
-          y + 5,
+          y + vc(rowH, markFont),
           { width: dayColW, align: "center" }
         );
       } else if (rec && rec.hoursWorked > 0) {
@@ -336,24 +349,26 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
 
         const mark = WORK_TYPE_MARKS[rec.workType] || "○";
         const nightMark = rec.shiftType === "night" ? "夜" : "";
+        const hasOt = rec.overtimeHours > 0;
 
         // Color coding
         let markColor = "#059669"; // green for normal
         if (rec.workType === "half_day") markColor = "#D97706"; // amber
         else if (rec.workType === "holiday") markColor = "#7C3AED"; // purple
 
-        doc.fillColor(markColor).font("Bold").fontSize(7).text(
+        const mf = hasOt ? markFontOt : markFont;
+        doc.fillColor(markColor).font("Bold").fontSize(mf).text(
           `${mark}${nightMark}`,
           cx,
-          y + (rec.overtimeHours > 0 ? 2 : 5),
+          y + (hasOt ? Math.max(2, rowH * 0.14) : vc(rowH, mf)),
           { width: dayColW, align: "center" }
         );
 
-        if (rec.overtimeHours > 0) {
-          doc.fillColor("#2563EB").font("Regular").fontSize(4).text(
+        if (hasOt) {
+          doc.fillColor("#2563EB").font("Regular").fontSize(otFont).text(
             `+${rec.overtimeHours / 10}`,
             cx,
-            y + 12,
+            y + rowH - otFont - 3,
             { width: dayColW, align: "center" }
           );
         }
@@ -362,46 +377,19 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
     }
 
     // Summary cells
-    doc.save();
-    if (isEvenRow) {
-      doc.rect(cx, y, summaryColW, rowH).fill("#FAFAFA");
-    }
-    doc.restore();
-    doc.rect(cx, y, summaryColW, rowH).stroke("#D1D5DB");
-    doc.fillColor("#111827").font("Bold").fontSize(7).text(
-      totalDays > 0 ? String(totalDays) : "-",
-      cx,
-      y + 6,
-      { width: summaryColW, align: "center" }
-    );
-    cx += summaryColW;
-
-    doc.save();
-    if (isEvenRow) {
-      doc.rect(cx, y, summaryColW, rowH).fill("#FAFAFA");
-    }
-    doc.restore();
-    doc.rect(cx, y, summaryColW, rowH).stroke("#D1D5DB");
-    doc.fillColor("#111827").font("Regular").fontSize(7).text(
-      totalHours > 0 ? String(totalHours / 10) : "-",
-      cx,
-      y + 6,
-      { width: summaryColW, align: "center" }
-    );
-    cx += summaryColW;
-
-    doc.save();
-    if (isEvenRow) {
-      doc.rect(cx, y, summaryColW, rowH).fill("#FAFAFA");
-    }
-    doc.restore();
-    doc.rect(cx, y, summaryColW, rowH).stroke("#D1D5DB");
-    doc.fillColor(totalOvertime > 0 ? "#2563EB" : "#111827").font("Regular").fontSize(7).text(
-      totalOvertime > 0 ? String(totalOvertime / 10) : "-",
-      cx,
-      y + 6,
-      { width: summaryColW, align: "center" }
-    );
+    const drawSummary = (value: string, color: string, bold: boolean) => {
+      doc.save();
+      if (isEvenRow) doc.rect(cx, y, summaryColW, rowH).fill("#FAFAFA");
+      doc.restore();
+      doc.rect(cx, y, summaryColW, rowH).stroke("#D1D5DB");
+      doc.fillColor(color).font(bold ? "Bold" : "Regular").fontSize(sumFont).text(
+        value, cx, y + vc(rowH, sumFont), { width: summaryColW, align: "center" }
+      );
+      cx += summaryColW;
+    };
+    drawSummary(totalDays > 0 ? String(totalDays) : "-", "#111827", true);
+    drawSummary(totalHours > 0 ? String(totalHours / 10) : "-", "#111827", false);
+    drawSummary(totalOvertime > 0 ? String(totalOvertime / 10) : "-", totalOvertime > 0 ? "#2563EB" : "#111827", false);
 
     y += rowH;
     rowIndex++;
@@ -415,12 +403,12 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
     y = 30;
   }
 
-  doc.fillColor("#6B7280").font("Regular").fontSize(7);
+  doc.fillColor("#6B7280").font("Regular").fontSize(9);
   doc.text("凡例:  ○ = 出勤    △ = 半日/早退    X = 欠勤    休出 = 休日出勤    休 = 休日    夜 = 夜勤    +N = 残業時間(h)", startX, y, { width: pageW });
 
   // Footer
-  y += 15;
-  doc.fillColor("#9CA3AF").fontSize(6).text(
+  y += 16;
+  doc.fillColor("#9CA3AF").fontSize(8).text(
     `作成日: ${format(new Date(), "yyyy/MM/dd")}`,
     startX,
     y,
