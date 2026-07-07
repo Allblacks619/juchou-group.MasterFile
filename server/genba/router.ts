@@ -8,6 +8,37 @@ import * as genbaDb from "./db";
 import { storageGet, storagePut } from "../storage";
 import { validateFile } from "../../shared/uploadValidation";
 import { computeZoneAggregates } from "./aggregate";
+import { buildTemplateTree, DEFAULT_TEMPLATE_DATA, type TemplateNode, type TemplateTreeNode } from "../../shared/genba/template";
+
+/** テンプレートツリーから新規ゾーン用の作業タスク行を生成 (親子リンク付き) */
+function instantiateTemplateTasks(
+  nodes: (TemplateTreeNode | TemplateNode)[],
+  zoneId: string,
+  parentTaskId: string | null,
+  out: any[] = [],
+): any[] {
+  let order = 0;
+  for (const node of nodes) {
+    const id = nanoid(21);
+    out.push({
+      id, zoneId, parentTaskId,
+      name: node.name,
+      romaji: (node as any).romaji ?? null,
+      status: "todo" as const,
+      sortOrder: order++,
+    });
+    const children = (node as any).children;
+    if (children && children.length) instantiateTemplateTasks(children, zoneId, id, out);
+  }
+  return out;
+}
+
+/** 現在のテンプレート (DB) を取得。無ければ既定テンプレートにフォールバック */
+async function currentTemplateForInstantiation(): Promise<(TemplateTreeNode | TemplateNode)[]> {
+  const rows = await genbaDb.listGenbaTaskTemplates();
+  if (rows.length === 0) return DEFAULT_TEMPLATE_DATA;
+  return buildTemplateTree(rows.map((r) => ({ id: r.id, parentId: r.parentId, name: r.name, romaji: r.romaji, sortOrder: r.sortOrder })));
+}
 
 /**
  * 現場ビジョン (genba) ルーター — M1骨組み。
@@ -274,7 +305,7 @@ const zonesRouter = router({
     });
   }),
 
-  /** エリア(ポリゴン)の作成。作業テンプレートの自動適用は M2-C で追加する */
+  /** エリア(ポリゴン)の作成 + 作業テンプレートの自動適用 (applyTemplate=false で無効化可) */
   create: genbaFieldProcedure
     .input(z.object({
       id: genbaIdSchema.optional(),
@@ -284,6 +315,7 @@ const zonesRouter = router({
       polygon: polygonSchema,
       priority: zonePrioritySchema,
       workStatus: zoneWorkStatusSchema,
+      applyTemplate: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const floor = await genbaDb.getGenbaFloorById(input.floorId);
@@ -302,6 +334,12 @@ const zonesRouter = router({
         priority: input.priority ?? null,
         workStatus: input.workStatus ?? null,
       });
+      // 作業テンプレートを自動適用 (プロトタイプ準拠: エリア作成時に標準作業ツリーを展開)
+      if (input.applyTemplate !== false) {
+        const tree = await currentTemplateForInstantiation();
+        const tasks = instantiateTemplateTasks(tree, id, null);
+        if (tasks.length) await genbaDb.createGenbaTasksBulk(tasks);
+      }
       await safeGenbaAuditLog(ctx.user.id, "genba.zones.create", { entityId: id, note: `エリアを作成: ${input.name}` });
       return zone;
     }),
@@ -341,14 +379,124 @@ const zonesRouter = router({
 });
 
 const genbaTaskStatusSchema = z.enum(["todo", "progress", "done", "issue"]);
+const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD形式で入力してください");
+const issuePhotoSchema = z.object({ base64: z.string().min(1), mimeType: z.string(), fileName: z.string().min(1).max(200) });
 
 const tasksRouter = router({
-  listByZone: genbaProcedure.input(z.object({ zoneId: genbaIdSchema })).query(notImplemented),
-  create: genbaFieldProcedure.input(z.object({ id: genbaIdSchema.optional(), zoneId: genbaIdSchema, parentTaskId: genbaIdSchema.nullish(), name: z.string().trim().min(1).max(200), romaji: z.string().max(200).optional() })).mutation(notImplemented),
-  update: genbaFieldProcedure.input(z.object({ id: genbaIdSchema, name: z.string().trim().min(1).max(200).optional(), memo: z.string().optional(), memoVisible: z.boolean().optional(), linkUrl: z.string().max(500).optional(), startDate: z.string().length(10).nullish(), dueDate: z.string().length(10).nullish(), priority: z.number().int().nullish(), sortOrder: z.number().int().optional() })).mutation(notImplemented),
-  /** 現場入力: ステータス変更は worker も可 */
-  setStatus: genbaProcedure.input(z.object({ id: genbaIdSchema, status: genbaTaskStatusSchema, percent: z.number().int().min(0).max(100).nullish(), issueText: z.string().optional() })).mutation(notImplemented),
-  remove: genbaFieldProcedure.input(z.object({ id: genbaIdSchema })).mutation(notImplemented),
+  /** ゾーンの作業一覧 (フラット。ツリー化と親進捗はクライアント側で計算) */
+  listByZone: genbaProcedure.input(z.object({ zoneId: genbaIdSchema })).query(async ({ input }) => {
+    return genbaDb.listGenbaTasksByZone(input.zoneId);
+  }),
+
+  create: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema.optional(), zoneId: genbaIdSchema, parentTaskId: genbaIdSchema.nullish(), name: z.string().trim().min(1).max(200), romaji: z.string().max(200).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const zone = await genbaDb.getGenbaZoneById(input.zoneId);
+      if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
+      const id = input.id ?? nanoid(21);
+      const task = await genbaDb.createGenbaTask({
+        id, zoneId: input.zoneId, parentTaskId: input.parentTaskId ?? null,
+        name: input.name, romaji: input.romaji ?? null, status: "todo",
+      });
+      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.create", { entityId: id, note: `作業を追加: ${input.name}` });
+      return task;
+    }),
+
+  update: genbaFieldProcedure
+    .input(z.object({
+      id: genbaIdSchema,
+      name: z.string().trim().min(1).max(200).optional(),
+      romaji: z.string().max(200).nullish(),
+      memo: z.string().nullish(),
+      memoVisible: z.boolean().optional(),
+      linkUrl: z.string().max(500).nullish(),
+      startDate: dateStr.nullish(),
+      dueDate: dateStr.nullish(),
+      priority: z.number().int().min(1).max(4).nullish(),
+      sortOrder: z.number().int().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaTaskById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      const patch: Record<string, unknown> = {};
+      for (const k of ["name", "romaji", "memo", "memoVisible", "linkUrl", "startDate", "dueDate", "priority", "sortOrder"] as const) {
+        if (input[k] !== undefined) patch[k] = input[k];
+      }
+      const task = await genbaDb.updateGenbaTask(input.id, patch);
+      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.update", { entityId: input.id, note: `作業を更新: ${existing.name}` });
+      return task;
+    }),
+
+  /**
+   * 現場入力: ステータス変更 (worker も可)。
+   * 問題報告時は写真を base64 で受け R2 保存し、履歴イベント(task_events)に記録する。
+   */
+  setStatus: genbaProcedure
+    .input(z.object({
+      id: genbaIdSchema,
+      status: genbaTaskStatusSchema,
+      percent: z.number().int().min(0).max(100).nullish(),
+      issueText: z.string().optional(),
+      photos: z.array(issuePhotoSchema).max(4).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaTaskById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+
+      // 問題報告: 写真を R2 へ保存しキーを集める (DBには base64 を入れない)
+      const photoKeys: string[] = [];
+      if (input.status === "issue" && input.photos?.length) {
+        for (const p of input.photos) {
+          const buffer = Buffer.from(p.base64, "base64");
+          const err = validateFile(p.fileName, p.mimeType, buffer.length);
+          if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
+          const key = `genba/task-${input.id}/issue-${nanoid(8)}-${safeKeyPart(p.fileName)}`;
+          await storagePut(key, buffer, p.mimeType);
+          photoKeys.push(key);
+        }
+      }
+
+      const percent = input.status === "done" ? 100 : input.status === "todo" ? null : (input.percent ?? existing.percent ?? (input.status === "progress" ? 50 : null));
+      const task = await genbaDb.updateGenbaTask(input.id, {
+        status: input.status,
+        percent,
+        issueText: input.status === "issue" ? (input.issueText ?? "") : null,
+      });
+
+      // 履歴イベント (status / issue) を記録
+      await genbaDb.createGenbaTaskEvent({
+        taskId: input.id,
+        kind: input.status === "issue" ? "issue" : "status",
+        byUserId: ctx.user.id,
+        text: input.status === "issue" ? (input.issueText ?? "") : `「${input.status}」に変更`,
+        photoKeys: photoKeys.length ? photoKeys : null,
+      } as any);
+
+      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.setStatus", { entityId: input.id, note: `${existing.name}: ${input.status}` });
+      return task;
+    }),
+
+  /** 作業の履歴・問題イベント (写真は署名URL付き) */
+  events: genbaProcedure.input(z.object({ taskId: genbaIdSchema })).query(async ({ input }) => {
+    const events = await genbaDb.listGenbaTaskEvents(input.taskId);
+    return Promise.all(events.map(async (e) => {
+      const keys = Array.isArray(e.photoKeys) ? (e.photoKeys as string[]) : [];
+      const photoUrls = await Promise.all(keys.map(async (k) => {
+        try { return (await storageGet(k)).url; } catch { return null; }
+      }));
+      return { ...e, photoUrls: photoUrls.filter((u): u is string => !!u) };
+    }));
+  }),
+
+  remove: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaTaskById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      await genbaDb.deleteGenbaTaskCascade(input.id);
+      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.remove", { entityId: input.id, note: `作業を削除: ${existing.name}` });
+      return { success: true as const };
+    }),
 });
 
 const instructionsRouter = router({
@@ -367,10 +515,45 @@ const materialsRouter = router({
   savePreset: genbaFieldProcedure.input(z.object({ id: genbaIdSchema.optional(), siteId: genbaIdSchema.nullish(), workName: z.string().trim().min(1).max(120), parts: z.array(z.string().trim().min(1)) })).mutation(notImplemented),
 });
 
+// 作業テンプレートのツリー入力 (最大3階層)
+const templateNodeSchema: z.ZodType<{ name: string; romaji?: string; children?: any[] }> = z.lazy(() =>
+  z.object({
+    name: z.string().trim().min(1).max(200),
+    romaji: z.string().max(200).optional(),
+    children: z.array(templateNodeSchema).optional(),
+  }),
+);
+
+function flattenTemplateTree(nodes: { name: string; romaji?: string; children?: any[] }[], parentId: string | null, out: any[] = []): any[] {
+  let order = 0;
+  for (const n of nodes) {
+    const id = nanoid(21);
+    out.push({ id, parentId, name: n.name, romaji: n.romaji ?? null, sortOrder: order++ });
+    if (n.children?.length) flattenTemplateTree(n.children, id, out);
+  }
+  return out;
+}
+
 const templatesRouter = router({
-  list: genbaProcedure.query(notImplemented),
-  save: genbaFieldProcedure.input(z.object({ id: genbaIdSchema.optional(), parentId: genbaIdSchema.nullish(), name: z.string().trim().min(1).max(200), romaji: z.string().max(200).optional(), sortOrder: z.number().int().optional() })).mutation(notImplemented),
-  remove: genbaFieldProcedure.input(z.object({ id: genbaIdSchema })).mutation(notImplemented),
+  /** 現在の作業テンプレート (ツリー)。未設定なら既定テンプレートを返す */
+  get: genbaProcedure.query(async () => {
+    const rows = await genbaDb.listGenbaTaskTemplates();
+    if (rows.length === 0) return { tree: DEFAULT_TEMPLATE_DATA, isDefault: true as const };
+    return {
+      tree: buildTemplateTree(rows.map((r) => ({ id: r.id, parentId: r.parentId, name: r.name, romaji: r.romaji, sortOrder: r.sortOrder }))),
+      isDefault: false as const,
+    };
+  }),
+
+  /** テンプレートツリーを丸ごと保存 (置き換え) */
+  saveTree: genbaFieldProcedure
+    .input(z.object({ tree: z.array(templateNodeSchema) }))
+    .mutation(async ({ ctx, input }) => {
+      const rows = flattenTemplateTree(input.tree, null);
+      await genbaDb.replaceGenbaTaskTemplates(rows);
+      await safeGenbaAuditLog(ctx.user.id, "genba.templates.saveTree", { note: `テンプレートを更新 (${rows.length}項目)` });
+      return { success: true as const, count: rows.length };
+    }),
 });
 
 const sharesRouter = router({

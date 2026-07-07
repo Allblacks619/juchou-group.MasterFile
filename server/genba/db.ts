@@ -3,7 +3,9 @@ import {
   genbaSites, GenbaSite, InsertGenbaSite,
   genbaFloors, GenbaFloor, InsertGenbaFloor,
   genbaZones, GenbaZone, InsertGenbaZone,
-  genbaTasks, GenbaTask,
+  genbaTasks, GenbaTask, InsertGenbaTask,
+  genbaTaskEvents, GenbaTaskEvent, InsertGenbaTaskEvent,
+  genbaTaskTemplates, GenbaTaskTemplate, InsertGenbaTaskTemplate,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { getDb } from "../db";
@@ -160,6 +162,120 @@ export async function listGenbaTasksByZoneIds(zoneIds: string[]): Promise<GenbaT
   const db = await getDb();
   if (!db || zoneIds.length === 0) return [];
   return db.select().from(genbaTasks).where(inArray(genbaTasks.zoneId, zoneIds));
+}
+
+// ── genba_tasks (M2-C) ──
+
+export async function listGenbaTasksByZone(zoneId: string): Promise<GenbaTask[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaTasks).where(eq(genbaTasks.zoneId, zoneId))
+    .orderBy(asc(genbaTasks.sortOrder), asc(genbaTasks.createdAt));
+}
+
+export async function getGenbaTaskById(id: string): Promise<GenbaTask | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaTasks).where(eq(genbaTasks.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createGenbaTask(data: InsertGenbaTask): Promise<GenbaTask | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaTasks).values(data);
+  return getGenbaTaskById(data.id);
+}
+
+/** テンプレート展開などで複数タスクを一括作成 */
+export async function createGenbaTasksBulk(rows: InsertGenbaTask[]): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (rows.length === 0) return;
+  await db.insert(genbaTasks).values(rows);
+}
+
+export async function updateGenbaTask(
+  id: string,
+  patch: Partial<Pick<InsertGenbaTask, "name" | "romaji" | "status" | "percent" | "priority" | "issueText" | "startDate" | "dueDate" | "memo" | "memoVisible" | "linkUrl" | "sortOrder">>,
+): Promise<GenbaTask | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaTasks).set(patch).where(eq(genbaTasks.id, id));
+  return getGenbaTaskById(id);
+}
+
+/** タスクを子孫タスク・イベントごと削除 */
+export async function deleteGenbaTaskCascade(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const target = await getGenbaTaskById(id);
+  if (!target) return;
+  const zoneTasks = await listGenbaTasksByZone(target.zoneId);
+  const childrenOf = new Map<string, string[]>();
+  for (const t of zoneTasks) {
+    if (t.parentTaskId) {
+      const arr = childrenOf.get(t.parentTaskId) || [];
+      arr.push(t.id);
+      childrenOf.set(t.parentTaskId, arr);
+    }
+  }
+  const subtree: string[] = [];
+  const stack = [id];
+  while (stack.length) {
+    const tid = stack.pop()!;
+    subtree.push(tid);
+    for (const c of childrenOf.get(tid) || []) stack.push(c);
+  }
+  await db.delete(genbaTaskEvents).where(inArray(genbaTaskEvents.taskId, subtree));
+  await db.delete(genbaTasks).where(inArray(genbaTasks.id, subtree));
+}
+
+// ── genba_task_events ──
+
+/** MariaDBはJSON(photoKeys)を文字列で返すため配列へ正規化 */
+function normalizeTaskEvent(e: GenbaTaskEvent): GenbaTaskEvent {
+  if (e && typeof e.photoKeys === "string") {
+    try {
+      return { ...e, photoKeys: JSON.parse(e.photoKeys) };
+    } catch {
+      return e;
+    }
+  }
+  return e;
+}
+
+export async function createGenbaTaskEvent(data: InsertGenbaTaskEvent): Promise<GenbaTaskEvent | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(genbaTaskEvents).values(data);
+  const insertedId = (result as any)[0]?.insertId;
+  if (insertedId == null) return null;
+  const rows = await db.select().from(genbaTaskEvents).where(eq(genbaTaskEvents.id, insertedId)).limit(1);
+  return rows[0] ? normalizeTaskEvent(rows[0]) : null;
+}
+
+export async function listGenbaTaskEvents(taskId: string): Promise<GenbaTaskEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(genbaTaskEvents).where(eq(genbaTaskEvents.taskId, taskId)).orderBy(asc(genbaTaskEvents.createdAt));
+  return rows.map(normalizeTaskEvent);
+}
+
+// ── genba_task_templates ──
+
+export async function listGenbaTaskTemplates(): Promise<GenbaTaskTemplate[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaTaskTemplates).orderBy(asc(genbaTaskTemplates.sortOrder));
+}
+
+/** テンプレートツリーを丸ごと置き換える (全削除 → 一括挿入) */
+export async function replaceGenbaTaskTemplates(rows: InsertGenbaTaskTemplate[]): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaTaskTemplates);
+  if (rows.length) await db.insert(genbaTaskTemplates).values(rows);
 }
 
 // ── genba_user_settings ──

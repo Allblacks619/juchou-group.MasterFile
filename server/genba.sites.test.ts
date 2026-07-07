@@ -193,10 +193,10 @@ describe("genba.sites", () => {
     });
   });
 
-  describe("M2-C以降のスタブ", () => {
-    it("tasks.listByZone は NOT_IMPLEMENTED を返す (M2-Cで実装予定)", async () => {
+  describe("M3以降のスタブ", () => {
+    it("instructions.list は NOT_IMPLEMENTED を返す (M3で実装予定)", async () => {
       const adminCaller = appRouter.createCaller(ctx(createUser({ appRole: "admin" as any, role: "admin" })));
-      await expect(adminCaller.genba.tasks.listByZone({ zoneId: "Genba_Beta_Zone_01" })).rejects.toThrow("M2以降で実装");
+      await expect(adminCaller.genba.instructions.list({ siteId: "Genba_Beta_Site_01" })).rejects.toThrow("M2以降で実装");
     });
   });
 });
