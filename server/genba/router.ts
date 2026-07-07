@@ -9,6 +9,7 @@ import { storageGet, storagePut } from "../storage";
 import { validateFile } from "../../shared/uploadValidation";
 import { computeZoneAggregates } from "./aggregate";
 import { computeBoard } from "./board";
+import { computeBudget } from "./budget";
 import { buildTemplateTree, DEFAULT_TEMPLATE_DATA, type TemplateNode, type TemplateTreeNode } from "../../shared/genba/template";
 
 /** テンプレートツリーから新規ゾーン用の作業タスク行を生成 (親子リンク付き) */
@@ -916,13 +917,113 @@ const sharesRouter = router({
   revoke: genbaFieldProcedure.input(z.object({ id: genbaIdSchema })).mutation(notImplemented),
 });
 
+const ymdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日付は YYYY-MM-DD 形式");
+
+/** timestamp を YYYY-MM-DD へ (工期初期値の提案用) */
+function toYmd(d: Date | null): string | null {
+  if (!d) return null;
+  const t = new Date(d);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+}
+
 const budgetsRouter = router({
-  /** 予算トラッカーは admin 専用 */
-  get: genbaAdminProcedure.input(z.object({ siteId: genbaIdSchema })).query(notImplemented),
-  save: genbaAdminProcedure.input(z.object({ siteId: genbaIdSchema, enabled: z.boolean().optional(), contractAmount: z.number().int().min(0).optional(), targetType: z.enum(["percent", "amount"]).optional(), targetValue: z.number().int().min(0).optional(), costPerManDay: z.number().int().min(0).optional(), monthlyExpense: z.number().int().min(0).optional(), periodStart: z.string().length(10).nullish(), periodEnd: z.string().length(10).nullish(), preManDays: z.number().min(0).optional(), attendanceSource: z.enum(["manual", "project"]).optional() })).mutation(notImplemented),
-  addManualAttendance: genbaAdminProcedure.input(z.object({ siteId: genbaIdSchema, date: z.string().length(10), manDays: z.number().min(0) })).mutation(notImplemented),
-  /** attendanceSource=project のとき既存 attendance から SUM(hoursWorked)/80.0 を projectId×期間で集計 (M4) */
-  summary: genbaAdminProcedure.input(z.object({ siteId: genbaIdSchema })).query(notImplemented),
+  /** 予算トラッカーは admin 専用。予算行 + 連携プロジェクトの工期ヒントを返す */
+  get: genbaAdminProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const site = await genbaDb.getGenbaSiteById(input.siteId);
+    if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+    const budget = await genbaDb.getGenbaBudget(input.siteId);
+    let project: { id: number; name: string; startDate: string | null; endDate: string | null } | null = null;
+    if (site.projectId) {
+      const p = await genbaDb.getProjectPeriod(site.projectId);
+      if (p) project = { id: p.id, name: p.name, startDate: toYmd(p.startDate), endDate: toYmd(p.endDate) };
+    }
+    return { budget, projectId: site.projectId ?? null, project };
+  }),
+
+  /** 予算設定の保存 (upsert) */
+  save: genbaAdminProcedure
+    .input(z.object({
+      siteId: genbaIdSchema,
+      enabled: z.boolean().optional(),
+      contractAmount: z.number().int().min(0).optional(),
+      targetType: z.enum(["percent", "amount"]).optional(),
+      targetValue: z.number().int().min(0).optional(),
+      costPerManDay: z.number().int().min(0).optional(),
+      monthlyExpense: z.number().int().min(0).optional(),
+      periodStart: ymdSchema.nullish(),
+      periodEnd: ymdSchema.nullish(),
+      preManDays: z.number().min(0).optional(),
+      attendanceSource: z.enum(["manual", "project"]).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const site = await genbaDb.getGenbaSiteById(input.siteId);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      const patch: Record<string, unknown> = {};
+      for (const k of ["enabled", "contractAmount", "targetType", "targetValue", "costPerManDay", "monthlyExpense", "attendanceSource"] as const) {
+        if (input[k] !== undefined) patch[k] = input[k];
+      }
+      if (input.periodStart !== undefined) patch.periodStart = input.periodStart;
+      if (input.periodEnd !== undefined) patch.periodEnd = input.periodEnd;
+      // decimal 列は文字列で保存 (drizzle decimal)
+      if (input.preManDays !== undefined) patch.preManDays = input.preManDays.toFixed(1);
+      const budget = await genbaDb.upsertGenbaBudget(input.siteId, patch);
+      await safeGenbaAuditLog(ctx.user.id, "genba.budgets.save", { entityId: input.siteId, note: `予算設定を保存 (${site.name})` });
+      return budget;
+    }),
+
+  /** 手入力の出面 (人工) を1件追加 */
+  addManualAttendance: genbaAdminProcedure
+    .input(z.object({ siteId: genbaIdSchema, date: ymdSchema, manDays: z.number().min(0) }))
+    .mutation(async ({ ctx, input }) => {
+      const id = nanoid(21);
+      const row = await genbaDb.addGenbaBudgetAttendance({ id, siteId: input.siteId, date: input.date, manDays: input.manDays.toFixed(1) });
+      await safeGenbaAuditLog(ctx.user.id, "genba.budgets.addManualAttendance", { entityId: id, note: `出面 ${input.date}: ${input.manDays}人工` });
+      return row ? { ...row, manDays: Number(row.manDays) } : null;
+    }),
+
+  removeManualAttendance: genbaAdminProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaBudgetAttendanceById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "出面記録が見つかりません" });
+      await genbaDb.deleteGenbaBudgetAttendance(input.id);
+      await safeGenbaAuditLog(ctx.user.id, "genba.budgets.removeManualAttendance", { entityId: input.id, note: "出面記録を削除" });
+      return { success: true as const };
+    }),
+
+  listManualAttendance: genbaAdminProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    return genbaDb.listGenbaBudgetAttendance(input.siteId);
+  }),
+
+  /**
+   * 予算サマリー計算。attendanceSource=project かつ 現場に projectId があれば
+   * 既存 attendance を SUM(hoursWorked)/80.0 で集計、それ以外は手入力を集計。
+   */
+  summary: genbaAdminProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const site = await genbaDb.getGenbaSiteById(input.siteId);
+    if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+    const budget = await genbaDb.getGenbaBudget(input.siteId);
+    if (!budget || !budget.enabled) {
+      return { enabled: false as const, source: budget?.attendanceSource ?? "manual", attendanceManDays: 0, calc: null, budget };
+    }
+    const useProject = budget.attendanceSource === "project" && !!site.projectId;
+    const attendanceManDays = useProject
+      ? await genbaDb.sumProjectAttendanceManDays(site.projectId!, budget.periodStart, budget.periodEnd)
+      : await genbaDb.sumManualBudgetManDays(input.siteId);
+    const calc = computeBudget({
+      contractAmount: budget.contractAmount,
+      targetType: budget.targetType,
+      targetValue: budget.targetValue,
+      costPerManDay: budget.costPerManDay,
+      monthlyExpense: budget.monthlyExpense,
+      periodStart: budget.periodStart,
+      periodEnd: budget.periodEnd,
+      preManDays: budget.preManDays,
+      attendanceManDays,
+      now: new Date(),
+    });
+    return { enabled: true as const, source: useProject ? "project" as const : "manual" as const, attendanceManDays, calc, budget };
+  }),
 });
 
 const logsRouter = router({

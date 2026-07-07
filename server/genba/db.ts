@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   genbaSites, GenbaSite, InsertGenbaSite,
   genbaFloors, GenbaFloor, InsertGenbaFloor,
@@ -15,9 +15,11 @@ import {
   genbaMaterialPresets, GenbaMaterialPreset, InsertGenbaMaterialPreset,
   genbaMaterialRequests, GenbaMaterialRequest, InsertGenbaMaterialRequest,
   genbaMaterialRequestItems, GenbaMaterialRequestItem, InsertGenbaMaterialRequestItem,
+  genbaBudgets, GenbaBudget, InsertGenbaBudget,
+  genbaBudgetAttendance, GenbaBudgetAttendance, InsertGenbaBudgetAttendance,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
-import { users } from "../../drizzle/schema";
+import { users, attendance, projects } from "../../drizzle/schema";
 import { getDb } from "../db";
 
 /**
@@ -617,4 +619,107 @@ export async function aggregateGenbaMaterials(
     qty: Number(r.qty) || 0,
     count: Number(r.count) || 0,
   }));
+}
+
+// ── genba_budgets / genba_budget_attendance ──
+
+export type BudgetRow = Omit<GenbaBudget, "preManDays"> & { preManDays: number };
+
+/** decimal 列 (preManDays) は文字列で返るため数値へ正規化 */
+export function normalizeBudget(row: GenbaBudget): BudgetRow {
+  return { ...row, preManDays: Number(row.preManDays) || 0 };
+}
+
+export async function getGenbaBudget(siteId: string): Promise<BudgetRow | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaBudgets).where(eq(genbaBudgets.siteId, siteId)).limit(1);
+  return rows[0] ? normalizeBudget(rows[0]) : null;
+}
+
+/** 予算行 (siteId が主キー) を upsert。存在しなければ既定値で作成 */
+export async function upsertGenbaBudget(
+  siteId: string,
+  patch: Partial<Omit<InsertGenbaBudget, "siteId">>,
+): Promise<BudgetRow | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const setPatch: Record<string, unknown> = { ...patch };
+  await db.insert(genbaBudgets).values({ siteId, ...patch })
+    .onDuplicateKeyUpdate({ set: Object.keys(setPatch).length ? setPatch : { siteId } });
+  return getGenbaBudget(siteId);
+}
+
+export type BudgetAttendanceRow = Omit<GenbaBudgetAttendance, "manDays"> & { manDays: number };
+
+export async function listGenbaBudgetAttendance(siteId: string): Promise<BudgetAttendanceRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(genbaBudgetAttendance)
+    .where(eq(genbaBudgetAttendance.siteId, siteId))
+    .orderBy(asc(genbaBudgetAttendance.date));
+  return rows.map((r) => ({ ...r, manDays: Number(r.manDays) || 0 }));
+}
+
+export async function getGenbaBudgetAttendanceById(id: string): Promise<GenbaBudgetAttendance | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaBudgetAttendance).where(eq(genbaBudgetAttendance.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function addGenbaBudgetAttendance(data: InsertGenbaBudgetAttendance): Promise<GenbaBudgetAttendance | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaBudgetAttendance).values(data);
+  return getGenbaBudgetAttendanceById(data.id);
+}
+
+export async function deleteGenbaBudgetAttendance(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaBudgetAttendance).where(eq(genbaBudgetAttendance.id, id));
+}
+
+/** 手入力出面の合計人工 (manual モード) */
+export async function sumManualBudgetManDays(siteId: string): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ total: sql<number>`SUM(${genbaBudgetAttendance.manDays})` })
+    .from(genbaBudgetAttendance)
+    .where(eq(genbaBudgetAttendance.siteId, siteId));
+  return Number(rows[0]?.total) || 0;
+}
+
+/**
+ * project モード: 既存 attendance を projectId × 期間で集計し人工数に換算。
+ * hoursWorked は int×10 (80 = 8.0h = 1人工) のため SUM(hoursWorked)/80.0 が人工数。
+ * period は YYYY-MM-DD。null の端は範囲条件から外す。
+ */
+export async function sumProjectAttendanceManDays(
+  projectId: number,
+  periodStart: string | null,
+  periodEnd: string | null,
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const conds = [eq(attendance.projectId, projectId)];
+  if (periodStart) conds.push(gte(attendance.workDate, new Date(periodStart + "T00:00:00")));
+  if (periodEnd) conds.push(lte(attendance.workDate, new Date(periodEnd + "T23:59:59")));
+  const rows = await db
+    .select({ hours: sql<number>`SUM(${attendance.hoursWorked})` })
+    .from(attendance)
+    .where(and(...conds));
+  const hours = Number(rows[0]?.hours) || 0;
+  return hours / 80.0;
+}
+
+/** projects の工期初期値提案用 (startDate/endDate) */
+export async function getProjectPeriod(projectId: number): Promise<{ id: number; name: string; startDate: Date | null; endDate: Date | null } | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ id: projects.id, name: projects.name, startDate: projects.startDate, endDate: projects.endDate })
+    .from(projects).where(eq(projects.id, projectId)).limit(1);
+  return rows[0] ?? null;
 }
