@@ -29,6 +29,7 @@ import {
   Plus,
   ChevronUp,
   ChevronDown,
+  Check,
 } from "lucide-react";
 import {
   Dialog,
@@ -114,6 +115,67 @@ function calculateInvoiceTotals(items: NormalizedInvoiceLineItem[]) {
 
 function isInvoiceReadOnly(invoice?: { status?: string | null } | null) {
   return invoice?.status === "approved" || invoice?.status === "submitted";
+}
+
+// 作業員フローの4ステップ。「進む＝出面確定」なので①は月締めに入った時点で完了扱い。
+const CLOSING_STEPS = [
+  { n: 1, title: "出面確定", desc: "マイ出面表で確定済み" },
+  { n: 2, title: "交通費・領収書", desc: "交通費／経費を入力・領収書を添付" },
+  { n: 3, title: "確認", desc: "請求書プレビューで金額を確認" },
+  { n: 4, title: "提出", desc: "会社へ提出＝請求を確定" },
+];
+
+/**
+ * 作業員月締めフローの進捗ステッパー。
+ * 黒×ゴールドのテーマに合わせ、完了＝ゴールド塗り／現在地＝ゴールド枠＋淡い光、未完了＝グレー。
+ */
+function ClosingStepper({ currentStep }: { currentStep: number }) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-gradient-to-b from-card/60 to-card/20 px-3 py-3 sm:px-4 sm:py-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3">
+        {CLOSING_STEPS.map(step => {
+          const done = step.n < currentStep;
+          const current = step.n === currentStep;
+          return (
+            <div
+              key={step.n}
+              className={[
+                "relative rounded-lg border px-3 py-2.5 transition-all duration-300",
+                current
+                  ? "border-gold/70 bg-gold/[0.06] shadow-[0_0_0_1px_rgba(212,175,55,0.25)]"
+                  : done
+                    ? "border-gold/30 bg-gold/[0.03]"
+                    : "border-border/60",
+              ].join(" ")}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={[
+                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+                    done
+                      ? "bg-gold text-black"
+                      : current
+                        ? "border border-gold text-gold"
+                        : "border border-border text-muted-foreground",
+                  ].join(" ")}
+                >
+                  {done ? <Check className="h-3.5 w-3.5" /> : step.n}
+                </span>
+                <span
+                  className={`text-sm font-medium ${current || done ? "text-foreground" : "text-muted-foreground"}`}
+                >
+                  {step.title}
+                </span>
+              </div>
+              <p className="mt-1 pl-8 text-[11px] leading-tight text-muted-foreground">
+                {step.desc}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
@@ -352,6 +414,12 @@ export default function AppMyClosing() {
   );
   const invoiceSubjectPreview =
     invoiceSubject.trim() || defaultInvoiceSubject(closingMonth);
+  // 作業員フローの4ステップ（①出面確定 ②交通費・領収書 ③確認 ④提出）の現在地。
+  // 「進む＝出面確定」なので①は対象月なら完了扱い。提出済みなら④。
+  const submissionStatusForStep = detail?.submission?.status as string | undefined;
+  const isSubmittedStep = ["submitted", "accepted", "ready_to_close", "closed", "approved"].includes(submissionStatusForStep || "");
+  const hasMoneyOrReceipt = transportAmount > 0 || expenseAmount > 0 || !!detail?.submission?.receiptUploaded;
+  const currentStep = isSubmittedStep ? 4 : hasMoneyOrReceipt ? 3 : 2;
   // 自動生成の状態・警告（空になった理由を画面に表示して原因を分かるようにする）。
   const workerInvoiceDraftData = workerInvoiceDraftQuery.data as any;
   const workerInvoiceWarnings: string[] = workerInvoiceDraftData?.warnings || [];
@@ -564,7 +632,10 @@ export default function AppMyClosing() {
         </div>
       )}
 
-      
+      {selectedProjectId && isMonthlyTarget && detail && (
+        <ClosingStepper currentStep={currentStep} />
+      )}
+
       {monthlyOverview?.isTarget && monthlyOverview.projectLines?.length > 0 && (
         <Card>
           <CardHeader><CardTitle>現場別明細</CardTitle></CardHeader>
@@ -1193,10 +1264,22 @@ export default function AppMyClosing() {
               <CardTitle>提出の流れ</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>1. まず「マイ出面表」で対象月の出面を保存します。</p>
-              <p>2. この画面で交通費・経費・メモを入力します。</p>
-              <p>3. 金額がある場合は領収書を添付します。</p>
-              <p>4. 「提出」を押すと、管理者側の締め管理に反映されます。</p>
+              <p>
+                <span className="text-foreground font-medium">① 出面確定</span>
+                ：マイ出面表で確定済みのため、ここでの再確認は不要です。
+              </p>
+              <p>
+                <span className="text-foreground font-medium">② 交通費・領収書</span>
+                ：交通費／経費を入力し、金額がある場合は領収書を添付します。
+              </p>
+              <p>
+                <span className="text-foreground font-medium">③ 確認</span>
+                ：請求書プレビューで金額を確認します（自動計算のためほぼ誤りはありません）。
+              </p>
+              <p>
+                <span className="text-foreground font-medium">④ 提出</span>
+                ：「提出」を押すと会社へ請求が確定し、管理者側の月締めに反映されます。
+              </p>
             </CardContent>
           </Card>
 
