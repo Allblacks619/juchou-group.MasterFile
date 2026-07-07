@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package, Wallet, Share2 } from "lucide-react";
+import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package, Wallet, Share2, TrendingUp } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, type Pt } from "@/lib/genbaMap";
 import ProgressBadge from "./ProgressBadge";
@@ -14,6 +14,7 @@ import BoardPanel from "./BoardPanel";
 import MaterialsPanel from "./MaterialsPanel";
 import BudgetPanel from "./BudgetPanel";
 import SharesPanel from "./SharesPanel";
+import InsightsPanel from "./InsightsPanel";
 
 type FloorWorkspaceProps = {
   siteId: string;
@@ -47,6 +48,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
   const [showMaterials, setShowMaterials] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
   const [showShares, setShowShares] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
 
   const { data: unreadCount } = trpc.genba.instructions.unreadCount.useQuery({ siteId }, { retry: false, staleTime: 30 * 1000 });
 
@@ -248,6 +250,9 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
             <Button size="sm" variant="outline" onClick={() => setShowShares(true)}>
               <Share2 className="h-4 w-4 mr-1" /> 共有
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowInsights(true)}>
+              <TrendingUp className="h-4 w-4 mr-1" /> 学習
+            </Button>
             <input ref={fileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={onFileChosen} />
             <Button size="sm" onClick={() => fileRef.current?.click()} disabled={!!busy}>
               {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
@@ -272,6 +277,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
       {showMaterials && <MaterialsPanel siteId={siteId} canEdit={canEdit} meUserId={meUserId} open={showMaterials} onOpenChange={setShowMaterials} />}
       {showBudget && <BudgetPanel siteId={siteId} siteName={siteName} open={showBudget} onOpenChange={setShowBudget} />}
       {showShares && <SharesPanel siteId={siteId} open={showShares} onOpenChange={setShowShares} />}
+      {showInsights && <InsightsPanel siteId={siteId} open={showInsights} onOpenChange={setShowInsights} />}
 
       {/* フロアバー */}
       {list.length > 0 && (
