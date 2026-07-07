@@ -21,6 +21,7 @@ import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./
 import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } from "./workerInvoiceV2Builder";
 import { seedBetaFixture, BETA_TEST_MONTH } from "./betaFixture";
 import { seedSimulationFixture } from "./simulationFixture";
+import { buildAccountingCsv, accountingCsvFilename, type AccountingCsvInvoice } from "./accountingCsv";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 import { genbaRouter } from "./genba/router";
 
@@ -4383,6 +4384,51 @@ export const appRouter = router({
         } as any);
         await safeAuditLog(ctx.user.id, "receivable.markUnreceived", "receivable", { entityId: input.id, invoiceId: input.id, note: "入金済み解除" });
         return { success: true };
+      }),
+
+    // 会計ソフト（freee / マネーフォワード）向けCSV出力（参考用）。対象月の売上(取引先請求)を出力。
+    exportCsv: leaderOrAdminProcedure
+      .input(z.object({
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        format: z.enum(["freee", "mf", "detail"]),
+      }))
+      .query(async ({ input }) => {
+        const [invoices, clients, projects] = await Promise.all([
+          db.getAllInvoices(),
+          db.getAllClients(),
+          db.getAllProjects(),
+        ]);
+        const clientMap = new Map<number, any>(clients.map((c: any) => [c.id, c]));
+        const projectMap = new Map<number, any>(projects.map((p: any) => [p.id, p]));
+        const statusLabelMap: Record<string, string> = {
+          pending: "入金待ち", partial: "一部入金", received: "入金済", overdue: "期限超過", cancelled: "取消",
+        };
+        const rows: AccountingCsvInvoice[] = invoices
+          .filter((invoice: any) => getMonthKeyFromDate(invoice.periodStart) === input.closingMonth && invoice.status !== "cancelled")
+          .sort((a: any, b: any) => {
+            const ad = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+            const bd = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+            return ad - bd;
+          })
+          .map((invoice: any) => ({
+            invoiceNumber: invoice.invoiceNumber,
+            clientName: clientMap.get(invoice.clientId)?.name || "取引先",
+            projectName: invoice.projectId ? (projectMap.get(invoice.projectId)?.name || null) : null,
+            issueDate: invoice.issueDate,
+            dueDate: invoice.dueDate,
+            subtotal: Number(invoice.subtotal || 0),
+            taxAmount: Number(invoice.taxAmount || 0),
+            totalAmount: Number(invoice.totalAmount || 0),
+            receivedAmount: getInvoiceReceivedAmount(invoice),
+            receivedAt: invoice.receivedAt,
+            statusLabel: statusLabelMap[getReceivableStatus(invoice)] || "入金待ち",
+            notes: invoice.notes || null,
+          }));
+        return {
+          filename: accountingCsvFilename(input.format, input.closingMonth),
+          content: buildAccountingCsv(rows, input.format),
+          count: rows.length,
+        };
       }),
   }),
 

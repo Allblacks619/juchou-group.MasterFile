@@ -21,7 +21,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Loader2, CheckCircle2, Undo2, Save, Landmark, ArrowRightLeft } from "lucide-react";
+import { Loader2, CheckCircle2, Undo2, Save, Landmark, ArrowRightLeft, Download } from "lucide-react";
+
+type CsvFormat = "freee" | "mf" | "detail";
+const CSV_FORMAT_LABELS: Record<CsvFormat, string> = {
+  freee: "freee（取引）",
+  mf: "マネーフォワード（仕訳）",
+  detail: "汎用明細（Excel）",
+};
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   pending: { label: "入金待ち", className: "bg-amber-500/20 text-amber-400" },
@@ -48,7 +55,10 @@ export default function AppReceivables() {
   const [receivedAmounts, setReceivedAmounts] = useState<Record<number, string>>({});
   const [receivedDates, setReceivedDates] = useState<Record<number, string>>({});
   const [memoMap, setMemoMap] = useState<Record<number, string>>({});
+  const [csvFormat, setCsvFormat] = useState<CsvFormat>("freee");
+  const [exporting, setExporting] = useState(false);
 
+  const utils = trpc.useUtils();
   const listQuery = trpc.receivable.listByMonth.useQuery({ closingMonth });
   const detailQuery = trpc.receivable.get.useQuery({ id: selectedInvoiceId || 0 }, { enabled: !!selectedInvoiceId });
 
@@ -108,6 +118,32 @@ export default function AppReceivables() {
     });
   };
 
+  const handleExportCsv = async () => {
+    setExporting(true);
+    try {
+      const result = await utils.receivable.exportCsv.fetch({ closingMonth, format: csvFormat });
+      if (!result.count) {
+        toast.info("この月の請求書がありません");
+        return;
+      }
+      // BOM付きUTF-8のCSVをそのままBlob化してダウンロード。
+      const blob = new Blob([result.content], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`${result.count}件をCSV出力しました`);
+    } catch (e: any) {
+      toast.error(`CSV出力エラー: ${e?.message || "不明なエラー"}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -140,6 +176,27 @@ export default function AppReceivables() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* 会計ソフト向けCSV出力 */}
+          <div className="ml-auto flex items-end gap-2">
+            <div className="space-y-1">
+              <Label>会計ソフト出力</Label>
+              <Select value={csvFormat} onValueChange={(v) => setCsvFormat(v as CsvFormat)}>
+                <SelectTrigger className="w-[210px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(CSV_FORMAT_LABELS) as CsvFormat[]).map((f) => (
+                    <SelectItem key={f} value={f}>{CSV_FORMAT_LABELS[f]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button onClick={handleExportCsv} disabled={exporting || rows.length === 0} className="gap-1.5">
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              CSV出力
+            </Button>
           </div>
         </CardContent>
       </Card>
