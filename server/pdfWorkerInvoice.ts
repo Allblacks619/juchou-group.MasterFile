@@ -262,7 +262,7 @@ export async function generateWorkerInvoicePdf(input: PdfInput): Promise<Buffer>
         tableX += colWidths[4];
         doc.text(formatYen(item.amount || 0), tableX + 3, y + 3, { width: colWidths[5] - 6, align: "right" });
         tableX += colWidths[5];
-        doc.text(`${item.taxRate || 10}%`, tableX + 3, y + 3, { width: colWidths[6] - 6, align: "right" });
+        doc.text(`${item.taxRate ?? 10}%`, tableX + 3, y + 3, { width: colWidths[6] - 6, align: "right" });
       }
       y += 16;
     }

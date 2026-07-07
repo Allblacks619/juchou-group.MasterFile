@@ -1421,6 +1421,14 @@ function MonthlyInvoicePanel({ closingMonth }: { closingMonth: string }) {
   );
   const data = monthlyQuery.data as any;
 
+  const issueMutation = trpc.workerInvoice.issueMyMonthlyInvoice.useMutation({
+    onSuccess: (res: any) => {
+      toast.success(`請求書を発行しました（${res?.invoiceNumber || ""}）`);
+      if (res?.url) window.open(res.url, "_blank");
+    },
+    onError: (e) => toast.error(`発行エラー: ${e.message}`),
+  });
+
   if (monthlyQuery.isLoading) {
     return (
       <Card>
@@ -1474,8 +1482,16 @@ function MonthlyInvoicePanel({ closingMonth }: { closingMonth: string }) {
 
         {/* 発行ゲート */}
         {canIssue ? (
-          <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
-            全現場の月締めが完了しました。請求書を発行できます。
+          <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300 flex items-center justify-between gap-3 flex-wrap">
+            <span>全現場の月締めが完了しました。請求書を発行できます。</span>
+            <Button
+              size="sm"
+              onClick={() => issueMutation.mutate({ closingMonth })}
+              disabled={issueMutation.isPending || items.length === 0}
+              className="bg-gold text-background hover:bg-gold-dim"
+            >
+              {issueMutation.isPending ? "発行中..." : "請求書を発行（PDF）"}
+            </Button>
           </div>
         ) : (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
