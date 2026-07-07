@@ -8,6 +8,7 @@ import * as genbaDb from "./db";
 import { storageGet, storagePut } from "../storage";
 import { validateFile } from "../../shared/uploadValidation";
 import { computeZoneAggregates } from "./aggregate";
+import { computeBoard } from "./board";
 import { buildTemplateTree, DEFAULT_TEMPLATE_DATA, type TemplateNode, type TemplateTreeNode } from "../../shared/genba/template";
 
 /** テンプレートツリーから新規ゾーン用の作業タスク行を生成 (親子リンク付き) */
@@ -634,6 +635,33 @@ const usersRouter = router({
   }),
 });
 
+// ── board (M3-C): 現在の割当から人別/エリア別を自動生成 ──
+
+const boardRouter = router({
+  get: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const floors = await genbaDb.listGenbaFloorsBySite(input.siteId);
+    const zones = await genbaDb.listGenbaZonesByFloorIds(floors.map((f) => f.id));
+    const tasks = await genbaDb.listGenbaTasksByZoneIds(zones.map((z) => z.id));
+    const taskIds = tasks.map((t) => t.id);
+    const [assignees, taskTeams, teams, users] = await Promise.all([
+      genbaDb.listTaskAssigneesByTaskIds(taskIds),
+      genbaDb.listTaskTeamsByTaskIds(taskIds),
+      genbaDb.listGenbaTeamsBySite(input.siteId),
+      genbaDb.listAssignableUsers(),
+    ]);
+    const members = await genbaDb.listGenbaTeamMembers(teams.map((t) => t.id));
+    return computeBoard({
+      floors: floors.map((f) => ({ id: f.id, name: f.name })),
+      zones: zones.map((z) => ({ id: z.id, floorId: z.floorId, name: z.name, priority: z.priority, workStatus: z.workStatus })),
+      tasks: tasks.map((t) => ({ id: t.id, zoneId: t.zoneId, parentTaskId: t.parentTaskId, name: t.name, romaji: t.romaji, status: t.status })),
+      assignees: assignees.map((a) => ({ taskId: a.taskId, userId: a.userId })),
+      taskTeams: taskTeams.map((t) => ({ taskId: t.taskId, teamId: t.teamId })),
+      members: members.map((m) => ({ teamId: m.teamId, userId: m.userId })),
+      users: users.map((u) => ({ id: u.id, name: u.name, appRole: u.appRole })),
+    });
+  }),
+});
+
 // ── instructions (M3-B) ──
 
 /** 指定ユーザーが所属する現場の班IDセット */
@@ -812,6 +840,7 @@ export const genbaRouter = router({
   tasks: tasksRouter,
   teams: teamsRouter,
   users: usersRouter,
+  board: boardRouter,
   instructions: instructionsRouter,
   materials: materialsRouter,
   templates: templatesRouter,
