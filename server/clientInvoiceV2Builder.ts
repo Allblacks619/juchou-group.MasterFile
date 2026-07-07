@@ -24,6 +24,9 @@ export type ClientInvoiceV2Draft = ClientInvoiceComputeResult & {
   closingSourceByProject: Record<number, "v2" | "v1_bridge">;
 };
 
+/** 昼勤の残業のうち、この時間(×10, =4.0h)までは時間外(×1.25)。5時間目以降は深夜帯(×1.50)。作業員請求書と共通。 */
+const DAY_OT_REGULAR_CAP_TIMES10 = 40;
+
 /** V2 project-review statuses that mean "this project is closed → billable". */
 const V2_PROJECT_CLOSED = "締め完了";
 /** V2 participant statuses that mean "confirmed / billable". */
@@ -191,8 +194,10 @@ export async function buildClientInvoiceDraftFromV2(args: {
     }
 
     // ── Aggregate attendance for billable workers, per (worker, shift). ──
+    // 残業は日単位で band 分け（時間外/深夜帯）してから積み上げる（作業員請求書と同ルール）:
+    //  - 夜勤の残業は全て深夜帯。昼勤は4hまで時間外・5時間目以降深夜帯。
     const records = await db.getAttendanceByDateRange(start, end, projectId);
-    type Agg = { daysTimes10: number; overtimeHoursTimes10: number; sampleWorkDate: Date };
+    type Agg = { daysTimes10: number; overtimeRegularTimes10: number; overtimeLateNightTimes10: number; sampleWorkDate: Date };
     const aggByWorkerShift = new Map<string, Agg>();
     for (const record of records as any[]) {
       const employeeId = Number(record.employeeId);
@@ -205,9 +210,18 @@ export async function buildClientInvoiceDraftFromV2(args: {
       if (daysTimes10 <= 0) continue;
       const workDate = new Date(`${extractDateKey(record.workDate)}T00:00:00.000Z`);
       const key = `${employeeId}:${shiftType}`;
-      const agg = aggByWorkerShift.get(key) || { daysTimes10: 0, overtimeHoursTimes10: 0, sampleWorkDate: workDate };
+      const agg = aggByWorkerShift.get(key) || { daysTimes10: 0, overtimeRegularTimes10: 0, overtimeLateNightTimes10: 0, sampleWorkDate: workDate };
       agg.daysTimes10 += daysTimes10;
-      agg.overtimeHoursTimes10 += Math.max(0, Number(record.overtimeHours || 0));
+      const recOt = Math.max(0, Number(record.overtimeHours || 0));
+      if (recOt > 0) {
+        if (shiftType === "night") {
+          agg.overtimeLateNightTimes10 += recOt;
+        } else {
+          const reg = Math.min(recOt, DAY_OT_REGULAR_CAP_TIMES10);
+          agg.overtimeRegularTimes10 += reg;
+          agg.overtimeLateNightTimes10 += recOt - reg;
+        }
+      }
       aggByWorkerShift.set(key, agg);
     }
 
@@ -236,7 +250,9 @@ export async function buildClientInvoiceDraftFromV2(args: {
         workerName: employeeName(workerId),
         shiftType,
         daysTimes10: agg.daysTimes10,
-        overtimeHoursTimes10: agg.overtimeHoursTimes10,
+        overtimeHoursTimes10: agg.overtimeRegularTimes10 + agg.overtimeLateNightTimes10,
+        overtimeRegularTimes10: agg.overtimeRegularTimes10,
+        overtimeLateNightTimes10: agg.overtimeLateNightTimes10,
         clientRate,
         clientRateSource,
       });

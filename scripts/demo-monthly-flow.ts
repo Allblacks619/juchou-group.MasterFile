@@ -150,16 +150,21 @@ async function main() {
 
   // 3) 取引先請求書（会社→取引先：現場ごと A/B/C ＋ 交通費）
   H(`STEP 3. 取引先請求書（${CLIENT.name}宛）— 現場ごと・電気工事業A/B/C`);
+  const OT_DAY_CAP = 40; // 4.0h（作業員請求書と共通の band 分け）
   const labor: ClientInvoiceLaborInput[] = [];
   for (const w of WORKERS) {
-    // (project, shift) 単位に日数・残業を集計
-    const agg = new Map<string, { pid: number; shift: string; days10: number; ot10: number }>();
+    // (project, shift) 単位に日数・残業を集計。残業は日単位で時間外/深夜に分割してから積み上げる。
+    const agg = new Map<string, { pid: number; shift: string; days10: number; reg10: number; late10: number }>();
     for (const a of ATTENDANCE[w.id] || []) {
       const shift = a.shift || "day";
       const key = `${a.project}:${shift}`;
-      const cur = agg.get(key) || { pid: a.project, shift, days10: 0, ot10: 0 };
+      const cur = agg.get(key) || { pid: a.project, shift, days10: 0, reg10: 0, late10: 0 };
       cur.days10 += 10;
-      cur.ot10 += a.ot || 0;
+      const ot = a.ot || 0;
+      if (ot > 0) {
+        if (shift === "night") cur.late10 += ot;
+        else { const reg = Math.min(ot, OT_DAY_CAP); cur.reg10 += reg; cur.late10 += ot - reg; }
+      }
       agg.set(key, cur);
     }
     for (const g of agg.values()) {
@@ -170,7 +175,9 @@ async function main() {
         workerName: w.name,
         shiftType: g.shift,
         daysTimes10: g.days10,
-        overtimeHoursTimes10: g.ot10,
+        overtimeHoursTimes10: g.reg10 + g.late10,
+        overtimeRegularTimes10: g.reg10,
+        overtimeLateNightTimes10: g.late10,
         clientRate: CLIENT_RATE[`${g.pid}:${g.shift}`] ?? null,
       });
     }

@@ -14,6 +14,8 @@ function labor(p: Partial<ClientInvoiceLaborInput> & { projectId: number; daysTi
     shiftType: p.shiftType ?? "day",
     daysTimes10: p.daysTimes10,
     overtimeHoursTimes10: p.overtimeHoursTimes10 ?? 0,
+    overtimeRegularTimes10: p.overtimeRegularTimes10,
+    overtimeLateNightTimes10: p.overtimeLateNightTimes10,
     clientRate: p.clientRate ?? null,
     clientRateSource: p.clientRateSource ?? null,
   };
@@ -92,13 +94,31 @@ describe("computeClientInvoiceDraft", () => {
       standardDayHours: 8,
       includeProjectSectionHeaders: false,
     });
-    const ot = out.items.find((i) => i.description === "残業代")!;
+    // band分割の指定なし → 全て時間外扱い（後方互換）。ラベルは 残業代（時間外）。
+    const ot = out.items.find((i) => i.description === "残業代（時間外）")!;
     // 25000 / 8 * 1.25 = 3906.25 -> 3906 ; × 5h = 19,530 (matches the real freee invoice)
     expect(ot.unit).toBe("時間");
     expect(ot.quantity).toBe(5);
     expect(ot.unitPrice).toBe(3906);
     expect(ot.amount).toBe(19530);
-    expect(out.warnings.some((w) => w.includes("残業代") && w.includes("深夜"))).toBe(true);
+    expect(out.warnings.some((w) => w.includes("残業代") && w.includes("時間外"))).toBe(true);
+  });
+
+  it("深夜帯残業を自動判定して時間外/深夜を別明細で計上する（作業員請求書と同ルール）", () => {
+    const out = computeClientInvoiceDraft({
+      targetMonth: "2025-05",
+      projectOrder: [1],
+      projects: [{ projectId: 1, projectName: "箱根", transportTotal: 0 }],
+      // 6hの昼勤残業 → 4h時間外 + 2h深夜（ビルダーが日単位でband分けした想定）
+      labor: [labor({ projectId: 1, daysTimes10: 30, clientRate: 28000, overtimeRegularTimes10: 80, overtimeLateNightTimes10: 20 })],
+      includeProjectSectionHeaders: false,
+    });
+    const reg = out.items.find((i) => i.description === "残業代（時間外）")!;
+    const late = out.items.find((i) => i.description === "残業代（深夜）")!;
+    // 28000/8*1.25=4375 ×8h=35,000 ; 28000/8*1.5=5250 ×2h=10,500
+    expect([reg.quantity, reg.unitPrice, reg.amount]).toEqual([8, 4375, 35000]);
+    expect([late.quantity, late.unitPrice, late.amount]).toEqual([2, 5250, 10500]);
+    expect(out.warnings.some((w) => w.includes("深夜"))).toBe(true);
   });
 
   it("emits a separate 残業代 line per A/B/C rate when multiple rates have overtime", () => {
@@ -116,9 +136,10 @@ describe("computeClientInvoiceDraft", () => {
     });
     const ot = out.items.filter((i) => i.description.startsWith("残業代"));
     // A: 25000/8*1.25=3906 ×2h=7,812 ; B: 18000/8*1.25=2813 (2812.5→2813) ×3h=8,439
+    // band分割なし＝全て時間外。複数単価グループなので A/B を併記。
     expect(ot.map((i) => [i.description, i.quantity, i.unitPrice, i.amount])).toEqual([
-      ["残業代（A）", 2, 3906, 7812],
-      ["残業代（B）", 3, 2813, 8439],
+      ["残業代（時間外・A）", 2, 3906, 7812],
+      ["残業代（時間外・B）", 3, 2813, 8439],
     ]);
   });
 
