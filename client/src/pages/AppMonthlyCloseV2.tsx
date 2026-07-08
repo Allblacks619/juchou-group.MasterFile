@@ -289,6 +289,26 @@ export default function AppMonthlyCloseV2() {
   );
 
   // ── クイックアクション：承認 / 差し戻し / 代行 / プロジェクト締め完了 ──────────
+  const completeProjectCore = useCallback(
+    async (row: any) => {
+      const active = (row.participants ?? []).filter((p: any) => !p.isAggregationExcluded);
+      setCompletingId(Number(row.projectId));
+      try {
+        // 全員を締め完了に確定してから、現場ステータスを締め完了へ。
+        for (const p of active) {
+          if (p.individualStatus !== "締め完了") {
+            await updateParticipant(row, p, { individualStatus: "締め完了", invoiceInfoStatus: "確認済み" });
+          }
+        }
+        await projectStatusMutation.mutateAsync({ targetMonth, projectId: Number(row.projectId), status: "締め完了" });
+        return true;
+      } finally {
+        setCompletingId(null);
+      }
+    },
+    [updateParticipant, projectStatusMutation, targetMonth]
+  );
+
   const approveParticipant = useCallback(
     async (row: any, participant: any) => {
       try {
@@ -297,12 +317,23 @@ export default function AppMonthlyCloseV2() {
           invoiceInfoStatus: "確認済み",
           sendBackReason: "",
         });
-        toast.success(`${participant.workerName} を承認しました`);
+        // 全員承認でプロジェクト自動完了（オーナー確定済みの設計判断）。
+        // 直近で承認した本人はローカルデータ上まだ旧ステータスのため、承認済みとみなして判定する。
+        const active = (row.participants ?? []).filter((p: any) => !p.isAggregationExcluded);
+        const othersAllOk = active
+          .filter((p: any) => p.participantKey !== participant.participantKey)
+          .every((p: any) => (PARTICIPANT_OK_STATUSES as readonly string[]).includes(p.individualStatus));
+        if (active.length > 0 && othersAllOk && row.closingStatus !== "締め完了") {
+          await completeProjectCore(row);
+          toast.success(`全員承認 — ${row.projectName} を締め完了にしました`);
+        } else {
+          toast.success(`${participant.workerName} を承認しました`);
+        }
       } catch {
         toast.error("承認に失敗しました");
       }
     },
-    [updateParticipant]
+    [updateParticipant, completeProjectCore]
   );
 
   const sendBackParticipant = useCallback(
@@ -351,23 +382,14 @@ export default function AppMonthlyCloseV2() {
         toast.error("未承認の作業員がいます。全員を承認してから締め完了できます。");
         return;
       }
-      setCompletingId(Number(row.projectId));
       try {
-        // 全員を締め完了に確定してから、現場ステータスを締め完了へ。
-        for (const p of active) {
-          if (p.individualStatus !== "締め完了") {
-            await updateParticipant(row, p, { individualStatus: "締め完了", invoiceInfoStatus: "確認済み" });
-          }
-        }
-        await projectStatusMutation.mutateAsync({ targetMonth, projectId: Number(row.projectId), status: "締め完了" });
+        await completeProjectCore(row);
         toast.success(`${row.projectName} を締め完了にしました`);
       } catch {
         toast.error("締め完了処理に失敗しました");
-      } finally {
-        setCompletingId(null);
       }
     },
-    [updateParticipant, projectStatusMutation, targetMonth]
+    [completeProjectCore]
   );
 
   // 取引先ごとにプロジェクトをグルーピング（projectRows は取引先→現場名の順で整列済み）。
