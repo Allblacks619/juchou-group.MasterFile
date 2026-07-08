@@ -1,41 +1,65 @@
 # CLAUDE.md
 
-充寵グループ 業務管理システム。サーバーは Express + tRPC v11（`server/routers.ts` に単一 appRouter）、DB は MariaDB + drizzle-orm、フロントは React + Vite + wouter、テストは vitest（`pnpm test`）。
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-## Claude 作業ポリシー（オーナー合意済み・毎回確認不要）
-オーナー(biguoki@gmail.com / ログインID: mitsuru)との合意。以降のセッションでも都度確認せずこのとおり進めること。
-- **言語**: オーナーへの回答は日本語。
-- **途中経過**: CI 待ちなどの「待機中」進捗メッセージは書かない（完了・要判断・失敗時のみ報告）。
-- **自動マージ**: PR の CI が全て green（`ci.yml` の build-and-test と `build.yml` の migration-test/build の両方）になったら、draft を ready にして即マージ（merge method: `merge`）。都度「マージしていいか」を確認しない。
-- **自動デプロイ**: マージ後は全自動で本番反映される（GHCR push → VPS の Watchtower が5〜10分で更新、DB マイグレーションも起動時に自動）。**オーナーに手動デプロイ / Publish を依頼しない**（「マージしました。約5〜10分で本番反映されます」で締める）。
-- **PR作法**: draft で作成 → CI green → ready+merge。開発は指定ブランチで行い main へ直接コミットしない。
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-## デプロイ / インフラ（自己ホスト）
-- 本番は自社 VPS(ConoHa/Ubuntu, IP 133.88.120.12, `/opt/juchou`)で docker compose 稼働。公開 URL は https://www.juchou-group.com （`/app` が業務アプリ）。**Manus は撤去済み**。
-- **デプロイは全自動**: main へマージ → GitHub Actions がマルチアーキ image を GHCR へ push → VPS の Watchtower が 5 分以内に `app` を自動更新（DB マイグレーションは起動時に自動実行）。**VPS 手動操作は基本不要**。即時反映は `cd /opt/juchou && docker compose pull && docker compose up -d`。
-- 構成/CI/バックアップ/認証の落とし穴/よく使うコマンドは **`docs/DEPLOYMENT.md` に集約**。デプロイ・インフラ・認証・マイグレーション関連の作業前に必ず参照すること。
-- 認証の要注意点(詳細は docs/DEPLOYMENT.md): Cookie は `sameSite:"lax"`(cookies.ts) / `verifySession` は openId のみ必須で appId 空を許容(sdk.ts) / `server/_core/vite.ts` は vite を動的 import(本番は vite 未インストール)。ここを壊すとログイン不能・起動クラッシュになる。
+## 1. Think Before Coding
 
-## 請求ルール（残業・深夜帯・インボイス）※オーナー確認済み・毎回確認不要
-- **残業の深夜帯判定（作業員請求書・取引先請求書 共通）**:
-  - 昼勤の残業は最初の**5時間が通常（時間外, ×1.25）、6時間目以降（5時間超）が深夜帯（×1.50）**。例: 昼勤6h残業 → 5h時間外 + 1h深夜（定時17:00終わり→残業5hで22:00＝深夜起点）。
-  - **夜勤の残業は全て深夜帯（×1.50）**。
-  - **深夜帯割増は取引先へも請求する**（会社が作業員へ払う深夜割増を取引先にも計上＝パターンB）。「5時間以上が自動で深夜」ではなく、上記の band 分けが正規。
-  - 単価 = 日単価 ÷ 8 × 倍率（時間外1.25 / 深夜1.50）。単価を四捨五入してから時間を掛ける。
-  - 実装: `DAY_OT_REGULAR_CAP_TIMES10 = 50`（`workerInvoiceV2Core.ts` / `clientInvoiceV2Builder.ts`）。深夜判定は日単位なのでビルダーで band 分けしてからコアへ渡す。
-- **インボイス（適格請求書発行事業者）**: 発行者が登録番号未登録なら消費税10%を適用しない（0%）。入力は作業員=マイプロフィール基本情報／自社=会社設定。番号は**数字13桁入力・先頭Tは自動付与**、未対応チェックで番号クリア。
-- **取引先請求書のA/B/C**: 電気工事業A/B/Cは**請求単価が高い順**（夜勤=高単価が先頭になりうる）。作業員名は社内メモのみ（外部非表示）。
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-## 月締め〜請求〜入金フロー（正本・再構築中）
-- 一連の正本は **`docs/monthly-closing-flow.md`**（オーナー確認済み）。月締め・請求・支払・入金・UI再構築の作業前に必ず参照。都度オーナーに流れを聞き直さない。
-- 大原則: 「月締めを進む」＝出面確定なので**改めての出面確認は不要**／**交通費が最重要**（維持）／**会社が作業員月締めで請求書確認する機能は不要**／**柔軟性最重要**（管理者代行・例外対応）。
-- 現状の財務7画面（請求書/月締めV2/作業員請求書V2/締め管理/確認表PDF/支払管理/入金管理）は分散しているので、フローに沿って統合していく。
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-## 現場ビジョン(genba)開発ルール
-- 設計正本: docs/genba/ 配下(migration_design_v1.1 / ROADMAP / prototype)
-- 既存コードは加算のみ。genba_プレフィックス外のテーブル・ルーターを変更しない
-- ブランチ: feat/genba-m{n}。mainへ直接コミット禁止。マージはユーザー承認後
-- 全mutationは権限チェック(shared/genba/roles.ts)+safeAuditLog必須
-- テストはGenba_Beta_*データのみ。pnpm test全グリーンでない状態で完了報告しない
-- 画像はR2キーのみDB保存。base64禁止
-- UI/挙動の正はdocs/genba/prototype/GenbaAppV18.jsx。CUD配色はテーマ不変
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
