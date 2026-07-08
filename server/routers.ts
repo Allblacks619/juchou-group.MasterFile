@@ -689,6 +689,10 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
   const detail = await buildClosingDetail(projectId, closingMonth);
   const submission = closing?.id ? await db.getClosingSubmissionByClosingEmployee(closing.id!, targetEmployeeId) : null;
   const targetEmployee = targetEmployeeId === employee.id ? employee : await db.getEmployeeById(targetEmployeeId);
+  // 差し戻し理由は月締めV2のレビューに保存される。作業員が理由を見て是正できるように返す。
+  const v2Review = Number(projectId) > 0
+    ? await db.getMonthlyClosingV2ParticipantReview(closingMonth, Number(projectId), `worker:${targetEmployeeId}`)
+    : undefined;
 
   return {
     employee: targetEmployee || employee,
@@ -696,6 +700,7 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
     closing,
     detail,
     submission,
+    sendBackReason: (v2Review as any)?.sendBackReason || null,
     eligible: targetHasMonthlyAttendance && (!projectId || hasProjectAttendance),
     monthlyOverview: {
       ...overview,
@@ -3491,7 +3496,7 @@ export const appRouter = router({
               aggregationOverrideAt: null,
             };
 
-        return db.upsertMonthlyClosingV2ParticipantReview({
+        const review = await db.upsertMonthlyClosingV2ParticipantReview({
           targetMonth: input.targetMonth,
           projectId: input.projectId,
           participantKey: input.participantKey,
@@ -3506,6 +3511,24 @@ export const appRouter = router({
           ...aggregationAudit,
           updatedBy: ctx.user.id,
         });
+
+        // V2の承認/差し戻しを作業員側(V1提出)へ反映するブリッジ。
+        // 差し戻し→rejected（作業員が再編集・再提出できる）、確認済み/締め完了→approved。
+        if (input.workerId) {
+          const closing = await db.getProjectClosingByProjectMonth(input.projectId, input.targetMonth);
+          const submission = closing?.id ? await db.getClosingSubmissionByClosingEmployee(closing.id, input.workerId) : null;
+          if (submission?.id) {
+            if (input.individualStatus === "差し戻し" && submission.status !== "rejected") {
+              await db.updateClosingSubmission(submission.id, { status: "rejected", approvedAt: null, reviewedBy: ctx.user.id } as any);
+              await safeAuditLog(ctx.user.id, "submission.returnReject", "submission", { entityId: submission.id, closingId: closing!.id, employeeId: input.workerId, projectId: input.projectId, note: `月締めV2から差し戻し: ${input.sendBackReason.trim() || "理由未記入"}` });
+            } else if ((input.individualStatus === "確認済み" || input.individualStatus === "締め完了") && submission.status !== "approved") {
+              await db.updateClosingSubmission(submission.id, { status: "approved", approvedAt: new Date(), reviewedBy: ctx.user.id } as any);
+              await safeAuditLog(ctx.user.id, "submission.approve", "submission", { entityId: submission.id, closingId: closing!.id, employeeId: input.workerId, projectId: input.projectId, note: "月締めV2から承認" });
+            }
+          }
+        }
+
+        return review;
       }),
   }),
 
@@ -3715,6 +3738,7 @@ export const appRouter = router({
           employee: result.employee || null,
           actorEmployeeId: result.actorEmployeeId,
           submission: result.submission ? { ...result.submission, documents: await db.listClosingSubmissionDocuments(result.submission.id) } : null,
+          sendBackReason: result.sendBackReason || null,
           summary: result.detail?.summary || null,
           monthlyOverview: result.monthlyOverview || null,
           nonTargetReason: result.nonTargetReason || null,
@@ -3736,6 +3760,42 @@ export const appRouter = router({
           employeeId: input.employeeId,
           projectId: input.projectId,
         });
+      }),
+
+    // 作業員向け: 自分の支払状況（支払待ち/支払済み）。提出後の「次のステップ」の可視化に使う。
+    // employeeId 指定は管理者の代行閲覧のみ許可。
+    myPaymentStatus: protectedProcedure
+      .input(z.object({
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        employeeId: z.number().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const role = (ctx.user as any).appRole;
+        const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+        const me = await db.getEmployeeByUserId(ctx.user.id);
+        if (input.employeeId && !canDelegate && Number(input.employeeId) !== Number(me?.id)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の支払状況は参照できません" });
+        }
+        const targetEmployeeId = (canDelegate && input.employeeId) ? Number(input.employeeId) : me?.id ? Number(me.id) : null;
+        if (!targetEmployeeId) return { lines: [] as any[] };
+
+        const closings = await db.getProjectClosingsByMonth(input.closingMonth);
+        const projects = await db.getAllProjects();
+        const projectMap = new Map<number, any>(projects.map((p: any) => [Number(p.id), p]));
+        const lines: any[] = [];
+        for (const closing of closings as any[]) {
+          if (!closing?.id) continue;
+          const payment = await db.getEmployeePaymentByClosingEmployee(closing.id, targetEmployeeId);
+          if (!payment) continue;
+          lines.push({
+            projectId: Number(closing.projectId),
+            projectName: projectMap.get(Number(closing.projectId))?.name || `現場ID:${closing.projectId}`,
+            status: payment.status, // pending | confirmed | paid
+            totalAmount: Number(payment.totalAmount || 0),
+            paidAt: payment.paidAt || null,
+          });
+        }
+        return { lines };
       }),
 
     saveMySubmission: protectedProcedure

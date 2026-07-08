@@ -219,6 +219,10 @@ export default function AppMonthlyCloseV2() {
   const utils = trpc.useUtils();
 
   const dashboardQuery = trpc.monthlyClosingV2.dashboard.useQuery(queryInput);
+  // 既存請求書（対象月×取引先の生成済みドラフトへの導線に使う）
+  const invoicesQuery = trpc.invoice.list.useQuery();
+  const [generatingClient, setGeneratingClient] = useState<string | null>(null);
+  const generateInvoiceMutation = trpc.closing.generateForClosing.useMutation();
   const projectStatusMutation = trpc.monthlyClosingV2.updateProjectStatus.useMutation({
     onSuccess: () => utils.monthlyClosingV2.dashboard.invalidate(queryInput),
   });
@@ -376,9 +380,52 @@ export default function AppMonthlyCloseV2() {
     }
     return Array.from(groups.entries()).map(([clientName, rows]) => {
       const closedCount = rows.filter((r: any) => r.closingStatus === "締め完了").length;
-      return { clientName, rows, closedCount, total: rows.length, allClosed: rows.length > 0 && closedCount === rows.length };
+      return {
+        clientName,
+        clientId: rows[0]?.clientId ? Number(rows[0].clientId) : null,
+        rows,
+        closedCount,
+        total: rows.length,
+        allClosed: rows.length > 0 && closedCount === rows.length,
+      };
     });
   }, [projectRows]);
+
+  // 対象月×取引先の生成済み請求書（取消除く・最新を採用）。「請求書を開く」導線に使う。
+  const invoiceByClient = useMemo(() => {
+    const map = new Map<number, any>();
+    for (const inv of (invoicesQuery.data || []) as any[]) {
+      if (inv.status === "cancelled") continue;
+      const d = inv.periodStart ? new Date(inv.periodStart) : null;
+      if (!d || Number.isNaN(d.getTime())) continue;
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (monthKey !== targetMonth) continue;
+      const prev = map.get(Number(inv.clientId));
+      if (!prev || Number(inv.id) > Number(prev.id)) map.set(Number(inv.clientId), inv);
+    }
+    return map;
+  }, [invoicesQuery.data, targetMonth]);
+
+  // 全現場締め完了 → 取引先請求書を自動生成してプレビュー(編集)へ。これが月締め後の「次」。
+  const generateClientInvoice = useCallback(
+    async (group: { clientName: string; rows: any[] }) => {
+      setGeneratingClient(group.clientName);
+      try {
+        const result = await generateInvoiceMutation.mutateAsync({
+          projectIds: group.rows.map((r: any) => Number(r.projectId)),
+          closingMonth: targetMonth,
+        });
+        toast.success(result.message || "請求書ドラフトを作成しました");
+        utils.invoice.list.invalidate();
+        navigate(result.editUrl || `/app/invoices?invoiceId=${result.invoiceId}`);
+      } catch (e: any) {
+        toast.error(e?.message || "請求書の自動生成に失敗しました");
+      } finally {
+        setGeneratingClient(null);
+      }
+    },
+    [generateInvoiceMutation, targetMonth, navigate, utils]
+  );
 
   return (
     <div className="space-y-5">
@@ -447,9 +494,38 @@ export default function AppMonthlyCloseV2() {
                   <p className="text-[11px] text-muted-foreground">現場 {group.closedCount}/{group.total} 締め完了</p>
                 </div>
                 {group.allClosed ? (
-                  <Badge variant="outline" className="shrink-0 gap-1 border-emerald-500/40 bg-emerald-500/10 text-emerald-500 text-xs">
-                    <Sparkles className="h-3 w-3" />全現場締め完了 · 請求可能
-                  </Badge>
+                  (() => {
+                    const existing = group.clientId ? invoiceByClient.get(group.clientId) : null;
+                    if (existing) {
+                      // 生成済み → 次のステップはプレビュー・確定。請求書へ直行。
+                      return (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 shrink-0 gap-1.5 border-emerald-500/40 text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-500"
+                          onClick={() => navigate(`/app/invoices?invoiceId=${existing.id}`)}
+                        >
+                          <FileCheck2 className="h-3.5 w-3.5" />
+                          請求書を開く（{existing.invoiceNumber}）
+                        </Button>
+                      );
+                    }
+                    return (
+                      <Button
+                        size="sm"
+                        className="h-8 shrink-0 gap-1.5 bg-gold text-black hover:bg-gold/90"
+                        disabled={generatingClient === group.clientName}
+                        onClick={() => generateClientInvoice(group)}
+                      >
+                        {generatingClient === group.clientName ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3.5 w-3.5" />
+                        )}
+                        取引先請求書を自動生成
+                      </Button>
+                    );
+                  })()
                 ) : (
                   <span className="shrink-0 text-xs text-muted-foreground">残り {group.total - group.closedCount} 現場</span>
                 )}
@@ -592,13 +668,12 @@ export default function AppMonthlyCloseV2() {
                       {isOpen && (
                         <div className="border-t">
                           {/* Participant table header — desktop */}
-                          <div className={`hidden md:grid ${canManageTransportation ? "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_100px_minmax(0,1.1fr)_minmax(0,1.1fr)_150px]" : "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_minmax(0,1.1fr)_150px]"} gap-x-3 px-5 py-2 text-xs font-medium text-muted-foreground bg-muted/20 border-b`}>
+                          <div className={`hidden md:grid ${canManageTransportation ? "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_100px_minmax(0,1.1fr)_150px]" : "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_150px]"} gap-x-3 px-5 py-2 text-xs font-medium text-muted-foreground bg-muted/20 border-b`}>
                             <span>作業員名</span>
                             <span className="text-center">出勤日数</span>
-                            <span>個別状態</span>
+                            <span>状態</span>
                             {canManageTransportation && <span>交通費金額</span>}
                             {canManageTransportation && <span>領収書状況</span>}
-                            <span>請求情報状態</span>
                             <span className="text-right">操作</span>
                           </div>
 
@@ -715,12 +790,8 @@ function ParticipantRow({
   const [isEditing, setIsEditing] = useState(false);
 
   // Local edit state (initialized from participant data)
-  const [localIndividualStatus, setLocalIndividualStatus] = useState(toText(participant.individualStatus) || "未確認");
-  const [localInvoiceStatus, setLocalInvoiceStatus] = useState(toText(participant.invoiceInfoStatus) || "確認待ち");
   const [payerType, setPayerType] = useState<PayerType>("none");
   const [clientBillable, setClientBillable] = useState(false);
-  const [sendBackReason, setSendBackReason] = useState(toText(participant.sendBackReason));
-  const [missingInfo, setMissingInfo] = useState(toText(participant.missingInfo));
   const [transportAmount, setTransportAmount] = useState<string>("");
   const [transportMemo, setTransportMemo] = useState<string>("");
   const [transportSaveState, setTransportSaveState] = useState<SaveState>("idle");
@@ -784,38 +855,24 @@ function ParticipantRow({
     });
   };
 
+  // 交通費（内部管理）の保存のみ。状態の承認/差し戻しはクイックアクションが担う。
+  // 交通費を入力して保存する（交通費なし=0円含む）なら「交通費未入力」の警告は自動で解除する。
   const saveAll = async () => {
     setStatusSaveState("saving");
     try {
-      // Derive transportationStatus from category
-      let transportationStatus = participant.transportationStatus;
-      let individualStatus = localIndividualStatus;
-      let resolvedMissingInfo = missingInfo;
       if (canManageTransportation && !isGuest && workerId != null) {
-        if (payerType === "none") {
-          transportationStatus = "確認済み";
-        } else {
-          transportationStatus = "入力済み";
-        }
-        // 交通費を入力して保存する（交通費なし=0円含む）なら「交通費未入力」の警告は自動で解除する。
+        const transportationStatus = payerType === "none" ? "確認済み" : "入力済み";
+        let individualStatus = toText(participant.individualStatus) || "未確認";
+        let resolvedMissingInfo = toText(participant.missingInfo);
         if (individualStatus === "交通費未入力") {
           individualStatus = "出面確認済み";
           if (resolvedMissingInfo === "交通費・請求情報の確認が必要です") resolvedMissingInfo = "";
         }
-      }
-
-      await onUpdate(row, participant, {
-        individualStatus,
-        transportationStatus,
-        invoiceInfoStatus: localInvoiceStatus,
-        sendBackReason,
-        missingInfo: resolvedMissingInfo,
-      });
-      setLocalIndividualStatus(individualStatus);
-      if (resolvedMissingInfo !== missingInfo) setMissingInfo(resolvedMissingInfo);
-
-      // Also persist internal transportation settings before closing the edit panel.
-      if (canManageTransportation && !isGuest && workerId != null) {
+        await onUpdate(row, participant, {
+          individualStatus,
+          transportationStatus,
+          missingInfo: resolvedMissingInfo,
+        });
         await saveTransportation();
       }
 
@@ -915,22 +972,24 @@ function ParticipantRow({
           <UserCog className="h-4 w-4" />
         </Button>
       )}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        title="詳細編集"
-        className="h-7 w-7 text-muted-foreground hover:bg-muted"
-        onClick={() => setIsEditing(true)}
-      >
-        <Pencil className="h-4 w-4" />
-      </Button>
+      {canManageTransportation && !isGuest && workerId != null && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title="交通費・領収書（内部管理）"
+          className="h-7 w-7 text-muted-foreground hover:bg-muted"
+          onClick={() => setIsEditing(true)}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+      )}
     </div>
   );
 
   // ── Collapsed read-only row (desktop) ────────────────────────────────────
   const desktopReadRow = (
-    <div className={`hidden md:grid ${canManageTransportation ? "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_100px_minmax(0,1.1fr)_minmax(0,1.1fr)_150px]" : "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_minmax(0,1.1fr)_150px]"} gap-x-3 px-5 py-2.5 items-center hover:bg-muted/5 transition-colors`}>
+    <div className={`hidden md:grid ${canManageTransportation ? "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_100px_minmax(0,1.1fr)_150px]" : "md:grid-cols-[minmax(0,2fr)_72px_minmax(0,1.4fr)_150px]"} gap-x-3 px-5 py-2.5 items-center hover:bg-muted/5 transition-colors`}>
       {/* 作業員名 */}
       <div className="flex flex-col min-w-0">
         <span className={`text-sm font-medium truncate ${isExcluded ? "text-muted-foreground" : ""}`}>
@@ -941,6 +1000,9 @@ function ParticipantRow({
         </span>
         {isExcluded && (
           <span className="text-xs text-muted-foreground">ゲスト／集計対象外</span>
+        )}
+        {!isExcluded && isSentBack && toText(participant.sendBackReason) && (
+          <span className="text-xs text-red-400 truncate">理由: {toText(participant.sendBackReason)}</span>
         )}
       </div>
       {/* 出勤日数 */}
@@ -975,17 +1037,6 @@ function ParticipantRow({
       ) : (
         <span className="text-xs text-muted-foreground">—</span>
       ))}
-      {/* 請求情報状態 */}
-      {isExcluded ? (
-        <span className="text-xs text-muted-foreground">—</span>
-      ) : (
-        <Badge
-          variant="outline"
-          className={`text-xs w-fit ${INVOICE_STATUS_BADGE[participant.invoiceInfoStatus] || INVOICE_STATUS_BADGE.確認待ち}`}
-        >
-          {participant.invoiceInfoStatus}
-        </Badge>
-      )}
       {/* 操作 */}
       {!isExcluded ? (
         quickActions
@@ -1047,6 +1098,9 @@ function ParticipantRow({
               </span>
             )}
           </div>
+          {!isExcluded && isSentBack && toText(participant.sendBackReason) && (
+            <div className="text-xs text-red-400">理由: {toText(participant.sendBackReason)}</div>
+          )}
         </div>
         {!isExcluded && <div className="shrink-0">{quickActions}</div>}
       </div>
@@ -1054,11 +1108,12 @@ function ParticipantRow({
   );
 
   // ── Edit panel (shown when isEditing) ─────────────────────────────────────
+  // 交通費・領収書の内部管理のみ。状態変更（承認/差し戻し）は行のクイックアクションで行う。
   const editPanel = isEditing && (
     <div className="mx-4 mb-3 rounded-lg border bg-card shadow-sm">
       {/* Edit panel header */}
       <div className="flex items-center justify-between px-4 py-3 border-b">
-        <span className="text-sm font-semibold">{participant.workerName} の詳細編集</span>
+        <span className="text-sm font-semibold">{participant.workerName} の交通費・領収書（内部管理）</span>
         <Button
           type="button"
           variant="ghost"
@@ -1072,70 +1127,33 @@ function ParticipantRow({
       </div>
 
       <div className="p-4 space-y-5">
-        {/* 個別ステータス — chip group */}
-        <div className="space-y-2">
-          <Label className="text-xs font-semibold">個別ステータス</Label>
-          <div className="flex flex-wrap gap-2">
-            {PARTICIPANT_STATUS_OPTIONS.map((s) => (
-              <ChipButton
-                key={s}
-                label={s}
-                isActive={localIndividualStatus === s}
-                activeClass={PARTICIPANT_STATUS_CHIP_ACTIVE[s] || "border-border bg-muted text-foreground"}
-                inactiveClass={PARTICIPANT_STATUS_CHIP[s] || "border-border text-muted-foreground hover:bg-muted/50"}
-                onClick={() => setLocalIndividualStatus(s)}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* 交通区分 + 請求情報状態 */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {/* 交通区分 */}
-          {canManageTransportation && !isGuest && workerId != null && (
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold">支払元 / 支払方法</Label>
-              <div className="flex flex-wrap gap-2">
-                {PAYER_TYPE_OPTIONS.map((cat) => (
-                  <ChipButton
-                    key={cat.value}
-                    label={cat.label}
-                    isActive={payerType === cat.value}
-                    activeClass="border-blue-500 bg-blue-500 text-white"
-                    inactiveClass="border-border text-muted-foreground hover:bg-muted/50"
-                    onClick={() => {
-                      setPayerType(cat.value);
-                      if (cat.value === "none") {
-                        setClientBillable(false);
-                        setTransportAmount("");
-                      }
-                      if (cat.value === "client_paid_direct") {
-                        setClientBillable(false);
-                      }
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 請求情報状態 */}
+        {/* 支払元 / 支払方法 */}
+        {canManageTransportation && !isGuest && workerId != null && (
           <div className="space-y-2">
-            <Label className="text-xs font-semibold">請求情報状態</Label>
+            <Label className="text-xs font-semibold">支払元 / 支払方法</Label>
             <div className="flex flex-wrap gap-2">
-              {INVOICE_INFO_STATUS_OPTIONS.map((s) => (
+              {PAYER_TYPE_OPTIONS.map((cat) => (
                 <ChipButton
-                  key={s}
-                  label={s}
-                  isActive={localInvoiceStatus === s}
-                  activeClass={INVOICE_STATUS_CHIP_ACTIVE[s] || "border-border bg-muted text-foreground"}
-                  inactiveClass={INVOICE_STATUS_CHIP[s] || "border-border text-muted-foreground hover:bg-muted/50"}
-                  onClick={() => setLocalInvoiceStatus(s)}
+                  key={cat.value}
+                  label={cat.label}
+                  isActive={payerType === cat.value}
+                  activeClass="border-blue-500 bg-blue-500 text-white"
+                  inactiveClass="border-border text-muted-foreground hover:bg-muted/50"
+                  onClick={() => {
+                    setPayerType(cat.value);
+                    if (cat.value === "none") {
+                      setClientBillable(false);
+                      setTransportAmount("");
+                    }
+                    if (cat.value === "client_paid_direct") {
+                      setClientBillable(false);
+                    }
+                  }}
                 />
               ))}
             </div>
           </div>
-        </div>
+        )}
 
         {/* 内部交通費設定 + メモ + 領収書 (permitted internal roles only) */}
         {canManageTransportation && !isGuest && workerId != null && (
@@ -1225,28 +1243,6 @@ function ParticipantRow({
             </div>
           </div>
         )}
-
-        {/* Advanced: send-back reason / missing info */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
-            <Label className="text-xs">差し戻し理由</Label>
-            <Textarea
-              className="text-sm min-h-[72px]"
-              value={sendBackReason}
-              onChange={(e) => setSendBackReason(e.target.value)}
-              placeholder="差し戻し理由を入力"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">情報不足内容</Label>
-            <Textarea
-              className="text-sm min-h-[72px]"
-              value={missingInfo}
-              onChange={(e) => setMissingInfo(e.target.value)}
-              placeholder="不足している情報を入力"
-            />
-          </div>
-        </div>
 
         {/* Admin aggregation toggle */}
         {canChangeAggregation && isExcluded && (

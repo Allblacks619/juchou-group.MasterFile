@@ -7,6 +7,7 @@ let closingStatus: string = "closed";
 let submissionStatusByEmployee: Record<number, string> = { 10: "submitted", 11: "submitted" };
 
 vi.mock("./db", () => ({
+  getMonthlyClosingV2ParticipantReview: vi.fn(async () => undefined),
   getEmployeeByUserId: vi.fn().mockImplementation(async (userId: number) => {
     if (userId === 3) return { id: 11, userId: 3, nameKanji: "作業員B" };
     return { id: 10, userId: 2, nameKanji: "作業員A" };

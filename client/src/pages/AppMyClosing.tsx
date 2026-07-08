@@ -117,22 +117,25 @@ function isInvoiceReadOnly(invoice?: { status?: string | null } | null) {
   return invoice?.status === "approved" || invoice?.status === "submitted";
 }
 
-// 作業員フローの4ステップ。「進む＝出面確定」なので①は月締めに入った時点で完了扱い。
+// 作業員フローの5ステップ。「進む＝出面確定」なので①は月締めに入った時点で完了扱い。
+// ⑤は提出後の「次」: 会社確認 → 支払（支払待ち/支払済みは作業員側でも見える）。
 const CLOSING_STEPS = [
   { n: 1, title: "出面確定", desc: "マイ出面表で確定済み" },
   { n: 2, title: "交通費・領収書", desc: "交通費／経費を入力・領収書を添付" },
   { n: 3, title: "確認", desc: "請求書プレビューで金額を確認" },
   { n: 4, title: "提出", desc: "会社へ提出＝請求を確定" },
+  { n: 5, title: "支払", desc: "会社確認のあと支払われます" },
 ];
 
 /**
  * 作業員月締めフローの進捗ステッパー。
  * 黒×ゴールドのテーマに合わせ、完了＝ゴールド塗り／現在地＝ゴールド枠＋淡い光、未完了＝グレー。
+ * stepDescOverrides で状況に応じた説明（例: ⑤ 支払済み 2/15）に差し替えられる。
  */
-function ClosingStepper({ currentStep }: { currentStep: number }) {
+function ClosingStepper({ currentStep, stepDescOverrides }: { currentStep: number; stepDescOverrides?: Record<number, string> }) {
   return (
     <div className="rounded-xl border border-border/60 bg-gradient-to-b from-card/60 to-card/20 px-3 py-3 sm:px-4 sm:py-4">
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5 sm:gap-3">
         {CLOSING_STEPS.map(step => {
           const done = step.n < currentStep;
           const current = step.n === currentStep;
@@ -168,7 +171,7 @@ function ClosingStepper({ currentStep }: { currentStep: number }) {
                 </span>
               </div>
               <p className="mt-1 pl-8 text-[11px] leading-tight text-muted-foreground">
-                {step.desc}
+                {stepDescOverrides?.[step.n] || step.desc}
               </p>
             </div>
           );
@@ -414,12 +417,28 @@ export default function AppMyClosing() {
   );
   const invoiceSubjectPreview =
     invoiceSubject.trim() || defaultInvoiceSubject(closingMonth);
-  // 作業員フローの4ステップ（①出面確定 ②交通費・領収書 ③確認 ④提出）の現在地。
-  // 「進む＝出面確定」なので①は対象月なら完了扱い。提出済みなら④。
+  // 作業員フローの5ステップ（①出面確定 ②交通費・領収書 ③確認 ④提出 ⑤支払）の現在地。
+  // 「進む＝出面確定」なので①は対象月なら完了扱い。提出後は⑤（会社確認→支払待ち→支払済み）へ。
   const submissionStatusForStep = detail?.submission?.status as string | undefined;
   const isSubmittedStep = ["submitted", "accepted", "ready_to_close", "closed", "approved"].includes(submissionStatusForStep || "");
   const hasMoneyOrReceipt = transportAmount > 0 || expenseAmount > 0 || !!detail?.submission?.receiptUploaded;
-  const currentStep = isSubmittedStep ? 4 : hasMoneyOrReceipt ? 3 : 2;
+  // 提出後の支払状況（支払待ち/支払済み）。選択中の現場分を参照。
+  const myPaymentQuery = trpc.closing.myPaymentStatus.useQuery(
+    { closingMonth, employeeId: queryEmployeeId },
+    { enabled: isSubmittedStep, staleTime: 30_000 }
+  );
+  const myPaymentLine = (myPaymentQuery.data?.lines || []).find(
+    (l: any) => Number(l.projectId) === Number(selectedProjectId)
+  );
+  const isPaid = myPaymentLine?.status === "paid";
+  const currentStep = isSubmittedStep ? (isPaid ? 6 : 5) : hasMoneyOrReceipt ? 3 : 2;
+  const paymentStepDesc = !isSubmittedStep
+    ? undefined
+    : isPaid
+      ? `支払済み${myPaymentLine?.paidAt ? `（${format(new Date(myPaymentLine.paidAt), "M/d")}）` : ""}`
+      : submissionStatusForStep === "approved"
+        ? "承認済み・支払待ちです"
+        : "会社が内容を確認しています";
   // 自動生成の状態・警告（空になった理由を画面に表示して原因を分かるようにする）。
   const workerInvoiceDraftData = workerInvoiceDraftQuery.data as any;
   const workerInvoiceWarnings: string[] = workerInvoiceDraftData?.warnings || [];
@@ -633,7 +652,7 @@ export default function AppMyClosing() {
       )}
 
       {selectedProjectId && isMonthlyTarget && detail && (
-        <ClosingStepper currentStep={currentStep} />
+        <ClosingStepper currentStep={currentStep} stepDescOverrides={paymentStepDesc ? { 5: paymentStepDesc } : undefined} />
       )}
 
       {monthlyOverview?.isTarget && monthlyOverview.projectLines?.length > 0 && (
@@ -734,6 +753,30 @@ export default function AppMyClosing() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
+              {detail?.submission?.status === "rejected" && (
+                <div className="text-sm bg-red-500/10 border border-red-500/40 rounded-lg px-4 py-3 text-red-300 space-y-1">
+                  <div className="font-medium">会社から差し戻されました</div>
+                  {(detail as any)?.sendBackReason && (
+                    <div>理由: {(detail as any).sendBackReason}</div>
+                  )}
+                  <div className="text-red-300/80">内容を修正して、もう一度提出してください。</div>
+                </div>
+              )}
+              {detail?.submission?.status === "submitted" && (
+                <div className="text-sm bg-blue-500/10 border border-blue-500/30 rounded-lg px-4 py-3 text-blue-300">
+                  提出済みです。会社が内容を確認しています。差し戻しがあればホームとこの画面に表示されます。
+                </div>
+              )}
+              {detail?.submission?.status === "approved" && !isPaid && (
+                <div className="text-sm bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3 text-emerald-300">
+                  会社の確認が完了しました。支払待ちです（支払われるとステップ⑤に表示されます）。
+                </div>
+              )}
+              {isPaid && (
+                <div className="text-sm bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3 text-emerald-300">
+                  支払済みです{myPaymentLine?.totalAmount ? `（${formatYen(myPaymentLine.totalAmount)}）` : ""}。この月の流れはすべて完了しました。
+                </div>
+              )}
               {!canEdit && (
                 <div className="text-sm bg-blue-500/10 border border-blue-500/30 rounded-lg px-4 py-3 text-blue-300">
                   この月締めはすでに確定済みのため、作業員側では編集できません。

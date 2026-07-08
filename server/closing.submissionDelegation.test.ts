@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("./db", () => ({
+  getMonthlyClosingV2ParticipantReview: vi.fn(async () => undefined),
   getEmployeeByUserId: vi.fn(async (userId: number) => userId === 1 ? { id: 1, nameKanji: "管理者" } : { id: 100, nameKanji: "作業員A" }),
   getUserById: vi.fn(async (id: number) => ({ id, appRole: id === 1 ? "admin" : "worker" })),
   getEmployeeById: vi.fn(async (id: number) => ({ id, nameKanji: id === 100 ? "作業員A" : "作業員B" })),
