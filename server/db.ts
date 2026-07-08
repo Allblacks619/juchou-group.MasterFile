@@ -30,6 +30,8 @@ import {
   monthlyClosingV2ExpenseLineReceipts,
   workerBaseRates,
   InsertWorkerBaseRate,
+  workerAdvances,
+  InsertWorkerAdvance,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1328,6 +1330,45 @@ export async function getEmployeePaymentByClosingEmployee(closingId: number, emp
     and(eq(employeePayments.closingId, closingId), eq(employeePayments.employeeId, employeeId))
   ).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+// ─── 前借り／立替 台帳 (worker_advances) ─────────────────────────────────────
+export async function getWorkerAdvancesByEmployee(employeeId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(workerAdvances).where(eq(workerAdvances.employeeId, employeeId));
+}
+
+export async function getAllWorkerAdvances() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(workerAdvances);
+}
+
+export async function getWorkerAdvancesByPayment(paymentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(workerAdvances).where(eq(workerAdvances.relatedPaymentId, paymentId));
+}
+
+export async function getWorkerAdvanceById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(workerAdvances).where(eq(workerAdvances.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function createWorkerAdvance(data: InsertWorkerAdvance) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(workerAdvances).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function deleteWorkerAdvance(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(workerAdvances).where(eq(workerAdvances.id, id));
 }
 
 export async function upsertEmployeePayment(data: InsertEmployeePayment) {
