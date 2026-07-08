@@ -20,8 +20,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Loader2, Wallet, RefreshCw, CheckCircle2, Undo2, Save } from "lucide-react";
+import { Loader2, Wallet, RefreshCw, CheckCircle2, Undo2, Save, PiggyBank, Plus, Trash2, ArrowLeftRight } from "lucide-react";
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   pending: { label: "未確定", className: "bg-amber-500/20 text-amber-400" },
@@ -79,6 +85,24 @@ export default function AppPayments() {
       listQuery.refetch();
     },
     onError: (e) => toast.error(`支払戻しエラー: ${e.message}`),
+  });
+
+  // 前借り台帳のコンテキスト（支払行ごとの残高・相殺可能額・差引支払額）。
+  const advanceCtxQuery = trpc.advance.paymentContext.useQuery(
+    { projectId: selectedProjectId || 0, closingMonth },
+    { enabled: !!selectedProjectId }
+  );
+  const advanceCtx = advanceCtxQuery.data?.byPayment || {};
+  const [offsetInputs, setOffsetInputs] = useState<Record<number, string>>({});
+
+  const offsetMutation = trpc.advance.offsetPayment.useMutation({
+    onSuccess: (res) => {
+      toast.success(`前借りを ${formatYen(res.applied)} 相殺しました（残高 ${formatYen(res.balance)}）`);
+      advanceCtxQuery.refetch();
+      detailQuery.refetch();
+      setOffsetInputs({});
+    },
+    onError: (e) => toast.error(`相殺エラー: ${e.message}`),
   });
 
   const rows = listQuery.data || [];
@@ -209,13 +233,14 @@ export default function AppPayments() {
                         <TableHead className="text-right">経費</TableHead>
                         <TableHead className="text-right">調整</TableHead>
                         <TableHead className="text-right">合計</TableHead>
+                        <TableHead className="text-right">前借り相殺</TableHead>
                         <TableHead>備考</TableHead>
                         <TableHead>操作</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {detail.payments.length === 0 ? (
-                        <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">支払対象データがありません</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">支払対象データがありません</TableCell></TableRow>
                       ) : detail.payments.map((row: any) => {
                         const statusMeta = STATUS_LABELS[row.payment.status] || STATUS_LABELS.pending;
                         return (
@@ -240,6 +265,48 @@ export default function AppPayments() {
                               />
                             </TableCell>
                             <TableCell className="text-right font-bold">{formatYen(row.payment.totalAmount)}</TableCell>
+                            <TableCell className="text-right">
+                              {(() => {
+                                const adv = advanceCtx[row.payment.id];
+                                if (!adv) return <span className="text-muted-foreground">—</span>;
+                                const canOffset = adv.maxOffset > 0;
+                                return (
+                                  <div className="flex flex-col items-end gap-1">
+                                    {adv.appliedOffset > 0 && (
+                                      <span className="text-xs text-emerald-400">相殺 {formatYen(adv.appliedOffset)} → 差引 {formatYen(adv.netPayable)}</span>
+                                    )}
+                                    {adv.balance > 0 ? (
+                                      <span className="text-[11px] text-amber-400">残高 {formatYen(adv.balance)}</span>
+                                    ) : adv.appliedOffset === 0 ? (
+                                      <span className="text-muted-foreground">—</span>
+                                    ) : null}
+                                    {canOffset && (
+                                      <div className="flex items-center gap-1">
+                                        <Input
+                                          type="number"
+                                          className="h-7 w-20 text-right"
+                                          value={offsetInputs[row.payment.id] ?? String(adv.maxOffset)}
+                                          onChange={(e) => setOffsetInputs((prev) => ({ ...prev, [row.payment.id]: e.target.value }))}
+                                        />
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 gap-1 px-2"
+                                          disabled={offsetMutation.isPending}
+                                          onClick={() => {
+                                            const amount = Number(offsetInputs[row.payment.id] ?? adv.maxOffset);
+                                            if (!amount || amount <= 0) { toast.error("相殺額を入力してください"); return; }
+                                            offsetMutation.mutate({ paymentId: row.payment.id, amount });
+                                          }}
+                                        >
+                                          <ArrowLeftRight className="h-3 w-3" />相殺
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </TableCell>
                             <TableCell>
                               <Input
                                 className="h-8 min-w-[180px]"
@@ -275,6 +342,172 @@ export default function AppPayments() {
           </CardContent>
         </Card>
       </div>
+
+      <AdvanceLedgerPanel />
     </div>
+  );
+}
+
+// ─── 前借り／立替 台帳パネル ───────────────────────────────────────────────
+function AdvanceLedgerPanel() {
+  const utils = trpc.useUtils();
+  const overviewQuery = trpc.advance.overview.useQuery();
+  const employeesQuery = trpc.employee.list.useQuery();
+  const [ledgerEmpId, setLedgerEmpId] = useState<number | null>(null);
+  const [formEmpId, setFormEmpId] = useState<string>("");
+  const [formType, setFormType] = useState<"advance" | "repayment">("advance");
+  const [formAmount, setFormAmount] = useState<string>("");
+  const [formReason, setFormReason] = useState<string>("");
+
+  const addMutation = trpc.advance.addEntry.useMutation({
+    onSuccess: () => {
+      toast.success("台帳に登録しました");
+      overviewQuery.refetch();
+      utils.advance.ledger.invalidate();
+      utils.advance.paymentContext.invalidate();
+      setFormAmount("");
+      setFormReason("");
+    },
+    onError: (e) => toast.error(`登録エラー: ${e.message}`),
+  });
+
+  const rows = overviewQuery.data?.rows || [];
+  const totalOutstanding = overviewQuery.data?.totalOutstanding || 0;
+  const employees = employeesQuery.data || [];
+
+  const handleAdd = () => {
+    const employeeId = Number(formEmpId);
+    const amount = Number(formAmount);
+    if (!employeeId) { toast.error("作業員を選択してください"); return; }
+    if (!amount || amount <= 0) { toast.error("金額を入力してください"); return; }
+    addMutation.mutate({ employeeId, entryType: formType, amount, reason: formReason });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2"><PiggyBank className="h-4 w-4" />前借り／立替 台帳</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* 登録フォーム */}
+        <div className="flex flex-wrap items-end gap-2 rounded-lg border p-3">
+          <div className="space-y-1">
+            <Label>作業員</Label>
+            <Select value={formEmpId} onValueChange={setFormEmpId}>
+              <SelectTrigger className="w-[180px]"><SelectValue placeholder="作業員を選択" /></SelectTrigger>
+              <SelectContent>
+                {employees.map((e: any) => (
+                  <SelectItem key={e.id} value={String(e.id)}>{e.nameKanji || e.nameRomaji || `ID:${e.id}`}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>種別</Label>
+            <Select value={formType} onValueChange={(v) => setFormType(v as "advance" | "repayment")}>
+              <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="advance">前借り(+)</SelectItem>
+                <SelectItem value="repayment">返済/相殺(−)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>金額</Label>
+            <Input type="number" className="w-[120px] text-right" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} placeholder="0" />
+          </div>
+          <div className="space-y-1 flex-1 min-w-[160px]">
+            <Label>理由（任意）</Label>
+            <Input value={formReason} onChange={(e) => setFormReason(e.target.value)} placeholder="前借り・立替の理由" />
+          </div>
+          <Button className="gap-1" onClick={handleAdd} disabled={addMutation.isPending}>
+            {addMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}登録
+          </Button>
+        </div>
+
+        {/* 残高一覧 */}
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">残高のある作業員</span>
+          <span>前借り残高合計 <span className="font-bold text-gold">{formatYen(totalOutstanding)}</span></span>
+        </div>
+        {overviewQuery.isLoading ? (
+          <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-gold" /></div>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">前借り残高のある作業員はいません</p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {rows.map((r: any) => (
+              <button
+                key={r.employeeId}
+                onClick={() => setLedgerEmpId(r.employeeId)}
+                className={`text-left rounded-lg border p-3 transition-colors hover:bg-muted/30 ${r.balance > 0 ? "border-amber-500/30" : "border-emerald-500/30"}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{r.name}</span>
+                  <span className={`font-bold ${r.balance > 0 ? "text-amber-400" : "text-emerald-400"}`}>{formatYen(r.balance)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">{r.entryCount}件の記録</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </CardContent>
+      <AdvanceLedgerDialog employeeId={ledgerEmpId} onClose={() => setLedgerEmpId(null)} />
+    </Card>
+  );
+}
+
+const ADVANCE_TYPE_LABELS: Record<string, string> = { advance: "前借り", repayment: "返済/相殺", adjustment: "調整" };
+
+function AdvanceLedgerDialog({ employeeId, onClose }: { employeeId: number | null; onClose: () => void }) {
+  const utils = trpc.useUtils();
+  const ledgerQuery = trpc.advance.ledger.useQuery({ employeeId: employeeId || 0 }, { enabled: !!employeeId });
+  const deleteMutation = trpc.advance.deleteEntry.useMutation({
+    onSuccess: () => {
+      toast.success("削除しました");
+      ledgerQuery.refetch();
+      utils.advance.overview.invalidate();
+      utils.advance.paymentContext.invalidate();
+    },
+    onError: (e) => toast.error(`削除エラー: ${e.message}`),
+  });
+  const data = ledgerQuery.data;
+
+  return (
+    <Dialog open={!!employeeId} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>{data?.name || "台帳"} の前借り台帳</DialogTitle></DialogHeader>
+        {ledgerQuery.isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gold" /></div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <span className="text-sm text-muted-foreground">現在残高</span>
+              <span className={`text-lg font-bold ${(data?.balance || 0) > 0 ? "text-amber-400" : "text-emerald-400"}`}>{formatYen(data?.balance || 0)}</span>
+            </div>
+            <div className="max-h-[320px] overflow-y-auto space-y-2">
+              {(data?.entries || []).length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">記録がありません</p>
+              ) : (data?.entries || []).map((e: any) => (
+                <div key={e.id} className="flex items-center justify-between rounded border p-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${e.amount >= 0 ? "bg-amber-500/20 text-amber-400" : "bg-emerald-500/20 text-emerald-400"}`}>{ADVANCE_TYPE_LABELS[e.entryType] || e.entryType}</span>
+                      <span className={`font-medium ${e.amount >= 0 ? "text-amber-400" : "text-emerald-400"}`}>{e.amount >= 0 ? "+" : ""}{formatYen(e.amount)}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5 truncate">
+                      {e.reason || "—"}{e.closingMonth ? ` / ${e.closingMonth}` : ""} ・ {e.createdAt ? format(new Date(e.createdAt), "yyyy/MM/dd") : ""}
+                    </div>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 shrink-0" onClick={() => deleteMutation.mutate({ id: e.id })} disabled={deleteMutation.isPending}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

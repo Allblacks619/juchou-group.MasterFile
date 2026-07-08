@@ -22,6 +22,7 @@ import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } 
 import { seedBetaFixture, BETA_TEST_MONTH } from "./betaFixture";
 import { seedSimulationFixture } from "./simulationFixture";
 import { buildAccountingCsv, accountingCsvFilename, type AccountingCsvInvoice } from "./accountingCsv";
+import { computeAdvanceBalance, computeAppliedOffset, computeMaxOffset, signedDelta } from "./workerAdvance";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 import { genbaRouter } from "./genba/router";
 
@@ -4259,6 +4260,157 @@ export const appRouter = router({
         await db.updateEmployeePayment(input.id, { status: "pending", paidAt: null, paidBy: null } as any);
         await safeAuditLog(ctx.user.id, "payment.markUnpaid", "payment", { entityId: input.id, closingId: current.closingId, employeeId: current.employeeId, note: "支払済み解除" });
         return { success: true };
+      }),
+  }),
+
+  // 前借り／立替 台帳（残高）と支払時の自動相殺。
+  advance: router({
+    // 残高のある作業員一覧（台帳の概要）。
+    overview: leaderOrAdminProcedure.query(async () => {
+      const [advances, employees] = await Promise.all([db.getAllWorkerAdvances(), db.getAllEmployees()]);
+      const empMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
+      const byEmp = new Map<number, any[]>();
+      for (const a of advances as any[]) {
+        const arr = byEmp.get(a.employeeId);
+        if (arr) arr.push(a);
+        else byEmp.set(a.employeeId, [a]);
+      }
+      const rows = Array.from(byEmp.entries())
+        .map(([employeeId, entries]) => {
+          const emp = empMap.get(employeeId);
+          const lastEntryAt = entries.reduce((m: any, e: any) => (!m || new Date(e.createdAt) > new Date(m) ? e.createdAt : m), null as any);
+          return {
+            employeeId,
+            name: emp?.nameKanji || emp?.nameRomaji || `従業員${employeeId}`,
+            balance: computeAdvanceBalance(entries),
+            entryCount: entries.length,
+            lastEntryAt,
+          };
+        })
+        .filter((r) => r.balance !== 0)
+        .sort((a, b) => b.balance - a.balance);
+      const totalOutstanding = rows.reduce((sum, r) => sum + Math.max(r.balance, 0), 0);
+      return { rows, totalOutstanding };
+    }),
+
+    // ある作業員の台帳（残高＋履歴）。
+    ledger: leaderOrAdminProcedure
+      .input(z.object({ employeeId: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const [entries, emp] = await Promise.all([
+          db.getWorkerAdvancesByEmployee(input.employeeId),
+          db.getEmployeeById(input.employeeId),
+        ]);
+        const sorted = [...(entries as any[])].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        return {
+          employeeId: input.employeeId,
+          name: emp?.nameKanji || emp?.nameRomaji || `従業員${input.employeeId}`,
+          balance: computeAdvanceBalance(entries as any[]),
+          entries: sorted,
+        };
+      }),
+
+    // 台帳エントリの手動追加（前借り／相殺／調整）。
+    addEntry: leaderOrAdminProcedure
+      .input(z.object({
+        employeeId: z.number().int().positive(),
+        entryType: z.enum(["advance", "repayment", "adjustment"]),
+        amount: z.number().int().positive(),
+        increase: z.boolean().optional().default(true),
+        reason: z.string().max(255).optional().default(""),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const delta = signedDelta(input.entryType, input.amount, input.increase);
+        const created = await db.createWorkerAdvance({
+          employeeId: input.employeeId,
+          entryType: input.entryType,
+          amount: delta,
+          reason: input.reason.trim() || null,
+          createdBy: ctx.user.id,
+        } as any);
+        const balance = computeAdvanceBalance(await db.getWorkerAdvancesByEmployee(input.employeeId) as any[]);
+        await safeAuditLog(ctx.user.id, "advance.addEntry", "worker_advance", { entityId: (created as any).id, employeeId: input.employeeId, note: `${input.entryType} ${delta}円 / 残高${balance}円` });
+        return { success: true, balance };
+      }),
+
+    // 台帳エントリの削除（管理者の訂正用）。
+    deleteEntry: leaderOrAdminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const entry = await db.getWorkerAdvanceById(input.id);
+        if (!entry) throw new TRPCError({ code: "NOT_FOUND", message: "台帳エントリが見つかりません" });
+        await db.deleteWorkerAdvance(input.id);
+        await safeAuditLog(ctx.user.id, "advance.deleteEntry", "worker_advance", { entityId: input.id, employeeId: entry.employeeId, note: "台帳エントリ削除" });
+        return { success: true };
+      }),
+
+    // 支払時の相殺（前借り残高を支払から差し引く）。repayment を支払に紐づけて記録。
+    offsetPayment: leaderOrAdminProcedure
+      .input(z.object({ paymentId: z.number().int().positive(), amount: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const payment = await db.getEmployeePaymentById(input.paymentId);
+        if (!payment) throw new TRPCError({ code: "NOT_FOUND", message: "支払行が見つかりません" });
+        const [entries, linked, closing] = await Promise.all([
+          db.getWorkerAdvancesByEmployee(payment.employeeId),
+          db.getWorkerAdvancesByPayment(input.paymentId),
+          db.getProjectClosingById(payment.closingId),
+        ]);
+        const balance = computeAdvanceBalance(entries as any[]);
+        const alreadyOffset = computeAppliedOffset(linked as any[]);
+        const maxOffset = computeMaxOffset(balance, Number(payment.totalAmount || 0), alreadyOffset);
+        if (input.amount > maxOffset) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `相殺可能額を超えています（最大 ${maxOffset}円）` });
+        }
+        const created = await db.createWorkerAdvance({
+          employeeId: payment.employeeId,
+          entryType: "repayment",
+          amount: -Math.abs(input.amount),
+          reason: "支払時相殺",
+          relatedPaymentId: input.paymentId,
+          closingMonth: (closing as any)?.closingMonth || null,
+          createdBy: ctx.user.id,
+        } as any);
+        const newBalance = balance - input.amount;
+        await safeAuditLog(ctx.user.id, "advance.offsetPayment", "worker_advance", { entityId: (created as any).id, employeeId: payment.employeeId, closingId: payment.closingId, note: `支払相殺 ${input.amount}円 / 残高${newBalance}円` });
+        return { success: true, applied: input.amount, balance: newBalance };
+      }),
+
+    // 支払詳細画面向け: この締めの各支払行の残高・適用相殺・相殺可能額・差引支払額。
+    paymentContext: leaderOrAdminProcedure
+      .input(z.object({ projectId: z.number().int().positive(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        const closing = await db.getProjectClosingByProjectMonth(input.projectId, input.closingMonth);
+        if (!closing?.id) return { byPayment: {} as Record<number, any> };
+        const [payments, allAdvances] = await Promise.all([
+          db.getEmployeePaymentsByClosing(closing.id),
+          db.getAllWorkerAdvances(),
+        ]);
+        const byEmp = new Map<number, any[]>();
+        const byPay = new Map<number, any[]>();
+        for (const a of allAdvances as any[]) {
+          const e = byEmp.get(a.employeeId);
+          if (e) e.push(a); else byEmp.set(a.employeeId, [a]);
+          if (a.relatedPaymentId) {
+            const p = byPay.get(a.relatedPaymentId);
+            if (p) p.push(a); else byPay.set(a.relatedPaymentId, [a]);
+          }
+        }
+        const byPayment: Record<number, any> = {};
+        for (const p of payments as any[]) {
+          const balance = computeAdvanceBalance(byEmp.get(p.employeeId) || []);
+          const appliedOffset = computeAppliedOffset(byPay.get(p.id) || []);
+          const maxOffset = computeMaxOffset(balance, Number(p.totalAmount || 0), appliedOffset);
+          byPayment[p.id] = {
+            employeeId: p.employeeId,
+            balance,
+            appliedOffset,
+            maxOffset,
+            netPayable: Math.max(Number(p.totalAmount || 0) - appliedOffset, 0),
+          };
+        }
+        return { byPayment };
       }),
   }),
 

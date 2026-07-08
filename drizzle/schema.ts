@@ -1047,3 +1047,35 @@ export const auditLogs = mysqlTable("audit_logs", {
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
+
+/**
+ * 作業員ごとの前借り／立替 台帳（残高）。
+ * amount は残高への符号付きデルタ（円）: advance=+（作業員が前借り＝会社への借り増）、
+ * repayment=−（相殺・返済）、adjustment=符号付き（手動調整）。
+ * 現在残高 = SUM(amount)。正の残高 = 作業員が会社に返す前借りが残っている状態。
+ * 支払時の相殺は entryType="repayment" として relatedPaymentId に紐づける。
+ */
+export const workerAdvances = mysqlTable("worker_advances", {
+  id: int("id").autoincrement().primaryKey(),
+  /** 対象の作業員(従業員)ID */
+  employeeId: int("employeeId").notNull(),
+  /** 種別: advance=前借り/立替, repayment=相殺/返済, adjustment=調整 */
+  entryType: mysqlEnum("entryType", ["advance", "repayment", "adjustment"]).notNull(),
+  /** 残高への符号付きデルタ（円）。advanceは正、repaymentは負、adjustmentは符号付き。 */
+  amount: int("amount").notNull(),
+  /** 理由・メモ */
+  reason: varchar("reason", { length: 255 }),
+  /** 支払時相殺のとき、対象の employee_payments.id */
+  relatedPaymentId: int("relatedPaymentId"),
+  /** 適用した締め月（相殺時など） YYYY-MM */
+  closingMonth: varchar("closingMonth", { length: 7 }),
+  /** 登録したユーザーID */
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  employeeIdx: index("worker_advance_employee_idx").on(table.employeeId),
+  paymentIdx: index("worker_advance_payment_idx").on(table.relatedPaymentId),
+}));
+
+export type WorkerAdvance = typeof workerAdvances.$inferSelect;
+export type InsertWorkerAdvance = typeof workerAdvances.$inferInsert;
