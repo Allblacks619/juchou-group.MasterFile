@@ -142,7 +142,7 @@ export async function createGenbaZone(data: InsertGenbaZone): Promise<GenbaZone 
 
 export async function updateGenbaZone(
   id: string,
-  patch: Partial<Pick<InsertGenbaZone, "name" | "polygon" | "priority" | "workStatus" | "parentZoneId">>,
+  patch: Partial<Pick<InsertGenbaZone, "name" | "polygon" | "priority" | "workStatus" | "parentZoneId" | "color" | "fillOpacity">>,
 ): Promise<GenbaZone | null> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

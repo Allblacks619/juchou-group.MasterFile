@@ -19,6 +19,21 @@ export const STATUS = {
   issue: { label: "問題あり", color: "#FF4B00", icon: "⚠" },
 } as const;
 
+/** エリア塗りつぶし色の候補パレット (優先度色と併用できる識別しやすい10色) */
+export const ZONE_COLORS = [
+  "#FF4B00", "#F6AA00", "#03AF7A", "#4DC4FF", "#005AFF",
+  "#9C27B0", "#E91E63", "#795548", "#64748B", "#111827",
+] as const;
+
+/** エリアの塗り色と不透明度を決める (color 指定 > 優先度色 > 既定グレー) */
+export function zoneFillStyle(z: { color?: string | null; fillOpacity?: number | null; priority?: number | null }): { color: string; opacity: number } {
+  const pr = z.priority ? PRIORITY[z.priority] : null;
+  const color = z.color || pr?.color || "#64748b";
+  const def = z.color ? 0.25 : pr ? 0.29 : 0.15;
+  const opacity = z.fillOpacity != null ? z.fillOpacity / 100 : def;
+  return { color, opacity };
+}
+
 export function polyPath(poly: Pt[]): string {
   return poly.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ") + " Z";
 }

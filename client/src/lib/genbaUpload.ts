@@ -39,7 +39,8 @@ function canvasToImage(canvas: HTMLCanvasElement, fileName: string, quality: num
 }
 
 /** 画像ファイルをクライアント側で縮小 (maxW) してアップロード用に整形する。DBにbase64は入れない — R2キーのみ保存 */
-export function fileToResizedImage(file: File, maxW = 1280, quality = 0.85): Promise<GenbaUploadImage> {
+// maxW 2000: 図面は細線・文字が多く、ズーム表示 (viewBox拡大) で読めるだけの解像度を確保する
+export function fileToResizedImage(file: File, maxW = 2000, quality = 0.85): Promise<GenbaUploadImage> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -68,7 +69,7 @@ export function fileToResizedImage(file: File, maxW = 1280, quality = 0.85): Pro
 export async function pdfToImages(
   file: File,
   onProgress?: (page: number, total: number) => void,
-  targetW = 1600,
+  targetW = 2000,
   quality = 0.85,
 ): Promise<{ images: GenbaUploadImage[]; total: number }> {
   const buf = await file.arrayBuffer();
@@ -80,7 +81,7 @@ export async function pdfToImages(
     onProgress?.(i, pages);
     const page = await pdf.getPage(i);
     const vp1 = page.getViewport({ scale: 1 });
-    const scale = Math.min(2, targetW / vp1.width);
+    const scale = Math.min(3, targetW / vp1.width);
     const vp = page.getViewport({ scale });
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(vp.width);

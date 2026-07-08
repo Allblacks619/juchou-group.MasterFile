@@ -16,7 +16,7 @@ export type ShareViewInput = {
   scopes: string[];
   site: { name: string };
   floors: { id: string; name: string; w: number | null; h: number | null; imageUrl: string | null }[];
-  zones: { id: string; floorId: string; parentZoneId: string | null; name: string; polygon: unknown; priority: number | null; workStatus: string | null }[];
+  zones: { id: string; floorId: string; parentZoneId: string | null; name: string; polygon: unknown; priority: number | null; workStatus: string | null; color?: string | null; fillOpacity?: number | null }[];
   tasks: { id: string; zoneId: string; parentTaskId: string | null; name: string; romaji: string | null; status: string; percent: number | null; dueDate: string | null }[];
 };
 
@@ -25,7 +25,7 @@ export type ShareView = {
   scopes: ShareScope[];
   map?: {
     floors: { id: string; name: string; w: number | null; h: number | null; imageUrl: string | null }[];
-    zones: { id: string; floorId: string; parentZoneId: string | null; name: string; polygon: unknown; priority: number | null; progress: number; issues: number }[];
+    zones: { id: string; floorId: string; parentZoneId: string | null; name: string; polygon: unknown; priority: number | null; color: string | null; fillOpacity: number | null; progress: number; issues: number }[];
   };
   tasks?: {
     zones: { id: string; floorId: string; name: string; priority: number | null }[];
@@ -70,6 +70,7 @@ export function buildShareView(input: ShareViewInput): ShareView {
       zones: input.zones.map((z) => ({
         id: z.id, floorId: z.floorId, parentZoneId: z.parentZoneId, name: z.name,
         polygon: z.polygon, priority: z.priority,
+        color: z.color ?? null, fillOpacity: z.fillOpacity ?? null,
         progress: progressOf(z.id), issues: agg.get(z.id)?.issues ?? 0,
       })),
     };

@@ -59,6 +59,10 @@ export const genbaZones = mysqlTable("genba_zones", {
   polygon: json("polygon"),
   priority: int("priority"),
   workStatus: varchar("workStatus", { length: 16 }),
+  /** 塗りつぶし色 #RRGGBB (null=優先度色に従う) */
+  color: varchar("color", { length: 9 }),
+  /** 塗りつぶし不透明度 0-100 (null=既定) */
+  fillOpacity: int("fillOpacity"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([

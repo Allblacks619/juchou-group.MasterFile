@@ -69,10 +69,12 @@ function MapView({ map }: { map: NonNullable<any> }) {
           {floor.imageUrl && <image href={floor.imageUrl} x={0} y={0} width={floor.w || 1000} height={floor.h || 800} />}
           {zones.map((z) => {
             const pr = z.priority ? PRIORITY[z.priority] : null;
+            const base = z.color || pr?.color || "#4DC4FF";
+            const alpha = Math.round(((z.fillOpacity ?? 20) / 100) * 255).toString(16).padStart(2, "0");
             const c = centroid(z.polygon as Pt[]);
             return (
               <g key={z.id}>
-                <path d={polyPath(z.polygon as Pt[])} fill={(pr?.color || "#4DC4FF") + "33"} stroke={pr?.color || "#4DC4FF"} strokeWidth={2} />
+                <path d={polyPath(z.polygon as Pt[])} fill={base + alpha} stroke={base} strokeWidth={2} />
                 <text x={c.x} y={c.y} textAnchor="middle" className="fill-foreground" style={{ fontSize: 16, fontWeight: 700 }}>{z.name}</text>
                 <text x={c.x} y={c.y + 20} textAnchor="middle" style={{ fontSize: 13, fill: "#03AF7A" }}>{z.progress}%{z.issues > 0 ? ` ⚠${z.issues}` : ""}</text>
               </g>
