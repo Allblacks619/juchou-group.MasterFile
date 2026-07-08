@@ -131,6 +131,29 @@ describe("genba.zones", () => {
       mockGenbaDb.getGenbaZoneById.mockResolvedValue(null);
       await expect(leader().genba.zones.update({ id: "Genba_Beta_missing", name: "x" })).rejects.toThrow("エリアが見つかりません");
     });
+
+    it("塗り色と不透明度を更新できる (色は #RRGGBB)", async () => {
+      mockGenbaDb.getGenbaZoneById.mockResolvedValue(ZONE);
+      mockGenbaDb.updateGenbaZone.mockResolvedValue({ ...ZONE, color: "#005AFF", fillOpacity: 40 });
+      const res = await leader().genba.zones.update({ id: ZONE.id, color: "#005AFF", fillOpacity: 40 });
+      expect(res).toMatchObject({ color: "#005AFF", fillOpacity: 40 });
+      expect(mockGenbaDb.updateGenbaZone).toHaveBeenCalledWith(ZONE.id, { color: "#005AFF", fillOpacity: 40 });
+    });
+
+    it("色 null で優先度色に戻せる", async () => {
+      mockGenbaDb.getGenbaZoneById.mockResolvedValue({ ...ZONE, color: "#005AFF" });
+      mockGenbaDb.updateGenbaZone.mockResolvedValue({ ...ZONE, color: null, fillOpacity: null });
+      await leader().genba.zones.update({ id: ZONE.id, color: null, fillOpacity: null });
+      expect(mockGenbaDb.updateGenbaZone).toHaveBeenCalledWith(ZONE.id, { color: null, fillOpacity: null });
+    });
+
+    it("不正な色形式・範囲外の不透明度は拒否", async () => {
+      await expect(leader().genba.zones.update({ id: ZONE.id, color: "red" as any })).rejects.toThrow();
+      await expect(leader().genba.zones.update({ id: ZONE.id, color: "#12345" as any })).rejects.toThrow();
+      await expect(leader().genba.zones.update({ id: ZONE.id, fillOpacity: 101 })).rejects.toThrow();
+      await expect(leader().genba.zones.update({ id: ZONE.id, fillOpacity: -1 })).rejects.toThrow();
+      expect(mockGenbaDb.updateGenbaZone).not.toHaveBeenCalled();
+    });
   });
 
   describe("GENBA_ENABLED=false", () => {

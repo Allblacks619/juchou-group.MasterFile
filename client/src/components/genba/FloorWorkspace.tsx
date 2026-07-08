@@ -1,10 +1,11 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package, Wallet, Share2, TrendingUp } from "lucide-react";
+import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package, Wallet, Share2, TrendingUp, ZoomIn, ZoomOut, Maximize, Sparkles } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
-import { PRIORITY, polyPath, centroid, type Pt } from "@/lib/genbaMap";
+import { PRIORITY, polyPath, centroid, zoneFillStyle, type Pt } from "@/lib/genbaMap";
+import { fullViewBox, clampViewBox, zoomAt, fitViewBox, type ViewBox } from "@shared/genba/mapview";
 import ProgressBadge from "./ProgressBadge";
 import ZoneSheet, { type ZoneWithAgg } from "./ZoneSheet";
 import TemplateEditor from "./TemplateEditor";
@@ -61,6 +62,14 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
   const [editPoly, setEditPoly] = useState<Pt[]>([]);
   const [selVtx, setSelVtx] = useState<number | null>(null);
 
+  // ズーム/パン/フォーカス (null = 全体表示)
+  const [vb, setVb] = useState<ViewBox | null>(null);
+  const [focusZoneId, setFocusZoneId] = useState<string | null>(null);
+  const [sharpen, setSharpen] = useState(false);
+  const panRef = useRef<{ cx: number; cy: number; vb: ViewBox } | null>(null);
+  const pinchRef = useRef<{ dist: number; cx: number; cy: number } | null>(null);
+  const didPanRef = useRef(false);
+
   const { data: floors, isLoading } = trpc.genba.floors.list.useQuery({ siteId }, { retry: false });
 
   const list = floors || [];
@@ -72,10 +81,11 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
   );
   const zoneList = (zones || []) as ZoneWithAgg[];
 
-  // フロア切替時に描画/選択状態をリセット
+  // フロア切替時に描画/選択/ズーム状態をリセット
   useEffect(() => {
     setMode("view"); setSelectedZoneId(null); setDraftPoly([]); setDraftParentZoneId(null);
     setEditZoneId(null); setEditPoly([]); setSelVtx(null);
+    setVb(null); setFocusZoneId(null);
   }, [activeFloor?.id]);
 
   const createFloor = trpc.genba.floors.create.useMutation({ onError: (e) => toast.error(e.message) });
@@ -196,17 +206,153 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
     dragIdx.current = i;
     setSelVtx(i);
   }
-  function onPointerMove(evt: React.MouseEvent | React.TouchEvent) {
-    if (mode !== "edit" || dragIdx.current === null) return;
-    const p = svgPoint(evt);
-    if (p) setEditPoly((prev) => prev.map((pt, i) => (i === dragIdx.current ? p : pt)));
-  }
-  function onPointerUp() { dragIdx.current = null; }
 
   const selectedZone = zoneList.find((z) => z.id === selectedZoneId) || null;
   const fw = activeFloor?.w ?? 1200;
   const fh = activeFloor?.h ?? 850;
-  const scale = Math.max(fw, fh) / 1200;
+
+  // ── ズーム/パン (viewBox 方式。svgPoint は getScreenCTM 経由なのでズーム中も座標が正しい) ──
+  const view = vb ?? fullViewBox(fw, fh);
+  const zoomLevel = fw / view.w;
+  // オーバーレイ(枠線・バッジ)は「現在の表示範囲」基準でスケール → どのズーム倍率でも画面上のサイズが一定で読みやすい
+  const scale = Math.max(view.w, view.h) / 1200;
+
+  /** ほぼ全体表示なら null に正規化 (touchAction を通常スクロールに戻すため) */
+  function normalizeVb(next: ViewBox): ViewBox | null {
+    return next.w >= fw * 0.999 ? null : next;
+  }
+  function clientToSvg(clientX: number, clientY: number): Pt | null {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = clientX; pt.y = clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: p.x, y: p.y };
+  }
+  function zoomBy(factor: number) {
+    setVb((prev) => {
+      const cur = prev ?? fullViewBox(fw, fh);
+      return normalizeVb(zoomAt(cur, fw, fh, factor, cur.x + cur.w / 2, cur.y + cur.h / 2));
+    });
+  }
+  function resetView() { setVb(null); setFocusZoneId(null); }
+
+  // ホイールズーム (native listener: React の onWheel は passive で preventDefault できない)
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const p = clientToSvg(e.clientX, e.clientY);
+      if (!p) return;
+      const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+      setVb((prev) => normalizeVb(zoomAt(prev ?? fullViewBox(fw, fh), fw, fh, factor, p.x, p.y)));
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fw, fh, activeFloor?.id, isLoading]);
+
+  function onPointerDown(evt: React.MouseEvent | React.TouchEvent) {
+    const touches = "touches" in evt ? evt.touches : null;
+    if (touches && touches.length >= 2) {
+      // ピンチ開始 (全モード共通)。頂点ドラッグ/パンは中断
+      dragIdx.current = null;
+      panRef.current = null;
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      pinchRef.current = {
+        dist: Math.hypot(dx, dy),
+        cx: (touches[0].clientX + touches[1].clientX) / 2,
+        cy: (touches[0].clientY + touches[1].clientY) / 2,
+      };
+      return;
+    }
+    // 1本指/マウスのドラッグパンは view モードのみ (draw=頂点タップ, edit=頂点ドラッグを優先)
+    if (mode !== "view") return;
+    const cx = touches ? touches[0].clientX : (evt as React.MouseEvent).clientX;
+    const cy = touches ? touches[0].clientY : (evt as React.MouseEvent).clientY;
+    panRef.current = { cx, cy, vb: view };
+    didPanRef.current = false;
+  }
+
+  function onPointerMove(evt: React.MouseEvent | React.TouchEvent) {
+    const svg = svgRef.current;
+    const touches = "touches" in evt ? evt.touches : null;
+
+    // ピンチズーム + 2本指パン
+    if (touches && touches.length >= 2 && pinchRef.current && svg) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const cx = (touches[0].clientX + touches[1].clientX) / 2;
+      const cy = (touches[0].clientY + touches[1].clientY) / 2;
+      const prev = pinchRef.current;
+      const mid = clientToSvg(cx, cy);
+      if (mid && prev.dist > 0) {
+        const rect = svg.getBoundingClientRect();
+        setVb((old) => {
+          const cur = old ?? fullViewBox(fw, fh);
+          const zoomed = zoomAt(cur, fw, fh, dist / prev.dist, mid.x, mid.y);
+          const k = zoomed.w / rect.width;
+          return normalizeVb(clampViewBox({ ...zoomed, x: zoomed.x - (cx - prev.cx) * k, y: zoomed.y - (cy - prev.cy) * k }, fw, fh));
+        });
+      }
+      pinchRef.current = { dist, cx, cy };
+      return;
+    }
+
+    // 頂点ドラッグ (edit)
+    if (mode === "edit" && dragIdx.current !== null) {
+      const p = svgPoint(evt);
+      if (p) setEditPoly((prev) => prev.map((pt, i) => (i === dragIdx.current ? p : pt)));
+      return;
+    }
+
+    // ドラッグパン (view)
+    if (panRef.current && svg) {
+      const cx = touches ? touches[0].clientX : (evt as React.MouseEvent).clientX;
+      const cy = touches ? touches[0].clientY : (evt as React.MouseEvent).clientY;
+      const start = panRef.current;
+      if (Math.hypot(cx - start.cx, cy - start.cy) > 4) didPanRef.current = true;
+      if (didPanRef.current) {
+        const rect = svg.getBoundingClientRect();
+        const k = start.vb.w / rect.width;
+        setVb(normalizeVb(clampViewBox({ ...start.vb, x: start.vb.x - (cx - start.cx) * k, y: start.vb.y - (cy - start.cy) * k }, fw, fh)));
+      }
+    }
+  }
+  function onPointerUp(evt?: React.TouchEvent | React.MouseEvent) {
+    dragIdx.current = null;
+    panRef.current = null;
+    const touches = evt && "touches" in evt ? evt.touches : null;
+    if (!touches || touches.length < 2) pinchRef.current = null;
+  }
+
+  // ── エリアフォーカス (囲んだ内側だけを表示 + 自動ズームフィット) ──
+  const focusZone = zoneList.find((z) => z.id === focusZoneId) || null;
+  const focusPoly = focusZone && Array.isArray(focusZone.polygon) && (focusZone.polygon as Pt[]).length >= 3 ? (focusZone.polygon as Pt[]) : null;
+  const focusSubtree = useMemo(() => {
+    if (!focusZoneId) return null;
+    const s = new Set([focusZoneId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const z of zoneList) {
+        if (z.parentZoneId && s.has(z.parentZoneId) && !s.has(z.id)) { s.add(z.id); grew = true; }
+      }
+    }
+    return s;
+  }, [focusZoneId, zoneList]);
+
+  function focusOnZone(zone: ZoneWithAgg) {
+    const poly = zone.polygon as Pt[];
+    if (!Array.isArray(poly) || poly.length < 3) return;
+    setFocusZoneId(zone.id);
+    setVb(fitViewBox(poly, fw, fh));
+  }
 
   return (
     <div className="space-y-4">
@@ -339,37 +485,105 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="rounded-lg border border-border overflow-hidden bg-muted/30">
+          <div className="relative rounded-lg border border-border overflow-hidden bg-muted/30">
+            {/* ズーム/表示コントロール (図面右上のオーバーレイ) */}
+            <div className="absolute top-2 right-2 z-10 flex flex-col items-center gap-1.5">
+              <button title="拡大" onClick={() => zoomBy(1.5)}
+                className="w-9 h-9 rounded-lg border border-border bg-background/90 shadow flex items-center justify-center hover:bg-muted">
+                <ZoomIn className="h-4.5 w-4.5" />
+              </button>
+              <button title="縮小" onClick={() => zoomBy(1 / 1.5)}
+                className="w-9 h-9 rounded-lg border border-border bg-background/90 shadow flex items-center justify-center hover:bg-muted">
+                <ZoomOut className="h-4.5 w-4.5" />
+              </button>
+              <button title="全体表示" onClick={resetView}
+                className="w-9 h-9 rounded-lg border border-border bg-background/90 shadow flex items-center justify-center hover:bg-muted">
+                <Maximize className="h-4.5 w-4.5" />
+              </button>
+              <button title="くっきり補正 (シャープ化)" onClick={() => setSharpen((s) => !s)}
+                className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${sharpen ? "bg-gold/20 border-gold/60 text-gold" : "border-border bg-background/90 hover:bg-muted"}`}>
+                <Sparkles className="h-4.5 w-4.5" />
+              </button>
+              {zoomLevel > 1.01 && (
+                <span className="text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded bg-background/90 border border-border shadow">
+                  {Math.round(zoomLevel * 100)}%
+                </span>
+              )}
+            </div>
+            {/* フォーカス中バナー */}
+            {focusZone && (
+              <div className="absolute top-2 left-2 z-10 flex items-center gap-2 px-2 py-1.5 rounded-lg border border-border bg-background/90 shadow text-xs">
+                <span>🔍 {focusZone.name} にフォーカス中</span>
+                <button className="font-bold text-gold hover:underline" onClick={resetView}>解除</button>
+              </div>
+            )}
             <svg
               ref={svgRef}
-              viewBox={`0 0 ${fw} ${fh}`}
+              viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
               className="w-full h-auto block"
-              style={{ touchAction: mode !== "view" ? "none" : "auto", cursor: mode === "draw" ? "crosshair" : "default" }}
+              style={{
+                touchAction: mode !== "view" || vb ? "none" : "pan-y",
+                cursor: mode === "draw" ? "crosshair" : didPanRef.current ? "grabbing" : "default",
+              }}
               onClick={onSvgClick}
+              onMouseDown={onPointerDown}
               onMouseMove={onPointerMove}
               onMouseUp={onPointerUp}
-              onMouseLeave={onPointerUp}
+              onMouseLeave={() => onPointerUp()}
+              onTouchStart={onPointerDown}
               onTouchMove={onPointerMove}
               onTouchEnd={onPointerUp}
             >
-              {activeFloor.imageUrl && <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh} />}
+              <defs>
+                {/* くっきり補正: 軽いシャープ化 (畳み込み)。図面の細線・文字を強調する */}
+                <filter id="genba-sharpen">
+                  <feConvolveMatrix order="3" preserveAlpha="true" kernelMatrix="0 -0.7 0 -0.7 3.8 -0.7 0 -0.7 0" />
+                </filter>
+                {focusPoly && (
+                  <clipPath id="genba-focus-clip">
+                    <path d={polyPath(focusPoly)} />
+                  </clipPath>
+                )}
+              </defs>
 
-              {/* 確定済みゾーン */}
-              {[...zoneList].filter((z) => z.id !== editZoneId)
+              {activeFloor.imageUrl && (
+                focusPoly ? (
+                  <>
+                    {/* フォーカス: 外側は薄く残して位置関係だけ分かるように、内側は原寸表示 */}
+                    <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh} opacity={0.12} />
+                    <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh}
+                      clipPath="url(#genba-focus-clip)" filter={sharpen ? "url(#genba-sharpen)" : undefined} />
+                    <path d={polyPath(focusPoly)} fill="none" stroke="#0f172a" strokeWidth={2.5 * scale} strokeDasharray={`${9 * scale} ${6 * scale}`} />
+                  </>
+                ) : (
+                  <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh}
+                    filter={sharpen ? "url(#genba-sharpen)" : undefined} />
+                )
+              )}
+
+              {/* 確定済みゾーン (フォーカス中は対象エリアとその子だけ表示して見やすく) */}
+              {[...zoneList].filter((z) => z.id !== editZoneId && (!focusSubtree || focusSubtree.has(z.id)))
                 .sort((a, b) => (a.parentZoneId ? 1 : 0) - (b.parentZoneId ? 1 : 0))
                 .map((z) => {
                   const poly = z.polygon as Pt[];
                   if (!Array.isArray(poly) || poly.length < 3) return null;
                   const pr = z.priority ? PRIORITY[z.priority] : null;
+                  const fill = zoneFillStyle(z);
                   const sel = selectedZoneId === z.id;
                   const isChild = !!z.parentZoneId;
                   const c = centroid(poly);
                   return (
                     <g key={z.id} style={{ cursor: "pointer" }}
-                      onClick={(e) => { if (mode === "draw") return; e.stopPropagation(); setSelectedZoneId(sel ? null : z.id); }}>
+                      onClick={(e) => {
+                        if (mode === "draw") return;
+                        e.stopPropagation();
+                        if (didPanRef.current) { didPanRef.current = false; return; }
+                        setSelectedZoneId(sel ? null : z.id);
+                      }}>
                       <path d={polyPath(poly)}
-                        fill={pr ? pr.soft : "rgba(100,116,139,0.15)"}
-                        stroke={sel ? "#0f172a" : pr ? pr.color : "#64748b"}
+                        fill={fill.color}
+                        fillOpacity={z.id === focusZoneId ? 0 : fill.opacity}
+                        stroke={sel ? "#0f172a" : (z.color || pr?.color || "#64748b")}
                         strokeWidth={(sel ? 7 : isChild ? 3 : 5) * scale}
                         strokeDasharray={isChild ? `${10 * scale} ${7 * scale}` : "none"}
                       />
@@ -443,6 +657,8 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
                 if (nm && nm.trim() && nm.trim() !== selectedZone.name) updateZone.mutate({ id: selectedZone.id, name: nm.trim() });
               }}
               onStartEditRange={() => startEditRange(selectedZone)}
+              onSetStyle={(patch) => updateZone.mutate({ id: selectedZone.id, ...patch })}
+              onFocus={() => focusOnZone(selectedZone)}
               onAddSubArea={() => { setMode("draw"); setDraftParentZoneId(selectedZone.id); setSelectedZoneId(null); }}
               onDelete={() => { if (confirm(`「${selectedZone.name}」を削除しますか？\n(サブエリア・作業も削除されます)`)) removeZone.mutate({ id: selectedZone.id }); }}
               onTasksChanged={() => { invalidateZones(); }}

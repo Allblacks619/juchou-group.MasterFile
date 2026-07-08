@@ -358,7 +358,7 @@ const zonesRouter = router({
       return zone;
     }),
 
-  /** 名前・ポリゴン範囲・優先度・稼働状態の更新 */
+  /** 名前・ポリゴン範囲・優先度・稼働状態・色・塗り不透明度の更新 */
   update: genbaFieldProcedure
     .input(z.object({
       id: genbaIdSchema,
@@ -366,15 +366,19 @@ const zonesRouter = router({
       polygon: polygonSchema.optional(),
       priority: zonePrioritySchema,
       workStatus: zoneWorkStatusSchema,
+      color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "色は #RRGGBB 形式").nullish(),
+      fillOpacity: z.number().int().min(0).max(100).nullish(),
     }))
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaZoneById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
-      const patch: { name?: string; polygon?: { x: number; y: number }[]; priority?: number | null; workStatus?: "paused" | null } = {};
+      const patch: { name?: string; polygon?: { x: number; y: number }[]; priority?: number | null; workStatus?: "paused" | null; color?: string | null; fillOpacity?: number | null } = {};
       if (input.name !== undefined) patch.name = input.name;
       if (input.polygon !== undefined) patch.polygon = input.polygon;
       if (input.priority !== undefined) patch.priority = input.priority;
       if (input.workStatus !== undefined) patch.workStatus = input.workStatus;
+      if (input.color !== undefined) patch.color = input.color;
+      if (input.fillOpacity !== undefined) patch.fillOpacity = input.fillOpacity;
       const zone = await genbaDb.updateGenbaZone(input.id, patch);
       await safeGenbaAuditLog(ctx.user.id, "genba.zones.update", { entityId: input.id, note: `エリアを更新: ${existing.name}` });
       return zone;

@@ -218,6 +218,13 @@
       "when": 1784400000000,
       "tag": "0030_worker_advances",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1784500000000,
+      "tag": "0031_genba_zone_style",
+      "breakpoints": true
     }
   ]
 }

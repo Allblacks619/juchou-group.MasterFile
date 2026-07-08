@@ -1,6 +1,7 @@
-import { PRIORITY } from "@/lib/genbaMap";
+import { useEffect, useState } from "react";
+import { PRIORITY, ZONE_COLORS, zoneFillStyle } from "@/lib/genbaMap";
 import { Button } from "@/components/ui/button";
-import { X, Pencil, Trash2, Plus, ChevronLeft } from "lucide-react";
+import { X, Pencil, Trash2, Plus, ChevronLeft, ZoomIn } from "lucide-react";
 import TaskTree from "./TaskTree";
 
 export type ZoneWithAgg = {
@@ -11,6 +12,8 @@ export type ZoneWithAgg = {
   polygon: unknown;
   priority: number | null;
   workStatus: string | null;
+  color: string | null;
+  fillOpacity: number | null;
   progress: number;
   issues: number;
 };
@@ -22,6 +25,7 @@ export type ZoneWithAgg = {
 export default function ZoneSheet({
   zone, children, parent, canEdit, siteId, meUserId,
   onClose, onSelectZone, onSetPriority, onTogglePaused, onRename, onStartEditRange, onAddSubArea, onDelete, onTasksChanged,
+  onSetStyle, onFocus,
 }: {
   zone: ZoneWithAgg;
   children: ZoneWithAgg[];
@@ -38,7 +42,14 @@ export default function ZoneSheet({
   onAddSubArea: () => void;
   onDelete: () => void;
   onTasksChanged: () => void;
+  onSetStyle: (patch: { color?: string | null; fillOpacity?: number | null }) => void;
+  onFocus: () => void;
 }) {
+  // 透明度スライダーはローカル値で滑らかに動かし、離した時に保存する
+  const currentOpacity = Math.round(zoneFillStyle(zone).opacity * 100);
+  const [op, setOp] = useState(currentOpacity);
+  useEffect(() => { setOp(currentOpacity); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [zone.id, zone.fillOpacity, zone.color, zone.priority]);
+
   return (
     <div className="rounded-xl border border-border bg-card p-3 space-y-3">
       <div className="flex items-center gap-2">
@@ -57,7 +68,10 @@ export default function ZoneSheet({
         {zone.issues > 0 && (
           <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-[#FF4B00]/15 text-[#FF4B00]">⚠ {zone.issues}</span>
         )}
-        <Button variant="ghost" size="sm" className="ml-auto px-1" onClick={onClose}><X className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="sm" className="ml-auto px-1.5" title="このエリアを拡大表示 (内側だけ見やすく)" onClick={onFocus}>
+          <ZoomIn className="h-4 w-4 mr-0.5" /> <span className="text-xs">拡大</span>
+        </Button>
+        <Button variant="ghost" size="sm" className="px-1" onClick={onClose}><X className="h-4 w-4" /></Button>
       </div>
 
       {canEdit && (
@@ -100,6 +114,48 @@ export default function ZoneSheet({
           <Button variant="ghost" size="sm" className="ml-auto text-destructive hover:text-destructive px-2" onClick={onDelete}>
             <Trash2 className="h-3.5 w-3.5 mr-1" /> 削除
           </Button>
+        </div>
+      )}
+
+      {/* 塗りつぶし色・不透明度 (優先度色とは独立にエリアの見た目を調整できる) */}
+      {canEdit && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">色:</span>
+          <button
+            onClick={() => onSetStyle({ color: null })}
+            title="自動 (優先度色に従う)"
+            className={`text-xs px-2 py-1 rounded border ${!zone.color ? "border-foreground font-bold" : "border-border text-muted-foreground"}`}
+          >
+            自動
+          </button>
+          {ZONE_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => onSetStyle({ color: zone.color === c ? null : c })}
+              title={c}
+              className="w-6 h-6 rounded-md border"
+              style={{
+                background: c,
+                borderColor: zone.color === c ? "#0f172a" : "transparent",
+                outline: zone.color === c ? "2px solid #0f172a" : undefined,
+                outlineOffset: 1,
+              }}
+            />
+          ))}
+          <span className="text-xs text-muted-foreground ml-2">塗り:</span>
+          <input
+            type="range" min={0} max={100} step={5} value={op}
+            onChange={(e) => setOp(Number(e.target.value))}
+            onMouseUp={() => onSetStyle({ fillOpacity: op })}
+            onTouchEnd={() => onSetStyle({ fillOpacity: op })}
+            className="w-28 accent-current"
+            style={{ accentColor: zoneFillStyle(zone).color }}
+          />
+          <span className="text-xs tabular-nums w-9">{op}%</span>
+          {(zone.color || zone.fillOpacity != null) && (
+            <button className="text-xs text-muted-foreground hover:text-foreground" title="色と塗りを既定に戻す"
+              onClick={() => onSetStyle({ color: null, fillOpacity: null })}>↺ 既定</button>
+          )}
         </div>
       )}
 
