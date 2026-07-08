@@ -2,40 +2,30 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package, Wallet, Share2, TrendingUp, ZoomIn, ZoomOut, Maximize, Sparkles, CloudOff, UploadCloud } from "lucide-react";
+import { Loader2, Upload, Trash2, ImageOff, ZoomIn, ZoomOut, Maximize, Sparkles } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, zoneFillStyle, type Pt } from "@/lib/genbaMap";
 import { fullViewBox, clampViewBox, zoomAt, fitViewBox, type ViewBox } from "@shared/genba/mapview";
-import { useGenbaOutbox } from "@/lib/useGenbaOutbox";
 import ProgressBadge from "./ProgressBadge";
 import ZoneSheet, { type ZoneWithAgg } from "./ZoneSheet";
-import TemplateEditor from "./TemplateEditor";
-import TeamManager from "./TeamManager";
-import InstructionsPanel from "./InstructionsPanel";
-import BoardPanel from "./BoardPanel";
-import MaterialsPanel from "./MaterialsPanel";
-import BudgetPanel from "./BudgetPanel";
-import SharesPanel from "./SharesPanel";
-import InsightsPanel from "./InsightsPanel";
 
 type FloorWorkspaceProps = {
   siteId: string;
-  siteName: string;
-  driveUrl: string | null;
   canEdit: boolean;
   isAdmin: boolean;
   meUserId: number | null;
-  onBack: () => void;
+  /** シェルの「図面」タブとして使う (ヘッダ/他パネルはシェルが持つ)。常に true 想定 */
+  mapOnly?: boolean;
 };
 
 type Mode = "view" | "draw" | "edit";
 
 /**
- * 現場ビジョン M2-A/M2-B: 図面(フロア)ワークスペース。
- * 図面アップロード/表示(M2-A) + エリア(ゾーン)のポリゴン描画・頂点編集・優先度・
- * 稼働状態・階層・進捗表示(M2-B)。作業(タスク)は M2-C。
+ * 現場ビジョン: 図面(フロア)タブ。図面アップロード/表示 + エリア(ゾーン)のポリゴン描画・
+ * 頂点編集・優先度・色/塗り・稼働状態・階層・進捗表示 + ズーム/パン/フォーカス/くっきり補正。
+ * 指示・配置・材料・予算・設定などのナビは GenbaShell の下部タブが担当する。
  */
-export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, isAdmin, meUserId, onBack }: FloorWorkspaceProps) {
+export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: FloorWorkspaceProps) {
   const utils = trpc.useUtils();
   const fileRef = useRef<HTMLInputElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -43,17 +33,6 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
 
   const [activeFloorId, setActiveFloorId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [showTemplate, setShowTemplate] = useState(false);
-  const [showTeams, setShowTeams] = useState(false);
-  const [showInstructions, setShowInstructions] = useState(false);
-  const [showBoard, setShowBoard] = useState(false);
-  const [showMaterials, setShowMaterials] = useState(false);
-  const [showBudget, setShowBudget] = useState(false);
-  const [showShares, setShowShares] = useState(false);
-  const [showInsights, setShowInsights] = useState(false);
-
-  const { data: unreadCount } = trpc.genba.instructions.unreadCount.useQuery({ siteId }, { retry: false, staleTime: 30 * 1000 });
-  const outbox = useGenbaOutbox();
 
   // ゾーン描画/編集の状態機械
   const [mode, setMode] = useState<Mode>("view");
@@ -357,91 +336,10 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        <Button variant="ghost" size="sm" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> 現場一覧
-        </Button>
-        <h2 className="text-lg font-bold truncate">{siteName}</h2>
-        {driveUrl && (
-          <a href={driveUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-sm text-gold hover:underline">
-            <Link2 className="h-3.5 w-3.5" /> 図面(Drive)
-          </a>
-        )}
-        {/* オフライン / 送信待ち インジケータ */}
-        {!outbox.online && (
-          <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border border-[#F6AA00]/50 bg-[#F6AA00]/10 text-[#8a6d00]" title="オフライン: 進捗登録は送信待ちに保存されます">
-            <CloudOff className="h-3.5 w-3.5" /> オフライン
-          </span>
-        )}
-        {outbox.pending > 0 && (
-          <button onClick={() => outbox.flush()} title="送信待ちの進捗をいま送信"
-            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border border-[#4DC4FF]/50 bg-[#4DC4FF]/10 text-[#0369a1]">
-            <UploadCloud className="h-3.5 w-3.5" /> 送信待ち {outbox.pending}
-          </button>
-        )}
-        <div className={canEdit ? "flex items-center gap-2" : "ml-auto flex items-center gap-2"}>
-          <Button size="sm" variant="outline" className="relative" onClick={() => setShowInstructions(true)}>
-            <Megaphone className="h-4 w-4 mr-1" /> 指示
-            {!!unreadCount && unreadCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#FF4B00] text-white text-[10px] font-bold flex items-center justify-center">{unreadCount}</span>
-            )}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowBoard(true)}>
-            <LayoutGrid className="h-4 w-4 mr-1" /> 配置
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowMaterials(true)}>
-            <Package className="h-4 w-4 mr-1" /> 材料
-          </Button>
-          {isAdmin && (
-            <Button size="sm" variant="outline" onClick={() => setShowBudget(true)}>
-              <Wallet className="h-4 w-4 mr-1" /> 予算
-            </Button>
-          )}
-        </div>
-        {canEdit && (
-          <div className="ml-auto flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => setShowTeams(true)}>
-              <Users className="h-4 w-4 mr-1" /> 班管理
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowTemplate(true)}>
-              <ListChecks className="h-4 w-4 mr-1" /> 作業テンプレート
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowShares(true)}>
-              <Share2 className="h-4 w-4 mr-1" /> 共有
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowInsights(true)}>
-              <TrendingUp className="h-4 w-4 mr-1" /> 学習
-            </Button>
-            <input ref={fileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={onFileChosen} />
-            <Button size="sm" onClick={() => fileRef.current?.click()} disabled={!!busy}>
-              {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
-              {busy || "図面を追加"}
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {showTemplate && <TemplateEditor open={showTemplate} onOpenChange={setShowTemplate} />}
-      {showTeams && <TeamManager siteId={siteId} open={showTeams} onOpenChange={setShowTeams} />}
-      {showInstructions && (
-        <InstructionsPanel
-          siteId={siteId}
-          canEdit={canEdit}
-          open={showInstructions}
-          onOpenChange={setShowInstructions}
-          onReadChanged={() => utils.genba.instructions.unreadCount.invalidate({ siteId })}
-        />
-      )}
-      {showBoard && <BoardPanel siteId={siteId} meUserId={meUserId} open={showBoard} onOpenChange={setShowBoard} />}
-      {showMaterials && <MaterialsPanel siteId={siteId} canEdit={canEdit} meUserId={meUserId} open={showMaterials} onOpenChange={setShowMaterials} />}
-      {showBudget && <BudgetPanel siteId={siteId} siteName={siteName} open={showBudget} onOpenChange={setShowBudget} />}
-      {showShares && <SharesPanel siteId={siteId} open={showShares} onOpenChange={setShowShares} />}
-      {showInsights && <InsightsPanel siteId={siteId} open={showInsights} onOpenChange={setShowInsights} />}
-
-      {/* フロアバー */}
-      {list.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
+    <div className="space-y-3">
+      {/* フロアバー + 図面追加 */}
+      <div className="flex items-center gap-2">
+        <div className="flex gap-2 overflow-x-auto pb-1 flex-1 min-w-0">
           {list.map((f) => {
             const active = f.id === (activeFloor?.id ?? "");
             return (
@@ -456,8 +354,18 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
               </button>
             );
           })}
+          {list.length === 0 && <span className="text-sm text-muted-foreground py-1.5">図面がありません</span>}
         </div>
-      )}
+        {canEdit && (
+          <>
+            <input ref={fileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={onFileChosen} />
+            <Button size="sm" className="shrink-0" onClick={() => fileRef.current?.click()} disabled={!!busy}>
+              {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
+              {busy || "図面"}
+            </Button>
+          </>
+        )}
+      </div>
 
       {/* 描画ツールバー */}
       {canEdit && activeFloor && (

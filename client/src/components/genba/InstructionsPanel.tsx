@@ -6,18 +6,20 @@ import { toast } from "sonner";
 
 /** 指示パネル (プロトタイプ InstructionsTab 移植): 作成(field)・一覧・未読・既読状況 */
 export default function InstructionsPanel({
-  siteId, canEdit, open, onOpenChange, onReadChanged,
+  siteId, canEdit, open, onOpenChange, onReadChanged, embedded,
 }: {
   siteId: string;
   canEdit: boolean;
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
   onReadChanged: () => void;
+  embedded?: boolean;
 }) {
   const utils = trpc.useUtils();
-  const { data: list } = trpc.genba.instructions.listForMe.useQuery({ siteId }, { enabled: open, retry: false });
-  const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { enabled: open, retry: false });
-  const { data: users } = trpc.genba.users.listAssignable.useQuery(undefined, { enabled: open, retry: false });
+  const active = embedded || !!open;
+  const { data: list } = trpc.genba.instructions.listForMe.useQuery({ siteId }, { enabled: active, retry: false });
+  const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { enabled: active, retry: false });
+  const { data: users } = trpc.genba.users.listAssignable.useQuery(undefined, { enabled: active, retry: false });
 
   const [text, setText] = useState("");
   const [target, setTarget] = useState("all");
@@ -34,7 +36,7 @@ export default function InstructionsPanel({
 
   // パネルを開いたら自分宛ての未読を既読化 (プロトタイプ準拠: 閲覧=既読)
   useEffect(() => {
-    if (!open || !items.length) return;
+    if (!active || !items.length) return;
     const unread = items.filter((i) => i.mine && !i.read);
     if (unread.length === 0) return;
     Promise.all(unread.map((i) => markRead.mutateAsync({ instructionId: i.id }).catch(() => {})))
@@ -59,10 +61,9 @@ export default function InstructionsPanel({
     create.mutate({ siteId, text: t, targetKind, targetId });
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>📣 指示</DialogTitle></DialogHeader>
+  const inner = (
+      <>
+        {!embedded && <DialogHeader><DialogTitle>📣 指示</DialogTitle></DialogHeader>}
 
         {canEdit && (
           <div className="rounded-lg border border-border p-2 space-y-2">
@@ -96,7 +97,13 @@ export default function InstructionsPanel({
             );
           })}
         </div>
-      </DialogContent>
+      </>
+  );
+
+  if (embedded) return <div className="space-y-3">{inner}</div>;
+  return (
+    <Dialog open={!!open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">{inner}</DialogContent>
     </Dialog>
   );
 }

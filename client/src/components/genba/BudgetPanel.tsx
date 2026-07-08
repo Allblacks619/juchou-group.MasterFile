@@ -19,17 +19,19 @@ const DEFAULT_FORM: BudgetForm = {
 
 /** 予算トラッカー (プロトタイプ BudgetTab 移植・admin 専用): 逆算サマリー + 設定 + 手入力出面 */
 export default function BudgetPanel({
-  siteId, siteName, open, onOpenChange,
+  siteId, siteName, open, onOpenChange, embedded,
 }: {
   siteId: string;
   siteName: string;
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
+  embedded?: boolean;
 }) {
   const utils = trpc.useUtils();
-  const { data: got } = trpc.genba.budgets.get.useQuery({ siteId }, { enabled: open, retry: false });
-  const { data: summary } = trpc.genba.budgets.summary.useQuery({ siteId }, { enabled: open, retry: false });
-  const { data: att } = trpc.genba.budgets.listManualAttendance.useQuery({ siteId }, { enabled: open, retry: false });
+  const active = embedded || !!open;
+  const { data: got } = trpc.genba.budgets.get.useQuery({ siteId }, { enabled: active, retry: false });
+  const { data: summary } = trpc.genba.budgets.summary.useQuery({ siteId }, { enabled: active, retry: false });
+  const { data: att } = trpc.genba.budgets.listManualAttendance.useQuery({ siteId }, { enabled: active, retry: false });
 
   const [form, setForm] = useState<BudgetForm>(DEFAULT_FORM);
   const [attDate, setAttDate] = useState("");
@@ -90,10 +92,9 @@ export default function BudgetPanel({
 
   const profitAmount = form.targetType === "percent" ? (form.contractAmount * form.targetValue) / 100 : form.targetValue;
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>💰 予算トラッカー</DialogTitle></DialogHeader>
+  const inner = (
+      <>
+        {!embedded && <DialogHeader><DialogTitle>💰 予算トラッカー</DialogTitle></DialogHeader>}
 
         {!enabled ? (
           <div className="rounded-lg border border-border p-4 text-center space-y-3">
@@ -214,7 +215,13 @@ export default function BudgetPanel({
             )}
           </>
         )}
-      </DialogContent>
+      </>
+  );
+
+  if (embedded) return <div className="space-y-3">{inner}</div>;
+  return (
+    <Dialog open={!!open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">{inner}</DialogContent>
     </Dialog>
   );
 }
