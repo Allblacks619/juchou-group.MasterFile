@@ -3805,12 +3805,14 @@ export const appRouter = router({
         transportAmount: z.number().min(0),
         expenseAmount: z.number().min(0),
         notes: z.string().optional(),
+        // 管理者代行用（getMyClosingSubmission 内で権限チェック。作業員は自分以外を指定不可）
+        employeeId: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         if (isGuestRole((ctx.user as any).appRole)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では編集できません" });
         }
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では編集できません" });
@@ -3845,12 +3847,12 @@ export const appRouter = router({
       }),
 
     submitMySubmission: protectedProcedure
-      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().optional() }))
       .mutation(async ({ ctx, input }) => {
         if (isGuestRole((ctx.user as any).appRole)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では提出できません" });
         }
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では提出できません" });
@@ -3875,12 +3877,13 @@ export const appRouter = router({
         base64: z.string(),
         mimeType: z.string(),
         fileName: z.string(),
+        employeeId: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         if (isGuestRole((ctx.user as any).appRole)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では領収書をアップロードできません" });
         }
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "この状態ではアップロードできません" });
@@ -3907,18 +3910,18 @@ export const appRouter = router({
 
 
     listMyReceiptDocuments: protectedProcedure
-      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().optional() }))
       .query(async ({ ctx, input }) => {
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         const docs = await db.listClosingSubmissionDocuments(result.submission.id);
         return { documents: docs, legacyReceipt: result.submission.receiptFileUrl ? { fileUrl: result.submission.receiptFileUrl, fileName: result.submission.receiptFileName, fileKey: result.submission.receiptFileKey, mimeType: result.submission.receiptMimeType } : null };
       }),
 
     uploadMyReceiptDocument: protectedProcedure
-      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), base64: z.string(), mimeType: z.string(), fileName: z.string(), documentType: z.enum(["receipt","company_card","etc","other"]).optional() }))
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), base64: z.string(), mimeType: z.string(), fileName: z.string(), documentType: z.enum(["receipt","company_card","etc","other"]).optional(), employeeId: z.number().optional() }))
       .mutation(async ({ ctx, input }) => {
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "この状態ではアップロードできません" });
         const buffer = Buffer.from(input.base64, "base64");
@@ -3933,9 +3936,9 @@ export const appRouter = router({
       }),
 
     deleteMyReceiptDocument: protectedProcedure
-      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), documentId: z.number() }))
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), documentId: z.number(), employeeId: z.number().optional() }))
       .mutation(async ({ ctx, input }) => {
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では削除できません" });
         const doc = await db.getClosingSubmissionDocumentById(input.documentId);
@@ -3947,12 +3950,12 @@ export const appRouter = router({
       }),
 
     clearMyReceipt: protectedProcedure
-      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().optional() }))
       .mutation(async ({ ctx, input }) => {
         if (isGuestRole((ctx.user as any).appRole)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では領収書を解除できません" });
         }
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         await db.updateClosingSubmission(result.submission.id, {
           receiptUploaded: false,

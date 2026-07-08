@@ -517,13 +517,14 @@ export default function AppMyClosing() {
       transportAmount,
       expenseAmount,
       notes,
+      employeeId: queryEmployeeId,
     });
     if (canEditInvoice) saveWorkerDraftMutation.mutate(buildWorkerDraftInput());
   };
 
   const handleSubmit = () => {
     if (!selectedProjectId) return;
-    submitMutation.mutate({ projectId: selectedProjectId, closingMonth });
+    submitMutation.mutate({ projectId: selectedProjectId, closingMonth, employeeId: queryEmployeeId });
   };
 
   const handleOneClickInvoice = async () => {
@@ -596,6 +597,7 @@ export default function AppMyClosing() {
         base64,
         mimeType: file.type || "application/octet-stream",
         fileName: file.name,
+        employeeId: queryEmployeeId,
       });
     };
     reader.readAsDataURL(file);
@@ -878,7 +880,7 @@ export default function AppMyClosing() {
                           <LinkIcon className="h-3.5 w-3.5 shrink-0" />
                           <span className="truncate">{doc.fileName}</span>
                         </a>
-                        <Button variant="ghost" size="icon" className="text-red-400" disabled={!canEdit || busy} onClick={() => clearMutation.mutate({ projectId: selectedProjectId, closingMonth, documentId: doc.id })}>
+                        <Button variant="ghost" size="icon" className="text-red-400" disabled={!canEdit || busy} onClick={() => clearMutation.mutate({ projectId: selectedProjectId, closingMonth, documentId: doc.id, employeeId: queryEmployeeId })}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -893,7 +895,7 @@ export default function AppMyClosing() {
                           size="icon"
                           className="text-red-400"
                           disabled={!canEdit || busy || clearLegacyReceiptMutation.isPending}
-                          onClick={() => clearLegacyReceiptMutation.mutate({ projectId: selectedProjectId!, closingMonth })}
+                          onClick={() => clearLegacyReceiptMutation.mutate({ projectId: selectedProjectId!, closingMonth, employeeId: queryEmployeeId })}
                           aria-label="領収書を削除"
                         >
                           <Trash2 className="h-4 w-4" />
