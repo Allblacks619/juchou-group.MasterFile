@@ -6,17 +6,19 @@ import { colorForKey } from "@/lib/genbaTeamColor";
 
 /** 配置ボード (プロトタイプ BoardTab 移植): 現在の割当から人別/エリア別を自動生成 (毎日の入力不要) */
 export default function BoardPanel({
-  siteId, meUserId, open, onOpenChange,
+  siteId, meUserId, open, onOpenChange, embedded,
 }: {
   siteId: string;
   meUserId: number | null;
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
+  embedded?: boolean;
 }) {
+  const active = embedded || !!open;
   const [view, setView] = useState<"people" | "zone">("people");
-  const { data: board } = trpc.genba.board.get.useQuery({ siteId }, { enabled: open, retry: false });
-  const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { enabled: open, retry: false });
-  const { data: users } = trpc.genba.users.listAssignable.useQuery(undefined, { enabled: open, retry: false });
+  const { data: board } = trpc.genba.board.get.useQuery({ siteId }, { enabled: active, retry: false });
+  const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { enabled: active, retry: false });
+  const { data: users } = trpc.genba.users.listAssignable.useQuery(undefined, { enabled: active, retry: false });
 
   const teamName = (id: string) => (teams || []).find((t: any) => t.id === id)?.name || "班";
   const userName = (id: number) => (users || []).find((u: any) => u.id === id)?.name || `user#${id}`;
@@ -27,10 +29,9 @@ export default function BoardPanel({
     <span className="text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: STATUS[s].color }}>{STATUS[s].icon} {STATUS[s].label}</span>
   );
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>🗂 配置ボード</DialogTitle></DialogHeader>
+  const inner = (
+      <>
+        {!embedded && <DialogHeader><DialogTitle>🗂 配置ボード</DialogTitle></DialogHeader>}
         <div className="flex gap-2">
           <button onClick={() => setView("people")} className={`px-3 py-1.5 rounded-lg text-sm border ${view === "people" ? "bg-gold/10 text-gold border-gold/40" : "border-border text-muted-foreground"}`}>👷 人別</button>
           <button onClick={() => setView("zone")} className={`px-3 py-1.5 rounded-lg text-sm border ${view === "zone" ? "bg-gold/10 text-gold border-gold/40" : "border-border text-muted-foreground"}`}>🗺 エリア別</button>
@@ -96,7 +97,13 @@ export default function BoardPanel({
             })}
           </div>
         )}
-      </DialogContent>
+      </>
+  );
+
+  if (embedded) return <div className="space-y-2">{inner}</div>;
+  return (
+    <Dialog open={!!open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">{inner}</DialogContent>
     </Dialog>
   );
 }
