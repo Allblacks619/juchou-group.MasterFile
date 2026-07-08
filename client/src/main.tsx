@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import "./index.css";
+import { registerPwa } from "./lib/pwa";
 
 const queryClient = new QueryClient();
 
@@ -61,3 +62,6 @@ createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </trpc.Provider>
 );
+
+// PWA: /app 配下 + 本番ビルドのみ Service Worker を登録 (認証は SW でキャッシュしない)
+registerPwa();
