@@ -112,3 +112,4 @@ temp/
 # MANUS development artifacts
 .manus/
 .manus-logs/
+server/_core/public

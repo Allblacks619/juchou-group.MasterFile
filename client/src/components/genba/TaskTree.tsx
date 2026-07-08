@@ -9,6 +9,7 @@ import { childrenMap, computeTaskProgress, rootTasks, fmtDate, todayStr, type Ge
 import StatusModal, { type SetStatusPayload } from "./StatusModal";
 import TaskDetailModal from "./TaskDetailModal";
 import AssignPicker from "./AssignPicker";
+import { enqueueStatus, isNetworkError } from "@/lib/genbaOutbox";
 
 /** ゾーン配下の作業ツリー (プロトタイプ TaskTree/TaskRow 移植)。進捗登録・詳細・追加・担当割当。 */
 export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged }: { zoneId: string; siteId: string; meUserId: number | null; canEdit: boolean; onChanged: () => void }) {
@@ -40,8 +41,27 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
 
   async function submitStatus(p: SetStatusPayload) {
     if (!statusTask) return;
-    await setStatus.mutateAsync({ id: statusTask.id, ...p });
-    refresh();
+    const payload = { id: statusTask.id, ...p };
+    // オフラインならアウトボックスへ退避 (復帰時に自動送信)
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      await enqueueStatus(payload);
+      toast("📤 オフライン: 送信待ちに保存しました。オンライン復帰時に自動送信します。");
+      window.dispatchEvent(new Event("genba-outbox-changed"));
+      return;
+    }
+    try {
+      await setStatus.mutateAsync(payload);
+      refresh();
+    } catch (e) {
+      // 送信中に回線が切れた等はキューへ退避してリトライに回す
+      if (isNetworkError(e)) {
+        await enqueueStatus(payload);
+        toast("📤 通信できないため送信待ちに保存しました。復帰時に自動送信します。");
+        window.dispatchEvent(new Event("genba-outbox-changed"));
+        return;
+      }
+      throw e;
+    }
   }
 
   const renderRow = (task: GenbaTaskDto, depth: number): React.ReactNode => {
