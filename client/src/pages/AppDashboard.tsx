@@ -48,6 +48,10 @@ import {
   Plus,
   Lock,
   LockOpen,
+  AlertTriangle,
+  CheckCircle2,
+  RotateCcw,
+  PiggyBank,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import {
@@ -114,12 +118,206 @@ export default function AppDashboard() {
 
       <ProfileCompletionAlert />
 
+      <ActionRequiredPanel isManagerLike={isManagerLike} />
+
       <WorkflowShortcuts appRole={appRole} />
 
       {isManagerLike && <AdminStats />}
 
       <AttendanceCalendar />
     </div>
+  );
+}
+
+/**
+ * 要対応パネル — 「要対応だけが目立つ」ダッシュボードの中核。
+ * 管理者: 月締めの差戻し/未完了・入金待ち・未払い・前借り残高を今月分だけ集計して提示。
+ * 作業員: 差し戻された月締め（最優先・赤）と未提出の現場（黄）を提示。
+ * 対応が無いときは静かな一行だけ表示し、画面を占有しない。
+ */
+function ActionRequiredPanel({ isManagerLike }: { isManagerLike: boolean }) {
+  const [, setLocation] = useLocation();
+  const { lang } = useAppLang();
+  const currentMonth = format(new Date(), "yyyy-MM");
+
+  // 管理者向け集計（今月）
+  const closingQuery = trpc.monthlyClosingV2.dashboard.useQuery(
+    { targetMonth: currentMonth },
+    { enabled: isManagerLike, retry: false, staleTime: 60_000 }
+  );
+  const receivableQuery = trpc.receivable.listByMonth.useQuery(
+    { closingMonth: currentMonth },
+    { enabled: isManagerLike, retry: false, staleTime: 60_000 }
+  );
+  const paymentQuery = trpc.payment.listByMonth.useQuery(
+    { closingMonth: currentMonth },
+    { enabled: isManagerLike, retry: false, staleTime: 60_000 }
+  );
+  const advanceQuery = trpc.advance.overview.useQuery(undefined, {
+    enabled: isManagerLike,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  // 作業員向け集計（今月・自分）
+  const myOverviewQuery = trpc.closing.workerMonthlyOverview.useQuery(
+    { closingMonth: currentMonth },
+    { enabled: !isManagerLike, retry: false, staleTime: 60_000 }
+  );
+
+  type ActionItem = {
+    key: string;
+    severity: "danger" | "warning" | "info";
+    icon: any;
+    title: string;
+    detail: string;
+    path: string;
+  };
+  const items: ActionItem[] = [];
+
+  if (isManagerLike) {
+    const rows = closingQuery.data?.rows || [];
+    let sentBack = 0;
+    let warnings = 0;
+    for (const row of rows as any[]) {
+      warnings += Number(row.warningCount || 0);
+      for (const p of row.participants || []) {
+        if (!p.isAggregationExcluded && p.individualStatus === "差し戻し") sentBack += 1;
+      }
+    }
+    const openProjects = (rows as any[]).filter((r) => r.closingStatus !== "締め完了").length;
+    if (sentBack > 0) {
+      items.push({
+        key: "closing-sentback",
+        severity: "danger",
+        icon: RotateCcw,
+        title: `差し戻し対応中 ${sentBack}名`,
+        detail: "作業員の再提出を確認してください",
+        path: "/app/monthly-close-v2",
+      });
+    }
+    if (warnings > 0) {
+      items.push({
+        key: "closing-warnings",
+        severity: "warning",
+        icon: AlertTriangle,
+        title: `月締めの警告 ${warnings}件`,
+        detail: `未完了の現場 ${openProjects}件`,
+        path: "/app/monthly-close-v2",
+      });
+    }
+    const recvRows = (receivableQuery.data?.rows || []) as any[];
+    const unreceived = recvRows.filter((r) => ["pending", "partial", "overdue"].includes(r.receivableStatus));
+    const overdue = unreceived.filter((r) => r.receivableStatus === "overdue").length;
+    if (unreceived.length > 0) {
+      items.push({
+        key: "receivable",
+        severity: overdue > 0 ? "danger" : "warning",
+        icon: Landmark,
+        title: `入金待ち ${unreceived.length}件`,
+        detail: overdue > 0 ? `うち期限超過 ${overdue}件` : "入金予定を確認してください",
+        path: "/app/receivables",
+      });
+    }
+    const payRows = (paymentQuery.data || []) as any[];
+    const unpaid = payRows.reduce((sum, r) => sum + Number(r.summary?.unpaidCount || 0), 0);
+    if (unpaid > 0) {
+      items.push({
+        key: "payment",
+        severity: "warning",
+        icon: Wallet,
+        title: `未払いの支払 ${unpaid}名分`,
+        detail: "支払管理で確定・支払済みにしてください",
+        path: "/app/payments",
+      });
+    }
+    const advOutstanding = Number(advanceQuery.data?.totalOutstanding || 0);
+    if (advOutstanding > 0) {
+      items.push({
+        key: "advance",
+        severity: "info",
+        icon: PiggyBank,
+        title: `前借り残高 ¥${advOutstanding.toLocaleString("ja-JP")}`,
+        detail: "支払時に相殺できます",
+        path: "/app/payments",
+      });
+    }
+  } else {
+    const lines = (myOverviewQuery.data?.projectLines || []) as any[];
+    const rejected = lines.filter((l) => l.submissionStatus === "rejected");
+    const notSubmitted = lines.filter((l) => !l.submissionStatus || l.submissionStatus === "pending");
+    for (const line of rejected) {
+      items.push({
+        key: `rejected-${line.projectId}`,
+        severity: "danger",
+        icon: RotateCcw,
+        title: lang === "pt" ? `Devolvido: ${line.projectName}` : `差し戻し: ${line.projectName}`,
+        detail: lang === "pt" ? "Corrija e reenvie o fechamento mensal" : "内容を修正して月締めを再提出してください",
+        path: `/app/my-closing?projectId=${line.projectId}&month=${currentMonth}`,
+      });
+    }
+    if (notSubmitted.length > 0) {
+      items.push({
+        key: "not-submitted",
+        severity: "warning",
+        icon: FileCheck2,
+        title: lang === "pt" ? `Fechamento não enviado: ${notSubmitted.length} obra(s)` : `月締め未提出 ${notSubmitted.length}現場`,
+        detail: lang === "pt" ? "Envie transporte/recibos e confirme" : "交通費・領収書を入れて提出しましょう",
+        path: "/app/my-closing",
+      });
+    }
+  }
+
+  const isLoading = isManagerLike
+    ? closingQuery.isLoading || receivableQuery.isLoading || paymentQuery.isLoading
+    : myOverviewQuery.isLoading;
+
+  if (isLoading) return null;
+
+  if (items.length === 0) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5 text-sm text-emerald-500 animate-in fade-in duration-500">
+        <CheckCircle2 className="h-4 w-4 shrink-0" />
+        {lang === "pt" ? "Nada pendente no momento" : "現時点で要対応はありません"}
+      </div>
+    );
+  }
+
+  const SEVERITY_STYLES: Record<ActionItem["severity"], { card: string; icon: string }> = {
+    danger: { card: "border-red-500/40 bg-red-500/5 hover:bg-red-500/10", icon: "text-red-500 bg-red-500/10" },
+    warning: { card: "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10", icon: "text-amber-500 bg-amber-500/10" },
+    info: { card: "border-gold/40 bg-gold/5 hover:bg-gold/10", icon: "text-gold bg-gold/10" },
+  };
+
+  return (
+    <section className="space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+        <AlertTriangle className="h-4 w-4 text-amber-500" />
+        {lang === "pt" ? "Requer atenção" : "要対応"}
+        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-bold text-amber-500">{items.length}</span>
+      </h2>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {items.map((item) => {
+          const styles = SEVERITY_STYLES[item.severity];
+          return (
+            <button
+              key={item.key}
+              onClick={() => setLocation(item.path)}
+              className={`flex items-start gap-3 rounded-lg border p-3 text-left transition-colors ${styles.card}`}
+            >
+              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${styles.icon}`}>
+                <item.icon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-foreground truncate">{item.title}</span>
+                <span className="block text-xs text-muted-foreground mt-0.5 truncate">{item.detail}</span>
+              </span>
+              <ArrowRight className="ml-auto h-4 w-4 shrink-0 self-center text-muted-foreground" />
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -207,9 +405,11 @@ function WorkflowShortcuts({ appRole }: { appRole: string }) {
   const isAdminOrLeader = isManagerLikeAppRole(appRole);
   const items = isAdminOrLeader
     ? [
+        // 財務フロー順: 月締め → 請求 → 入金 → 支払
+        { title: "月締め管理", icon: FileCheck2, path: "/app/monthly-close-v2" },
         { title: "請求管理", icon: FileText, path: "/app/invoices" },
-        { title: "支払管理", icon: Wallet, path: "/app/payments" },
         { title: "入金管理", icon: Landmark, path: "/app/receivables" },
+        { title: "支払管理", icon: Wallet, path: "/app/payments" },
       ]
     : [
         { title: "月締め提出", icon: FileCheck2, path: "/app/my-closing" },

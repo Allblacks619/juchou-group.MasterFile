@@ -79,11 +79,13 @@ function getNavGroups(): NavGroup[] {
       ),
     },
     {
+      // 財務はフロー順の4画面に整理（①月締め → ②請求 → ③入金 → ④支払）。
+      // 確認表PDF・作業員請求書V2・締め管理は統合方針によりナビから外す（URL直アクセスは可）。
       groupKey: "nav_finance",
       icon: DollarSign,
-      items: navItems.filter(item => 
-        ["nav_invoices", "nav_monthlyCloseV2", "nav_workerInvoiceV2", "nav_closings", "nav_confirmationPdf", "nav_payments", "nav_receivables"].includes(item.labelKey)
-      ),
+      items: ["nav_monthlyCloseV2", "nav_invoices", "nav_receivables", "nav_payments"]
+        .map(key => navItems.find(item => item.labelKey === key))
+        .filter((item): item is NavItem => !!item),
     },
   ];
 }
