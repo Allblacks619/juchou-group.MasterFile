@@ -1,0 +1,19 @@
+{
+  "name": "充寵グループ 業務管理",
+  "short_name": "充寵 現場",
+  "description": "充寵グループの業務管理・現場ビジョン。図面・作業・材料・指示をスマホで。",
+  "id": "/app",
+  "start_url": "/app/genba",
+  "scope": "/app",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#1B2A41",
+  "lang": "ja",
+  "dir": "ltr",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
