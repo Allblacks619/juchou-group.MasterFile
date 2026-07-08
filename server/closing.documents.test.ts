@@ -8,6 +8,7 @@ let submission: any;
 
 vi.mock('./storage', () => ({ storagePut: vi.fn(async (k: string) => ({ url: `https://x/${k}` })) }));
 vi.mock('./db', () => ({
+  getMonthlyClosingV2ParticipantReview: vi.fn(async () => undefined),
   getEmployeeByUserId: vi.fn(async (id:number)=> ({ id: id===99?99:10, userId:id })),
   getProjectClosingByProjectMonth: vi.fn(async ()=> ({ id:1, projectId:1, closingMonth:'2026-04', status:'open' })),
   createProjectClosing: vi.fn(async ()=> ({ id:1, projectId:1, closingMonth:'2026-04', status:'open' })),
