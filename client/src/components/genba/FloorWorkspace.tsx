@@ -2,10 +2,11 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package, Wallet, Share2, TrendingUp, ZoomIn, ZoomOut, Maximize, Sparkles } from "lucide-react";
+import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package, Wallet, Share2, TrendingUp, ZoomIn, ZoomOut, Maximize, Sparkles, CloudOff, UploadCloud } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, zoneFillStyle, type Pt } from "@/lib/genbaMap";
 import { fullViewBox, clampViewBox, zoomAt, fitViewBox, type ViewBox } from "@shared/genba/mapview";
+import { useGenbaOutbox } from "@/lib/useGenbaOutbox";
 import ProgressBadge from "./ProgressBadge";
 import ZoneSheet, { type ZoneWithAgg } from "./ZoneSheet";
 import TemplateEditor from "./TemplateEditor";
@@ -52,6 +53,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
   const [showInsights, setShowInsights] = useState(false);
 
   const { data: unreadCount } = trpc.genba.instructions.unreadCount.useQuery({ siteId }, { retry: false, staleTime: 30 * 1000 });
+  const outbox = useGenbaOutbox();
 
   // ゾーン描画/編集の状態機械
   const [mode, setMode] = useState<Mode>("view");
@@ -365,6 +367,18 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, is
           <a href={driveUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-sm text-gold hover:underline">
             <Link2 className="h-3.5 w-3.5" /> 図面(Drive)
           </a>
+        )}
+        {/* オフライン / 送信待ち インジケータ */}
+        {!outbox.online && (
+          <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border border-[#F6AA00]/50 bg-[#F6AA00]/10 text-[#8a6d00]" title="オフライン: 進捗登録は送信待ちに保存されます">
+            <CloudOff className="h-3.5 w-3.5" /> オフライン
+          </span>
+        )}
+        {outbox.pending > 0 && (
+          <button onClick={() => outbox.flush()} title="送信待ちの進捗をいま送信"
+            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border border-[#4DC4FF]/50 bg-[#4DC4FF]/10 text-[#0369a1]">
+            <UploadCloud className="h-3.5 w-3.5" /> 送信待ち {outbox.pending}
+          </button>
         )}
         <div className={canEdit ? "flex items-center gap-2" : "ml-auto flex items-center gap-2"}>
           <Button size="sm" variant="outline" className="relative" onClick={() => setShowInstructions(true)}>
