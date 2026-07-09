@@ -947,8 +947,9 @@ function getInvoiceProjectIds(invoice: any): number[] {
     : invoice?.projectId ? [Number(invoice.projectId)] : [];
 }
 
-/** 請求書の対象月×現場の出面表PDFをバッファで生成する（ダウンロード用と添付合体用の共通処理）。 */
-async function buildInvoiceAttendanceSheetBuffers(invoice: any) {
+/** 請求書の対象月×現場の出面表PDFをバッファで生成する（ダウンロード用と添付合体用の共通処理）。
+ * 月締め確定後の請求書用のため、平日の未記入・休は「×」で埋める（見本準拠）。 */
+async function buildInvoiceAttendanceSheetBuffers(invoice: any, opts?: { includeGuests?: boolean }) {
   const period = invoice.periodStart ? new Date(invoice.periodStart) : new Date();
   const year = period.getUTCFullYear();
   const month = period.getUTCMonth() + 1;
@@ -995,6 +996,8 @@ async function buildInvoiceAttendanceSheetBuffers(invoice: any) {
         shiftType: r.shiftType || "day",
         notes: r.notes,
       })),
+      includeGuests: opts?.includeGuests !== false,
+      fillAbsentWeekdays: true,
     });
 
     const fileName = `attendance-invoice-${invoice.id}-${projectId}-${year}-${String(month).padStart(2, "0")}.pdf`;
@@ -4956,12 +4959,12 @@ export const appRouter = router({
      * recorded in the internal memo for consolidated multi-project invoices).
      */
     generateAttendanceSheets: leaderOrAdminProcedure
-      .input(z.object({ invoiceId: z.number() }))
+      .input(z.object({ invoiceId: z.number(), includeGuests: z.boolean().optional().default(true) }))
       .mutation(async ({ input }) => {
         const invoice = await db.getInvoiceById(input.invoiceId);
         if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
 
-        const built = await buildInvoiceAttendanceSheetBuffers(invoice);
+        const built = await buildInvoiceAttendanceSheetBuffers(invoice, { includeGuests: input.includeGuests });
         const { storagePut } = await import("./storage");
         const sheets: Array<{ projectId: number; projectName: string; url: string; fileName: string; hasData: boolean }> = [];
         for (const sheet of built.sheets) {
@@ -5084,6 +5087,8 @@ export const appRouter = router({
         id: z.number(),
         // 出面表（現場別・自動生成）を後ろに合体する
         attachAttendanceSheets: z.boolean().optional().default(false),
+        // 出面表にゲストの行を載せる
+        includeGuests: z.boolean().optional().default(true),
         // 添付するアップロード書類の storage キー（listAttachableDocuments の候補のみ有効）
         attachDocumentKeys: z.array(z.string()).optional().default([]),
       }))
@@ -5116,48 +5121,54 @@ export const appRouter = router({
         });
 
         // 添付の合体（出面表 → アップロード書類 の順）。
+        // 添付処理が失敗しても請求書PDF自体は生成できるよう、失敗時は添付なしで続行し警告で理由を返す。
         const warnings: string[] = [];
         let attachedCount = 0;
         if (input.attachAttendanceSheets || input.attachDocumentKeys.length > 0) {
-          const { mergePdfWithAttachments } = await import("./pdfMerge");
-          const { storageGetBytes } = await import("./storage");
-          const attachments: Array<{ name: string; mimeType: string; bytes: Buffer }> = [];
+          try {
+            const { mergePdfWithAttachments } = await import("./pdfMerge");
+            const { storageGetBytes } = await import("./storage");
+            const attachments: Array<{ name: string; mimeType: string; bytes: Buffer }> = [];
 
-          if (input.attachAttendanceSheets) {
-            const built = await buildInvoiceAttendanceSheetBuffers(invoice);
-            for (const sheet of built.sheets) {
-              if (!sheet.hasData) {
-                warnings.push(`${sheet.projectName}: 出面データが無いため出面表は添付しませんでした`);
-                continue;
-              }
-              attachments.push({ name: `出面表(${sheet.projectName})`, mimeType: "application/pdf", bytes: sheet.buffer });
-            }
-          }
-
-          if (input.attachDocumentKeys.length > 0) {
-            // 任意のstorageキーを禁止し、この請求書の添付候補に含まれるものだけ許可する。
-            const candidates = await collectInvoiceAttachableDocuments(invoice);
-            const candidateMap = new Map(candidates.map((doc) => [doc.key, doc]));
-            for (const key of input.attachDocumentKeys) {
-              const doc = candidateMap.get(key);
-              if (!doc) {
-                warnings.push(`添付候補に無い書類キーをスキップしました`);
-                continue;
-              }
-              try {
-                const bytes = await storageGetBytes(doc.key);
-                attachments.push({ name: doc.fileName, mimeType: doc.mimeType, bytes });
-              } catch {
-                warnings.push(`${doc.fileName}: 取得に失敗したため添付をスキップしました`);
+            if (input.attachAttendanceSheets) {
+              const built = await buildInvoiceAttendanceSheetBuffers(invoice, { includeGuests: input.includeGuests });
+              for (const sheet of built.sheets) {
+                if (!sheet.hasData) {
+                  warnings.push(`${sheet.projectName}: 出面データが無いため出面表は添付しませんでした`);
+                  continue;
+                }
+                attachments.push({ name: `出面表(${sheet.projectName})`, mimeType: "application/pdf", bytes: sheet.buffer });
               }
             }
-          }
 
-          if (attachments.length > 0) {
-            const merged = await mergePdfWithAttachments(pdfBuffer, attachments);
-            pdfBuffer = merged.bytes;
-            warnings.push(...merged.warnings);
-            attachedCount = attachments.length;
+            if (input.attachDocumentKeys.length > 0) {
+              // 任意のstorageキーを禁止し、この請求書の添付候補に含まれるものだけ許可する。
+              const candidates = await collectInvoiceAttachableDocuments(invoice);
+              const candidateMap = new Map(candidates.map((doc) => [doc.key, doc]));
+              for (const key of input.attachDocumentKeys) {
+                const doc = candidateMap.get(key);
+                if (!doc) {
+                  warnings.push(`添付候補に無い書類キーをスキップしました`);
+                  continue;
+                }
+                try {
+                  const bytes = await storageGetBytes(doc.key);
+                  attachments.push({ name: doc.fileName, mimeType: doc.mimeType, bytes });
+                } catch {
+                  warnings.push(`${doc.fileName}: 取得に失敗したため添付をスキップしました`);
+                }
+              }
+            }
+
+            if (attachments.length > 0) {
+              const merged = await mergePdfWithAttachments(pdfBuffer, attachments);
+              pdfBuffer = merged.bytes;
+              warnings.push(...merged.warnings);
+              attachedCount = attachments.length;
+            }
+          } catch (mergeError: any) {
+            warnings.push(`添付の合体に失敗したため、請求書のみのPDFを生成しました（${mergeError?.message || "不明なエラー"}）`);
+            attachedCount = 0;
           }
         }
 

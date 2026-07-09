@@ -114,11 +114,17 @@ interface AttendancePdfOptions {
   employees: EmployeeInfo[];
   guestNames: string[];
   records: AttendanceRecord[];
+  /** ゲストの行を載せる（既定: true） */
+  includeGuests?: boolean;
+  /** 平日(土日以外)の未記入・休・欠勤を「✖」で埋める（月締め確定後の請求書添付用。既定: false） */
+  fillAbsentWeekdays?: boolean;
 }
 
 export async function generateAttendancePdf(options: AttendancePdfOptions): Promise<Buffer> {
   const fonts = await ensureFonts();
-  const { year, month, projectName, companyName, employees, guestNames, records, logoUrl, watermarkUrl } = options;
+  const { year, month, projectName, companyName, employees, records, logoUrl, watermarkUrl } = options;
+  const guestNames = options.includeGuests === false ? [] : options.guestNames;
+  const fillAbsent = options.fillAbsentWeekdays === true;
 
   // Fetch images
   const [logoBuffer, watermarkBuffer] = await Promise.all([
@@ -216,183 +222,229 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
     { align: "center", width: pageW }
   );
 
-  // ── レイアウト: 用紙(A4横)を縦にも使い切るよう行の高さを行数から自動調整し、文字も大きくする ──
+  // ── レイアウト（見本準拠）: 作業員ごとに「出勤」「残業」の2段行。氏名は1行（自動縮小・改行なし）。
+  // 右端に合計列、最下部に日別合計（出勤人数/残業h）の2行。
   const tableY = headerY + 52;
-  const nameColW = 108;
-  const summaryColW = 42;
-  const dayColW = (pageW - nameColW - summaryColW * 3) / numDays;
-  const headerRowH = 34;
-  // 凡例＋フッターの予約を差し引いた残り高さを行数で割る。読みやすさのため 26〜48pt にクランプ。
-  // 予約は「凡例(y+=10 → +30チェック)＋フッター」が1ページ目に収まる十分な余白にする。
+  const nameColW = 96;
+  const typeColW = 26; // 出勤/残業 のサブラベル列
+  const summaryColW = 40; // 右端の合計列
+  const dayColW = (pageW - nameColW - typeColW - summaryColW) / numDays;
+  const headerRowH = 30;
   const bottomReserve = 74;
+  // 行数 = 作業員×2 + 日別合計2。半行(サブ行)の高さでクランプ。
+  const subRowsCount = rows.length * 2 + 2;
   const availH = (pageH - startY - bottomReserve) - (tableY - startY) - headerRowH;
-  const rowH = rows.length > 0
-    ? Math.max(26, Math.min(48, availH / rows.length))
-    : 32;
-  // 行高に応じて記号フォントを拡大（残業併記があるときは少し控えめに）。
-  const markFont = Math.max(12, Math.min(18, Math.round(rowH * 0.48)));
-  const markFontOt = Math.max(11, markFont - 2);
-  const otFont = Math.max(7, Math.min(10, Math.round(rowH * 0.24)));
-  const nameFont = Math.max(9, Math.min(13, Math.round(rowH * 0.36)));
-  const sumFont = Math.max(10, Math.min(14, Math.round(rowH * 0.4)));
+  const subRowH = subRowsCount > 0 ? Math.max(14, Math.min(26, availH / subRowsCount)) : 18;
+  const markFont = Math.max(10, Math.min(15, Math.round(subRowH * 0.62)));
+  const otNumFont = Math.max(8, Math.min(12, Math.round(subRowH * 0.5)));
+  const sumFont = Math.max(9, Math.min(13, Math.round(subRowH * 0.55)));
+  const baseNameFont = Math.max(9, Math.min(13, Math.round(subRowH * 0.55)));
   // セル内で1行テキストを縦中央に置くためのtop（ざっくりアセント補正）。
   const vc = (h: number, f: number) => (h - f) / 2 - 1;
 
-  // --- Table Header ---
-  // Name column header
-  doc.save();
-  doc.rect(startX, tableY, nameColW, headerRowH).fill("#F3F4F6").stroke("#D1D5DB");
-  doc.restore();
-  doc.fillColor("#111827").font("Bold").fontSize(10).text("氏名", startX + 5, tableY + vc(headerRowH, 10), { width: nameColW - 10 });
-
-  let x = startX + nameColW;
-  for (const day of days) {
-    const dayOfWeek = getDay(day);
-    const isSun = dayOfWeek === 0;
-    const isSat = dayOfWeek === 6;
-
-    // Background for weekends
-    doc.save();
-    if (isSun) {
-      doc.rect(x, tableY, dayColW, headerRowH).fill("#FEE2E2");
-    } else if (isSat) {
-      doc.rect(x, tableY, dayColW, headerRowH).fill("#DBEAFE");
-    } else {
-      doc.rect(x, tableY, dayColW, headerRowH).fill("#F3F4F6");
+  // 氏名を1行に収めるためのフォント自動縮小（改行させない）。
+  const fitFontSize = (text: string, maxWidth: number, base: number): number => {
+    let size = base;
+    doc.font("Regular");
+    while (size > 5.5) {
+      doc.fontSize(size);
+      if (doc.widthOfString(text) <= maxWidth) return size;
+      size -= 0.5;
     }
-    doc.restore();
-    doc.rect(x, tableY, dayColW, headerRowH).stroke("#D1D5DB");
+    return size;
+  };
 
-    doc.fillColor(isSun ? "#DC2626" : isSat ? "#2563EB" : "#111827");
-    doc.font("Bold").fontSize(10).text(format(day, "d"), x, tableY + 4, { width: dayColW, align: "center" });
-    doc.font("Regular").fontSize(7).text(DAY_LABELS[dayOfWeek], x, tableY + 19, { width: dayColW, align: "center" });
-    x += dayColW;
-  }
-
-  // Summary columns header
-  const summaryLabels = ["日数", "時間", "残業"];
-  for (const label of summaryLabels) {
+  const drawTableHeader = (yTop: number): number => {
+    // 氏名 + 区分 の結合ヘッダー
     doc.save();
-    doc.rect(x, tableY, summaryColW, headerRowH).fill("#F3F4F6").stroke("#D1D5DB");
+    doc.rect(startX, yTop, nameColW + typeColW, headerRowH).fill("#F3F4F6");
     doc.restore();
-    doc.fillColor("#111827").font("Bold").fontSize(9).text(label, x, tableY + vc(headerRowH, 9), { width: summaryColW, align: "center" });
-    x += summaryColW;
-  }
+    doc.rect(startX, yTop, nameColW + typeColW, headerRowH).stroke("#D1D5DB");
+    doc.fillColor("#111827").font("Bold").fontSize(10).text("氏名", startX + 5, yTop + vc(headerRowH, 10), { width: nameColW - 10, lineBreak: false });
 
-  // --- Data Rows ---
-  let y = tableY + headerRowH;
-  let rowIndex = 0;
+    let hx = startX + nameColW + typeColW;
+    for (const day of days) {
+      const dayOfWeek = getDay(day);
+      const isSun = dayOfWeek === 0;
+      const isSat = dayOfWeek === 6;
+      doc.save();
+      doc.rect(hx, yTop, dayColW, headerRowH).fill(isSun ? "#FEE2E2" : isSat ? "#DBEAFE" : "#F3F4F6");
+      doc.restore();
+      doc.rect(hx, yTop, dayColW, headerRowH).stroke("#D1D5DB");
+      doc.fillColor(isSun ? "#DC2626" : isSat ? "#2563EB" : "#111827");
+      doc.font("Bold").fontSize(9).text(format(day, "d"), hx, yTop + 3, { width: dayColW, align: "center" });
+      doc.font("Regular").fontSize(7).text(DAY_LABELS[dayOfWeek], hx, yTop + 17, { width: dayColW, align: "center" });
+      hx += dayColW;
+    }
+
+    doc.save();
+    doc.rect(hx, yTop, summaryColW, headerRowH).fill("#F3F4F6");
+    doc.restore();
+    doc.rect(hx, yTop, summaryColW, headerRowH).stroke("#D1D5DB");
+    doc.fillColor("#111827").font("Bold").fontSize(9).text("合計", hx, yTop + vc(headerRowH, 9), { width: summaryColW, align: "center" });
+    return yTop + headerRowH;
+  };
+
+  // 日別合計（出勤人数・残業h）
+  const dailyWorkedCount: number[] = days.map(() => 0);
+  const dailyOvertime: number[] = days.map(() => 0);
+
+  let y = drawTableHeader(tableY);
 
   for (const row of rows) {
-    if (y + rowH > pageH - bottomReserve) {
-      // New page
+    const pairH = subRowH * 2;
+    if (y + pairH > pageH - bottomReserve) {
       doc.addPage({ size: "A4", layout: "landscape", margins: { top: 30, bottom: 30, left: 30, right: 30 } });
       drawWatermark();
-      y = 30;
+      y = drawTableHeader(30);
     }
 
-    const isEvenRow = rowIndex % 2 === 0;
-
-    // Name cell
-    doc.save();
-    if (isEvenRow) {
-      doc.rect(startX, y, nameColW, rowH).fill("#FAFAFA");
-    }
-    doc.restore();
-    doc.rect(startX, y, nameColW, rowH).stroke("#D1D5DB");
+    // 氏名セル（2段ぶち抜き・1行・自動縮小）
+    doc.rect(startX, y, nameColW, pairH).stroke("#D1D5DB");
+    const nameFont = fitFontSize(row.label, nameColW - 8, baseNameFont);
     doc.fillColor("#111827").font("Regular").fontSize(nameFont).text(
       row.label,
-      startX + 5,
-      y + vc(rowH, nameFont),
-      { width: nameColW - 10, lineBreak: false }
+      startX + 4,
+      y + vc(pairH, nameFont),
+      { width: nameColW - 8, lineBreak: false }
     );
 
-    let cx = startX + nameColW;
+    // 区分セル（出勤/残業）
+    doc.save();
+    doc.rect(startX + nameColW, y, typeColW, subRowH).fill("#FAFAFA");
+    doc.rect(startX + nameColW, y + subRowH, typeColW, subRowH).fill("#FAFAFA");
+    doc.restore();
+    doc.rect(startX + nameColW, y, typeColW, subRowH).stroke("#D1D5DB");
+    doc.rect(startX + nameColW, y + subRowH, typeColW, subRowH).stroke("#D1D5DB");
+    const typeFont = Math.max(6.5, Math.min(8.5, subRowH * 0.42));
+    doc.fillColor("#6B7280").font("Regular").fontSize(typeFont);
+    doc.text("出勤", startX + nameColW, y + vc(subRowH, typeFont), { width: typeColW, align: "center" });
+    doc.text("残業", startX + nameColW, y + subRowH + vc(subRowH, typeFont), { width: typeColW, align: "center" });
+
+    let cx = startX + nameColW + typeColW;
     let totalDays = 0;
-    let totalHours = 0;
     let totalOvertime = 0;
 
-    for (const day of days) {
+    for (let di = 0; di < days.length; di++) {
+      const day = days[di];
       const dateStr = format(day, "yyyy-MM-dd");
       const key = `${row.keyPrefix}-${dateStr}`;
       const rec = attendanceMap[key];
       const dayOfWeek = getDay(day);
       const isSun = dayOfWeek === 0;
       const isSat = dayOfWeek === 6;
+      const isWeekend = isSun || isSat;
 
-      // Background
+      // 背景（上下セルとも）
       doc.save();
       if (isSun) {
-        doc.rect(cx, y, dayColW, rowH).fill("#FEF2F2");
+        doc.rect(cx, y, dayColW, pairH).fill("#FEF2F2");
       } else if (isSat) {
-        doc.rect(cx, y, dayColW, rowH).fill("#EFF6FF");
-      } else if (isEvenRow) {
-        doc.rect(cx, y, dayColW, rowH).fill("#FAFAFA");
+        doc.rect(cx, y, dayColW, pairH).fill("#EFF6FF");
       }
       doc.restore();
-      doc.rect(cx, y, dayColW, rowH).stroke("#D1D5DB");
+      doc.rect(cx, y, dayColW, subRowH).stroke("#D1D5DB");
+      doc.rect(cx, y + subRowH, dayColW, subRowH).stroke("#D1D5DB");
 
-      if (rec && !isWorkedType(rec.workType) && cellHasValue(rec.hoursWorked, rec.workType)) {
-        // Day off / absence — NOT counted as worked days
+      const worked = rec && isWorkedType(rec.workType) && rec.hoursWorked > 0;
+      if (worked) {
+        totalDays++;
+        dailyWorkedCount[di]++;
+        const mark = WORK_TYPE_MARKS[rec.workType] || "○";
+        const nightMark = rec.shiftType === "night" ? "夜" : "";
+        let markColor = "#059669";
+        if (rec.workType === "half_day") markColor = "#D97706";
+        else if (rec.workType === "holiday") markColor = "#7C3AED";
+        // 2文字以上（○夜・休出など）はセル幅に収まるようフォントを縮小し、折り返しでの行またぎを防ぐ。
+        const markText = `${mark}${nightMark}`;
+        const mf = markText.length > 1 ? Math.max(7, Math.round(markFont * 0.58)) : markFont;
+        doc.fillColor(markColor).font("Bold").fontSize(mf).text(
+          markText, cx, y + vc(subRowH, mf), { width: dayColW, align: "center", lineBreak: false }
+        );
+        if (rec.overtimeHours > 0) {
+          totalOvertime += rec.overtimeHours;
+          dailyOvertime[di] += rec.overtimeHours;
+          doc.fillColor("#2563EB").font("Regular").fontSize(otNumFont).text(
+            String(rec.overtimeHours / 10), cx, y + subRowH + vc(subRowH, otNumFont), { width: dayColW, align: "center" }
+          );
+        }
+      } else if (fillAbsent && !isWeekend) {
+        // 月締め確定後: 平日の未記入・休・欠勤は「✖」で統一（見本準拠）
+        doc.fillColor("#DC2626").font("Bold").fontSize(markFont).text(
+          "×", cx, y + vc(subRowH, markFont), { width: dayColW, align: "center" }
+        );
+      } else if (rec && cellHasValue(rec.hoursWorked, rec.workType)) {
+        // 通常時は 休/欠勤 の記号を残す
         const mark = WORK_TYPE_MARKS[rec.workType] || "休";
         const markColor = rec.workType === "absence" ? "#DC2626" : "#6B7280";
         doc.fillColor(markColor).font("Bold").fontSize(markFont).text(
-          mark,
-          cx,
-          y + vc(rowH, markFont),
-          { width: dayColW, align: "center" }
+          mark, cx, y + vc(subRowH, markFont), { width: dayColW, align: "center" }
         );
-      } else if (rec && rec.hoursWorked > 0) {
-        totalDays++;
-        totalHours += rec.hoursWorked;
-        totalOvertime += rec.overtimeHours;
-
-        const mark = WORK_TYPE_MARKS[rec.workType] || "○";
-        const nightMark = rec.shiftType === "night" ? "夜" : "";
-        const hasOt = rec.overtimeHours > 0;
-
-        // Color coding
-        let markColor = "#059669"; // green for normal
-        if (rec.workType === "half_day") markColor = "#D97706"; // amber
-        else if (rec.workType === "holiday") markColor = "#7C3AED"; // purple
-
-        const mf = hasOt ? markFontOt : markFont;
-        doc.fillColor(markColor).font("Bold").fontSize(mf).text(
-          `${mark}${nightMark}`,
-          cx,
-          y + (hasOt ? Math.max(2, rowH * 0.14) : vc(rowH, mf)),
-          { width: dayColW, align: "center" }
-        );
-
-        if (hasOt) {
-          doc.fillColor("#2563EB").font("Regular").fontSize(otFont).text(
-            `+${rec.overtimeHours / 10}`,
-            cx,
-            y + rowH - otFont - 3,
-            { width: dayColW, align: "center" }
-          );
-        }
       }
       cx += dayColW;
     }
 
-    // Summary cells
-    const drawSummary = (value: string, color: string, bold: boolean) => {
-      doc.save();
-      if (isEvenRow) doc.rect(cx, y, summaryColW, rowH).fill("#FAFAFA");
-      doc.restore();
-      doc.rect(cx, y, summaryColW, rowH).stroke("#D1D5DB");
-      doc.fillColor(color).font(bold ? "Bold" : "Regular").fontSize(sumFont).text(
-        value, cx, y + vc(rowH, sumFont), { width: summaryColW, align: "center" }
-      );
-      cx += summaryColW;
-    };
-    drawSummary(totalDays > 0 ? String(totalDays) : "-", "#111827", true);
-    drawSummary(totalHours > 0 ? String(totalHours / 10) : "-", "#111827", false);
-    drawSummary(totalOvertime > 0 ? String(totalOvertime / 10) : "-", totalOvertime > 0 ? "#2563EB" : "#111827", false);
+    // 合計列（上: 日数、下: 残業h）
+    doc.rect(cx, y, summaryColW, subRowH).stroke("#D1D5DB");
+    doc.rect(cx, y + subRowH, summaryColW, subRowH).stroke("#D1D5DB");
+    doc.fillColor("#111827").font("Bold").fontSize(sumFont).text(
+      totalDays > 0 ? String(totalDays) : "0", cx, y + vc(subRowH, sumFont), { width: summaryColW, align: "center" }
+    );
+    doc.fillColor(totalOvertime > 0 ? "#2563EB" : "#9CA3AF").font("Regular").fontSize(sumFont).text(
+      String(totalOvertime / 10), cx, y + subRowH + vc(subRowH, sumFont), { width: summaryColW, align: "center" }
+    );
 
-    y += rowH;
-    rowIndex++;
+    y += pairH;
+  }
+
+  // ── 日別合計（見本の最下部「合計」2行: 出勤人数 / 残業h） ──
+  {
+    const pairH = subRowH * 2;
+    if (y + pairH > pageH - bottomReserve) {
+      doc.addPage({ size: "A4", layout: "landscape", margins: { top: 30, bottom: 30, left: 30, right: 30 } });
+      drawWatermark();
+      y = drawTableHeader(30);
+    }
+    doc.save();
+    doc.rect(startX, y, nameColW, pairH).fill("#F3F4F6");
+    doc.restore();
+    doc.rect(startX, y, nameColW, pairH).stroke("#D1D5DB");
+    doc.fillColor("#111827").font("Bold").fontSize(baseNameFont).text("合計", startX + 4, y + vc(pairH, baseNameFont), { width: nameColW - 8, lineBreak: false });
+
+    doc.save();
+    doc.rect(startX + nameColW, y, typeColW, subRowH).fill("#F3F4F6");
+    doc.rect(startX + nameColW, y + subRowH, typeColW, subRowH).fill("#F3F4F6");
+    doc.restore();
+    doc.rect(startX + nameColW, y, typeColW, subRowH).stroke("#D1D5DB");
+    doc.rect(startX + nameColW, y + subRowH, typeColW, subRowH).stroke("#D1D5DB");
+    const typeFont = Math.max(6.5, Math.min(8.5, subRowH * 0.42));
+    doc.fillColor("#6B7280").font("Regular").fontSize(typeFont);
+    doc.text("出勤", startX + nameColW, y + vc(subRowH, typeFont), { width: typeColW, align: "center" });
+    doc.text("残業", startX + nameColW, y + subRowH + vc(subRowH, typeFont), { width: typeColW, align: "center" });
+
+    let cx = startX + nameColW + typeColW;
+    let grandDays = 0;
+    let grandOt = 0;
+    for (let di = 0; di < days.length; di++) {
+      doc.rect(cx, y, dayColW, subRowH).stroke("#D1D5DB");
+      doc.rect(cx, y + subRowH, dayColW, subRowH).stroke("#D1D5DB");
+      grandDays += dailyWorkedCount[di];
+      grandOt += dailyOvertime[di];
+      doc.fillColor("#111827").font("Bold").fontSize(otNumFont).text(
+        String(dailyWorkedCount[di]), cx, y + vc(subRowH, otNumFont), { width: dayColW, align: "center" }
+      );
+      doc.fillColor(dailyOvertime[di] > 0 ? "#2563EB" : "#9CA3AF").font("Regular").fontSize(otNumFont).text(
+        String(dailyOvertime[di] / 10), cx, y + subRowH + vc(subRowH, otNumFont), { width: dayColW, align: "center" }
+      );
+      cx += dayColW;
+    }
+    // 総合計（右端）
+    doc.rect(cx, y, summaryColW, subRowH).stroke("#D1D5DB");
+    doc.rect(cx, y + subRowH, summaryColW, subRowH).stroke("#D1D5DB");
+    doc.fillColor("#111827").font("Bold").fontSize(sumFont).text(String(grandDays), cx, y + vc(subRowH, sumFont), { width: summaryColW, align: "center" });
+    doc.fillColor(grandOt > 0 ? "#2563EB" : "#9CA3AF").font("Bold").fontSize(sumFont).text(String(grandOt / 10), cx, y + subRowH + vc(subRowH, sumFont), { width: summaryColW, align: "center" });
+
+    y += pairH;
   }
 
   // --- Legend ---
@@ -404,7 +456,12 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
   }
 
   doc.fillColor("#6B7280").font("Regular").fontSize(9);
-  doc.text("凡例:  ○ = 出勤    △ = 半日/早退    X = 欠勤    休出 = 休日出勤    休 = 休日    夜 = 夜勤    +N = 残業時間(h)", startX, y, { width: pageW });
+  doc.text(
+    fillAbsent
+      ? "凡例:  ○ = 出勤    △ = 半日/早退    休出 = 休日出勤    夜 = 夜勤    × = 出勤なし(平日)    残業行 = 残業時間(h)"
+      : "凡例:  ○ = 出勤    △ = 半日/早退    X = 欠勤    休出 = 休日出勤    休 = 休日    夜 = 夜勤    残業行 = 残業時間(h)",
+    startX, y, { width: pageW }
+  );
 
   // Footer
   y += 16;

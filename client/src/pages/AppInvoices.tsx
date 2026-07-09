@@ -178,6 +178,7 @@ function InvoiceDetailDialog({
   const [attendanceSheets, setAttendanceSheets] = useState<Array<{ projectId: number; projectName: string; url: string; fileName: string; hasData: boolean }>>([]);
   // 添付設定: 出面表はワンクリック添付（既定ON）。アップロード書類は選んだものだけ添付。
   const [attachAttendance, setAttachAttendance] = useState(true);
+  const [includeGuests, setIncludeGuests] = useState(true);
   const [selectedDocKeys, setSelectedDocKeys] = useState<Set<string>>(new Set());
   const [subjectDraft, setSubjectDraft] = useState<string | null>(null);
   const pdfViewer = usePdfViewer();
@@ -220,7 +221,7 @@ function InvoiceDetailDialog({
   useEffect(() => {
     if (activeTab !== "preview" || !attachAttendance) return;
     if (attendanceSheets.length > 0 || generateAttendanceSheetsMutation.isPending) return;
-    generateAttendanceSheetsMutation.mutate({ invoiceId });
+    generateAttendanceSheetsMutation.mutate({ invoiceId, includeGuests });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, attachAttendance]);
 
@@ -414,6 +415,7 @@ function InvoiceDetailDialog({
                 generatePdfWithAttachmentsMutation.mutate({
                   id: invoice.id,
                   attachAttendanceSheets: attachAttendance,
+                  includeGuests,
                   attachDocumentKeys: Array.from(selectedDocKeys),
                 })
               }
@@ -424,12 +426,20 @@ function InvoiceDetailDialog({
           </div>
 
           {/* 出面表の添付 ON/OFF */}
-          <div className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/10 px-3 py-2">
-            <div>
-              <p className="text-sm">出面表を添付する</p>
-              <p className="text-[11px] text-muted-foreground">現場別の出面表を自動生成して請求書の後ろに付けます</p>
+          <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm">出面表を添付する</p>
+                <p className="text-[11px] text-muted-foreground">現場別の出面表を自動生成して請求書の後ろに付けます（平日の未記入・休は×で統一）</p>
+              </div>
+              <Switch checked={attachAttendance} onCheckedChange={setAttachAttendance} />
             </div>
-            <Switch checked={attachAttendance} onCheckedChange={setAttachAttendance} />
+            {attachAttendance && (
+              <div className="flex items-center justify-between gap-2 border-t border-border/40 pt-2">
+                <p className="text-[12px] text-muted-foreground">ゲストも出面表に載せる</p>
+                <Switch checked={includeGuests} onCheckedChange={(v) => { setIncludeGuests(v); setAttendanceSheets([]); }} />
+              </div>
+            )}
           </div>
 
           {/* アップロード書類の選択 */}
@@ -476,7 +486,7 @@ function InvoiceDetailDialog({
             <Button
               size="sm"
               variant="outline"
-              onClick={() => generateAttendanceSheetsMutation.mutate({ invoiceId })}
+              onClick={() => generateAttendanceSheetsMutation.mutate({ invoiceId, includeGuests })}
               disabled={generateAttendanceSheetsMutation.isPending}
               className="gap-1.5 shrink-0"
             >
@@ -509,7 +519,8 @@ function InvoiceDetailDialog({
             <TableRow>
               <TableHead className="w-8">No.</TableHead>
                             <TableHead>摘要</TableHead>
-              <TableHead className="w-20">数量</TableHead>
+              <TableHead className="w-16">数量</TableHead>
+              <TableHead className="w-20">単位</TableHead>
               <TableHead className="w-20">単価</TableHead>
               <TableHead className="w-16">税率</TableHead>
               <TableHead className="w-24 text-right">金額</TableHead>
@@ -519,7 +530,7 @@ function InvoiceDetailDialog({
           <TableBody>
             {items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
                   項目がありません
                 </TableCell>
               </TableRow>
@@ -545,7 +556,42 @@ function InvoiceDetailDialog({
                     </div>
                   </TableCell>
                   <TableCell className="text-sm">
-                    {item.itemType === "normal" ? quantityDisplay(item.quantity, item.unit || "式") : "-"}
+                    {item.itemType === "normal"
+                      ? ((item.unit || "式") === "日" ? (item.quantity / 10).toFixed(1) : String(item.quantity))
+                      : "-"}
+                  </TableCell>
+                  <TableCell>
+                    {item.itemType === "normal" ? (
+                      // その場で単位を切替（「日」は内部×10保存のため数量を換算して金額を維持）
+                      <Select
+                        value={item.unit || "式"}
+                        onValueChange={(v) => {
+                          const oldUnit = item.unit || "式";
+                          if (v === oldUnit) return;
+                          let quantity = item.quantity || 0;
+                          if (oldUnit === "日" && v !== "日") quantity = Math.round(quantity / 10);
+                          else if (oldUnit !== "日" && v === "日") quantity = quantity * 10;
+                          updateItemMutation.mutate({
+                            id: item.id,
+                            quantity,
+                            unit: v,
+                            amount: calcAmount(quantity, v, item.unitPrice || 0),
+                          });
+                        }}
+                        disabled={updateItemMutation.isPending}
+                      >
+                        <SelectTrigger className="h-7 w-[72px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {UNIT_OPTIONS.map((u) => (
+                            <SelectItem key={u} value={u}>{u}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      "-"
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">
                     {item.itemType === "normal" ? formatYen(item.unitPrice) : "-"}
