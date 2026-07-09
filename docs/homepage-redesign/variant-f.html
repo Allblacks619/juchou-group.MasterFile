@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>充寵グループ｜電気工事施工のプロフェッショナル｜東京・神奈川・埼玉・千葉</title>
+<meta name="description" content="充寵グループ（JYUCHOU GROUP）は一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。低圧設備・幹線・配管・配線・盤据付まで、東京・神奈川・埼玉・千葉で確実な施工品質をお届けします。協力会社募集・未経験OKの採用情報も。">
+<meta property="og:title" content="充寵グループ｜電気工事施工のプロフェッショナル｜東京・神奈川・埼玉・千葉">
+<meta property="og:description" content="充寵グループ（JYUCHOU GROUP）は一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。東京・神奈川・埼玉・千葉で確実な施工品質をお届けします。">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:site_name" content="充寵グループ / JYUCHOU GROUP">
+<link rel="canonical" href="https://juchou-group.com/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Electrician",
+  "name": "充寵グループ",
+  "alternateName": "JYUCHOU GROUP",
+  "address": {
+    "@type": "PostalAddress",
+    "addressRegion": "神奈川県",
+    "addressLocality": "秦野市",
+    "addressCountry": "JP"
+  },
+  "telephone": "050-5873-4183",
+  "email": "info@juchou-group.com",
+  "areaServed": ["東京都", "神奈川県", "埼玉県", "千葉県"],
+  "url": "https://juchou-group.com/"
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "対応エリアはどこまでですか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "東京・神奈川を中心に、埼玉・千葉まで対応しています。その他エリアも出張のご相談を承ります。" }
+    },
+    {
+      "@type": "Question",
+      "name": "どのような電気工事を依頼できますか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "低圧設備工事・幹線工事・配管/ラック据付・配線工事・盤据付/結線など、一般電気用工作物工事全般に対応しています。" }
+    },
+    {
+      "@type": "Question",
+      "name": "未経験でも電気工事の仕事に応募できますか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "応募できます。未経験者は日当13,000円〜スタートし、できる作業に応じて随時アップ。資格取得のサポート制度もあります。" }
+    },
+    {
+      "@type": "Question",
+      "name": "協力会社・元請けとしての取引は可能ですか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "可能です。お問い合わせフォームまたはお電話（050-5873-4183）からご相談ください。" }
+    }
+  ]
+}
+</script>
+<style>
+/* ============ 結線 / KESSEN ============ */
+:root{
+  --bg:#121417;
+  --bg2:#16181c;
+  --ink:#E8E6E0;
+  --ink-dim:#9a9891;
+  --ink-faint:#5d5c57;
+  --line:#26292e;
+  --c-red:#B0453A;
+  --c-blue:#3E6CC4;
+  --c-green:#3C7D5A;
+  --c-white:#E8E6E0;
+  --c-black:#55585E;
+  --c-yellow:#C99E2E;
+  --font-ja:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","Noto Sans JP","Meiryo",sans-serif;
+  --font-en:"Avenir Next","Futura","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --font-mono:ui-monospace,"SF Mono","SFMono-Regular",Menlo,Consolas,"Courier New",monospace;
+  --gutter:clamp(20px,5vw,72px);
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+html,body{overflow-x:clip}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--font-ja);
+  font-size:15px;
+  line-height:1.9;
+  -webkit-font-smoothing:antialiased;
+  letter-spacing:.02em;
+}
+::selection{background:var(--c-yellow);color:#121417}
+img{max-width:100%;display:block}
+a{color:inherit;text-decoration:none}
+ul,ol{list-style:none}
+
+/* grain overlay */
+body::after{
+  content:"";position:fixed;inset:0;z-index:60;pointer-events:none;
+  opacity:.05;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ============ header ============ */
+.hd{
+  position:fixed;top:0;left:0;right:0;z-index:50;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:18px var(--gutter);
+  transition:background .4s,border-color .4s;
+  border-bottom:1px solid transparent;
+}
+.hd.scrolled{background:rgba(18,20,23,.82);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-bottom-color:var(--line)}
+.hd-logo{display:flex;align-items:baseline;gap:10px;font-weight:900}
+.hd-logo .ja{font-size:17px;letter-spacing:.14em}
+.hd-logo .en{font-family:var(--font-mono);font-size:10px;letter-spacing:.3em;color:var(--ink-dim)}
+.hd-nav{display:flex;gap:clamp(14px,2.4vw,34px);font-family:var(--font-mono);font-size:11px;letter-spacing:.16em}
+.hd-nav a{color:var(--ink-dim);transition:color .25s;position:relative;padding:4px 0}
+.hd-nav a:hover{color:var(--ink)}
+.hd-nav a::after{content:"";position:absolute;left:0;bottom:0;width:0;height:1px;background:var(--c-yellow);transition:width .3s}
+.hd-nav a:hover::after{width:100%}
+@media(max-width:720px){
+  .hd{padding:14px 20px}
+  .hd-nav a:nth-child(2){display:none}
+  .hd-nav{gap:14px;font-size:10px}
+  .hd-logo .en{display:none}
+}
+
+/* ============ hero ============ */
+.hero{position:relative;height:100svh;min-height:620px;overflow:clip}
+#kessen{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hero::before{
+  content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(180deg,rgba(18,20,23,0) 46%,rgba(18,20,23,.72) 86%,rgba(18,20,23,.9) 100%);
+}
+@media(max-width:700px){
+  .hero::before{background:linear-gradient(180deg,rgba(18,20,23,0) 32%,rgba(18,20,23,.8) 74%,rgba(18,20,23,.94) 100%)}
+}
+.hero-inner{
+  position:relative;z-index:2;height:100%;
+  display:flex;flex-direction:column;justify-content:flex-end;
+  padding:0 var(--gutter) clamp(48px,8vh,96px);
+  pointer-events:none;
+}
+.hero-inner a{pointer-events:auto}
+.logotype{
+  font-weight:900;
+  font-size:clamp(46px,9.2vw,124px);
+  line-height:1.02;
+  letter-spacing:.02em;
+  margin-bottom:14px;
+  text-shadow:0 3px 28px rgba(10,11,13,.75),0 1px 3px rgba(10,11,13,.5);
+}
+.hero h1,.hero-sub{text-shadow:0 2px 18px rgba(10,11,13,.8)}
+.logotype .lt-row{display:block;overflow:hidden}
+.logotype .lt-row > b{display:inline-block;font-weight:900;transform:translateY(110%);animation:ltup 1.1s cubic-bezier(.19,1,.22,1) forwards}
+.logotype .lt-row:nth-child(2) > b{animation-delay:.12s}
+@keyframes ltup{to{transform:translateY(0)}}
+.logotype-en{
+  font-family:var(--font-mono);font-size:clamp(10px,1.2vw,13px);
+  letter-spacing:.62em;color:var(--ink-dim);
+  margin-bottom:clamp(22px,4vh,44px);
+  opacity:0;animation:fdin 1s ease .7s forwards;
+}
+@media(max-width:600px){.logotype-en{font-size:9px;letter-spacing:.34em;white-space:normal}}
+@keyframes fdin{to{opacity:1}}
+.hero h1{
+  font-size:clamp(19px,2.6vw,32px);
+  font-weight:900;letter-spacing:.08em;line-height:1.6;
+  margin-bottom:12px;
+  opacity:0;transform:translateY(16px);
+  animation:h1in 1.2s cubic-bezier(.19,1,.22,1) 1.15s forwards;
+}
+@keyframes h1in{to{opacity:1;transform:none}}
+.hero-sub{
+  max-width:34em;color:var(--ink-dim);font-size:clamp(12px,1.15vw,14px);
+  margin-bottom:clamp(24px,4vh,40px);
+  opacity:0;animation:fdin 1.2s ease 1.5s forwards;
+}
+.hero-cta{display:flex;gap:14px;flex-wrap:wrap;opacity:0;animation:fdin 1s ease 1.8s forwards}
+.btn{
+  display:inline-flex;align-items:center;gap:12px;
+  font-weight:700;font-size:13px;letter-spacing:.14em;
+  padding:15px 30px;border:1px solid var(--ink);
+  transition:background .3s,color .3s,border-color .3s,transform .3s;
+}
+.btn .arw{font-family:var(--font-mono);transition:transform .3s}
+.btn:hover .arw{transform:translateX(5px)}
+.btn-solid{background:var(--ink);color:#121417}
+.btn-solid:hover{background:var(--c-yellow);border-color:var(--c-yellow)}
+.btn-ghost{color:var(--ink)}
+.btn-ghost:hover{border-color:var(--c-yellow);color:var(--c-yellow)}
+.hero-meta{
+  position:absolute;right:var(--gutter);bottom:clamp(48px,8vh,96px);
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.24em;color:var(--ink-dim);
+  text-align:right;line-height:2.4;
+  opacity:0;animation:fdin 1s ease 2.1s forwards;
+}
+@media(max-width:900px){.hero-meta{display:none}}
+.scroll-cue{
+  position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+  width:1px;height:44px;overflow:hidden;z-index:3;
+}
+.scroll-cue::before{content:"";position:absolute;left:0;top:-100%;width:1px;height:100%;background:var(--ink-dim);animation:cue 2s ease-in-out infinite}
+@keyframes cue{0%{top:-100%}55%{top:0}100%{top:100%}}
+
+/* ============ shared section grid ============ */
+.sec{position:relative;padding:clamp(88px,14vh,180px) var(--gutter)}
+.wrap{max-width:1280px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:clamp(16px,2.4vw,32px)}
+.sec-head{grid-column:1 / -1;margin-bottom:clamp(36px,6vh,72px)}
+.eyebrow{
+  display:flex;align-items:center;gap:16px;margin-bottom:22px;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.3em;
+}
+.eyebrow .no{color:var(--sec,var(--ink-dim));font-weight:700}
+.eyebrow .cline{
+  height:3px;width:64px;border-radius:2px;background:var(--sec,var(--ink-faint));
+  position:relative;flex:none;
+}
+.eyebrow .cline::after{
+  content:"";position:absolute;right:-7px;top:50%;transform:translate(0,-50%);
+  width:9px;height:9px;border-radius:50%;border:2px solid var(--sec,var(--ink-faint));
+  background:var(--bg);
+}
+.eyebrow .lb{color:var(--ink-dim)}
+h2{
+  font-weight:900;
+  font-size:clamp(30px,5.4vw,68px);
+  line-height:1.24;letter-spacing:.03em;
+}
+.sec-num{
+  position:absolute;top:clamp(24px,4vh,56px);right:var(--gutter);
+  font-family:var(--font-en);font-weight:900;
+  font-size:clamp(72px,13vw,190px);line-height:1;
+  color:transparent;-webkit-text-stroke:1px var(--sec,var(--line));
+  opacity:.22;pointer-events:none;user-select:none;
+  will-change:transform;
+}
+
+/* reveal */
+.rv{opacity:0;transform:translateY(34px);transition:opacity 1s cubic-bezier(.19,1,.22,1),transform 1s cubic-bezier(.19,1,.22,1)}
+.rv.in{opacity:1;transform:none}
+.rv-d1{transition-delay:.1s}.rv-d2{transition-delay:.2s}.rv-d3{transition-delay:.3s}
+.rv-d4{transition-delay:.4s}.rv-d5{transition-delay:.5s}
+
+/* ============ 01 職を持つ (red) ============ */
+#shoku{--sec:var(--c-red)}
+#shoku .lead{
+  grid-column:1 / span 5;
+  font-weight:900;font-size:clamp(22px,2.6vw,34px);line-height:1.75;letter-spacing:.06em;
+}
+#shoku .body{grid-column:7 / -1;color:var(--ink-dim);font-size:clamp(13px,1.1vw,15px)}
+#shoku .body p+p{margin-top:1.6em}
+#shoku .body strong{color:var(--ink);font-weight:700}
+@media(max-width:860px){
+  #shoku .lead{grid-column:1 / -1;margin-bottom:28px}
+  #shoku .body{grid-column:1 / -1}
+}
+
+/* ============ 02 スタンス (blue) ============ */
+#stance{--sec:var(--c-blue);background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.st-list{grid-column:1 / -1;border-top:1px solid var(--line)}
+.st-item{
+  display:grid;grid-template-columns:64px 72px minmax(180px,320px) 1fr;
+  gap:clamp(14px,2.4vw,32px);align-items:center;
+  padding:clamp(22px,3.4vh,36px) 0;border-bottom:1px solid var(--line);
+  transition:background .35s;
+}
+.st-item:hover{background:rgba(62,108,196,.05)}
+.st-no{font-family:var(--font-mono);font-size:12px;letter-spacing:.2em;color:var(--sec)}
+.st-pict{width:52px;height:52px;color:var(--sec);flex:none}
+.st-pict svg{width:100%;height:100%;display:block}
+.st-item h3{font-weight:900;font-size:clamp(17px,1.8vw,22px);letter-spacing:.08em}
+.st-item p{color:var(--ink-dim);font-size:13px}
+@media(max-width:860px){
+  .st-item{grid-template-columns:44px 1fr;grid-template-areas:"no title" "pict body";row-gap:10px}
+  .st-no{grid-area:no}
+  .st-pict{grid-area:pict;width:36px;height:36px;align-self:start;margin-top:2px}
+  .st-item h3{grid-area:title}
+  .st-item p{grid-area:body}
+}
+
+/* ============ 03 施工内容 (green) ============ */
+#services{--sec:var(--c-green)}
+.sv-grid{grid-column:1 / -1;display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line)}
+.sv-card{
+  background:var(--bg);padding:clamp(26px,3vw,44px);
+  position:relative;overflow:hidden;transition:background .35s;
+}
+.sv-card::before{
+  content:"";position:absolute;left:0;top:0;width:3px;height:0;background:var(--sec);
+  transition:height .5s cubic-bezier(.19,1,.22,1);
+}
+.sv-card:hover{background:var(--bg2)}
+.sv-card:hover::before{height:100%}
+.sv-no{font-family:var(--font-mono);font-size:11px;letter-spacing:.24em;color:var(--sec);display:block;margin-bottom:36px}
+.sv-card h3{font-weight:900;font-size:clamp(17px,1.6vw,21px);letter-spacing:.06em;margin-bottom:12px}
+.sv-card p{color:var(--ink-dim);font-size:13px}
+@media(max-width:960px){.sv-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.sv-grid{grid-template-columns:1fr}.sv-no{margin-bottom:18px}}
+
+/* ============ 04 対応エリア (white) ============ */
+#area{--sec:var(--c-white);background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.area-names{grid-column:1 / -1;display:flex;flex-wrap:wrap;align-items:baseline;gap:clamp(18px,4vw,56px);margin-bottom:26px}
+.area-names .pref{
+  font-weight:900;letter-spacing:.04em;line-height:1.1;
+  font-size:clamp(40px,7.6vw,104px);
+}
+.area-names .pref.sub{font-size:clamp(26px,4.6vw,62px);color:var(--ink-dim)}
+.area-note{grid-column:1 / -1;font-family:var(--font-mono);font-size:12px;letter-spacing:.18em;color:var(--ink-dim)}
+
+/* ============ 05 協力体制 (black) ============ */
+#partner{--sec:var(--c-black)}
+#partner .body{grid-column:1 / span 7;color:var(--ink-dim);font-size:clamp(13px,1.15vw,15px)}
+#partner .aside{
+  grid-column:9 / -1;align-self:start;
+  border-left:3px solid var(--sec);padding-left:22px;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.2em;line-height:2.6;color:var(--ink-faint);
+}
+@media(max-width:860px){#partner .body{grid-column:1 / -1;margin-bottom:28px}#partner .aside{grid-column:1 / -1}}
+
+/* ============ 06 採用 (yellow) ============ */
+#recruit{--sec:var(--c-yellow);background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.rc-day{grid-column:1 / span 5;align-self:center}
+.rc-day .lbl{font-family:var(--font-mono);font-size:11px;letter-spacing:.3em;color:var(--ink-dim);display:block;margin-bottom:8px}
+.rc-day .num{font-family:var(--font-en);font-weight:900;font-size:clamp(58px,8vw,116px);line-height:1;color:var(--sec);letter-spacing:.01em}
+.rc-day .unit{font-size:clamp(15px,1.6vw,22px);font-weight:900;color:var(--ink);margin-left:8px}
+.rc-day .cap{margin-top:10px;font-size:12px;color:var(--ink-dim)}
+.rc-list{grid-column:7 / -1;border-top:1px solid var(--line)}
+.rc-list li{
+  display:flex;gap:18px;align-items:baseline;
+  padding:16px 0;border-bottom:1px solid var(--line);font-size:13px;
+}
+.rc-list .k{font-family:var(--font-mono);font-size:10px;letter-spacing:.2em;color:var(--sec);flex:none;width:7.5em}
+.rc-cta{grid-column:1 / -1;margin-top:44px}
+@media(max-width:860px){
+  .rc-day{grid-column:1 / -1;margin-bottom:34px}
+  .rc-list{grid-column:1 / -1}
+}
+
+/* ============ FAQ (neutral) ============ */
+#faq{--sec:var(--ink-faint)}
+.faq-list{grid-column:2 / span 10;border-top:1px solid var(--line)}
+@media(max-width:860px){.faq-list{grid-column:1 / -1}}
+.faq-list details{border-bottom:1px solid var(--line)}
+.faq-list summary{
+  cursor:pointer;list-style:none;display:flex;gap:20px;align-items:baseline;
+  padding:24px 44px 24px 0;position:relative;
+  font-weight:900;font-size:clamp(14px,1.4vw,17px);letter-spacing:.05em;
+  transition:color .3s;
+}
+.faq-list summary::-webkit-details-marker{display:none}
+.faq-list summary:hover{color:var(--c-yellow)}
+.faq-list summary .q{font-family:var(--font-mono);font-size:11px;letter-spacing:.2em;color:var(--ink-faint);flex:none}
+.faq-list summary::after{
+  content:"";position:absolute;right:4px;top:50%;width:12px;height:12px;
+  border-right:1px solid var(--ink-dim);border-bottom:1px solid var(--ink-dim);
+  transform:translateY(-70%) rotate(45deg);transition:transform .3s;
+}
+.faq-list details[open] summary::after{transform:translateY(-30%) rotate(225deg)}
+.faq-a{padding:0 0 26px 3.4em;color:var(--ink-dim);font-size:13px;max-width:52em}
+@media(max-width:600px){.faq-a{padding-left:0}}
+
+/* ============ 会社概要 (neutral) ============ */
+#company{--sec:var(--ink-faint);background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.co-table{grid-column:2 / span 10;width:100%;border-collapse:collapse}
+@media(max-width:860px){.co-table{grid-column:1 / -1}}
+.co-table th,.co-table td{
+  border-bottom:1px solid var(--line);padding:18px 8px;vertical-align:top;
+  text-align:left;font-size:13px;
+}
+.co-table th{
+  width:11em;font-family:var(--font-mono);font-weight:400;font-size:11px;
+  letter-spacing:.24em;color:var(--ink-dim);padding-top:21px;
+}
+.co-table td a{border-bottom:1px solid var(--ink-faint);transition:color .25s,border-color .25s}
+.co-table td a:hover{color:var(--c-yellow);border-color:var(--c-yellow)}
+@media(max-width:520px){.co-table th{width:8em}}
+
+/* ============ CTA 結線 ============ */
+#cta{padding-bottom:clamp(60px,8vh,110px);text-align:center;overflow:clip}
+.cta-knot{width:min(680px,88vw);margin:0 auto clamp(30px,5vh,56px)}
+.cta-knot svg{width:100%;height:auto;display:block}
+.cta-knot .kdraw{stroke-dasharray:520;stroke-dashoffset:520;transition:stroke-dashoffset 2.2s cubic-bezier(.4,0,.2,1)}
+.cta-knot.in .kdraw{stroke-dashoffset:0}
+#cta h2{margin-bottom:18px}
+#cta .cta-sub{color:var(--ink-dim);font-size:13px;margin-bottom:clamp(30px,5vh,48px)}
+#cta .hero-cta{justify-content:center;opacity:1;animation:none;margin-bottom:clamp(48px,7vh,80px)}
+.qr-row{display:flex;justify-content:center;gap:clamp(20px,4vw,56px);flex-wrap:wrap;margin-bottom:clamp(40px,6vh,64px)}
+.qr-card{width:180px}
+.qr-card .qr-frame{
+  display:block;border:1px solid var(--line);padding:14px;background:#fff;
+  transition:border-color .3s,transform .3s;
+}
+.qr-card:hover .qr-frame{border-color:var(--c-yellow);transform:translateY(-4px)}
+.qr-card figcaption{
+  margin-top:12px;font-family:var(--font-mono);font-size:10px;letter-spacing:.24em;color:var(--ink-dim);
+}
+.cta-contacts{font-family:var(--font-mono);font-size:12px;letter-spacing:.14em;color:var(--ink-dim);line-height:2.6}
+.cta-contacts a{border-bottom:1px solid var(--ink-faint);transition:color .25s}
+.cta-contacts a:hover{color:var(--c-yellow)}
+
+/* ============ footer ============ */
+footer{
+  border-top:1px solid var(--line);
+  padding:34px var(--gutter);
+  display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.2em;color:var(--ink-faint);
+}
+footer nav{display:flex;gap:22px;flex-wrap:wrap}
+footer nav a:hover{color:var(--ink)}
+
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.001s !important;animation-delay:0s !important;transition-duration:.001s !important}
+  .rv{opacity:1;transform:none}
+  .scroll-cue{display:none}
+  .cta-knot .kdraw{stroke-dashoffset:0}
+}
+</style>
+</head>
+<body id="top">
+
+<header class="hd" id="hd">
+  <a class="hd-logo" href="#top" aria-label="充寵グループ ホーム">
+    <span class="ja">充寵グループ</span>
+    <span class="en">JYUCHOU GROUP</span>
+  </a>
+  <nav class="hd-nav" aria-label="メインナビゲーション">
+    <a href="#services">SERVICES</a>
+    <a href="#stance">STANCE</a>
+    <a href="https://www.juchou-group.com/recruit">RECRUIT</a>
+    <a href="https://www.juchou-group.com/contact">CONTACT</a>
+  </nav>
+</header>
+
+<!-- ============ HERO ============ -->
+<section class="hero" id="hero">
+  <canvas id="kessen" aria-hidden="true"></canvas>
+  <div class="hero-inner" id="heroInner">
+    <p class="logotype" aria-label="充寵グループ">
+      <span class="lt-row"><b>充寵</b></span>
+      <span class="lt-row"><b>グループ</b></span>
+    </p>
+    <p class="logotype-en">JYUCHOU&nbsp;GROUP&nbsp;&mdash;&nbsp;ELECTRICAL&nbsp;WORKS</p>
+    <h1>未来をつなぐ、地図に残る仕事。</h1>
+    <p class="hero-sub">一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。東京・神奈川・埼玉・千葉の現場で、確かな品質を積み重ねる。</p>
+    <div class="hero-cta">
+      <a class="btn btn-solid" href="https://www.juchou-group.com/contact">工事のご相談<span class="arw">&rarr;</span></a>
+      <a class="btn btn-ghost" href="https://www.juchou-group.com/recruit">採用情報を見る<span class="arw">&rarr;</span></a>
+    </div>
+  </div>
+  <div class="hero-meta">
+    KESSEN&nbsp;/&nbsp;結線<br>
+    TOKYO&nbsp;&middot;&nbsp;KANAGAWA<br>
+    SAITAMA&nbsp;&middot;&nbsp;CHIBA
+  </div>
+  <div class="scroll-cue" aria-hidden="true"></div>
+</section>
+
+<!-- ============ 01 職を持つ (RED) ============ -->
+<section class="sec" id="shoku">
+  <span class="sec-num" data-px="0.08" aria-hidden="true">01</span>
+  <div class="wrap grid">
+    <div class="sec-head rv">
+      <p class="eyebrow"><span class="no">01</span><span class="cline" aria-hidden="true"></span><span class="lb">PHILOSOPHY&nbsp;&mdash;&nbsp;理念&nbsp;/&nbsp;赤</span></p>
+      <h2>仕事ではなく、<br>“職”を持つ。</h2>
+    </div>
+    <p class="lead rv rv-d1">日々の作業の積み重ねが、<br>やがて揺るぎない技術と信頼になる。</p>
+    <div class="body rv rv-d2">
+      <p>「仕事」はその日の作業を指す。だが<strong>「職」は、一生をかけて磨き上げる技能であり、自分自身の価値そのもの</strong>だ。</p>
+      <p>充寵グループでは、ただ働くのではなく、電気工事という“職”を身につけ、誇りを持って現場に立つことを大切にしている。日々の作業の積み重ねが、やがて揺るぎない技術と信頼になる。それが「職を持つ」ということだ。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 02 施工スタンス (BLUE) ============ -->
+<section class="sec" id="stance">
+  <span class="sec-num" data-px="0.08" aria-hidden="true">02</span>
+  <div class="wrap grid">
+    <div class="sec-head rv">
+      <p class="eyebrow"><span class="no">02</span><span class="cline" aria-hidden="true"></span><span class="lb">STANCE&nbsp;&mdash;&nbsp;施工スタンス&nbsp;/&nbsp;青</span></p>
+      <h2>結び目は、ほどけない。<br>五つの施工スタンス。</h2>
+    </div>
+    <ul class="st-list">
+      <li class="st-item rv">
+        <span class="st-no">S-01</span>
+        <span class="st-pict" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M4 24h10c8 0 6-11 13-11 5 0 7 4 7 6 0 6-9 4-9 10 0 4 4 6 8 6"/><path d="M44 24h-6"/></svg></span>
+        <h3>施工品質</h3>
+        <p>一つひとつの接続、一本一本の配線に妥協しない。現場で求められる品質を、確実に実現する。</p>
+      </li>
+      <li class="st-item rv">
+        <span class="st-no">S-02</span>
+        <span class="st-pict" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16v12h16v12h8" opacity=".35"/><path d="M4 12h16v12h16v12h8" stroke-dasharray="3 5"/><path d="M4 36h10M34 12h10" /></svg></span>
+        <h3>図面に忠実</h3>
+        <p>設計図面の意図を正確に読み取り、忠実に施工する。図面通りの仕上がりが、信頼の基盤となる。</p>
+      </li>
+      <li class="st-item rv">
+        <span class="st-no">S-03</span>
+        <span class="st-pict" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M4 24h40"/><path d="M14 18v12M24 18v12M34 18v12"/><circle cx="24" cy="24" r="3.4" fill="currentColor" stroke="none"/></svg></span>
+        <h3>工程遵守</h3>
+        <p>決められた工程を守り、全体の進行に貢献する。遅延なく、確実に自分の工程を完了させる。</p>
+      </li>
+      <li class="st-item rv">
+        <span class="st-no">S-04</span>
+        <span class="st-pict" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M24 5l14 6v10c0 10-6 17-14 21-8-4-14-11-14-21V11z"/><path d="M17 24l5 5 9-10"/></svg></span>
+        <h3>安全最優先</h3>
+        <p>どんな状況でも安全を最優先とする。事故ゼロは、プロとしての最低限の責任である。</p>
+      </li>
+      <li class="st-item rv">
+        <span class="st-no">S-05</span>
+        <span class="st-pict" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M4 16c8 0 10 8 20 8h20"/><path d="M4 32c8 0 10-8 20-8"/><circle cx="24" cy="24" r="4.6"/></svg></span>
+        <h3>確実な仕上がり</h3>
+        <p>引き渡し後に手直しが不要な施工を目指す。一度で確実に仕上げることが、職人の矜持である。</p>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ 03 施工内容 (GREEN) ============ -->
+<section class="sec" id="services">
+  <span class="sec-num" data-px="0.08" aria-hidden="true">03</span>
+  <div class="wrap grid">
+    <div class="sec-head rv">
+      <p class="eyebrow"><span class="no">03</span><span class="cline" aria-hidden="true"></span><span class="lb">SERVICES&nbsp;&mdash;&nbsp;施工内容&nbsp;/&nbsp;緑</span></p>
+      <h2>電気工事“施工”に、<br>特化する。</h2>
+    </div>
+    <div class="sv-grid">
+      <article class="sv-card rv"><span class="sv-no">W-01</span><h3>低圧設備工事</h3><p>照明器具・コンセント・スイッチなど、建物内の低圧電気設備の設置・配線工事。</p></article>
+      <article class="sv-card rv rv-d1"><span class="sv-no">W-02</span><h3>幹線工事</h3><p>受変電設備から各分電盤への幹線ケーブルの敷設・接続工事。</p></article>
+      <article class="sv-card rv rv-d2"><span class="sv-no">W-03</span><h3>配管・ラック据付工事</h3><p>電線管やケーブルラックの据付・固定工事を行い、配線経路を確保。</p></article>
+      <article class="sv-card rv rv-d1"><span class="sv-no">W-04</span><h3>配線工事</h3><p>各種ケーブルの布設・結線工事。整線・結束まで丁寧に仕上げる。</p></article>
+      <article class="sv-card rv rv-d2"><span class="sv-no">W-05</span><h3>盤据付・結線工事</h3><p>分電盤・制御盤の据付から内部結線まで一貫対応。</p></article>
+      <article class="sv-card rv rv-d3"><span class="sv-no">W-06</span><h3>一般電気用工作物工事</h3><p>上記を含む一般電気用工作物工事全般に対応。</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 04 対応エリア (WHITE) ============ -->
+<section class="sec" id="area">
+  <span class="sec-num" data-px="0.08" aria-hidden="true">04</span>
+  <div class="wrap grid">
+    <div class="sec-head rv">
+      <p class="eyebrow"><span class="no">04</span><span class="cline" aria-hidden="true"></span><span class="lb">AREA&nbsp;&mdash;&nbsp;対応エリア&nbsp;/&nbsp;白</span></p>
+      <h2>首都圏の現場へ。</h2>
+    </div>
+    <p class="area-names rv rv-d1">
+      <span class="pref">東京</span>
+      <span class="pref">神奈川</span>
+      <span class="pref sub">埼玉</span>
+      <span class="pref sub">千葉</span>
+    </p>
+    <p class="area-note rv rv-d2">東京・神奈川中心／埼玉・千葉&nbsp;&mdash;&nbsp;※出張のご相談も承ります</p>
+  </div>
+</section>
+
+<!-- ============ 05 協力体制 (BLACK) ============ -->
+<section class="sec" id="partner">
+  <span class="sec-num" data-px="0.08" aria-hidden="true">05</span>
+  <div class="wrap grid">
+    <div class="sec-head rv">
+      <p class="eyebrow"><span class="no">05</span><span class="cline" aria-hidden="true"></span><span class="lb">PARTNERSHIP&nbsp;&mdash;&nbsp;協力体制&nbsp;/&nbsp;黒</span></p>
+      <h2>施工の専門家として、<br>チームを結ぶ。</h2>
+    </div>
+    <p class="body rv rv-d1">設計やコンサルティングが必要な案件については、信頼のおけるパートナー企業と連携し、プロジェクトごとに最適なチームを編成します。施工の専門家として、協力会社と共に高品質な成果を実現します。</p>
+    <p class="aside rv rv-d2">DESIGN&nbsp;&times;&nbsp;CONSULTING<br>&times;&nbsp;CONSTRUCTION<br>=&nbsp;ONE&nbsp;TEAM</p>
+  </div>
+</section>
+
+<!-- ============ 06 採用 (YELLOW) ============ -->
+<section class="sec" id="recruit">
+  <span class="sec-num" data-px="0.08" aria-hidden="true">06</span>
+  <div class="wrap grid">
+    <div class="sec-head rv">
+      <p class="eyebrow"><span class="no">06</span><span class="cline" aria-hidden="true"></span><span class="lb">RECRUIT&nbsp;&mdash;&nbsp;採用情報&nbsp;/&nbsp;黄</span></p>
+      <h2>未来の設立メンバーを<br>募集しています。</h2>
+    </div>
+    <div class="rc-day rv rv-d1">
+      <span class="lbl">DAILY&nbsp;WAGE&nbsp;&mdash;&nbsp;未経験スタート</span>
+      <span class="num">&yen;13,000<span class="unit">〜／日</span></span>
+      <p class="cap">できる作業により随時アップ。経験者は要相談。</p>
+    </div>
+    <ul class="rc-list rv rv-d2">
+      <li><span class="k">応募資格</span><span>18歳以上・学歴/性別不問。未経験者を積極採用。</span></li>
+      <li><span class="k">資格サポート</span><span>低圧電気取扱・高所作業車・職長安全衛生など、資格取得サポートあり。</span></li>
+      <li><span class="k">工具貸出</span><span>工具は最大6ヶ月貸出可。手ぶらで“職”を始められる。</span></li>
+    </ul>
+    <div class="rc-cta rv rv-d3">
+      <a class="btn btn-solid" href="https://www.juchou-group.com/recruit">採用情報を見る<span class="arw">&rarr;</span></a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="sec" id="faq">
+  <div class="wrap grid">
+    <div class="sec-head rv">
+      <p class="eyebrow"><span class="no">Q&amp;A</span><span class="cline" aria-hidden="true"></span><span class="lb">FAQ</span></p>
+      <h2>よくあるご質問</h2>
+    </div>
+    <div class="faq-list rv rv-d1">
+      <details>
+        <summary><span class="q">Q1</span>対応エリアはどこまでですか？</summary>
+        <p class="faq-a">東京・神奈川を中心に、埼玉・千葉まで対応しています。その他エリアも出張のご相談を承ります。</p>
+      </details>
+      <details>
+        <summary><span class="q">Q2</span>どのような電気工事を依頼できますか？</summary>
+        <p class="faq-a">低圧設備工事・幹線工事・配管/ラック据付・配線工事・盤据付/結線など、一般電気用工作物工事全般に対応しています。</p>
+      </details>
+      <details>
+        <summary><span class="q">Q3</span>未経験でも電気工事の仕事に応募できますか？</summary>
+        <p class="faq-a">応募できます。未経験者は日当13,000円〜スタートし、できる作業に応じて随時アップ。資格取得のサポート制度もあります。</p>
+      </details>
+      <details>
+        <summary><span class="q">Q4</span>協力会社・元請けとしての取引は可能ですか？</summary>
+        <p class="faq-a">可能です。お問い合わせフォームまたはお電話（<a href="tel:05058734183">050-5873-4183</a>）からご相談ください。</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 会社概要 ============ -->
+<section class="sec" id="company">
+  <div class="wrap grid">
+    <div class="sec-head rv">
+      <p class="eyebrow"><span class="no">INFO</span><span class="cline" aria-hidden="true"></span><span class="lb">COMPANY</span></p>
+      <h2>会社概要</h2>
+    </div>
+    <table class="co-table rv rv-d1">
+      <tbody>
+        <tr><th scope="row">屋号</th><td>充寵グループ / JYUCHOU GROUP</td></tr>
+        <tr><th scope="row">所在地</th><td>神奈川県秦野市</td></tr>
+        <tr><th scope="row">事業内容</th><td>一般電気用工作物工事／電気工事施工</td></tr>
+        <tr><th scope="row">活動エリア</th><td>東京・神奈川中心（埼玉・千葉）</td></tr>
+        <tr><th scope="row">メール</th><td><a href="mailto:info@juchou-group.com">info@juchou-group.com</a></td></tr>
+        <tr><th scope="row">電話</th><td><a href="tel:05058734183">050-5873-4183</a></td></tr>
+        <tr><th scope="row">Instagram</th><td><a href="https://www.instagram.com/juchou.group">@juchou.group</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ CTA 結線 ============ -->
+<section class="sec" id="cta">
+  <div class="wrap">
+    <figure class="cta-knot" id="ctaKnot" aria-hidden="true">
+      <svg viewBox="0 0 680 150" fill="none" stroke-linecap="round">
+        <path class="kdraw" d="M0 20 C 200 20, 260 74, 340 75" stroke="#B0453A" stroke-width="2.5"/>
+        <path class="kdraw" d="M0 46 C 190 46, 270 74.6, 340 75" stroke="#3E6CC4" stroke-width="2.5"/>
+        <path class="kdraw" d="M0 72 C 180 72, 280 75, 340 75" stroke="#3C7D5A" stroke-width="2.5"/>
+        <path class="kdraw" d="M680 78 C 500 78, 420 75.4, 340 75" stroke="#E8E6E0" stroke-width="2.5"/>
+        <path class="kdraw" d="M680 104 C 490 104, 410 75.6, 340 75" stroke="#55585E" stroke-width="2.5"/>
+        <path class="kdraw" d="M680 130 C 480 130, 400 76, 340 75" stroke="#C99E2E" stroke-width="2.5"/>
+        <circle cx="340" cy="75" r="5" fill="#E8E6E0"/>
+        <circle cx="340" cy="75" r="11" stroke="#E8E6E0" stroke-width="1" opacity=".5"/>
+      </svg>
+    </figure>
+    <div class="rv">
+      <h2>六色の現場が、<br>ここで結ばれる。</h2>
+      <p class="cta-sub">工事のご相談も、未来の仲間としてのご応募も。まずはお気軽にご連絡ください。</p>
+    </div>
+    <div class="hero-cta rv rv-d1">
+      <a class="btn btn-solid" href="https://www.juchou-group.com/recruit">採用情報を見る<span class="arw">&rarr;</span></a>
+      <a class="btn btn-ghost" href="https://www.juchou-group.com/contact">お取引・工事のご相談<span class="arw">&rarr;</span></a>
+    </div>
+    <div class="qr-row rv rv-d2">
+      <a href="https://www.instagram.com/juchou.group">
+        <figure class="qr-card">
+          <span class="qr-frame"><img src="img/QR_INSTAGRAM.png" width="400" height="400" alt="充寵グループ公式Instagram（@juchou.group）のQRコード"></span>
+          <figcaption>INSTAGRAM&nbsp;/&nbsp;@juchou.group</figcaption>
+        </figure>
+      </a>
+      <a href="https://works.do/GGOfZpH">
+        <figure class="qr-card">
+          <span class="qr-frame"><img src="img/QR_LINEWORKS.png" width="400" height="400" alt="充寵グループのLINE WORKS連絡先QRコード"></span>
+          <figcaption>LINE&nbsp;WORKS&nbsp;/&nbsp;お問い合わせ</figcaption>
+        </figure>
+      </a>
+    </div>
+    <p class="cta-contacts rv rv-d3">
+      TEL&nbsp;<a href="tel:05058734183">050-5873-4183</a><br>
+      MAIL&nbsp;<a href="mailto:info@juchou-group.com">info@juchou-group.com</a>
+    </p>
+  </div>
+</section>
+
+<footer>
+  <span>&copy;&nbsp;充寵グループ&nbsp;/&nbsp;JYUCHOU&nbsp;GROUP</span>
+  <nav aria-label="フッターナビゲーション">
+    <a href="#top">HOME</a>
+    <a href="#services">SERVICES</a>
+    <a href="#stance">STANCE</a>
+    <a href="https://www.juchou-group.com/recruit">RECRUIT</a>
+    <a href="https://www.juchou-group.com/contact">CONTACT</a>
+  </nav>
+</footer>
+
+<script>
+(function(){
+"use strict";
+var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+var finePointer = window.matchMedia("(pointer: fine)").matches;
+
+/* ============ HERO CANVAS: 結線 ============ */
+var cv = document.getElementById("kessen");
+var ctx = cv.getContext("2d");
+var W = 0, H = 0, DPR = 1;
+var mobile = false;
+var heroVisible = true;
+var scrollP = 0;           // 0..1 unravel progress
+var mx = -9999, my = -9999, tmx = -9999, tmy = -9999;
+
+/* cable identification colors (desaturated, with sheen tints) */
+var CABLES_DEF = [
+  { base:"#8f3d34", sheen:"#c96b5c", side:-1, lane:0.24, w:15 }, // 赤
+  { base:"#33538f", sheen:"#6f92d8", side:-1, lane:0.40, w:13 }, // 青
+  { base:"#2e5c44", sheen:"#5fa07d", side:-1, lane:0.56, w:14 }, // 緑
+  { base:"#b7b4ac", sheen:"#eceae3", side: 1, lane:0.15, w:11 }, // 白
+  { base:"#232529", sheen:"#4d5158", side: 1, lane:0.31, w:16 }, // 黒
+  { base:"#96751f", sheen:"#d3ab45", side: 1, lane:0.47, w:12 }  // 黄
+];
+var cables = [];
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = cv.clientWidth; H = cv.clientHeight;
+  cv.width = Math.round(W * DPR);
+  cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  mobile = W < 700;
+  buildCables();
+}
+
+function knotPoint(){
+  // golden-ratio focal point
+  return mobile ? { x: W * 0.58, y: H * 0.295 } : { x: W * 0.618, y: H * 0.42 };
+}
+
+function buildCables(){
+  cables = [];
+  var defs = CABLES_DEF;
+  for (var i = 0; i < defs.length; i++){
+    var d = defs[i];
+    cables.push({
+      base: d.base, sheen: d.sheen, side: d.side,
+      y0: d.lane, w: mobile ? d.w * 0.62 : d.w,
+      phase: i * 1.87, freq: 1.6 + (i % 3) * 0.5,
+      amp: (mobile ? 11 : 22) + (i % 3) * 7,
+      idx: i
+    });
+  }
+}
+
+/* cubic bezier point */
+function bz(p0, p1, p2, p3, t){
+  var u = 1 - t;
+  var a = u*u*u, b = 3*u*u*t, c = 3*u*t*t, dd = t*t*t;
+  return {
+    x: a*p0.x + b*p1.x + c*p2.x + dd*p3.x,
+    y: a*p0.y + b*p1.y + c*p2.y + dd*p3.y
+  };
+}
+
+var N_IN = 34, N_OUT = 22;
+
+function cablePoints(c, t, K){
+  var pts = [];
+  var spread = scrollP; // 0 tied .. 1 unraveled
+  // knot target per cable drifts apart as user scrolls (unraveling)
+  var kx = K.x + c.side * spread * W * 0.22 * ((c.idx % 3) * 0.5 + 0.55);
+  var ky = K.y + spread * H * (0.30 + (c.idx % 3) * 0.13);
+  var Kc = { x: kx, y: ky };
+
+  var startY = c.y0 * H * (1 - spread * 0.25) + spread * H * 0.1;
+  var P0 = { x: c.side < 0 ? -60 : W + 60, y: startY };
+  var P1 = { x: c.side < 0 ? W * 0.26 : W * 0.74, y: startY + (Kc.y - startY) * 0.12 };
+  var P2 = { x: Kc.x - c.side * W * 0.17, y: Kc.y + (startY - Kc.y) * 0.1 };
+  var i, s, p, env, wob;
+
+  for (i = 0; i <= N_IN; i++){
+    s = i / N_IN;
+    p = bz(P0, P1, P2, Kc, s);
+    env = Math.sin(Math.PI * Math.min(s * 1.25, 1)) * (1 - s * s); // 0 at edge & knot
+    wob = Math.sin(t * 0.00042 * c.freq + c.phase + s * 5.2) +
+          0.5 * Math.sin(t * 0.00027 * c.freq + c.phase * 2.1 + s * 9.1);
+    p.y += wob * c.amp * env * (1 + spread * 1.6);
+    p.x += Math.cos(t * 0.00031 + c.phase + s * 4) * c.amp * 0.3 * env;
+    pts.push(p);
+  }
+  // after the knot: tight braided bundle flowing down (fades apart on scroll)
+  var E = { x: W * (mobile ? 0.86 : 0.56) + c.side * 10 * (1 + spread * 14), y: H + 90 + spread * H * 0.4 };
+  var C1 = { x: Kc.x + c.side * 6, y: Kc.y + H * 0.18 };
+  var C2 = { x: E.x - c.side * 20, y: E.y - H * 0.24 };
+  for (i = 1; i <= N_OUT; i++){
+    s = i / N_OUT;
+    p = bz(Kc, C1, C2, E, s);
+    // braid: small oscillation, phase-shifted per cable
+    var braidAmp = (mobile ? 3.5 : 5) * Math.sin(Math.PI * Math.min(s * 1.8, 1)) * (1 - spread);
+    p.x += Math.sin(s * 12.5 + c.idx * 2.09 + t * 0.0005) * braidAmp;
+    pts.push(p);
+  }
+  // pointer repel (fine pointers only)
+  if (finePointer && mx > -999){
+    for (i = 0; i < pts.length; i++){
+      var dx = pts[i].x - mx, dy = pts[i].y - my;
+      var d2 = dx*dx + dy*dy, R = 150;
+      if (d2 < R*R && d2 > 0.01){
+        var dd = Math.sqrt(d2), f = (1 - dd / R) * 16;
+        pts[i].x += dx / dd * f; pts[i].y += dy / dd * f;
+      }
+    }
+  }
+  return pts;
+}
+
+function strokePts(pts, color, width, alpha){
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (var i = 1; i < pts.length - 1; i++){
+    var xc = (pts[i].x + pts[i+1].x) / 2, yc = (pts[i].y + pts[i+1].y) / 2;
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+  }
+  ctx.lineTo(pts[pts.length-1].x, pts[pts.length-1].y);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function draw(t){
+  var K = knotPoint();
+  // ground: graphite + subtle warm breath near knot
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#121417";
+  ctx.fillRect(0, 0, W, H);
+  var g = ctx.createRadialGradient(K.x, K.y, 0, K.x, K.y, Math.max(W, H) * 0.75);
+  g.addColorStop(0, "rgba(41,40,38,0.55)");
+  g.addColorStop(0.5, "rgba(24,25,28,0.25)");
+  g.addColorStop(1, "rgba(14,15,17,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  var fade = 1 - scrollP * 0.75;
+
+  // depth pass: soft dark under-shadow of the bundle
+  var i, c, pts;
+  for (i = 0; i < cables.length; i++){
+    c = cables[i];
+    pts = cablePoints(c, t, K);
+    c._pts = pts;
+    strokePts(pts, "rgba(9,10,12,0.55)", c.w + 6, 0.5 * fade);
+  }
+  // main pass: body + sheen highlight (fake cylinder)
+  for (i = 0; i < cables.length; i++){
+    c = cables[i];
+    pts = c._pts;
+    strokePts(pts, c.base, c.w, 0.92 * fade);
+    var sh = [], j;
+    for (j = 0; j < pts.length; j++) sh.push({ x: pts[j].x, y: pts[j].y - c.w * 0.22 });
+    strokePts(sh, c.sheen, Math.max(1.4, c.w * 0.3), 0.45 * fade);
+  }
+
+  // 結線点: restrained incandescent point
+  var glowA = Math.max(0, 1 - scrollP * 1.6);
+  if (glowA > 0.01){
+    var pulse = reduced ? 1 : 0.86 + 0.14 * Math.sin(t * 0.0016);
+    var r = (mobile ? 46 : 72) * pulse;
+    ctx.globalCompositeOperation = "lighter";
+    var gg = ctx.createRadialGradient(K.x, K.y, 0, K.x, K.y, r);
+    gg.addColorStop(0, "rgba(255,238,214," + (0.55 * glowA) + ")");
+    gg.addColorStop(0.25, "rgba(255,214,170," + (0.20 * glowA) + ")");
+    gg.addColorStop(1, "rgba(255,190,120,0)");
+    ctx.fillStyle = gg;
+    ctx.beginPath(); ctx.arc(K.x, K.y, r, 0, 6.2832); ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "rgba(255,247,235," + (0.95 * glowA) + ")";
+    ctx.beginPath(); ctx.arc(K.x, K.y, 2.4, 0, 6.2832); ctx.fill();
+  }
+
+  // fine grid ticks bottom-left (draftsmanship detail)
+  ctx.globalAlpha = 0.35 * fade;
+  ctx.strokeStyle = "#3a3d42";
+  ctx.lineWidth = 1;
+  var bx = mobile ? 20 : 40, by = H - (mobile ? 90 : 60);
+  ctx.beginPath();
+  for (i = 0; i < 6; i++){ ctx.moveTo(bx + i * 12, by); ctx.lineTo(bx + i * 12, by - (i === 0 || i === 5 ? 14 : 8)); }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+var rafId = null, lastT = 0;
+function loop(t){
+  rafId = null;
+  // ease mouse
+  if (finePointer){ mx += (tmx - mx) * 0.08; my += (tmy - my) * 0.08; }
+  draw(t);
+  if (heroVisible && !reduced) rafId = requestAnimationFrame(loop);
+}
+function kick(){ if (rafId === null && !reduced) rafId = requestAnimationFrame(loop); }
+
+resize();
+window.addEventListener("resize", function(){ resize(); if (reduced) draw(4000); });
+if (reduced){ draw(4000); } else { kick(); }
+
+if ("IntersectionObserver" in window){
+  new IntersectionObserver(function(en){
+    heroVisible = en[0].isIntersecting;
+    if (heroVisible) kick();
+  }).observe(cv);
+}
+if (finePointer){
+  window.addEventListener("pointermove", function(e){ tmx = e.clientX; tmy = e.clientY; }, { passive:true });
+}
+
+/* ============ scroll: unravel + hero parallax + header ============ */
+var hd = document.getElementById("hd");
+var heroInner = document.getElementById("heroInner");
+var pxEls = [].slice.call(document.querySelectorAll("[data-px]"));
+var ticking = false;
+
+function onScroll(){
+  if (ticking) return;
+  ticking = true;
+  requestAnimationFrame(function(){
+    ticking = false;
+    var y = window.scrollY || 0;
+    var vh = window.innerHeight || 1;
+    scrollP = Math.min(1, y / (vh * 0.85));
+    if (hd) hd.classList.toggle("scrolled", y > 40);
+    if (!reduced){
+      if (heroInner && y < vh * 1.2){
+        heroInner.style.transform = "translate3d(0," + (y * 0.28) + "px,0)";
+        heroInner.style.opacity = String(Math.max(0, 1 - scrollP * 1.15));
+      }
+      // big section numbers drift slower than scroll
+      for (var i = 0; i < pxEls.length; i++){
+        var el = pxEls[i], r = el.getBoundingClientRect();
+        if (r.bottom < -80 || r.top > vh + 80) continue;
+        var mid = r.top + r.height / 2 - vh / 2;
+        el.style.transform = "translate3d(0," + (mid * -parseFloat(el.dataset.px || "0.08")).toFixed(1) + "px,0)";
+      }
+      kick(); // redraw canvas with new scrollP while visible
+    }
+  });
+}
+window.addEventListener("scroll", onScroll, { passive:true });
+onScroll();
+
+/* ============ reveal ============ */
+var rvs = [].slice.call(document.querySelectorAll(".rv"));
+var knot = document.getElementById("ctaKnot");
+if ("IntersectionObserver" in window && !reduced){
+  var io = new IntersectionObserver(function(ens){
+    ens.forEach(function(en){
+      if (en.isIntersecting){ en.target.classList.add("in"); io.unobserve(en.target); }
+    });
+  }, { threshold: 0.15, rootMargin: "0px 0px -8% 0px" });
+  rvs.forEach(function(el){ io.observe(el); });
+  if (knot) io.observe(knot);
+} else {
+  rvs.forEach(function(el){ el.classList.add("in"); });
+  if (knot) knot.classList.add("in");
+}
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>充寵グループ｜電気工事施工のプロフェッショナル｜東京・神奈川・埼玉・千葉</title>
+<meta name="description" content="充寵グループ（JYUCHOU GROUP）は一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。低圧設備・幹線・配管・配線・盤据付まで、東京・神奈川・埼玉・千葉で確実な施工品質をお届けします。協力会社募集・未経験OKの採用情報も。">
+<link rel="canonical" href="https://juchou-group.com/">
+<meta property="og:title" content="充寵グループ｜電気工事施工のプロフェッショナル｜東京・神奈川・埼玉・千葉">
+<meta property="og:description" content="充寵グループ（JYUCHOU GROUP）は一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。低圧設備・幹線・配管・配線・盤据付まで、東京・神奈川・埼玉・千葉で確実な施工品質をお届けします。">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:site_name" content="充寵グループ / JYUCHOU GROUP">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Electrician","name":"充寵グループ","alternateName":"JYUCHOU GROUP","address":{"@type":"PostalAddress","addressRegion":"神奈川県","addressLocality":"秦野市","addressCountry":"JP"},"telephone":"050-5873-4183","email":"info@juchou-group.com","areaServed":["東京都","神奈川県","埼玉県","千葉県"],"url":"https://juchou-group.com/"}
+</script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"対応エリアはどこまでですか？","acceptedAnswer":{"@type":"Answer","text":"東京・神奈川を中心に、埼玉・千葉まで対応しています。その他エリアも出張のご相談を承ります。"}},
+{"@type":"Question","name":"どのような電気工事を依頼できますか？","acceptedAnswer":{"@type":"Answer","text":"低圧設備工事・幹線工事・配管/ラック据付・配線工事・盤据付/結線など、一般電気用工作物工事全般に対応しています。"}},
+{"@type":"Question","name":"未経験でも電気工事の仕事に応募できますか？","acceptedAnswer":{"@type":"Answer","text":"応募できます。未経験者は日当13,000円〜スタートし、できる作業に応じて随時アップ。資格取得のサポート制度もあります。"}},
+{"@type":"Question","name":"協力会社・元請けとしての取引は可能ですか？","acceptedAnswer":{"@type":"Answer","text":"可能です。お問い合わせフォームまたはお電話（050-5873-4183）からご相談ください。"}}
+]}
+</script>
+<style>
+:root{
+  --night:#0A0F1E;
+  --night2:#0D1426;
+  --ink:#04070F;
+  --amber:#B96A2B;
+  --amber-hi:#E8A15C;
+  --glow:#FFC98C;
+  --tx:#D7E0F0;
+  --tx-dim:#8FA3C8;
+  --line:rgba(150,175,220,.14);
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--night);
+  color:var(--tx);
+  font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","Noto Sans JP","Meiryo",sans-serif;
+  line-height:1.85;
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+img{max-width:100%;display:block}
+a{color:inherit;text-decoration:none}
+::selection{background:rgba(232,161,92,.35);color:#fff}
+
+/* ---------- boot (通電演出・1回のみ) ---------- */
+#boot{position:fixed;inset:0;background:#04060D;z-index:80;pointer-events:none;animation:bootFade .7s ease 1.7s forwards}
+#boot i{position:absolute;top:50%;left:0;width:100%;height:2px;transform:scaleX(0);transform-origin:0 50%;
+  background:linear-gradient(90deg,transparent 0%,rgba(255,201,140,.9) 45%,#FFE3BF 50%,rgba(255,201,140,.9) 55%,transparent 100%);
+  animation:bootLine 1.15s cubic-bezier(.65,0,.2,1) .3s forwards}
+@keyframes bootLine{0%{transform:scaleX(0);opacity:0}12%{opacity:1}88%{opacity:1}100%{transform:scaleX(1);opacity:0}}
+@keyframes bootFade{to{opacity:0;visibility:hidden}}
+
+/* ---------- nav ---------- */
+nav{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:space-between;
+  padding:14px 28px;transition:background .4s ease,border-color .4s ease;border-bottom:1px solid transparent}
+nav.solid{background:rgba(8,12,24,.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom-color:var(--line)}
+.brand{display:flex;align-items:baseline;gap:12px;white-space:nowrap}
+.brand b{font-size:1.05rem;font-weight:800;letter-spacing:.24em;color:#EDF2FB}
+.brand span{font-family:var(--mono);font-size:.62rem;letter-spacing:.3em;color:var(--tx-dim)}
+nav ul{display:flex;gap:26px;list-style:none;align-items:center}
+nav ul a{font-size:.8rem;letter-spacing:.14em;color:var(--tx-dim);transition:color .3s;white-space:nowrap}
+nav ul a:hover{color:#fff}
+nav ul a.n-cta{color:var(--amber-hi);border:1px solid rgba(232,161,92,.45);padding:7px 16px;border-radius:2px}
+nav ul a.n-cta:hover{background:rgba(232,161,92,.12);color:#FFD9AE}
+@media(max-width:820px){nav ul li.hidem{display:none}nav{padding:12px 18px}}
+@media(max-width:480px){
+  .brand span{display:none}
+  .brand b{letter-spacing:.16em;font-size:1rem}
+  nav ul a.n-cta{padding:6px 12px;font-size:.74rem}
+}
+
+/* ---------- hero ---------- */
+#cv{position:fixed;top:0;left:0;width:100%;height:100vh;z-index:0;pointer-events:none}
+.hero{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;justify-content:center;
+  padding:120px 7vw 140px}
+.h-label{font-family:var(--mono);font-size:.68rem;letter-spacing:.42em;color:var(--tx-dim);margin-bottom:26px;
+  display:flex;align-items:center;gap:14px;animation:riseIn 1s ease 2s both}
+.h-label::before{content:"";width:38px;height:1px;background:var(--amber);display:inline-block}
+.hero h1{font-size:clamp(2.05rem,5.4vw,4.5rem);font-weight:900;letter-spacing:.055em;line-height:1.32;color:#F2F6FD;
+  animation:ignite 1.5s ease 1.15s both}
+@keyframes ignite{
+  0%{opacity:0}
+  45%{opacity:.3;text-shadow:0 0 30px rgba(255,178,94,.3)}
+  75%{opacity:.9;text-shadow:0 0 18px rgba(255,178,94,.18)}
+  100%{opacity:1;text-shadow:none}}
+.hero .sub{max-width:40em;margin-top:26px;font-size:clamp(.86rem,1.35vw,1rem);color:#B9C6DE;letter-spacing:.04em;
+  animation:riseIn 1s ease 2.15s both}
+.hero .sub .nb{display:inline-block}
+@media(max-width:420px){.hero .sub{font-size:.78rem}}
+.hero .ctas{display:flex;gap:16px;margin-top:44px;flex-wrap:wrap;animation:riseIn 1s ease 2.35s both}
+@keyframes riseIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.btn{display:inline-flex;align-items:center;gap:10px;font-size:.86rem;letter-spacing:.16em;font-weight:700;
+  padding:15px 32px;border-radius:2px;transition:transform .3s ease,box-shadow .3s ease,background .3s ease}
+.btn-amber{background:linear-gradient(135deg,#C97934,#A85E22);color:#140B03;box-shadow:0 0 0 rgba(232,161,92,0)}
+.btn-amber:hover{transform:translateY(-2px);box-shadow:0 6px 28px rgba(210,130,55,.35)}
+.btn-ghost{border:1px solid rgba(180,200,235,.35);color:#DCE5F5}
+.btn-ghost:hover{background:rgba(180,200,235,.08);transform:translateY(-2px)}
+.scroll-cue{position:absolute;bottom:34px;left:7vw;display:flex;align-items:center;gap:12px;
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.4em;color:var(--tx-dim);animation:riseIn 1s ease 2.6s both}
+.scroll-cue i{width:52px;height:1px;background:linear-gradient(90deg,var(--tx-dim),transparent);position:relative;overflow:hidden;display:block}
+.scroll-cue i::after{content:"";position:absolute;inset:0;background:var(--amber-hi);transform:translateX(-100%);animation:cue 2.6s ease-in-out infinite}
+@keyframes cue{0%{transform:translateX(-100%)}55%{transform:translateX(100%)}100%{transform:translateX(100%)}}
+
+/* ---------- sections common ---------- */
+main{position:relative;z-index:2}
+section.pane{position:relative;background:var(--night);overflow:hidden}
+.wrap{max-width:1120px;margin:0 auto;padding:110px 7vw}
+@media(max-width:640px){.wrap{padding:80px 6vw}}
+.s-label{font-family:var(--mono);font-size:.66rem;letter-spacing:.4em;color:var(--tx-dim);display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.s-label::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px rgba(232,161,92,.6)}
+h2{font-size:clamp(1.5rem,3.1vw,2.3rem);font-weight:900;letter-spacing:.08em;line-height:1.45;color:#EFF4FC;margin-bottom:30px}
+.lead{color:#AEBCD6;max-width:42em;font-size:.95rem}
+.hline{position:absolute;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(150,175,220,.16),transparent)}
+.rv{opacity:0;transform:translateY(26px);transition:opacity .9s ease,transform .9s cubic-bezier(.2,.6,.2,1)}
+.rv.on{opacity:1;transform:none}
+.rv.d1{transition-delay:.1s}.rv.d2{transition-delay:.2s}.rv.d3{transition-delay:.3s}
+.rv.d4{transition-delay:.4s}.rv.d5{transition-delay:.5s}
+
+/* faint circuit bg */
+.circuit{position:absolute;inset:0;pointer-events:none;opacity:.5}
+.circuit svg{width:100%;height:100%}
+
+/* ---------- philosophy ---------- */
+#philosophy .wrap{display:grid;grid-template-columns:1fr 300px;gap:60px;align-items:start}
+#philosophy p{color:#B7C4DC;font-size:.97rem;max-width:38em}
+.tate{display:flex;flex-direction:column;align-items:center;gap:2px;font-weight:800;font-size:1.9rem;letter-spacing:0;
+  color:rgba(215,224,240,.16);font-style:normal;user-select:none;padding-top:8px}
+.tate i{font-style:normal;line-height:1.28}
+.shoku{position:relative;display:inline-block;color:#F4E9DC;padding:0 .1em}
+.shoku::after{content:"";position:absolute;left:0;right:0;bottom:2px;height:6px;background:rgba(185,106,43,.35);z-index:-1}
+@media(max-width:820px){#philosophy .wrap{grid-template-columns:1fr}.tate{display:none}}
+
+/* ---------- stance ---------- */
+.stance-list{list-style:none;border-top:1px solid var(--line);margin-top:14px}
+.stance-list li{display:grid;grid-template-columns:86px 220px 1fr;gap:24px;padding:30px 4px;border-bottom:1px solid var(--line);align-items:baseline}
+.stance-list .no{font-family:var(--mono);font-size:1.5rem;color:rgba(232,161,92,.55);letter-spacing:.05em}
+.stance-list h3{font-size:1.06rem;font-weight:800;letter-spacing:.14em;color:#EDF2FB}
+.stance-list p{font-size:.88rem;color:#A5B4CF}
+@media(max-width:820px){.stance-list li{grid-template-columns:60px 1fr;grid-template-rows:auto auto}.stance-list p{grid-column:2}}
+
+/* ---------- services ---------- */
+.svc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-top:20px}
+.svc{background:var(--night2);padding:36px 28px;position:relative;transition:background .4s ease}
+.svc:hover{background:#111A32}
+.svc .pict{width:52px;height:52px;margin-bottom:20px;color:#9FB2D4}
+.svc .pict .lit{fill:var(--amber-hi)}
+.svc h3{font-size:1rem;font-weight:800;letter-spacing:.12em;color:#EDF2FB;margin-bottom:10px}
+.svc p{font-size:.84rem;color:#9FAECB}
+.svc::after{content:"";position:absolute;top:0;left:0;width:0;height:2px;background:linear-gradient(90deg,var(--amber),transparent);transition:width .5s ease}
+.svc:hover::after{width:100%}
+@media(max-width:900px){.svc-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.svc-grid{grid-template-columns:1fr}}
+
+/* ---------- area ---------- */
+#area .pref{display:flex;flex-wrap:wrap;gap:18px 40px;margin:34px 0 18px;align-items:baseline}
+#area .pref b{font-size:clamp(1.5rem,3.6vw,2.5rem);font-weight:900;letter-spacing:.14em;color:#E9EFF9}
+#area .pref b small{font-family:var(--mono);display:block;font-size:.6rem;letter-spacing:.34em;color:var(--tx-dim);font-weight:400;margin-top:4px}
+#area .pref b.sub2{color:rgba(233,239,249,.55)}
+#area .note{font-size:.8rem;color:var(--tx-dim)}
+
+/* ---------- partner ---------- */
+#partner p{color:#B7C4DC;max-width:44em}
+
+/* ---------- recruit ---------- */
+#recruit{background:linear-gradient(180deg,var(--night) 0%,#0C1428 100%)}
+.rec-points{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:36px 0 40px;list-style:none}
+.rec-points li{border:1px solid var(--line);padding:20px 22px;font-size:.88rem;color:#C3CFE4;display:flex;gap:14px;align-items:flex-start;background:rgba(13,20,38,.5)}
+.rec-points li::before{content:"";flex:0 0 auto;width:6px;height:6px;border-radius:50%;background:var(--amber-hi);margin-top:.55em}
+.rec-points li b{color:#F0F4FC}
+@media(max-width:720px){.rec-points{grid-template-columns:1fr}}
+
+/* ---------- faq ---------- */
+.faq{border-top:1px solid var(--line);margin-top:16px}
+.faq details{border-bottom:1px solid var(--line)}
+.faq summary{cursor:pointer;list-style:none;display:flex;gap:18px;align-items:baseline;padding:26px 4px;font-weight:700;letter-spacing:.06em;color:#E8EEF9;font-size:.95rem}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary .q{font-family:var(--mono);color:rgba(232,161,92,.7);font-size:.8rem}
+.faq summary .tgl{margin-left:auto;color:var(--tx-dim);font-family:var(--mono);transition:transform .3s}
+.faq details[open] .tgl{transform:rotate(45deg)}
+.faq .a{padding:0 4px 28px 52px;font-size:.88rem;color:#A9B8D2;max-width:46em}
+@media(max-width:640px){.faq .a{padding-left:4px}}
+
+/* ---------- company ---------- */
+.co-table{width:100%;border-collapse:collapse;margin-top:12px}
+.co-table th,.co-table td{text-align:left;padding:18px 8px;border-bottom:1px solid var(--line);font-size:.88rem;vertical-align:top}
+.co-table th{width:180px;font-family:var(--mono);font-weight:400;letter-spacing:.22em;font-size:.68rem;color:var(--tx-dim);padding-top:22px}
+.co-table td{color:#CBD6E9}
+@media(max-width:560px){.co-table th{width:110px;letter-spacing:.12em}}
+
+/* ---------- dawn (CTA + footer) ---------- */
+.dawn{position:relative;z-index:2;background:linear-gradient(180deg,#0C1428 0%,#14213D 34%,#23395C 68%,#33507A 100%);overflow:hidden}
+.dawn::before{content:"";position:absolute;left:50%;bottom:-18vw;width:90vw;height:50vw;transform:translateX(-50%);
+  background:radial-gradient(ellipse at 50% 100%,rgba(233,161,92,.20) 0%,rgba(233,161,92,.06) 45%,transparent 70%);pointer-events:none}
+.dawn .wrap{position:relative}
+.cta-head{font-size:clamp(1.5rem,3.4vw,2.4rem);font-weight:900;letter-spacing:.1em;color:#F4F8FE;margin-bottom:14px}
+.cta-sub{color:#BECDE4;font-size:.92rem;margin-bottom:44px;max-width:38em}
+.cta-cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:760px}
+.cta-card{border:1px solid rgba(200,220,250,.22);background:rgba(9,14,28,.35);padding:30px;border-radius:3px;backdrop-filter:blur(4px)}
+.cta-card h3{font-size:.95rem;letter-spacing:.16em;font-weight:800;color:#F0F5FD;margin-bottom:16px}
+.cta-card .qr{width:150px;height:150px;background:#fff;padding:10px;border-radius:2px;margin-bottom:16px}
+.cta-card .qr img{width:100%;height:100%}
+.cta-card a.lnk{font-family:var(--mono);font-size:.72rem;letter-spacing:.12em;color:#FFD9AE;border-bottom:1px solid rgba(255,217,174,.4);padding-bottom:2px}
+.cta-lines{margin-top:46px;display:flex;flex-wrap:wrap;gap:14px 44px;font-size:.95rem;color:#DCE6F5}
+.cta-lines a{font-weight:700;letter-spacing:.06em;border-bottom:1px solid rgba(220,230,245,.3);padding-bottom:2px}
+.cta-lines .k{font-family:var(--mono);font-size:.64rem;letter-spacing:.3em;color:#9FB4D4;display:block;margin-bottom:4px}
+@media(max-width:640px){.cta-cols{grid-template-columns:1fr}}
+footer{position:relative;border-top:1px solid rgba(210,225,250,.16)}
+footer .fwrap{max-width:1120px;margin:0 auto;padding:40px 7vw 46px;display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;align-items:center}
+footer .fb{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+footer .fb b{font-weight:800;letter-spacing:.24em;color:#F2F6FD;white-space:nowrap}
+footer .fb span{font-family:var(--mono);font-size:.6rem;letter-spacing:.3em;color:#A9BEDC}
+footer small{font-family:var(--mono);font-size:.64rem;letter-spacing:.18em;color:#A9BEDC}
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation:none !important;transition:none !important}
+  #boot{display:none}
+  .rv{opacity:1;transform:none}
+}
+</style>
+</head>
+<body id="top">
+
+<div id="boot" aria-hidden="true"><i></i></div>
+
+<canvas id="cv" aria-hidden="true"></canvas>
+
+<nav id="nav" aria-label="メインナビゲーション">
+  <a class="brand" href="#top"><b>充寵グループ</b><span>JYUCHOU&nbsp;GROUP</span></a>
+  <ul>
+    <li class="hidem"><a href="#top">ホーム</a></li>
+    <li class="hidem"><a href="#services">施工内容</a></li>
+    <li class="hidem"><a href="#stance">施工スタンス</a></li>
+    <li class="hidem"><a href="https://www.juchou-group.com/recruit">採用情報</a></li>
+    <li><a class="n-cta" href="https://www.juchou-group.com/contact">お問い合わせ</a></li>
+  </ul>
+</nav>
+
+<header class="hero">
+  <p class="h-label">BEFORE DAWN, CURRENT FLOWS ／ 通電前夜</p>
+  <h1>未来をつなぐ、<br>地図に残る仕事。</h1>
+  <p class="sub"><span class="nb">一般電気用工作物工事を中心に、</span><span class="nb">電気工事“施工”に特化したプロフェッショナルチーム。</span><span class="nb">東京・神奈川・埼玉・千葉の現場で、</span><span class="nb">確かな品質を積み重ねる。</span></p>
+  <div class="ctas">
+    <a class="btn btn-amber" href="https://www.juchou-group.com/contact">工事のご相談</a>
+    <a class="btn btn-ghost" href="https://www.juchou-group.com/recruit">採用情報を見る</a>
+  </div>
+  <div class="scroll-cue" aria-hidden="true"><i></i>SCROLL</div>
+</header>
+
+<main>
+
+  <!-- 01 philosophy -->
+  <section class="pane" id="philosophy">
+    <div class="hline" style="top:0"></div>
+    <div class="wrap">
+      <div>
+        <p class="s-label rv">01 ─ PHILOSOPHY</p>
+        <h2 class="rv d1">仕事ではなく、<span class="shoku">“職”</span>を持つ。</h2>
+        <p class="rv d2">「仕事」はその日の作業を指す。だが「職」は、一生をかけて磨き上げる技能であり、自分自身の価値そのものだ。充寵グループでは、ただ働くのではなく、電気工事という“職”を身につけ、誇りを持って現場に立つことを大切にしている。日々の作業の積み重ねが、やがて揺るぎない技術と信頼になる。それが「職を持つ」ということだ。</p>
+      </div>
+      <p class="tate rv d3" aria-hidden="true"><i>職</i><i>を</i><i>持</i><i>つ</i><i>と</i><i>い</i><i>う</i><i>こ</i><i>と</i></p>
+    </div>
+  </section>
+
+  <!-- 02 stance -->
+  <section class="pane" id="stance">
+    <div class="hline" style="top:0"></div>
+    <div class="wrap">
+      <p class="s-label rv">02 ─ STANCE</p>
+      <h2 class="rv d1">現場に立つ、五つの約束。</h2>
+      <ol class="stance-list">
+        <li class="rv d1"><span class="no">01</span><h3>施工品質</h3><p>一つひとつの接続、一本一本の配線に妥協しない。現場で求められる品質を、確実に実現する。</p></li>
+        <li class="rv d2"><span class="no">02</span><h3>図面に忠実</h3><p>設計図面の意図を正確に読み取り、忠実に施工する。図面通りの仕上がりが、信頼の基盤となる。</p></li>
+        <li class="rv d3"><span class="no">03</span><h3>工程遵守</h3><p>決められた工程を守り、全体の進行に貢献する。遅延なく、確実に自分の工程を完了させる。</p></li>
+        <li class="rv d4"><span class="no">04</span><h3>安全最優先</h3><p>どんな状況でも安全を最優先とする。事故ゼロは、プロとしての最低限の責任である。</p></li>
+        <li class="rv d5"><span class="no">05</span><h3>確実な仕上がり</h3><p>引き渡し後に手直しが不要な施工を目指す。一度で確実に仕上げることが、職人の矜持である。</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- 03 services -->
+  <section class="pane" id="services">
+    <div class="hline" style="top:0"></div>
+    <div class="wrap">
+      <p class="s-label rv">03 ─ SERVICES</p>
+      <h2 class="rv d1">街に電気を通す、六つの施工。</h2>
+      <p class="lead rv d2">受け入れから仕上げまで。図面の一本の線を、現場の確かな配線に変える。</p>
+      <div class="svc-grid">
+        <article class="svc rv d1">
+          <svg class="pict" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M24 6v10"/><path d="M14 24l10-8 10 8z" fill="none"/><path d="M14 24h20"/>
+            <circle class="lit" cx="24" cy="30" r="3" stroke="none"/>
+            <path d="M10 40h8M13 36v8M30 38h8v6h-8zM33 38v-3M35 38v-3" stroke-width="1.3"/>
+          </svg>
+          <h3>低圧設備工事</h3>
+          <p>照明器具・コンセント・スイッチなど、建物内の低圧電気設備の設置・配線工事。</p>
+        </article>
+        <article class="svc rv d2">
+          <svg class="pict" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M6 34c8 0 8-20 18-20 9 0 9 14 18 14" stroke-width="3" opacity=".9"/>
+            <circle class="lit" cx="42" cy="28" r="2.6" stroke="none"/>
+            <path d="M6 40h12M10 44h8" stroke-width="1.3"/>
+          </svg>
+          <h3>幹線工事</h3>
+          <p>受変電設備から各分電盤への幹線ケーブルの敷設・接続工事。</p>
+        </article>
+        <article class="svc rv d3">
+          <svg class="pict" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M6 14h36M6 26h36"/><path d="M12 14v12M20 14v12M28 14v12M36 14v12" stroke-width="1.3"/>
+            <path d="M10 34h28" stroke-width="2.4" opacity=".8"/>
+            <circle class="lit" cx="38" cy="34" r="2.4" stroke="none"/>
+          </svg>
+          <h3>配管・ラック据付工事</h3>
+          <p>電線管やケーブルラックの据付・固定工事を行い、配線経路を確保。</p>
+        </article>
+        <article class="svc rv d1">
+          <svg class="pict" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M6 12c12 0 24 4 36 4M6 22c12 0 24 2 36 2M6 32c12 0 24 0 36 0" stroke-width="1.4"/>
+            <path d="M30 8v32" stroke-width="1.1" opacity=".6"/><rect x="27" y="20" width="6" height="8" rx="1"/>
+            <circle class="lit" cx="42" cy="16" r="2.4" stroke="none"/>
+          </svg>
+          <h3>配線工事</h3>
+          <p>各種ケーブルの布設・結線工事。整線・結束まで丁寧に仕上げる。</p>
+        </article>
+        <article class="svc rv d2">
+          <svg class="pict" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <rect x="10" y="6" width="28" height="36" rx="1.5"/>
+            <path d="M15 13h12M15 19h12M15 25h12M15 31h12" stroke-width="1.3"/>
+            <circle class="lit" cx="33" cy="13" r="2" stroke="none"/>
+            <circle cx="33" cy="25" r="2" stroke-width="1.2"/>
+          </svg>
+          <h3>盤据付・結線工事</h3>
+          <p>分電盤・制御盤の据付から内部結線まで一貫対応。</p>
+        </article>
+        <article class="svc rv d3">
+          <svg class="pict" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M8 42V16l10-6v32M18 42V10l14 8v24M32 42V22l8 4v16M4 42h40" stroke-width="1.4"/>
+            <path class="lit" d="M25 18l-3 7h3l-2 7 6-9h-3l2-5z" stroke="none"/>
+          </svg>
+          <h3>一般電気用工作物工事</h3>
+          <p>上記を含む一般電気用工作物工事全般に対応。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 area -->
+  <section class="pane" id="area">
+    <div class="hline" style="top:0"></div>
+    <div class="wrap">
+      <p class="s-label rv">04 ─ AREA</p>
+      <h2 class="rv d1">対応エリア</h2>
+      <div class="pref rv d2">
+        <b>東京<small>TOKYO</small></b>
+        <b>神奈川<small>KANAGAWA</small></b>
+        <b class="sub2">埼玉<small>SAITAMA</small></b>
+        <b class="sub2">千葉<small>CHIBA</small></b>
+      </div>
+      <p class="note rv d3">東京・神奈川中心／埼玉・千葉　※出張のご相談も承ります</p>
+    </div>
+  </section>
+
+  <!-- 05 partner -->
+  <section class="pane" id="partner">
+    <div class="hline" style="top:0"></div>
+    <div class="wrap">
+      <p class="s-label rv">05 ─ PARTNERSHIP</p>
+      <h2 class="rv d1">協力体制</h2>
+      <p class="rv d2">設計やコンサルティングが必要な案件については、信頼のおけるパートナー企業と連携し、プロジェクトごとに最適なチームを編成します。施工の専門家として、協力会社と共に高品質な成果を実現します。</p>
+    </div>
+  </section>
+
+  <!-- 06 recruit -->
+  <section class="pane" id="recruit">
+    <div class="hline" style="top:0"></div>
+    <div class="wrap">
+      <p class="s-label rv">06 ─ RECRUIT</p>
+      <h2 class="rv d1">未来の設立メンバーを<br>募集しています。</h2>
+      <ul class="rec-points">
+        <li class="rv d1"><span><b>18歳以上・学歴/性別不問。</b>未経験者を積極採用しています。</span></li>
+        <li class="rv d2"><span>日当は<b>未経験13,000円〜</b>。できる作業により随時アップ。経験者は要相談。</span></li>
+        <li class="rv d3"><span><b>資格取得サポートあり</b>（低圧電気取扱・高所作業車・職長安全衛生など）。</span></li>
+        <li class="rv d4"><span><b>工具は最大6ヶ月貸出可。</b>手ぶらで“職”を始められる。</span></li>
+      </ul>
+      <a class="btn btn-amber rv d3" href="https://www.juchou-group.com/recruit">採用情報を見る</a>
+    </div>
+  </section>
+
+  <!-- 07 faq -->
+  <section class="pane" id="faq">
+    <div class="hline" style="top:0"></div>
+    <div class="wrap">
+      <p class="s-label rv">07 ─ FAQ</p>
+      <h2 class="rv d1">よくあるご質問</h2>
+      <div class="faq rv d2">
+        <details>
+          <summary><span class="q">Q1</span>対応エリアはどこまでですか？<span class="tgl">＋</span></summary>
+          <p class="a">東京・神奈川を中心に、埼玉・千葉まで対応しています。その他エリアも出張のご相談を承ります。</p>
+        </details>
+        <details>
+          <summary><span class="q">Q2</span>どのような電気工事を依頼できますか？<span class="tgl">＋</span></summary>
+          <p class="a">低圧設備工事・幹線工事・配管/ラック据付・配線工事・盤据付/結線など、一般電気用工作物工事全般に対応しています。</p>
+        </details>
+        <details>
+          <summary><span class="q">Q3</span>未経験でも電気工事の仕事に応募できますか？<span class="tgl">＋</span></summary>
+          <p class="a">応募できます。未経験者は日当13,000円〜スタートし、できる作業に応じて随時アップ。資格取得のサポート制度もあります。</p>
+        </details>
+        <details>
+          <summary><span class="q">Q4</span>協力会社・元請けとしての取引は可能ですか？<span class="tgl">＋</span></summary>
+          <p class="a">可能です。お問い合わせフォームまたはお電話（<a href="tel:0508734183" style="color:#FFD9AE">050-5873-4183</a>）からご相談ください。</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 company -->
+  <section class="pane" id="company">
+    <div class="hline" style="top:0"></div>
+    <div class="wrap">
+      <p class="s-label rv">08 ─ COMPANY</p>
+      <h2 class="rv d1">会社概要</h2>
+      <table class="co-table rv d2">
+        <tbody>
+          <tr><th>TRADE NAME</th><td>充寵グループ / JYUCHOU GROUP</td></tr>
+          <tr><th>ADDRESS</th><td>神奈川県秦野市</td></tr>
+          <tr><th>BUSINESS</th><td>一般電気用工作物工事／電気工事施工</td></tr>
+          <tr><th>AREA</th><td>東京・神奈川中心（埼玉・千葉）</td></tr>
+          <tr><th>MAIL</th><td><a href="mailto:info@juchou-group.com">info@juchou-group.com</a></td></tr>
+          <tr><th>TEL</th><td><a href="tel:0508734183">050-5873-4183</a></td></tr>
+          <tr><th>INSTAGRAM</th><td><a href="https://www.instagram.com/juchou.group">@juchou.group</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<!-- 夜明け: CTA + footer -->
+<div class="dawn">
+  <section id="contact-cta">
+    <div class="wrap">
+      <p class="s-label rv" style="color:#B9CCE8">09 ─ CONTACT</p>
+      <h2 class="cta-head rv d1">夜が明ける前に、<br>電気は通っている。</h2>
+      <p class="cta-sub rv d2">工事のご相談も、採用のご応募も。まずは気軽にご連絡ください。</p>
+      <div class="cta-cols">
+        <div class="cta-card rv d2">
+          <h3>INSTAGRAM</h3>
+          <div class="qr"><img src="img/QR_INSTAGRAM.png" alt="充寵グループ公式Instagram（@juchou.group）のQRコード" width="150" height="150"></div>
+          <a class="lnk" href="https://www.instagram.com/juchou.group">@juchou.group →</a>
+        </div>
+        <div class="cta-card rv d3">
+          <h3>LINE WORKS</h3>
+          <div class="qr"><img src="img/QR_LINEWORKS.png" alt="充寵グループのLINE WORKS連絡先QRコード" width="150" height="150"></div>
+          <a class="lnk" href="https://works.do/GGOfZpH">works.do/GGOfZpH →</a>
+        </div>
+      </div>
+      <div class="cta-lines rv d3">
+        <p><span class="k">RECRUIT</span><a href="https://www.juchou-group.com/recruit">採用情報を見る</a></p>
+        <p><span class="k">CONTACT</span><a href="https://www.juchou-group.com/contact">お取引・工事のご相談</a></p>
+        <p><span class="k">TEL</span><a href="tel:0508734183">050-5873-4183</a></p>
+        <p><span class="k">MAIL</span><a href="mailto:info@juchou-group.com">info@juchou-group.com</a></p>
+      </div>
+    </div>
+  </section>
+  <footer>
+    <div class="fwrap">
+      <p class="fb"><b>充寵グループ</b><span>JYUCHOU&nbsp;GROUP — BEFORE&nbsp;DAWN,&nbsp;CURRENT&nbsp;FLOWS</span></p>
+      <small>© 充寵グループ</small>
+    </div>
+  </footer>
+</div>
+
+<script>
+(function(){
+'use strict';
+var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var finePointer = window.matchMedia('(pointer: fine)').matches;
+var canvas = document.getElementById('cv');
+var ctx = canvas.getContext('2d');
+
+var DPR=1, W=0, H=0, horizon=0, mobile=false;
+var farC=null, midC=null, nearC=null;
+var stars=[], winList=[], winOrder=[], litCount=0, bonus=0;
+var poles=[], wirePath=[], poleIdx=[], pulses=[], flashes=[];
+var glowSprite=null, noisePat=null;
+var t0=performance.now();
+var scrollYv=0, mx=0, my=0;
+var heroVisible=true, rafOn=false;
+
+function rand(a,b){return a+Math.random()*(b-a);}
+function irand(a,b){return Math.floor(rand(a,b));}
+function mk(w,h){var c=document.createElement('canvas');c.width=Math.max(1,Math.round(w));c.height=Math.max(1,Math.round(h));return c;}
+
+function makeGlow(){
+  var s=64,c=mk(s,s),g=c.getContext('2d');
+  var grd=g.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);
+  grd.addColorStop(0,'rgba(255,222,176,0.95)');
+  grd.addColorStop(0.22,'rgba(255,176,92,0.5)');
+  grd.addColorStop(0.6,'rgba(220,130,50,0.12)');
+  grd.addColorStop(1,'rgba(200,110,40,0)');
+  g.fillStyle=grd;g.fillRect(0,0,s,s);
+  return c;
+}
+function makeNoise(){
+  var s=144,c=mk(s,s),g=c.getContext('2d');
+  var id=g.createImageData(s,s),d=id.data;
+  for(var i=0;i<d.length;i+=4){var v=(Math.random()*255)|0;d[i]=v;d[i+1]=v;d[i+2]=v;d[i+3]=13;}
+  g.putImageData(id,0,0);
+  return ctx.createPattern(c,'repeat');
+}
+
+/* ---------- scene build ---------- */
+function pylon(g,x,baseY,h,col){
+  g.strokeStyle=col;g.lineWidth=1.1;g.beginPath();
+  var wTop=h*0.06,wBase=h*0.2;
+  g.moveTo(x-wBase,baseY);g.lineTo(x-wTop,baseY-h);
+  g.moveTo(x+wBase,baseY);g.lineTo(x+wTop,baseY-h);
+  var n=6;
+  for(var i=0;i<n;i++){
+    var f0=i/n,f1=(i+1)/n;
+    var y0=baseY-h*f0,y1=baseY-h*f1;
+    var w0=wBase+(wTop-wBase)*f0,w1=wBase+(wTop-wBase)*f1;
+    if(i%2===0){g.moveTo(x-w0,y0);g.lineTo(x+w1,y1);}else{g.moveTo(x+w0,y0);g.lineTo(x-w1,y1);}
+  }
+  var arms=[[0.86,0.34],[0.72,0.28],[0.58,0.22]];
+  for(var a=0;a<arms.length;a++){
+    var ay=baseY-h*arms[a][0],aw=h*arms[a][1];
+    g.moveTo(x-aw,ay);g.lineTo(x+aw,ay);
+  }
+  g.stroke();
+}
+function crane(g,x,baseY,h,col){
+  g.strokeStyle=col;g.lineWidth=1.6;g.beginPath();
+  g.moveTo(x,baseY);g.lineTo(x,baseY-h);
+  var jib=h*0.85;
+  g.moveTo(x-jib*0.3,baseY-h*0.92);g.lineTo(x+jib,baseY-h*0.92);
+  g.moveTo(x,baseY-h);g.lineTo(x+jib*0.55,baseY-h*0.92);
+  g.moveTo(x,baseY-h);g.lineTo(x-jib*0.3,baseY-h*0.92);
+  var hx=x+jib*0.78;
+  g.moveTo(hx,baseY-h*0.92);g.lineTo(hx,baseY-h*0.6);
+  g.stroke();
+  g.fillStyle=col;g.fillRect(hx-2.5,baseY-h*0.6,5,4);
+}
+function roofDetail(g,x,top,bw,col){
+  var r=Math.random();
+  g.fillStyle=col;
+  if(r<0.28){ // 塔屋
+    var w2=bw*rand(0.3,0.5);g.fillRect(x+bw*rand(0.1,0.4),top-rand(6,12),w2,rand(6,12)+2);
+  }else if(r<0.5){ // アンテナ
+    g.fillRect(x+bw*rand(0.2,0.8),top-rand(8,18),1.4,rand(8,18)+2);
+  }else if(r<0.68){ // 高架水槽
+    var wx=x+bw*rand(0.15,0.6);
+    g.fillRect(wx,top-9,10,7);g.fillRect(wx+1.5,top-2,1.5,2);g.fillRect(wx+7,top-2,1.5,2);
+  }
+}
+function buildSkyline(g,col,hMin,hMax,winFactor,detail){
+  g.fillStyle=col;
+  var x=-40,list=[];
+  while(x<W+40){
+    var bw=rand(mobile?34:44,mobile?86:110);
+    var bh=rand(hMin,hMax)*H;
+    var top=horizon-bh;
+    g.fillRect(x,top,bw,bh+H*0.35);
+    if(detail&&Math.random()<0.75)roofDetail(g,x,top,bw,col);
+    if(winFactor>0){
+      var cols=Math.max(1,Math.floor(bw/13)),rows=Math.max(2,Math.floor(bh/16));
+      for(var cI=0;cI<cols;cI++)for(var rI=0;rI<rows;rI++){
+        if(Math.random()<0.5)continue;
+        var wx=x+7+cI*((bw-14)/Math.max(1,cols-1)||0);
+        var wy=top+9+rI*((bh-18)/Math.max(1,rows-1)||0);
+        if(wy>horizon-6)continue;
+        list.push({x:wx,y:wy,f:winFactor,t:0,s:rand(1.6,2.6)});
+      }
+    }
+    x+=bw+rand(3,mobile?20:30);
+  }
+  return list;
+}
+function sampleWire(p0,p1,n,out){
+  var midX=(p0.x+p1.x)/2;
+  var sag=Math.abs(p1.x-p0.x)*0.085;
+  var cy=Math.max(p0.y,p1.y)+sag;
+  for(var i=0;i<=n;i++){
+    var t=i/n,u=1-t;
+    out.push({x:u*u*p0.x+2*u*t*midX+t*t*p1.x, y:u*u*p0.y+2*u*t*cy+t*t*p1.y});
+  }
+}
+function buildScene(){
+  W=window.innerWidth;H=window.innerHeight;
+  mobile=W<640;
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  canvas.width=W*DPR;canvas.height=H*DPR;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  horizon=H*0.8;
+  glowSprite=makeGlow();
+  noisePat=makeNoise();
+
+  // stars
+  stars=[];
+  var ns=mobile?60:130;
+  for(var i=0;i<ns;i++){
+    stars.push({x:Math.random()*W,y:Math.random()*horizon*0.72,a:rand(0.18,0.68),p:Math.random()*6.28,sp:rand(0.2,0.9),r:Math.random()<0.12?1.5:1});
+  }
+
+  winList=[];litCount=0;bonus=0;
+
+  // FAR
+  farC=mk(W*DPR,H*DPR);
+  var gf=farC.getContext('2d');gf.setTransform(DPR,0,0,DPR,0,0);
+  var farCol='#111A31';
+  winList=winList.concat(buildSkyline(gf,farCol,0.10,0.22,0.15,false));
+  pylon(gf,W*rand(0.12,0.2),horizon+4,H*0.42,farCol);
+  if(!mobile)pylon(gf,W*rand(0.64,0.75),horizon+4,H*0.37,farCol);
+
+  // MID
+  midC=mk(W*DPR,H*DPR);
+  var gm=midC.getContext('2d');gm.setTransform(DPR,0,0,DPR,0,0);
+  var midCol='#0A101F';
+  winList=winList.concat(buildSkyline(gm,midCol,0.05,0.14,0.3,true));
+  crane(gm,W*rand(0.76,0.86),horizon+6,H*0.34,midCol);
+
+  // NEAR: 電柱 + 電線 + 低い建物
+  nearC=mk(W*DPR,H*DPR);
+  var gn=nearC.getContext('2d');gn.setTransform(DPR,0,0,DPR,0,0);
+  var nearCol='#03060D';
+  gn.fillStyle=nearCol;
+  var x=-30;
+  while(x<W+30){
+    var bw=rand(50,140),bh=rand(0.015,0.06)*H;
+    gn.fillRect(x,horizon-bh,bw,bh+H*0.35);
+    x+=bw+rand(0,18);
+  }
+  // 地面
+  gn.fillRect(-10,horizon,W+20,H);
+  // 電柱
+  poles=[];
+  var np=mobile?3:5;
+  for(i=0;i<np;i++){
+    var px=W*(-0.04+ (i+rand(-0.06,0.06))*(1.1/(np-1)) );
+    var ph=H*rand(0.24,0.3);
+    var py=horizon-ph;
+    poles.push({x:px,y:py});
+    gn.fillStyle=nearCol;
+    gn.fillRect(px-2.2,py,4.4,ph+6);
+    // 腕金
+    gn.fillRect(px-16,py+4,32,2.4);
+    gn.fillRect(px-11,py+16,22,2.2);
+    // 碍子
+    gn.fillRect(px-15,py+1,2.5,3);gn.fillRect(px+12.5,py+1,2.5,3);
+    // トランス
+    if(i%2===1){gn.fillRect(px+3,py+22,8,12);}
+  }
+  poles.sort(function(a,b){return a.x-b.x;});
+  // 電線パス（パルス走行用）
+  wirePath=[];poleIdx=[0];
+  for(i=0;i<poles.length-1;i++){
+    var seg=[];
+    sampleWire({x:poles[i].x,y:poles[i].y+5},{x:poles[i+1].x,y:poles[i+1].y+5},22,seg);
+    if(i>0)seg.shift();
+    wirePath=wirePath.concat(seg);
+    poleIdx.push(wirePath.length-1);
+  }
+  // 電線描画（2本）
+  gn.strokeStyle='rgba(4,8,16,0.92)';gn.lineWidth=1.4;
+  for(var w2=0;w2<2;w2++){
+    gn.beginPath();
+    for(i=0;i<poles.length-1;i++){
+      var a={x:poles[i].x,y:poles[i].y+5+w2*13},b={x:poles[i+1].x,y:poles[i+1].y+5+w2*13};
+      var sag=Math.abs(b.x-a.x)*0.085;
+      gn.moveTo(a.x,a.y);
+      gn.quadraticCurveTo((a.x+b.x)/2,Math.max(a.y,b.y)+sag,b.x,b.y);
+    }
+    gn.stroke();
+  }
+
+  // 窓: 点灯順をシャッフル
+  winOrder=winList.map(function(_,idx){return idx;});
+  for(i=winOrder.length-1;i>0;i--){var j=(Math.random()*(i+1))|0;var tmp=winOrder[i];winOrder[i]=winOrder[j];winOrder[j]=tmp;}
+
+  // パルス
+  pulses=[];
+  var npl=mobile?1:2;
+  for(i=0;i<npl;i++){
+    pulses.push({s:i*0.5,speed:rand(0.05,0.07),lastPole:-1});
+  }
+  flashes=[];
+}
+
+/* ---------- draw ---------- */
+function drawSky(g,off){
+  var grd=g.createLinearGradient(0,-off*0.3,0,horizon+H*0.15);
+  grd.addColorStop(0,'#05070F');
+  grd.addColorStop(0.5,'#0A0F1E');
+  grd.addColorStop(0.82,'#131C36');
+  grd.addColorStop(1,'#1A2440');
+  g.fillStyle=grd;g.fillRect(0,0,W,H);
+  // 地平線の琥珀（控えめだが夜明けの気配は伝える）
+  var hy=horizon-off*0.15;
+  var ag=g.createLinearGradient(0,hy-H*0.2,0,hy+H*0.04);
+  ag.addColorStop(0,'rgba(185,106,43,0)');
+  ag.addColorStop(0.75,'rgba(190,110,45,0.16)');
+  ag.addColorStop(1,'rgba(222,138,64,0.30)');
+  g.fillStyle=ag;g.fillRect(0,hy-H*0.2,W,H*0.24);
+}
+function draw(now){
+  var el=(now-t0)/1000;
+  var prog=Math.min(1,Math.max(0,scrollYv/(H*0.9)));
+  var offSky=scrollYv*0.05,offFar=scrollYv*0.15,offMid=scrollYv*0.3,offNear=scrollYv*0.5;
+  var mxF=finePointer?mx:0,myF=finePointer?my:0;
+
+  drawSky(ctx,offSky);
+
+  // stars
+  ctx.fillStyle='#C9D6EE';
+  for(var i=0;i<stars.length;i++){
+    var st=stars[i];
+    var a=st.a*(0.82+0.18*Math.sin(now*0.001*st.sp+st.p));
+    ctx.globalAlpha=a;
+    ctx.fillRect(st.x+mxF*2,st.y-offSky+myF*1.5,st.r,st.r);
+  }
+  ctx.globalAlpha=1;
+
+  // FAR + fog
+  ctx.drawImage(farC,mxF*3,-offFar+myF*2,W,H);
+  var fog=ctx.createLinearGradient(0,horizon-H*0.4-offFar,0,horizon-offFar+H*0.06);
+  fog.addColorStop(0,'rgba(16,24,46,0)');
+  fog.addColorStop(0.55,'rgba(18,27,52,0.34)');
+  fog.addColorStop(1,'rgba(26,37,66,0.66)');
+  ctx.fillStyle=fog;ctx.fillRect(0,horizon-H*0.45-offFar,W,H*0.6);
+
+  // 点灯窓の目標数
+  var frac=Math.min(0.38,0.085+el*0.005+prog*0.22+bonus);
+  var target=Math.min(winOrder.length,Math.floor(winOrder.length*frac));
+  while(litCount<target){winList[winOrder[litCount]].t=now;litCount++;}
+
+  // 遠景の窓（fogの下・midの手前に来ないよう先に描く）
+  drawWindows(now,true,offFar,offMid,mxF);
+
+  // MID
+  ctx.drawImage(midC,mxF*6,-offMid+myF*4,W,H);
+
+  // 中景の窓
+  drawWindows(now,false,offFar,offMid,mxF);
+
+  // NEAR
+  ctx.drawImage(nearC,mxF*10,-offNear+myF*7,W,H);
+
+  // パルス
+  if(!reduced){
+    ctx.globalCompositeOperation='lighter';
+    var n=wirePath.length;
+    for(i=0;i<pulses.length;i++){
+      var p=pulses[i];
+      var idx=p.s*(n-1);
+      var i0=Math.floor(idx),fr=idx-i0;
+      var q0=wirePath[Math.min(i0,n-1)],q1=wirePath[Math.min(i0+1,n-1)];
+      var qx=q0.x+(q1.x-q0.x)*fr+mxF*10, qy=q0.y+(q1.y-q0.y)*fr-offNear+myF*7;
+      // 尾
+      for(var tr=1;tr<=5;tr++){
+        var ti=Math.max(0,i0-tr*3);
+        var tp=wirePath[ti];
+        ctx.globalAlpha=0.16*(1-tr/6);
+        ctx.drawImage(glowSprite,tp.x+mxF*10-9,tp.y-offNear+myF*7-9,18,18);
+      }
+      ctx.globalAlpha=0.95;
+      ctx.drawImage(glowSprite,qx-13,qy-13,26,26);
+      ctx.globalAlpha=1;
+      ctx.fillStyle='#FFE9CE';
+      ctx.fillRect(qx-1.2,qy-1.2,2.4,2.4);
+    }
+    // 電柱通過フラッシュ
+    for(i=flashes.length-1;i>=0;i--){
+      var fl=flashes[i];
+      var fa=1-(now-fl.t)/700;
+      if(fa<=0){flashes.splice(i,1);continue;}
+      ctx.globalAlpha=fa*0.5;
+      ctx.drawImage(glowSprite,fl.x+mxF*10-16,fl.y-offNear+myF*7-16,32,32);
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+  }
+
+  // 粒状ノイズ
+  ctx.globalAlpha=0.5;
+  ctx.fillStyle=noisePat;
+  ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha=1;
+
+  // ビネット
+  var vg=ctx.createRadialGradient(W/2,H*0.45,H*0.35,W/2,H*0.55,H*0.95);
+  vg.addColorStop(0,'rgba(3,5,11,0)');
+  vg.addColorStop(1,'rgba(3,5,11,0.42)');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+}
+function drawWindows(now,farLayer,offFar,offMid,mxF){
+  for(var i=0;i<litCount;i++){
+    var wn=winList[winOrder[i]];
+    var isFar=wn.f<=0.16;
+    if(isFar!==farLayer)continue;
+    var age=(now-wn.t)/1000;
+    var alpha=(0.55+0.4*Math.exp(-age*1.8))*(isFar?0.65:1);
+    ctx.fillStyle='rgba(255,196,128,'+alpha.toFixed(3)+')';
+    ctx.fillRect(wn.x+(isFar?3:6)*mxF,wn.y-(isFar?offFar:offMid),wn.s,wn.s*1.35);
+  }
+}
+function step(now,dt){
+  var n=wirePath.length;
+  for(var i=0;i<pulses.length;i++){
+    var p=pulses[i];
+    p.s+=dt*p.speed;
+    if(p.s>=1){p.s-=1;p.lastPole=-1;}
+    var idx=p.s*(n-1);
+    for(var k=0;k<poleIdx.length;k++){
+      if(poleIdx[k]<=idx&&k>p.lastPole){
+        p.lastPole=k;
+        if(k>0&&k<poleIdx.length){
+          var pt=wirePath[poleIdx[k]];
+          flashes.push({x:pt.x,y:pt.y,t:now});
+          bonus+=2.5/Math.max(1,winOrder.length);
+        }
+      }
+    }
+  }
+}
+
+var lastT=0;
+function frame(now){
+  if(!rafOn)return;
+  requestAnimationFrame(frame);
+  if(!heroVisible)return;
+  var dt=Math.max(0,Math.min(0.05,(now-lastT)/1000));
+  lastT=now;
+  step(now,dt);
+  draw(now);
+}
+function startRaf(){if(rafOn||reduced)return;rafOn=true;lastT=performance.now();requestAnimationFrame(frame);}
+function stopRaf(){rafOn=false;}
+
+/* ---------- static frame (reduced motion) ---------- */
+function drawStatic(){
+  bonus=0.28;
+  draw(performance.now());
+  // パルスの代わりに電線上へ静的な灯点
+  ctx.globalCompositeOperation='lighter';
+  var n=wirePath.length;
+  var spots=[0.3,0.72];
+  for(var i=0;i<spots.length;i++){
+    var q=wirePath[Math.floor(spots[i]*(n-1))];
+    ctx.globalAlpha=0.8;
+    ctx.drawImage(glowSprite,q.x-13,q.y-13,26,26);
+  }
+  ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+}
+
+/* ---------- events ---------- */
+var nav=document.getElementById('nav');
+function onScroll(){
+  scrollYv=window.scrollY||window.pageYOffset||0;
+  if(scrollYv>40)nav.classList.add('solid');else nav.classList.remove('solid');
+}
+window.addEventListener('scroll',onScroll,{passive:true});
+onScroll();
+
+if(finePointer&&!reduced){
+  window.addEventListener('pointermove',function(e){
+    mx=(e.clientX/W-0.5);my=(e.clientY/H-0.5);
+  },{passive:true});
+}
+
+var rsT=null;
+window.addEventListener('resize',function(){
+  clearTimeout(rsT);
+  rsT=setTimeout(function(){
+    var nw=window.innerWidth;
+    if(Math.abs(nw-W)<4&&Math.abs(window.innerHeight-H)<130)return; // モバイルのURLバー変動を無視
+    buildScene();
+    if(reduced)drawStatic();
+  },180);
+});
+
+/* hero 可視判定 → 画面外は描画停止 */
+var hero=document.querySelector('.hero');
+if('IntersectionObserver' in window){
+  new IntersectionObserver(function(en){
+    heroVisible=en[0].isIntersecting;
+    canvas.style.visibility=heroVisible?'visible':'hidden';
+  },{threshold:0}).observe(hero);
+  // リビール
+  var io=new IntersectionObserver(function(ens){
+    for(var i=0;i<ens.length;i++){
+      if(ens[i].isIntersecting){ens[i].target.classList.add('on');io.unobserve(ens[i].target);}
+    }
+  },{threshold:0.12,rootMargin:'0px 0px -6% 0px'});
+  var rvs=document.querySelectorAll('.rv');
+  for(var i=0;i<rvs.length;i++)io.observe(rvs[i]);
+}else{
+  var rvs2=document.querySelectorAll('.rv');
+  for(var j=0;j<rvs2.length;j++)rvs2[j].classList.add('on');
+}
+
+buildScene();
+if(reduced){drawStatic();}else{startRaf();}
+})();
+</script>
+</body>
+</html>
