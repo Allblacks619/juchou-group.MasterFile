@@ -938,6 +938,142 @@ async function generateWorkerInvoiceNumber(projectId: number, closingMonth: stri
   return `${prefix}${String(next).padStart(4, "0")}`;
 }
 
+/** 請求書に紐づく現場ID一覧（複数現場の合算請求は internalMemo の projectIds= から復元）。 */
+function getInvoiceProjectIds(invoice: any): number[] {
+  const memo = String(invoice?.internalMemo || "");
+  const memoMatch = memo.match(/projectIds=([\d,]+)/);
+  return memoMatch
+    ? Array.from(new Set(memoMatch[1].split(",").map(Number).filter(Boolean)))
+    : invoice?.projectId ? [Number(invoice.projectId)] : [];
+}
+
+/** 請求書の対象月×現場の出面表PDFをバッファで生成する（ダウンロード用と添付合体用の共通処理）。 */
+async function buildInvoiceAttendanceSheetBuffers(invoice: any) {
+  const period = invoice.periodStart ? new Date(invoice.periodStart) : new Date();
+  const year = period.getUTCFullYear();
+  const month = period.getUTCMonth() + 1;
+  const projectIds = getInvoiceProjectIds(invoice);
+  if (!projectIds.length) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "請求書に紐づく現場が特定できません" });
+  }
+
+  const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+  const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59));
+  const [allEmployees, allProjects, company] = await Promise.all([db.getAllEmployees(), db.getAllProjects(), db.getCompanyProfile()]);
+  const { generateAttendancePdf } = await import("./pdfAttendance");
+
+  const sheets: Array<{ projectId: number; projectName: string; fileName: string; hasData: boolean; buffer: Buffer }> = [];
+  for (const projectId of projectIds) {
+    const records = await db.getAttendanceByDateRange(startDate, endDate, projectId);
+    const project = (allProjects as any[]).find((p) => p.id === projectId);
+    const empIds = new Set<number>();
+    const guestNameSet = new Set<string>();
+    for (const rec of records as any[]) {
+      if (rec.employeeId) empIds.add(rec.employeeId);
+      if (rec.guestName) guestNameSet.add(rec.guestName);
+    }
+    const employees = (allEmployees as any[])
+      .filter((e) => empIds.has(e.id))
+      .map((e) => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}` }));
+
+    const buffer = await generateAttendancePdf({
+      year,
+      month,
+      projectName: project?.name || `Project #${projectId}`,
+      companyName: company?.companyName || "充寵グループ",
+      logoUrl: company?.logoUrl || undefined,
+      watermarkUrl: company?.watermarkUrl || undefined,
+      employees,
+      guestNames: Array.from(guestNameSet),
+      records: (records as any[]).map((r) => ({
+        employeeId: r.employeeId,
+        guestName: r.guestName,
+        workDate: r.workDate,
+        hoursWorked: r.hoursWorked,
+        overtimeHours: r.overtimeHours,
+        workType: r.workType,
+        shiftType: r.shiftType || "day",
+        notes: r.notes,
+      })),
+    });
+
+    const fileName = `attendance-invoice-${invoice.id}-${projectId}-${year}-${String(month).padStart(2, "0")}.pdf`;
+    sheets.push({ projectId, projectName: project?.name || `現場${projectId}`, fileName, hasData: records.length > 0, buffer });
+  }
+  return { year, month, sheets };
+}
+
+/**
+ * 請求書に添付できるアップロード済み書類の候補を集める。
+ * 対象: 作業員が月締めで提出した領収書等（closing_submission_documents＋旧単発領収書）と、
+ * 管理側が月締めV2で登録した交通費領収書。
+ */
+async function collectInvoiceAttachableDocuments(invoice: any) {
+  const period = invoice.periodStart ? new Date(invoice.periodStart) : new Date();
+  const monthKey = `${period.getUTCFullYear()}-${String(period.getUTCMonth() + 1).padStart(2, "0")}`;
+  const projectIds = getInvoiceProjectIds(invoice);
+  const [allEmployees, allProjects] = await Promise.all([db.getAllEmployees(), db.getAllProjects()]);
+  const employeeName = (id: number | null | undefined) => {
+    if (!id) return null;
+    const e = (allEmployees as any[]).find((x) => Number(x.id) === Number(id));
+    return e?.nameKanji || e?.nameRomaji || `従業員${id}`;
+  };
+  const projectName = (id: number) => (allProjects as any[]).find((p) => Number(p.id) === Number(id))?.name || `現場${id}`;
+
+  const seen = new Set<string>();
+  const documents: Array<{ key: string; fileName: string; url: string; mimeType: string; source: string; projectName: string; workerName: string | null }> = [];
+  const push = (doc: { key: string; fileName: string; url: string; mimeType: string; source: string; projectName: string; workerName: string | null }) => {
+    if (!doc.key || seen.has(doc.key)) return;
+    seen.add(doc.key);
+    documents.push(doc);
+  };
+
+  for (const projectId of projectIds) {
+    // 作業員アップロード書類（複数）
+    for (const doc of await db.listClosingSubmissionDocumentsByProjectMonth(projectId, monthKey) as any[]) {
+      push({
+        key: doc.fileKey,
+        fileName: doc.fileName,
+        url: doc.fileUrl,
+        mimeType: doc.mimeType || "application/octet-stream",
+        source: "作業員提出",
+        projectName: projectName(projectId),
+        workerName: employeeName(doc.employeeId),
+      });
+    }
+    // 旧: 提出行に直接付いた領収書
+    const closing = await db.getProjectClosingByProjectMonth(projectId, monthKey);
+    if (closing?.id) {
+      for (const submission of await db.getClosingSubmissionsByClosing(closing.id) as any[]) {
+        if (submission.receiptFileKey) {
+          push({
+            key: submission.receiptFileKey,
+            fileName: submission.receiptFileName || "領収書",
+            url: submission.receiptFileUrl || "",
+            mimeType: submission.receiptMimeType || "application/octet-stream",
+            source: "作業員提出",
+            projectName: projectName(projectId),
+            workerName: employeeName(submission.employeeId),
+          });
+        }
+      }
+    }
+    // 管理側の交通費領収書（月締めV2）
+    for (const receipt of await db.getMonthlyClosingV2ExpenseLineReceiptsByMonthProject(monthKey, projectId) as any[]) {
+      push({
+        key: receipt.receiptFileKey,
+        fileName: receipt.originalFileName || "領収書",
+        url: receipt.receiptFileUrl || "",
+        mimeType: receipt.mimeType || "application/octet-stream",
+        source: "交通費領収書",
+        projectName: projectName(projectId),
+        workerName: employeeName(receipt.workerId),
+      });
+    }
+  }
+  return documents;
+}
+
 export const appRouter = router({
   system: systemRouter,
 
@@ -4825,68 +4961,23 @@ export const appRouter = router({
         const invoice = await db.getInvoiceById(input.invoiceId);
         if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
 
-        const period = invoice.periodStart ? new Date(invoice.periodStart) : new Date();
-        const year = period.getUTCFullYear();
-        const month = period.getUTCMonth() + 1;
-
-        // Project list: parse projectIds=1,2 from the internal memo (consolidated invoices),
-        // otherwise fall back to the invoice's single projectId.
-        const memo = String((invoice as any).internalMemo || "");
-        const memoMatch = memo.match(/projectIds=([\d,]+)/);
-        const projectIds = memoMatch
-          ? Array.from(new Set(memoMatch[1].split(",").map(Number).filter(Boolean)))
-          : invoice.projectId ? [Number(invoice.projectId)] : [];
-        if (!projectIds.length) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "請求書に紐づく現場が特定できません" });
-        }
-
-        const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-        const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59));
-        const [allEmployees, allProjects, company] = await Promise.all([db.getAllEmployees(), db.getAllProjects(), db.getCompanyProfile()]);
-        const { generateAttendancePdf } = await import("./pdfAttendance");
+        const built = await buildInvoiceAttendanceSheetBuffers(invoice);
         const { storagePut } = await import("./storage");
-
         const sheets: Array<{ projectId: number; projectName: string; url: string; fileName: string; hasData: boolean }> = [];
-        for (const projectId of projectIds) {
-          const records = await db.getAttendanceByDateRange(startDate, endDate, projectId);
-          const project = (allProjects as any[]).find((p) => p.id === projectId);
-          const empIds = new Set<number>();
-          const guestNameSet = new Set<string>();
-          for (const rec of records as any[]) {
-            if (rec.employeeId) empIds.add(rec.employeeId);
-            if (rec.guestName) guestNameSet.add(rec.guestName);
-          }
-          const employees = (allEmployees as any[])
-            .filter((e) => empIds.has(e.id))
-            .map((e) => ({ id: e.id, nameKanji: e.nameKanji || e.nameRomaji || `ID:${e.id}` }));
-
-          const pdfBuffer = await generateAttendancePdf({
-            year,
-            month,
-            projectName: project?.name || `Project #${projectId}`,
-            companyName: company?.companyName || "充寵グループ",
-            logoUrl: company?.logoUrl || undefined,
-            watermarkUrl: company?.watermarkUrl || undefined,
-            employees,
-            guestNames: Array.from(guestNameSet),
-            records: (records as any[]).map((r) => ({
-              employeeId: r.employeeId,
-              guestName: r.guestName,
-              workDate: r.workDate,
-              hoursWorked: r.hoursWorked,
-              overtimeHours: r.overtimeHours,
-              workType: r.workType,
-              shiftType: r.shiftType || "day",
-              notes: r.notes,
-            })),
-          });
-
-          const fileName = `attendance-invoice-${input.invoiceId}-${projectId}-${year}-${String(month).padStart(2, "0")}.pdf`;
-          const { url } = await storagePut(`attendance/${fileName}`, pdfBuffer, "application/pdf");
-          sheets.push({ projectId, projectName: project?.name || `現場${projectId}`, url, fileName, hasData: records.length > 0 });
+        for (const sheet of built.sheets) {
+          const { url } = await storagePut(`attendance/${sheet.fileName}`, sheet.buffer, "application/pdf");
+          sheets.push({ projectId: sheet.projectId, projectName: sheet.projectName, url, fileName: sheet.fileName, hasData: sheet.hasData });
         }
+        return { year: built.year, month: built.month, sheets };
+      }),
 
-        return { year, month, sheets };
+    /** 請求書に添付できるアップロード済み書類（領収書など）の候補一覧。 */
+    listAttachableDocuments: leaderOrAdminProcedure
+      .input(z.object({ invoiceId: z.number() }))
+      .query(async ({ input }) => {
+        const invoice = await db.getInvoiceById(input.invoiceId);
+        if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+        return { documents: await collectInvoiceAttachableDocuments(invoice) };
       }),
 
     /** Create invoice from attendance data */
@@ -4987,9 +5078,15 @@ export const appRouter = router({
         return { id: invoice.id, invoiceNumber, totalAmount: draft.totalAmount, warnings: draft.warnings };
       }),
 
-    /** Generate PDF for an invoice */
+    /** Generate PDF for an invoice（出面表・アップロード書類を1つのPDFに合体して添付できる） */
     generatePdf: leaderOrAdminProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({
+        id: z.number(),
+        // 出面表（現場別・自動生成）を後ろに合体する
+        attachAttendanceSheets: z.boolean().optional().default(false),
+        // 添付するアップロード書類の storage キー（listAttachableDocuments の候補のみ有効）
+        attachDocumentKeys: z.array(z.string()).optional().default([]),
+      }))
       .mutation(async ({ ctx, input }) => {
         const invoice = await db.getInvoiceById(input.id);
         if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
@@ -5011,12 +5108,58 @@ export const appRouter = router({
           }
         }
 
-        const pdfBuffer = await generateInvoicePdf({
+        let pdfBuffer = await generateInvoicePdf({
           invoice, items, company, clientName,
           clientAddress, clientPostalCode, clientContactPerson,
           showSeal: invoice.showSeal,
           showLogo: invoice.showLogo,
         });
+
+        // 添付の合体（出面表 → アップロード書類 の順）。
+        const warnings: string[] = [];
+        let attachedCount = 0;
+        if (input.attachAttendanceSheets || input.attachDocumentKeys.length > 0) {
+          const { mergePdfWithAttachments } = await import("./pdfMerge");
+          const { storageGetBytes } = await import("./storage");
+          const attachments: Array<{ name: string; mimeType: string; bytes: Buffer }> = [];
+
+          if (input.attachAttendanceSheets) {
+            const built = await buildInvoiceAttendanceSheetBuffers(invoice);
+            for (const sheet of built.sheets) {
+              if (!sheet.hasData) {
+                warnings.push(`${sheet.projectName}: 出面データが無いため出面表は添付しませんでした`);
+                continue;
+              }
+              attachments.push({ name: `出面表(${sheet.projectName})`, mimeType: "application/pdf", bytes: sheet.buffer });
+            }
+          }
+
+          if (input.attachDocumentKeys.length > 0) {
+            // 任意のstorageキーを禁止し、この請求書の添付候補に含まれるものだけ許可する。
+            const candidates = await collectInvoiceAttachableDocuments(invoice);
+            const candidateMap = new Map(candidates.map((doc) => [doc.key, doc]));
+            for (const key of input.attachDocumentKeys) {
+              const doc = candidateMap.get(key);
+              if (!doc) {
+                warnings.push(`添付候補に無い書類キーをスキップしました`);
+                continue;
+              }
+              try {
+                const bytes = await storageGetBytes(doc.key);
+                attachments.push({ name: doc.fileName, mimeType: doc.mimeType, bytes });
+              } catch {
+                warnings.push(`${doc.fileName}: 取得に失敗したため添付をスキップしました`);
+              }
+            }
+          }
+
+          if (attachments.length > 0) {
+            const merged = await mergePdfWithAttachments(pdfBuffer, attachments);
+            pdfBuffer = merged.bytes;
+            warnings.push(...merged.warnings);
+            attachedCount = attachments.length;
+          }
+        }
 
         const fileName = `invoice_${invoice.invoiceNumber}_${Date.now()}.pdf`;
         const fileKey = `invoices/${fileName}`;
@@ -5024,9 +5167,9 @@ export const appRouter = router({
 
         // Update invoice with PDF URL
         await db.updateInvoice(input.id, { pdfUrl: url });
-        await safeAuditLog(ctx.user.id, "invoice.generatePdf", "invoice", { entityId: input.id, invoiceId: input.id, note: `PDF生成 ${fileName}` });
+        await safeAuditLog(ctx.user.id, "invoice.generatePdf", "invoice", { entityId: input.id, invoiceId: input.id, note: `PDF生成 ${fileName}${attachedCount ? `（添付${attachedCount}件合体）` : ""}` });
 
-        return { url, fileName };
+        return { url, fileName, attachedCount, warnings };
       }),
 
     /** Update invoice status */
@@ -5221,6 +5364,7 @@ export const appRouter = router({
     update: leaderOrAdminProcedure
       .input(z.object({
         id: z.number(),
+        subject: z.string().max(255).optional(),
         notes: z.string().optional(),
         dueDate: z.string().optional(),
         honorific: z.string().optional(),

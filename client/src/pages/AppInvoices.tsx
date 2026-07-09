@@ -48,7 +48,10 @@ import {
   PlusCircle,
   Type,
   Pencil,
+  Paperclip,
+  Save,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { useEffect } from "react";
 import { useLocation } from "wouter";
@@ -67,7 +70,7 @@ const TAX_RATES = [
   { value: 0, label: "0%（非課税）" },
 ];
 
-const UNIT_OPTIONS = ["日", "式", "個"];
+const UNIT_OPTIONS = ["式", "日", "人工", "時間", "個", "台", "セット", "回"];
 
 function formatYen(amount: number): string {
   return `¥${amount.toLocaleString("ja-JP")}`;
@@ -173,6 +176,33 @@ function InvoiceDetailDialog({
   const [showAddForm, setShowAddForm] = useState(false);
   const [activeTab, setActiveTab] = useState<"detail" | "preview">("detail");
   const [attendanceSheets, setAttendanceSheets] = useState<Array<{ projectId: number; projectName: string; url: string; fileName: string; hasData: boolean }>>([]);
+  // 添付設定: 出面表はワンクリック添付（既定ON）。アップロード書類は選んだものだけ添付。
+  const [attachAttendance, setAttachAttendance] = useState(true);
+  const [selectedDocKeys, setSelectedDocKeys] = useState<Set<string>>(new Set());
+  const [subjectDraft, setSubjectDraft] = useState<string | null>(null);
+  const pdfViewer = usePdfViewer();
+
+  const attachableDocsQuery = trpc.invoice.listAttachableDocuments.useQuery({ invoiceId });
+  const attachableDocs = attachableDocsQuery.data?.documents || [];
+
+  const updateInvoiceMutation = trpc.invoice.update.useMutation({
+    onSuccess: () => {
+      toast.success("件名を保存しました");
+      setSubjectDraft(null);
+      detailQuery.refetch();
+    },
+    onError: (e: any) => toast.error(`保存エラー: ${e.message}`),
+  });
+
+  const generatePdfWithAttachmentsMutation = trpc.invoice.generatePdf.useMutation({
+    onSuccess: (data: any) => {
+      toast.success(data.attachedCount ? `PDFを生成しました（添付${data.attachedCount}件を合体）` : "PDFを生成しました");
+      for (const w of data.warnings || []) toast.warning(w, { duration: 8000 });
+      pdfViewer.open(data.url, data.fileName, "請求書PDF");
+      detailQuery.refetch();
+    },
+    onError: (e: any) => toast.error(`PDF生成エラー: ${e.message}`),
+  });
 
   const generateAttendanceSheetsMutation = trpc.invoice.generateAttendanceSheets.useMutation({
     onSuccess: (data: any) => {
@@ -185,6 +215,14 @@ function InvoiceDetailDialog({
     },
     onError: (e: any) => toast.error(`出面表生成エラー: ${e.message}`),
   });
+
+  // プレビュータブで添付内容（出面表）も確認できるよう、未生成なら一度だけ自動生成する。
+  useEffect(() => {
+    if (activeTab !== "preview" || !attachAttendance) return;
+    if (attendanceSheets.length > 0 || generateAttendanceSheetsMutation.isPending) return;
+    generateAttendanceSheetsMutation.mutate({ invoiceId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, attachAttendance]);
 
   if (detailQuery.isLoading) {
     return (
@@ -269,8 +307,49 @@ function InvoiceDetailDialog({
       </div>
 
       {activeTab === "preview" ? (
-        <div className="max-h-[70vh] overflow-y-auto border rounded-md">
-          <InvoicePreview invoice={invoice} items={previewItems} client={client} company={company} />
+        <div className="max-h-[70vh] overflow-y-auto space-y-4">
+          <div className="border rounded-md">
+            <InvoicePreview invoice={invoice} items={previewItems} client={client} company={company} />
+          </div>
+
+          {/* 添付のプレビュー（PDF生成時にこの順で後ろに合体される） */}
+          {(attachAttendance || selectedDocKeys.size > 0) && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium flex items-center gap-1.5">
+                <Paperclip className="h-4 w-4 text-gold" />
+                添付プレビュー（この順で請求書PDFの後ろに合体されます）
+              </p>
+              {attachAttendance && (
+                generateAttendanceSheetsMutation.isPending ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground border rounded-md p-4">
+                    <Loader2 className="h-4 w-4 animate-spin" />出面表を生成中…
+                  </div>
+                ) : (
+                  attendanceSheets.filter((s) => s.hasData).map((s) => (
+                    <div key={s.projectId} className="border rounded-md overflow-hidden">
+                      <p className="px-3 py-1.5 text-xs bg-muted/20 border-b">出面表: {s.projectName}</p>
+                      <iframe src={s.url} title={`出面表 ${s.projectName}`} className="w-full h-[420px] bg-white" />
+                    </div>
+                  ))
+                )
+              )}
+              {attachableDocs
+                .filter((doc: any) => selectedDocKeys.has(doc.key))
+                .map((doc: any) => (
+                  <div key={doc.key} className="border rounded-md overflow-hidden">
+                    <p className="px-3 py-1.5 text-xs bg-muted/20 border-b">
+                      書類: {doc.fileName}
+                      <span className="ml-2 text-muted-foreground">{doc.source}・{doc.projectName}{doc.workerName ? `・${doc.workerName}` : ""}</span>
+                    </p>
+                    {(doc.mimeType || "").includes("pdf") ? (
+                      <iframe src={doc.url} title={doc.fileName} className="w-full h-[420px] bg-white" />
+                    ) : (
+                      <img src={doc.url} alt={doc.fileName} className="max-h-[420px] w-auto mx-auto" />
+                    )}
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       ) : (
       <>
@@ -284,12 +363,28 @@ function InvoiceDetailDialog({
           <span className="text-muted-foreground">合計金額:</span>{" "}
           <span className="font-bold text-gold">{formatYen(invoice.totalAmount)}</span>
         </div>
-        {(invoice as any).subject && (
-          <div className="col-span-2">
-            <span className="text-muted-foreground">件名:</span>{" "}
-            <span className="font-medium">{(invoice as any).subject}</span>
+        <div className="col-span-2">
+          <Label className="text-xs text-muted-foreground">件名（編集できます）</Label>
+          <div className="mt-1 flex items-center gap-2">
+            <Input
+              value={subjectDraft ?? ((invoice as any).subject || "")}
+              onChange={(e) => setSubjectDraft(e.target.value)}
+              placeholder="例: 2026年6月分請求書　○○様"
+              className="h-9"
+            />
+            {subjectDraft !== null && subjectDraft !== ((invoice as any).subject || "") && (
+              <Button
+                size="sm"
+                className="h-9 gap-1 shrink-0"
+                disabled={updateInvoiceMutation.isPending}
+                onClick={() => updateInvoiceMutation.mutate({ id: invoice.id, subject: subjectDraft.trim() })}
+              >
+                {updateInvoiceMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                保存
+              </Button>
+            )}
           </div>
-        )}
+        </div>
         <div>
           <span className="text-muted-foreground">小計:</span> {formatYen(invoice.subtotal)}
         </div>
@@ -304,13 +399,80 @@ function InvoiceDetailDialog({
           </div>
         )}
 
-        {/* 出面表（添付用）— 取引先へ請求書と一緒に渡すプロジェクト別の出面表を生成 */}
-        <div className="col-span-2 rounded-md border border-border p-3">
+        {/* 添付設定 — 出面表・アップロード書類を請求書PDFに合体して1つのPDFにする */}
+        <div className="col-span-2 rounded-md border border-border p-3 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-xs font-medium">出面表（添付用）</p>
-              <p className="text-[11px] text-muted-foreground">取引先へ請求書と一緒に渡すプロジェクト別の出面表を生成します</p>
+              <p className="text-xs font-medium flex items-center gap-1.5"><Paperclip className="h-3.5 w-3.5 text-gold" />添付設定</p>
+              <p className="text-[11px] text-muted-foreground">選んだ添付を請求書PDFの後ろに合体して、1つのPDFとして生成します</p>
             </div>
+            <Button
+              size="sm"
+              className="gap-1.5 shrink-0 bg-gold text-black hover:bg-gold/90"
+              disabled={generatePdfWithAttachmentsMutation.isPending}
+              onClick={() =>
+                generatePdfWithAttachmentsMutation.mutate({
+                  id: invoice.id,
+                  attachAttendanceSheets: attachAttendance,
+                  attachDocumentKeys: Array.from(selectedDocKeys),
+                })
+              }
+            >
+              {generatePdfWithAttachmentsMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
+              PDF生成（添付込み）
+            </Button>
+          </div>
+
+          {/* 出面表の添付 ON/OFF */}
+          <div className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/10 px-3 py-2">
+            <div>
+              <p className="text-sm">出面表を添付する</p>
+              <p className="text-[11px] text-muted-foreground">現場別の出面表を自動生成して請求書の後ろに付けます</p>
+            </div>
+            <Switch checked={attachAttendance} onCheckedChange={setAttachAttendance} />
+          </div>
+
+          {/* アップロード書類の選択 */}
+          <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2 space-y-1.5">
+            <p className="text-sm">アップロード書類を添付する</p>
+            {attachableDocsQuery.isLoading ? (
+              <p className="text-[11px] text-muted-foreground">読み込み中…</p>
+            ) : attachableDocs.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">この請求書の対象月・現場にアップロード書類（領収書など）はありません</p>
+            ) : (
+              <ul className="space-y-1">
+                {attachableDocs.map((doc: any) => (
+                  <li key={doc.key} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      id={`doc-${doc.key}`}
+                      checked={selectedDocKeys.has(doc.key)}
+                      onCheckedChange={(checked) => {
+                        setSelectedDocKeys((prev) => {
+                          const next = new Set(prev);
+                          if (checked) next.add(doc.key);
+                          else next.delete(doc.key);
+                          return next;
+                        });
+                      }}
+                    />
+                    <label htmlFor={`doc-${doc.key}`} className="min-w-0 flex-1 cursor-pointer truncate">
+                      {doc.fileName}
+                      <span className="ml-2 text-[11px] text-muted-foreground">
+                        {doc.source}・{doc.projectName}{doc.workerName ? `・${doc.workerName}` : ""}
+                      </span>
+                    </label>
+                    <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-gold hover:text-gold-dim text-xs shrink-0">
+                      表示
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* 出面表の個別ダウンロード（従来機能） */}
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-muted-foreground">出面表を個別に確認・ダウンロードする場合はこちら</p>
             <Button
               size="sm"
               variant="outline"
@@ -323,7 +485,7 @@ function InvoiceDetailDialog({
             </Button>
           </div>
           {attendanceSheets.length > 0 && (
-            <ul className="mt-3 space-y-1.5">
+            <ul className="space-y-1.5">
               {attendanceSheets.map((s) => (
                 <li key={s.projectId} className="flex items-center justify-between gap-2 text-sm">
                   <span className="truncate">
@@ -488,11 +650,19 @@ function InvoiceDetailDialog({
                   <Select
                     value={editItem.unit}
                     onValueChange={(v) => {
-                      setEditItem((prev) => prev ? ({
-                        ...prev,
-                        unit: v,
-                        amount: calcAmount(prev.quantity, v, prev.unitPrice),
-                      }) : prev);
+                      setEditItem((prev) => {
+                        if (!prev) return prev;
+                        // 「日」は内部×10保存のため、単位切替時に数量を換算して表示値を保つ。
+                        let quantity = prev.quantity;
+                        if (prev.unit === "日" && v !== "日") quantity = Math.round(quantity / 10);
+                        else if (prev.unit !== "日" && v === "日") quantity = quantity * 10;
+                        return {
+                          ...prev,
+                          unit: v,
+                          quantity,
+                          amount: calcAmount(quantity, v, prev.unitPrice),
+                        };
+                      });
                     }}
                   >
                     <SelectTrigger className="h-8">
@@ -632,11 +802,18 @@ function InvoiceDetailDialog({
                   <Select
                     value={newItem.unit}
                     onValueChange={(v) => {
-                      setNewItem((prev) => ({
-                        ...prev,
-                        unit: v,
-                        amount: calcAmount(prev.quantity, v, prev.unitPrice),
-                      }));
+                      setNewItem((prev) => {
+                        // 「日」は内部×10保存のため、単位切替時に数量を換算して表示値を保つ。
+                        let quantity = prev.quantity;
+                        if (prev.unit === "日" && v !== "日") quantity = Math.round(quantity / 10);
+                        else if (prev.unit !== "日" && v === "日") quantity = quantity * 10;
+                        return {
+                          ...prev,
+                          unit: v,
+                          quantity,
+                          amount: calcAmount(quantity, v, prev.unitPrice),
+                        };
+                      });
                     }}
                   >
                     <SelectTrigger className="h-8">
@@ -744,6 +921,7 @@ function InvoiceDetailDialog({
       )}
       </>
       )}
+      {pdfViewer.dialog}
     </div>
   );
 }
