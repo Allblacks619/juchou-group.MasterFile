@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>充寵グループ｜電気工事施工のプロフェッショナル｜東京・神奈川・埼玉・千葉</title>
+<meta name="description" content="充寵グループ（JYUCHOU GROUP）は一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。低圧設備・幹線・配管・配線・盤据付まで、東京・神奈川・埼玉・千葉で確実な施工品質をお届けします。協力会社募集・未経験OKの採用情報も。">
+<meta property="og:title" content="充寵グループ｜電気工事施工のプロフェッショナル｜東京・神奈川・埼玉・千葉">
+<meta property="og:description" content="充寵グループ（JYUCHOU GROUP）は一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。低圧設備・幹線・配管・配線・盤据付まで、東京・神奈川・埼玉・千葉で確実な施工品質をお届けします。協力会社募集・未経験OKの採用情報も。">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:site_name" content="充寵グループ">
+<link rel="canonical" href="https://juchou-group.com/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Electrician",
+  "name": "充寵グループ",
+  "alternateName": "JYUCHOU GROUP",
+  "url": "https://juchou-group.com/",
+  "telephone": "050-5873-4183",
+  "email": "info@juchou-group.com",
+  "address": {
+    "@type": "PostalAddress",
+    "addressRegion": "神奈川県",
+    "addressLocality": "秦野市",
+    "addressCountry": "JP"
+  },
+  "areaServed": ["東京都", "神奈川県", "埼玉県", "千葉県"],
+  "description": "一般電気用工作物工事を中心に、電気工事施工に特化したプロフェッショナルチーム。低圧設備・幹線・配管・配線・盤据付まで対応。"
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "対応エリアはどこまでですか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "東京・神奈川を中心に、埼玉・千葉まで対応しています。その他エリアも出張のご相談を承ります。" }
+    },
+    {
+      "@type": "Question",
+      "name": "どのような電気工事を依頼できますか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "低圧設備工事・幹線工事・配管/ラック据付・配線工事・盤据付/結線など、一般電気用工作物工事全般に対応しています。" }
+    },
+    {
+      "@type": "Question",
+      "name": "未経験でも電気工事の仕事に応募できますか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "応募できます。未経験者は日当13,000円〜スタートし、できる作業に応じて随時アップ。資格取得のサポート制度もあります。" }
+    },
+    {
+      "@type": "Question",
+      "name": "協力会社・元請けとしての取引は可能ですか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "可能です。お問い合わせフォームまたはお電話（050-5873-4183）からご相談ください。" }
+    }
+  ]
+}
+</script>
+<style>
+/* ============================================================
+   SEKOUZU / 施工図 — 充寵グループ
+   深い製図ネイビーの紙面に、白とシアンの製図線。
+   ページ全体をひとつの施工図面として読み進める。
+   ============================================================ */
+:root{
+  --paper-0:#0B1B29;
+  --paper-1:#0E2233;
+  --paper-2:#123A52;
+  --line:#CFE7EF;
+  --cyan:#7FD5E8;
+  --cyan-dim:rgba(127,213,232,.42);
+  --cyan-faint:rgba(127,213,232,.18);
+  --ink:#E9F2F6;
+  --ink-mid:#AFC7D3;
+  --ink-dim:#7E9AA9;
+  --red:#C7472E;
+  --red-hi:#E0603F;
+  --mono:"SF Mono","Menlo","Consolas","Liberation Mono",monospace;
+  --jp:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","Noto Sans JP","Meiryo",sans-serif;
+  --frame:rgba(207,231,239,.26);
+  --sheet-w:1180px;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html{scroll-padding-top:76px}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+html,body{overflow-x:clip}
+body{
+  font-family:var(--jp);
+  background:var(--paper-0);
+  color:var(--ink);
+  line-height:1.9;
+  font-size:15px;
+  font-weight:300;
+  -webkit-font-smoothing:antialiased;
+}
+img{max-width:100%;display:block}
+a{color:inherit}
+h1,h2,h3{font-weight:700;line-height:1.4}
+::selection{background:rgba(199,71,46,.55);color:#fff}
+
+/* ---------- 方眼グリッド（2層・視差） ---------- */
+.grid-layer{
+  position:fixed;left:0;top:-160px;width:100%;height:calc(100% + 320px);
+  pointer-events:none;z-index:0;will-change:transform;
+}
+.grid-fine{
+  background-image:
+    linear-gradient(rgba(127,213,232,.05) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(127,213,232,.05) 1px,transparent 1px);
+  background-size:24px 24px;
+}
+.grid-major{
+  background-image:
+    linear-gradient(rgba(127,213,232,.10) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(127,213,232,.10) 1px,transparent 1px);
+  background-size:120px 120px;
+}
+/* 紙面のムラ（大きなにじみ） */
+.paper-tone{
+  position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(1200px 800px at 78% -10%,rgba(18,58,82,.75),transparent 62%),
+    radial-gradient(900px 700px at -10% 42%,rgba(18,58,82,.5),transparent 60%),
+    radial-gradient(1000px 900px at 60% 110%,rgba(11,27,41,.9),transparent 65%);
+}
+main,header.site,footer.site-foot{position:relative;z-index:1}
+
+/* ---------- スクロールスケール（右端の縮尺定規） ---------- */
+.ruler{
+  position:fixed;right:22px;top:50%;transform:translateY(-50%);
+  height:58vh;width:30px;z-index:5;pointer-events:none;
+}
+.ruler .bar{position:absolute;right:9px;top:0;bottom:0;width:1px;background:var(--cyan-faint)}
+.ruler .tick{position:absolute;right:9px;width:7px;height:1px;background:var(--cyan-dim)}
+.ruler .marker{
+  position:absolute;right:4px;width:11px;height:11px;border:1px solid var(--red-hi);
+  transform:translateY(-6px) rotate(45deg);will-change:top;
+}
+.ruler .pct{
+  position:absolute;right:20px;font:10px/1 var(--mono);color:var(--cyan-dim);
+  letter-spacing:.08em;transform:translateY(-5px);white-space:nowrap;will-change:top;
+}
+@media (max-width:1023px){.ruler{display:none}}
+
+/* ---------- ナビゲーション（図面ヘッダー帯） ---------- */
+header.site{
+  position:fixed;top:0;left:0;right:0;z-index:20;
+  background:rgba(11,27,41,.82);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--frame);
+}
+.nav-in{
+  max-width:var(--sheet-w);margin:0 auto;padding:0 22px;
+  display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:58px;flex-wrap:wrap;
+}
+.brand{
+  text-decoration:none;display:flex;align-items:baseline;gap:10px;padding:8px 0;
+}
+.brand b{font-size:17px;font-weight:700;letter-spacing:.14em}
+.brand span{font:10px/1 var(--mono);color:var(--cyan);letter-spacing:.22em}
+nav.main{display:flex;gap:2px;flex-wrap:wrap}
+nav.main a{
+  text-decoration:none;font-size:12px;letter-spacing:.14em;color:var(--ink-mid);
+  padding:8px 13px;position:relative;transition:color .25s;
+}
+nav.main a::after{
+  content:"";position:absolute;left:13px;right:13px;bottom:4px;height:1px;
+  background:var(--cyan);transform:scaleX(0);transform-origin:left;transition:transform .3s;
+}
+nav.main a:hover{color:var(--cyan)}
+nav.main a:hover::after{transform:scaleX(1)}
+@media (max-width:560px){
+  .nav-in{padding:0 14px;min-height:52px}
+  .brand b{font-size:15px}
+  .brand span{display:none}
+  nav.main a{padding:7px 8px;font-size:11px;letter-spacing:.06em}
+}
+
+/* ---------- シート（各セクション＝図面1枚） ---------- */
+.sheet{
+  max-width:var(--sheet-w);
+  margin:0 auto;
+  padding:86px 40px 96px;
+  position:relative;
+}
+.sheet-frame{
+  position:absolute;inset:34px 18px;border:1px solid var(--frame);pointer-events:none;
+}
+/* トンボ（十字マーク）四隅 */
+.sheet-frame::before,.sheet-frame::after{
+  content:"";position:absolute;width:15px;height:15px;opacity:.75;
+  background:
+    linear-gradient(var(--cyan),var(--cyan)) center/100% 1px no-repeat,
+    linear-gradient(var(--cyan),var(--cyan)) center/1px 100% no-repeat;
+}
+.sheet-frame::before{top:-8px;left:-8px}
+.sheet-frame::after{bottom:-8px;right:-8px}
+.sheet-tag{
+  position:absolute;top:24px;left:34px;
+  font:10px/1 var(--mono);letter-spacing:.24em;color:var(--ink-dim);
+}
+.sheet-no{
+  position:absolute;bottom:24px;right:34px;
+  font:11px/1 var(--mono);letter-spacing:.2em;color:var(--cyan-dim);
+  display:flex;gap:16px;
+}
+.sheet-no em{font-style:normal;color:var(--ink-dim)}
+@media (max-width:640px){
+  .sheet{padding:66px 22px 78px}
+  .sheet-frame{inset:26px 10px}
+  .sheet-tag{left:24px;top:16px;letter-spacing:.14em}
+  .sheet-no{right:24px;bottom:16px;gap:10px;font-size:10px}
+}
+
+/* ---------- 見出し（引出線つき） ---------- */
+.sec-head{margin-bottom:46px;position:relative}
+.sec-kicker{
+  font:11px/1.6 var(--mono);color:var(--cyan);letter-spacing:.3em;margin-bottom:14px;
+  display:flex;align-items:center;gap:12px;
+}
+.sec-kicker::before{
+  content:"";width:34px;height:1px;background:var(--cyan);flex:none;
+}
+.sec-head h2{
+  font-size:clamp(26px,4vw,40px);letter-spacing:.1em;line-height:1.5;
+}
+/* 引出線: 見出し右上から斜めに伸びる線と端点 */
+.leader{
+  position:relative;height:30px;margin-top:10px;max-width:340px;
+}
+.leader::before{
+  content:"";position:absolute;left:0;top:0;width:100%;height:1px;background:var(--cyan-dim);
+  transform-origin:left;
+}
+.leader::after{
+  content:"";position:absolute;left:-2px;top:-2.5px;width:6px;height:6px;border-radius:50%;
+  background:var(--cyan);
+}
+.leader i{
+  position:absolute;right:0;top:0;width:26px;height:1px;background:var(--cyan-dim);
+  transform:rotate(38deg);transform-origin:left top;
+}
+.leader b{
+  position:absolute;right:-4px;top:16px;font:10px/1 var(--mono);font-weight:400;
+  color:var(--ink-dim);letter-spacing:.24em;
+}
+
+/* ---------- リビール ---------- */
+.rv{opacity:0;transform:translateY(28px)}
+.rv.in{opacity:1;transform:none;transition:opacity .9s cubic-bezier(.22,.7,.25,1),transform .9s cubic-bezier(.22,.7,.25,1)}
+.rv2.in{transition-delay:.12s}
+.rv3.in{transition-delay:.24s}
+
+/* ---------- HERO（表紙 SHEET S-00） ---------- */
+#hero{margin-top:58px}
+@media (max-width:560px){#hero{margin-top:52px}}
+.hero-titleblock{
+  border:1px solid var(--frame);display:grid;
+  grid-template-columns:1fr auto auto auto;margin-bottom:70px;
+  background:rgba(14,34,51,.4);
+}
+.hero-titleblock>div{
+  padding:10px 18px;border-right:1px solid var(--frame);min-width:0;
+}
+.hero-titleblock>div:last-child{border-right:none}
+.hero-titleblock small{
+  display:block;font:9px/1.6 var(--mono);letter-spacing:.22em;color:var(--ink-dim);
+}
+.hero-titleblock strong{
+  display:block;font-size:12px;letter-spacing:.16em;font-weight:600;color:var(--ink-mid);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.hero-titleblock strong.mono{font-family:var(--mono);color:var(--cyan)}
+@media (max-width:760px){
+  .hero-titleblock{grid-template-columns:1fr 1fr;margin-bottom:48px}
+  .hero-titleblock>div{border-bottom:1px solid var(--frame)}
+  .hero-titleblock>div:nth-child(2n){border-right:none}
+  .hero-titleblock>div:nth-child(n+3){border-bottom:none}
+}
+.hero-grid{
+  display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center;
+}
+@media (max-width:920px){.hero-grid{grid-template-columns:1fr;gap:44px}}
+.hero-copy h1{
+  font-size:clamp(32px,5.2vw,58px);letter-spacing:.08em;line-height:1.55;
+  margin-bottom:26px;
+}
+.hero-copy h1 .u{
+  background:linear-gradient(var(--cyan-dim),var(--cyan-dim)) 0 92%/100% 1px no-repeat;
+}
+.hero-sub{
+  color:var(--ink-mid);font-size:clamp(13px,1.4vw,15px);max-width:34em;margin-bottom:40px;
+}
+.hero-meta{
+  font:10px/1.8 var(--mono);color:var(--ink-dim);letter-spacing:.2em;margin-bottom:14px;
+}
+.cta-row{display:flex;gap:16px;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;gap:12px;text-decoration:none;
+  font-size:13px;letter-spacing:.2em;font-weight:600;padding:15px 26px;
+  border:1px solid var(--cyan-dim);color:var(--ink);position:relative;
+  background:rgba(127,213,232,.04);transition:background .3s,border-color .3s,color .3s;
+}
+.btn .no{font:10px/1 var(--mono);font-weight:400;color:var(--cyan);letter-spacing:.1em}
+.btn::after{content:"→";font-family:var(--mono);font-size:13px;transition:transform .3s}
+.btn:hover{background:rgba(127,213,232,.12);border-color:var(--cyan)}
+.btn:hover::after{transform:translateX(5px)}
+.btn.primary{border-color:rgba(224,96,63,.65);background:rgba(199,71,46,.1)}
+.btn.primary .no{color:var(--red-hi)}
+.btn.primary:hover{background:rgba(199,71,46,.22);border-color:var(--red-hi)}
+
+/* CAD線画（スクロールで作図される） */
+.hero-draw{position:relative}
+.hero-draw svg{width:100%;height:auto;display:block}
+#heroDraw .dw{
+  fill:none;stroke:var(--line);stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round;
+  stroke-dasharray:1;stroke-dashoffset:1;
+}
+#heroDraw .dw.cy{stroke:var(--cyan)}
+#heroDraw .dw.thin{stroke-width:.8;stroke:var(--cyan-dim)}
+#heroDraw .lbl{opacity:0;transition:opacity .6s}
+#heroDraw .lbl.show{opacity:1}
+#heroDraw text{font-family:var(--mono);letter-spacing:.14em}
+.hero-draw .cap{
+  margin-top:12px;font:10px/1.8 var(--mono);color:var(--ink-dim);letter-spacing:.2em;
+  display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;
+}
+.hero-draw .cap b{color:var(--cyan-dim);font-weight:400}
+
+/* スクロール指示 */
+.scroll-cue{
+  margin-top:76px;display:flex;align-items:center;gap:16px;
+  font:10px/1 var(--mono);letter-spacing:.32em;color:var(--ink-dim);
+}
+.scroll-cue::before{
+  content:"";width:1px;height:44px;background:linear-gradient(var(--cyan),transparent);
+  transform-origin:top;animation:cue 2.2s ease-in-out infinite;
+}
+@keyframes cue{0%,100%{transform:scaleY(.4);opacity:.4}50%{transform:scaleY(1);opacity:1}}
+
+/* ---------- 貼付写真（マスキングテープ＋寸法線） ---------- */
+.plate{
+  position:relative;margin:0;
+}
+.plate .ph{
+  position:relative;overflow:hidden;border:1px solid rgba(207,231,239,.35);
+  background:var(--paper-1);
+  box-shadow:0 24px 60px -18px rgba(0,0,0,.65);
+}
+.plate .ph img{
+  width:100%;height:100%;object-fit:cover;transform:scale(1.14);will-change:transform;
+  filter:saturate(.92) contrast(1.03);
+}
+.plate.tilt-l{transform:rotate(-1.4deg)}
+.plate.tilt-r{transform:rotate(1.1deg)}
+/* マスキングテープ */
+.tape{
+  position:absolute;width:104px;height:30px;z-index:3;
+  background:rgba(213,222,218,.3);
+  border-left:1px dashed rgba(255,255,255,.35);
+  border-right:1px dashed rgba(255,255,255,.35);
+  box-shadow:0 2px 6px rgba(0,0,0,.25);
+  -webkit-backdrop-filter:blur(1px);backdrop-filter:blur(1px);
+}
+.tape.tl{top:-13px;left:-26px;transform:rotate(-42deg)}
+.tape.br{bottom:-13px;right:-26px;transform:rotate(-42deg)}
+.tape.tr{top:-13px;right:-26px;transform:rotate(42deg)}
+/* 寸法線 */
+.dim-h{
+  position:absolute;left:0;right:0;top:-26px;height:1px;background:var(--cyan-dim);
+}
+.dim-h::before,.dim-h::after{
+  content:"";position:absolute;top:-4.5px;width:10px;height:1px;background:var(--cyan);
+  transform:rotate(45deg);
+}
+.dim-h::before{left:-4px}
+.dim-h::after{right:-4px}
+.dim-h i{
+  position:absolute;left:0;top:-6px;width:1px;height:13px;background:var(--cyan-dim);
+}
+.dim-h i+i{left:auto;right:0}
+.dim-h b{
+  position:absolute;left:50%;top:-19px;transform:translateX(-50%);
+  font:10px/1 var(--mono);font-weight:400;color:var(--cyan);letter-spacing:.16em;
+  background:transparent;white-space:nowrap;
+}
+.dim-v{
+  position:absolute;top:0;bottom:0;right:-26px;width:1px;background:var(--cyan-dim);
+}
+.dim-v::before,.dim-v::after{
+  content:"";position:absolute;left:-4.5px;width:10px;height:1px;background:var(--cyan);
+  transform:rotate(45deg);
+}
+.dim-v::before{top:-4px}
+.dim-v::after{bottom:-4px}
+.dim-v b{
+  position:absolute;top:50%;left:8px;transform:translateY(-50%);
+  font:10px/1 var(--mono);font-weight:400;color:var(--cyan);letter-spacing:.16em;
+  writing-mode:vertical-rl;white-space:nowrap;
+}
+.plate figcaption{
+  margin-top:18px;font:10px/1.9 var(--mono);color:var(--ink-dim);letter-spacing:.18em;
+  display:flex;gap:14px;align-items:baseline;
+}
+.plate figcaption b{color:var(--red-hi);font-weight:400;flex:none}
+@media (max-width:640px){
+  .dim-v{right:-14px}
+  .dim-v b{left:6px}
+  .tape{width:78px;height:24px}
+  .tape.tl{top:-10px;left:-18px}
+  .tape.br{bottom:-10px;right:-18px}
+  .tape.tr{top:-10px;right:-18px}
+}
+/* ヒーロー写真は図面下部に大きく */
+.hero-plate-wrap{margin-top:96px;padding:0 8px}
+.hero-plate .ph{aspect-ratio:16/8.2}
+@media (max-width:640px){.hero-plate .ph{aspect-ratio:4/3}.hero-plate-wrap{margin-top:64px}}
+
+/* ---------- 職を持つ（G-01） ---------- */
+.philo-grid{
+  display:grid;grid-template-columns:.92fr 1.08fr;gap:64px;align-items:center;
+}
+@media (max-width:920px){.philo-grid{grid-template-columns:1fr;gap:52px}}
+.philo-body p{
+  color:var(--ink-mid);font-size:clamp(13.5px,1.4vw,15px);
+  max-width:36em;
+}
+.philo-body p+p{margin-top:1.4em}
+.philo-body .em{color:var(--ink);font-weight:600}
+.philo-plate .ph{aspect-ratio:4/3.4}
+.philo-note{
+  margin-top:34px;border-left:2px solid var(--red);padding:4px 0 4px 18px;
+  font-size:13px;color:var(--ink-mid);letter-spacing:.06em;
+}
+.philo-note b{font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:var(--red-hi);display:block;margin-bottom:4px;font-weight:400}
+
+/* ---------- 施工スタンス＝検査チェックリスト（Q-01） ---------- */
+.chk-head{
+  display:grid;grid-template-columns:58px 1fr 96px;gap:18px;
+  padding:0 20px 12px;border-bottom:1px solid var(--cyan-dim);
+  font:10px/1 var(--mono);letter-spacing:.26em;color:var(--cyan);
+}
+.chk-head span:last-child{text-align:center}
+ul.checklist{list-style:none}
+.chk-item{
+  display:grid;grid-template-columns:58px 1fr 96px;gap:18px;align-items:center;
+  padding:26px 20px;border-bottom:1px dashed rgba(207,231,239,.18);
+  position:relative;
+}
+.chk-item::before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--cyan);
+  transform:scaleY(0);transform-origin:top;transition:transform .5s ease .1s;
+}
+.chk-item.on::before{transform:scaleY(1)}
+.chk-no{
+  font:15px/1 var(--mono);color:var(--cyan-dim);letter-spacing:.1em;align-self:start;padding-top:6px;
+}
+.chk-item h3{font-size:clamp(16px,2vw,19px);letter-spacing:.14em;margin-bottom:8px}
+.chk-item p{color:var(--ink-mid);font-size:13.5px;max-width:44em}
+/* 検収印「合」 */
+.seal-box{
+  width:76px;height:76px;justify-self:center;position:relative;
+  border:1px dashed rgba(207,231,239,.28);
+  display:flex;align-items:center;justify-content:center;
+}
+.seal-box::after{
+  content:"検";position:absolute;top:-7px;left:50%;transform:translateX(-50%);
+  font:9px/1 var(--mono);letter-spacing:.1em;color:var(--ink-dim);background:var(--paper-0);padding:0 5px;
+}
+.seal{
+  width:56px;height:56px;border:2.5px solid var(--red-hi);border-radius:50%;
+  color:var(--red-hi);display:flex;align-items:center;justify-content:center;
+  font-size:24px;font-weight:700;position:relative;
+  opacity:0;transform:scale(2.1) rotate(-20deg);
+  text-shadow:0 0 1px rgba(224,96,63,.6);
+}
+.seal::before{
+  content:"";position:absolute;inset:3px;border:1px solid rgba(224,96,63,.75);border-radius:50%;
+}
+/* 印影のかすれ */
+.seal::after{
+  content:"";position:absolute;inset:-3px;border-radius:50%;
+  background:
+    radial-gradient(6px 5px at 22% 20%,rgba(14,34,51,.85),transparent 70%),
+    radial-gradient(5px 6px at 76% 74%,rgba(14,34,51,.7),transparent 70%);
+}
+.chk-item.on .seal{
+  opacity:.94;
+  transform:scale(1) rotate(-9deg);
+  transition:transform .38s cubic-bezier(.16,1.6,.35,1),opacity .22s ease;
+}
+@media (max-width:640px){
+  .chk-head{grid-template-columns:34px 1fr 66px;gap:10px;padding:0 6px 10px}
+  .chk-item{grid-template-columns:34px 1fr 66px;gap:10px;padding:22px 6px}
+  .seal-box{width:60px;height:60px}
+  .seal{width:46px;height:46px;font-size:19px}
+}
+
+/* ---------- 施工内容（E-01） ---------- */
+.svc-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--frame);
+}
+.svc{
+  padding:34px 28px 38px;border-right:1px solid var(--frame);border-bottom:1px solid var(--frame);
+  position:relative;transition:background .35s;
+}
+.svc:nth-child(3n){border-right:none}
+.svc:nth-child(n+4){border-bottom:none}
+.svc:hover{background:rgba(127,213,232,.05)}
+.svc .code{
+  font:10px/1 var(--mono);letter-spacing:.22em;color:var(--cyan-dim);display:block;margin-bottom:20px;
+}
+.svc .ico{width:46px;height:46px;margin-bottom:20px;display:block}
+.svc .ico *{fill:none;stroke:var(--cyan);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.svc .ico .fl{fill:var(--cyan);stroke:none}
+.svc h3{font-size:16.5px;letter-spacing:.12em;margin-bottom:10px}
+.svc p{color:var(--ink-mid);font-size:13px;line-height:1.95}
+.svc::after{
+  content:"";position:absolute;right:12px;top:12px;width:7px;height:7px;
+  border-top:1px solid var(--cyan-dim);border-right:1px solid var(--cyan-dim);
+  opacity:0;transition:opacity .3s;
+}
+.svc:hover::after{opacity:1}
+@media (max-width:920px){
+  .svc-grid{grid-template-columns:1fr 1fr}
+  .svc:nth-child(3n){border-right:1px solid var(--frame)}
+  .svc:nth-child(2n){border-right:none}
+  .svc:nth-child(n+4){border-bottom:1px solid var(--frame)}
+  .svc:nth-child(n+5){border-bottom:none}
+}
+@media (max-width:560px){
+  .svc-grid{grid-template-columns:1fr}
+  .svc{border-right:none !important;border-bottom:1px solid var(--frame) !important}
+  .svc:last-child{border-bottom:none !important}
+}
+.svc-plate-row{
+  display:grid;grid-template-columns:1.15fr .85fr;gap:60px;align-items:center;margin-top:76px;
+}
+@media (max-width:920px){.svc-plate-row{grid-template-columns:1fr;gap:48px}}
+.svc-plate .ph{aspect-ratio:16/9.4}
+.svc-side p{color:var(--ink-mid);font-size:14px;max-width:30em}
+.svc-side .spec{
+  margin-top:26px;font:11px/2.3 var(--mono);color:var(--ink-dim);letter-spacing:.14em;
+  border-top:1px solid var(--frame);padding-top:18px;
+}
+.svc-side .spec b{color:var(--cyan);font-weight:400}
+
+/* ---------- 対応エリア（M-01） ---------- */
+.area-grid{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--frame);
+  border:1px solid var(--frame);
+}
+.area-cell{
+  background:var(--paper-1);padding:30px 24px 26px;position:relative;
+}
+.area-cell .jis{
+  font:10px/1 var(--mono);letter-spacing:.2em;color:var(--cyan-dim);display:block;margin-bottom:16px;
+}
+.area-cell h3{font-size:clamp(17px,2vw,21px);letter-spacing:.2em;margin-bottom:10px}
+.area-cell .tag{
+  display:inline-block;font:9px/1 var(--mono);letter-spacing:.2em;padding:5px 9px;
+  border:1px solid var(--cyan-dim);color:var(--cyan);
+}
+.area-cell.core .tag{border-color:rgba(224,96,63,.7);color:var(--red-hi)}
+.area-cell.core::after{
+  content:"";position:absolute;top:12px;right:12px;width:8px;height:8px;border-radius:50%;
+  border:1px solid var(--red-hi);
+}
+.area-note{
+  margin-top:22px;font-size:12.5px;color:var(--ink-dim);letter-spacing:.1em;
+  font-family:var(--mono);
+}
+@media (max-width:820px){.area-grid{grid-template-columns:1fr 1fr}}
+
+/* ---------- 協力体制（G-02） ---------- */
+.partner{max-width:760px}
+.partner p{color:var(--ink-mid);font-size:clamp(13.5px,1.5vw,15px)}
+.partner-diagram{
+  margin-top:44px;display:flex;align-items:center;gap:0;flex-wrap:wrap;
+  font:11px/1.7 var(--mono);letter-spacing:.14em;color:var(--ink-mid);
+}
+.pd-node{
+  border:1px solid var(--cyan-dim);padding:14px 22px;text-align:center;background:rgba(14,34,51,.5);
+}
+.pd-node small{display:block;font-size:9px;color:var(--cyan-dim);letter-spacing:.22em;margin-bottom:3px}
+.pd-link{
+  flex:1;min-width:40px;height:1px;background:var(--cyan-dim);position:relative;
+}
+.pd-link::after{
+  content:"";position:absolute;right:0;top:-3px;border-left:6px solid var(--cyan-dim);
+  border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;
+}
+.pd-link b{
+  position:absolute;top:-20px;left:50%;transform:translateX(-50%);
+  font-size:9px;font-weight:400;color:var(--ink-dim);letter-spacing:.2em;white-space:nowrap;
+}
+@media (max-width:640px){
+  .partner-diagram{flex-direction:column;align-items:stretch;gap:8px}
+  .pd-link{width:1px;min-width:0;height:34px;margin:0 auto}
+  .pd-link::after{right:-3px;top:auto;bottom:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent;border-top:6px solid var(--cyan-dim);border-bottom:none}
+  .pd-link b{top:50%;left:14px;transform:translateY(-50%)}
+}
+
+/* ---------- 採用（R-01） ---------- */
+.recruit-wrap{display:grid;grid-template-columns:.9fr 1.1fr;gap:64px;align-items:start}
+@media (max-width:920px){.recruit-wrap{grid-template-columns:1fr;gap:44px}}
+.recruit-lead p{color:var(--ink-mid);font-size:14px;max-width:30em}
+.recruit-lead .cta-row{margin-top:36px}
+.spec-table{border:1px solid var(--frame);width:100%}
+.spec-row{
+  display:grid;grid-template-columns:150px 1fr;border-bottom:1px solid var(--frame);
+}
+.spec-row:last-child{border-bottom:none}
+.spec-row dt{
+  padding:18px 20px;font:11px/2 var(--mono);letter-spacing:.18em;color:var(--cyan);
+  border-right:1px solid var(--frame);background:rgba(127,213,232,.04);
+}
+.spec-row dd{padding:18px 22px;font-size:13.5px;color:var(--ink-mid);line-height:2}
+.spec-row dd b{color:var(--ink);font-weight:600}
+.spec-row dd .yen{font-family:var(--mono);color:var(--cyan);letter-spacing:.04em}
+@media (max-width:560px){
+  .spec-row{grid-template-columns:1fr}
+  .spec-row dt{border-right:none;border-bottom:1px dashed rgba(207,231,239,.16);padding:12px 18px}
+  .spec-row dd{padding:14px 18px}
+}
+
+/* ---------- FAQ 質疑応答書（F-01） ---------- */
+.qa-list{max-width:860px}
+.qa{
+  border:1px solid var(--frame);margin-bottom:22px;background:rgba(14,34,51,.35);
+}
+.qa .q{
+  display:flex;gap:18px;padding:22px 26px;border-bottom:1px dashed rgba(207,231,239,.2);
+  align-items:baseline;
+}
+.qa .q .m{font:12px/1.9 var(--mono);color:var(--cyan);letter-spacing:.12em;flex:none}
+.qa .q h3{font-size:15.5px;letter-spacing:.1em;font-weight:600}
+.qa .a{display:flex;gap:18px;padding:20px 26px;align-items:baseline}
+.qa .a .m{font:12px/1.9 var(--mono);color:var(--red-hi);letter-spacing:.12em;flex:none}
+.qa .a p{color:var(--ink-mid);font-size:13.5px}
+.qa .a a{color:var(--cyan);text-decoration:none;border-bottom:1px solid var(--cyan-dim)}
+.qa .a a:hover{border-bottom-color:var(--cyan)}
+@media (max-width:560px){.qa .q,.qa .a{padding:16px 16px;gap:12px}}
+
+/* ---------- 会社概要＝表題欄（A-01） ---------- */
+.titleblock{
+  border:1.5px solid rgba(207,231,239,.5);max-width:900px;margin:0 auto;
+  background:rgba(14,34,51,.55);
+}
+.tb-head{
+  display:grid;grid-template-columns:1fr auto;border-bottom:1.5px solid rgba(207,231,239,.5);
+}
+.tb-head .name{padding:24px 28px}
+.tb-head .name small{
+  display:block;font:10px/1.6 var(--mono);letter-spacing:.3em;color:var(--cyan);margin-bottom:6px;
+}
+.tb-head .name strong{font-size:clamp(20px,3vw,27px);letter-spacing:.22em}
+.tb-head .stamp-cell{
+  border-left:1px solid var(--frame);padding:16px 26px;display:flex;align-items:center;justify-content:center;
+}
+.tb-rows{width:100%}
+.tb-row{display:grid;grid-template-columns:170px 1fr;border-bottom:1px solid var(--frame)}
+.tb-row:last-child{border-bottom:none}
+.tb-row dt{
+  padding:15px 24px;border-right:1px solid var(--frame);
+  font:11px/2 var(--mono);letter-spacing:.2em;color:var(--cyan);
+  background:rgba(127,213,232,.04);
+}
+.tb-row dd{padding:15px 26px;font-size:13.5px;color:var(--ink-mid);letter-spacing:.08em;line-height:2;overflow-wrap:anywhere}
+.tb-row dd a{color:var(--cyan);text-decoration:none;border-bottom:1px solid var(--cyan-dim)}
+@media (max-width:560px){
+  .tb-row{grid-template-columns:110px 1fr}
+  .tb-row dt{padding:12px 14px;letter-spacing:.1em}
+  .tb-row dd{padding:12px 16px}
+  .tb-head .stamp-cell{padding:10px 14px}
+}
+
+/* ---------- フッターCTA / QR ---------- */
+.foot-cta{
+  text-align:center;padding:30px 0 10px;
+}
+.foot-cta h2{font-size:clamp(22px,3.4vw,34px);letter-spacing:.14em;margin-bottom:18px}
+.foot-cta>p{color:var(--ink-mid);font-size:14px;max-width:34em;margin:0 auto 40px}
+.foot-cta .cta-row{justify-content:center}
+.contact-line{
+  margin-top:44px;display:flex;justify-content:center;gap:14px 44px;flex-wrap:wrap;
+  font:13px/2 var(--mono);letter-spacing:.1em;color:var(--ink-mid);
+}
+.contact-line a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--cyan-dim);transition:color .25s}
+.contact-line a:hover{color:var(--cyan)}
+.contact-line small{font-size:10px;color:var(--cyan);letter-spacing:.24em;margin-right:10px}
+.qr-row{
+  display:flex;justify-content:center;gap:34px;margin-top:56px;flex-wrap:wrap;
+}
+.qr-card{
+  border:1px solid var(--frame);padding:20px 22px 16px;text-align:center;text-decoration:none;
+  background:rgba(14,34,51,.4);transition:border-color .3s,background .3s;position:relative;
+}
+.qr-card::before{
+  content:"添付資料";position:absolute;top:-8px;left:14px;background:var(--paper-0);
+  font:9px/1 var(--mono);letter-spacing:.26em;color:var(--ink-dim);padding:0 8px;
+}
+.qr-card:hover{border-color:var(--cyan);background:rgba(127,213,232,.06)}
+.qr-card img{width:124px;height:124px;background:#fff;padding:6px}
+.qr-card span{
+  display:block;margin-top:12px;font:10px/1.7 var(--mono);letter-spacing:.18em;color:var(--ink-mid);
+}
+footer.site-foot{
+  border-top:1px solid var(--frame);padding:26px 22px 30px;
+  text-align:center;
+}
+footer.site-foot .in{
+  max-width:var(--sheet-w);margin:0 auto;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  font:10px/2 var(--mono);letter-spacing:.2em;color:var(--ink-dim);
+}
+footer.site-foot .in span:last-child{color:var(--cyan-dim)}
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+  .rv{opacity:1;transform:none}
+  .plate .ph img{transform:none}
+  #heroDraw .dw{stroke-dashoffset:0 !important}
+  #heroDraw .lbl{opacity:1}
+  .seal{opacity:.94;transform:scale(1) rotate(-9deg)}
+  .chk-item::before{transform:scaleY(1)}
+  .scroll-cue::before{animation:none}
+}
+</style>
+</head>
+<body id="top">
+
+<!-- 方眼グリッド 2層（rAFで異速パララックス） -->
+<div class="grid-layer grid-fine" id="gridFine" aria-hidden="true"></div>
+<div class="grid-layer grid-major" id="gridMajor" aria-hidden="true"></div>
+<div class="paper-tone" aria-hidden="true"></div>
+
+<!-- 右端: 縮尺スケール（スクロール進捗） -->
+<div class="ruler" id="ruler" aria-hidden="true">
+  <span class="bar"></span>
+  <span class="tick" style="top:0"></span>
+  <span class="tick" style="top:25%"></span>
+  <span class="tick" style="top:50%"></span>
+  <span class="tick" style="top:75%"></span>
+  <span class="tick" style="top:100%"></span>
+  <span class="marker" id="rulerMark" style="top:0%"></span>
+  <span class="pct" id="rulerPct" style="top:0%">000%</span>
+</div>
+
+<header class="site">
+  <div class="nav-in">
+    <a class="brand" href="#top"><b>充寵グループ</b><span>JYUCHOU GROUP</span></a>
+    <nav class="main" aria-label="メインナビゲーション">
+      <a href="#top">ホーム</a>
+      <a href="#services">施工内容</a>
+      <a href="#stance">施工スタンス</a>
+      <a href="https://www.juchou-group.com/recruit">採用情報</a>
+      <a href="https://www.juchou-group.com/contact">お問い合わせ</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ SHEET S-00 表紙 ============ -->
+<section class="sheet" id="hero">
+  <div class="sheet-frame" aria-hidden="true"></div>
+  <span class="sheet-tag">JYUCHOU GROUP — 施工図</span>
+
+  <div style="padding-top:26px">
+    <!-- 表題欄風ヘッダー -->
+    <div class="hero-titleblock rv">
+      <div><small>工事名称 / PROJECT</small><strong>電気工事施工 一式</strong></div>
+      <div><small>図面名称 / TITLE</small><strong>表紙・全体計画</strong></div>
+      <div><small>縮尺 / SCALE</small><strong class="mono">S = 1 : 1</strong></div>
+      <div><small>図番 / SHEET</small><strong class="mono">S-00</strong></div>
+    </div>
+
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="hero-meta rv">DRAWN BY JYUCHOU GROUP ／ 神奈川県秦野市 ／ 電気工事“施工”専門</p>
+        <h1 class="rv rv2">未来をつなぐ、<br><span class="u">地図に残る仕事。</span></h1>
+        <p class="hero-sub rv rv3">一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。東京・神奈川・埼玉・千葉の現場で、確かな品質を積み重ねる。</p>
+        <div class="cta-row rv rv3">
+          <a class="btn" href="https://www.juchou-group.com/contact"><span class="no">C-01</span>工事のご相談</a>
+          <a class="btn primary" href="https://www.juchou-group.com/recruit"><span class="no">R-01</span>採用情報を見る</a>
+        </div>
+        <p class="scroll-cue">SCROLL — 図面を読み進める</p>
+      </div>
+
+      <!-- CAD線画: スクロールに応じて分電盤・電線管が作図される -->
+      <div class="hero-draw rv rv2" aria-hidden="true">
+        <svg id="heroDraw" viewBox="0 0 620 470">
+          <!-- 通り芯 X1（一点鎖線・フェードイン） -->
+          <g class="lbl" data-at="0.04">
+            <line x1="48" y1="86" x2="48" y2="446" stroke="rgba(224,96,63,.5)" stroke-width="0.8" stroke-dasharray="14 5 2 5"></line>
+            <circle cx="48" cy="62" r="15" fill="none" stroke="rgba(224,96,63,.8)" stroke-width="1"></circle>
+            <text x="48" y="66" text-anchor="middle" font-size="11" fill="#E0603F">X1</text>
+          </g>
+          <!-- 分電盤 外形 -->
+          <path class="dw" data-s="0.03" data-e="0.20" pathLength="1" d="M96 190 H266 V420 H96 Z"></path>
+          <!-- 分電盤 内枠 -->
+          <path class="dw thin" data-s="0.16" data-e="0.30" pathLength="1" d="M108 202 H254 V408 H108 Z"></path>
+          <!-- ブレーカ列 -->
+          <path class="dw cy" data-s="0.26" data-e="0.52" pathLength="1" d="M181 216 V394 M120 226 H172 M190 226 H242 M120 250 H172 M190 250 H242 M120 274 H172 M190 274 H242 M120 298 H172 M190 298 H242 M120 322 H172 M190 322 H242 M120 346 H172 M190 346 H242 M120 370 H172 M190 370 H242"></path>
+          <!-- 電線管 3条（盤上部から立上げ→横引き） -->
+          <path class="dw" data-s="0.42" data-e="0.62" pathLength="1" d="M126 190 V104 Q126 92 138 92 H384"></path>
+          <path class="dw" data-s="0.48" data-e="0.68" pathLength="1" d="M166 190 V120 Q166 108 178 108 H384"></path>
+          <path class="dw" data-s="0.54" data-e="0.74" pathLength="1" d="M206 190 V136 Q206 124 218 124 H384"></path>
+          <!-- プルボックス -->
+          <path class="dw" data-s="0.66" data-e="0.78" pathLength="1" d="M384 76 H466 V140 H384 Z M384 76 L466 140"></path>
+          <!-- 横引きラック＋支持金物 -->
+          <path class="dw" data-s="0.74" data-e="0.90" pathLength="1" d="M466 108 H600 M498 92 V124 M532 92 V124 M566 92 V124"></path>
+          <!-- 寸法線（盤幅） -->
+          <path class="dw thin" data-s="0.86" data-e="0.97" pathLength="1" d="M96 444 H266 M96 436 V452 M266 436 V452 M90 450 L102 438 M260 450 L272 438"></path>
+          <!-- ラベル群 -->
+          <g class="lbl" data-at="0.34">
+            <text x="181" y="443" text-anchor="middle" font-size="10" fill="#7FD5E8" transform="translate(0,-10)">1,700</text>
+          </g>
+          <g class="lbl" data-at="0.5">
+            <line x1="266" y1="300" x2="330" y2="270" stroke="rgba(127,213,232,.42)" stroke-width="0.8"></line>
+            <circle cx="266" cy="300" r="2" fill="#7FD5E8"></circle>
+            <text x="336" y="272" font-size="10.5" fill="#CFE7EF">分電盤</text>
+          </g>
+          <g class="lbl" data-at="0.7">
+            <line x1="300" y1="92" x2="322" y2="60" stroke="rgba(127,213,232,.42)" stroke-width="0.8"></line>
+            <circle cx="300" cy="92" r="2" fill="#7FD5E8"></circle>
+            <text x="328" y="58" font-size="10.5" fill="#CFE7EF">電線管（3条）</text>
+          </g>
+          <g class="lbl" data-at="0.82">
+            <line x1="425" y1="140" x2="448" y2="180" stroke="rgba(127,213,232,.42)" stroke-width="0.8"></line>
+            <circle cx="425" cy="140" r="2" fill="#7FD5E8"></circle>
+            <text x="454" y="186" font-size="10.5" fill="#CFE7EF">プルボックス</text>
+          </g>
+          <g class="lbl" data-at="0.93">
+            <text x="600" y="70" text-anchor="end" font-size="10" fill="rgba(127,213,232,.6)">ケーブルラック W=400</text>
+          </g>
+        </svg>
+        <p class="cap"><span><b>FIG. E-00</b>　幹線系統 参考図</span><span id="drawPct">作図進捗 000%</span></p>
+      </div>
+    </div>
+
+    <!-- 現場写真 図-01（貼付写真・パララックス） -->
+    <div class="hero-plate-wrap">
+      <figure class="plate hero-plate tilt-l rv">
+        <span class="dim-h" aria-hidden="true"><i></i><i></i><b>W = 1,920</b></span>
+        <span class="dim-v" aria-hidden="true"><b>H = 1,072</b></span>
+        <span class="tape tl" aria-hidden="true"></span>
+        <span class="tape br" aria-hidden="true"></span>
+        <div class="ph"><img src="img/HERO_BG.webp" alt="天井に整然と敷設された電線管とケーブルラック群を見上げた電気工事の施工現場" data-para="0.10"></div>
+        <figcaption><b>現場写真 図-01</b><span>天井スラブ配管・ケーブルラック敷設状況（見上げ）｜撮影: 施工現場</span></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SHEET G-01 職を持つ ============ -->
+<section class="sheet" id="philosophy">
+  <div class="sheet-frame" aria-hidden="true"></div>
+  <span class="sheet-tag">JYUCHOU GROUP — 施工図</span>
+
+  <div class="sec-head rv">
+    <p class="sec-kicker">SHEET G-01 — PHILOSOPHY</p>
+    <h2>仕事ではなく、<br>“職”を持つ。</h2>
+    <div class="leader" aria-hidden="true"><i></i><b>基本方針</b></div>
+  </div>
+
+  <div class="philo-grid">
+    <figure class="plate philo-plate tilt-r rv">
+      <span class="dim-h" aria-hidden="true"><i></i><i></i><b>入線作業 詳細</b></span>
+      <span class="tape tr" aria-hidden="true"></span>
+      <span class="tape br" aria-hidden="true"></span>
+      <div class="ph"><img src="img/WORK_CONDUIT.webp" alt="電線管への入線作業を行う充寵グループの電気工事士の革手袋の手元" data-para="0.08"></div>
+      <figcaption><b>現場写真 図-02</b><span>電線管への入線作業状況（接写）</span></figcaption>
+    </figure>
+    <div class="philo-body rv rv2">
+      <p>「仕事」はその日の作業を指す。だが<span class="em">「職」は、一生をかけて磨き上げる技能であり、自分自身の価値そのもの</span>だ。</p>
+      <p>充寵グループでは、ただ働くのではなく、電気工事という“職”を身につけ、誇りを持って現場に立つことを大切にしている。</p>
+      <p>日々の作業の積み重ねが、やがて揺るぎない技術と信頼になる。それが「職を持つ」ということだ。</p>
+      <div class="philo-note">
+        <b>NOTE — 特記事項</b>
+        一本の入線、一枚の図面の読み込みまで。積み重ねだけが、職人をつくる。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SHEET Q-01 施工スタンス（検査チェックリスト） ============ -->
+<section class="sheet" id="stance">
+  <div class="sheet-frame" aria-hidden="true"></div>
+  <span class="sheet-tag">JYUCHOU GROUP — 施工図</span>
+
+  <div class="sec-head rv">
+    <p class="sec-kicker">SHEET Q-01 — QUALITY CHECKLIST</p>
+    <h2>施工スタンス<span style="display:block;font-size:.44em;letter-spacing:.3em;color:var(--ink-dim);margin-top:10px;font-weight:400">自主検査要領書 — 全項目、常時合格であること</span></h2>
+    <div class="leader" aria-hidden="true"><i></i><b>検査要領</b></div>
+  </div>
+
+  <div class="rv">
+    <div class="chk-head" aria-hidden="true"><span>NO.</span><span>検査項目 / 判定基準</span><span>判定</span></div>
+    <ul class="checklist" id="checklist">
+      <li class="chk-item">
+        <span class="chk-no">01</span>
+        <div><h3>施工品質</h3><p>一つひとつの接続、一本一本の配線に妥協しない。現場で求められる品質を、確実に実現する。</p></div>
+        <div class="seal-box"><span class="seal">合</span></div>
+      </li>
+      <li class="chk-item">
+        <span class="chk-no">02</span>
+        <div><h3>図面に忠実</h3><p>設計図面の意図を正確に読み取り、忠実に施工する。図面通りの仕上がりが、信頼の基盤となる。</p></div>
+        <div class="seal-box"><span class="seal">合</span></div>
+      </li>
+      <li class="chk-item">
+        <span class="chk-no">03</span>
+        <div><h3>工程遵守</h3><p>決められた工程を守り、全体の進行に貢献する。遅延なく、確実に自分の工程を完了させる。</p></div>
+        <div class="seal-box"><span class="seal">合</span></div>
+      </li>
+      <li class="chk-item">
+        <span class="chk-no">04</span>
+        <div><h3>安全最優先</h3><p>どんな状況でも安全を最優先とする。事故ゼロは、プロとしての最低限の責任である。</p></div>
+        <div class="seal-box"><span class="seal">合</span></div>
+      </li>
+      <li class="chk-item">
+        <span class="chk-no">05</span>
+        <div><h3>確実な仕上がり</h3><p>引き渡し後に手直しが不要な施工を目指す。一度で確実に仕上げることが、職人の矜持である。</p></div>
+        <div class="seal-box"><span class="seal">合</span></div>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ SHEET E-01 施工内容 ============ -->
+<section class="sheet" id="services">
+  <div class="sheet-frame" aria-hidden="true"></div>
+  <span class="sheet-tag">JYUCHOU GROUP — 施工図</span>
+
+  <div class="sec-head rv">
+    <p class="sec-kicker">SHEET E-01 — ELECTRICAL WORKS</p>
+    <h2>施工内容</h2>
+    <div class="leader" aria-hidden="true"><i></i><b>工事範囲</b></div>
+  </div>
+
+  <div class="svc-grid rv">
+    <article class="svc">
+      <span class="code">E-01-1</span>
+      <svg class="ico" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="19" r="11"></circle><path d="M17 16 H27 M17 22 H27 M22 30 V37 M12 37 H32"></path></svg>
+      <h3>低圧設備工事</h3>
+      <p>照明器具・コンセント・スイッチなど、建物内の低圧電気設備の設置・配線工事。</p>
+    </article>
+    <article class="svc">
+      <span class="code">E-01-2</span>
+      <svg class="ico" viewBox="0 0 44 44" aria-hidden="true"><path d="M7 37 L37 7 M13 34 l4 -9 M20 27 l4 -9 M27 20 l4 -9"></path></svg>
+      <h3>幹線工事</h3>
+      <p>受変電設備から各分電盤への幹線ケーブルの敷設・接続工事。</p>
+    </article>
+    <article class="svc">
+      <span class="code">E-01-3</span>
+      <svg class="ico" viewBox="0 0 44 44" aria-hidden="true"><path d="M7 14 H37 M7 30 H37 M13 14 V30 M22 14 V30 M31 14 V30"></path></svg>
+      <h3>配管・ラック据付工事</h3>
+      <p>電線管やケーブルラックの据付・固定工事を行い、配線経路を確保。</p>
+    </article>
+    <article class="svc">
+      <span class="code">E-01-4</span>
+      <svg class="ico" viewBox="0 0 44 44" aria-hidden="true"><path d="M7 30 C15 30 13 14 21 14 S29 30 37 30"></path><circle class="fl" cx="7" cy="30" r="2"></circle><circle class="fl" cx="37" cy="30" r="2"></circle></svg>
+      <h3>配線工事</h3>
+      <p>各種ケーブルの布設・結線工事。整線・結束まで丁寧に仕上げる。</p>
+    </article>
+    <article class="svc">
+      <span class="code">E-01-5</span>
+      <svg class="ico" viewBox="0 0 44 44" aria-hidden="true"><rect x="10" y="8" width="24" height="28"></rect><path d="M10 16 l8 -8 M10 26 l18 -18 M10 36 l24 -24 M18 36 l16 -16 M28 36 l6 -6"></path></svg>
+      <h3>盤据付・結線工事</h3>
+      <p>分電盤・制御盤の据付から内部結線まで一貫対応。</p>
+    </article>
+    <article class="svc">
+      <span class="code">E-01-6</span>
+      <svg class="ico" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="16" r="10"></circle><path d="M22 26 V31 M14 33 H30 M17.5 37 H26.5 M20.5 41 H23.5"></path></svg>
+      <h3>一般電気用工作物工事</h3>
+      <p>上記を含む一般電気用工作物工事全般に対応。</p>
+    </article>
+  </div>
+
+  <div class="svc-plate-row">
+    <figure class="plate svc-plate tilt-l rv">
+      <span class="dim-h" aria-hidden="true"><i></i><i></i><b>盤内結線 詳細</b></span>
+      <span class="tape tl" aria-hidden="true"></span>
+      <span class="tape br" aria-hidden="true"></span>
+      <div class="ph"><img src="img/WORK_PANEL.webp" alt="充寵グループが施工した配線の美しい分電盤の内部結線とワイヤーストリッパーを持つ電気工事士の手元" data-para="0.08"></div>
+      <figcaption><b>現場写真 図-03</b><span>分電盤 内部結線・整線状況</span></figcaption>
+    </figure>
+    <div class="svc-side rv rv2">
+      <p>盤の中に、その会社の実力が表れる。整然と曲げられ、結束されたケーブルは、そのまま品質の証明になる。私たちは「施工」の専門家として、見えない部分まで図面通りに仕上げる。</p>
+      <div class="spec">
+        <span><b>WORKS</b> — 低圧設備 / 幹線 / 配管・ラック / 配線 / 盤据付・結線</span><br>
+        <span><b>RANGE</b> — 一般電気用工作物工事 全般</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SHEET M-01 対応エリア ============ -->
+<section class="sheet" id="area">
+  <div class="sheet-frame" aria-hidden="true"></div>
+  <span class="sheet-tag">JYUCHOU GROUP — 施工図</span>
+
+  <div class="sec-head rv">
+    <p class="sec-kicker">SHEET M-01 — SERVICE AREA</p>
+    <h2>対応エリア</h2>
+    <div class="leader" aria-hidden="true"><i></i><b>案内図</b></div>
+  </div>
+
+  <div class="rv">
+    <div class="area-grid">
+      <div class="area-cell core">
+        <span class="jis">AREA 13</span>
+        <h3>東京都</h3>
+        <span class="tag">中心エリア</span>
+      </div>
+      <div class="area-cell core">
+        <span class="jis">AREA 14</span>
+        <h3>神奈川県</h3>
+        <span class="tag">中心エリア・本拠地</span>
+      </div>
+      <div class="area-cell">
+        <span class="jis">AREA 11</span>
+        <h3>埼玉県</h3>
+        <span class="tag">対応エリア</span>
+      </div>
+      <div class="area-cell">
+        <span class="jis">AREA 12</span>
+        <h3>千葉県</h3>
+        <span class="tag">対応エリア</span>
+      </div>
+    </div>
+    <p class="area-note">※ 東京・神奈川中心／埼玉・千葉。その他エリアも出張のご相談を承ります。</p>
+  </div>
+</section>
+
+<!-- ============ SHEET G-02 協力体制 ============ -->
+<section class="sheet" id="partner">
+  <div class="sheet-frame" aria-hidden="true"></div>
+  <span class="sheet-tag">JYUCHOU GROUP — 施工図</span>
+
+  <div class="sec-head rv">
+    <p class="sec-kicker">SHEET G-02 — PARTNERSHIP</p>
+    <h2>協力体制</h2>
+    <div class="leader" aria-hidden="true"><i></i><b>体制図</b></div>
+  </div>
+
+  <div class="partner rv">
+    <p>設計やコンサルティングが必要な案件については、信頼のおけるパートナー企業と連携し、プロジェクトごとに最適なチームを編成します。施工の専門家として、協力会社と共に高品質な成果を実現します。</p>
+    <div class="partner-diagram rv rv2" aria-hidden="true">
+      <div class="pd-node"><small>DESIGN</small>パートナー企業<br>（設計・コンサル）</div>
+      <div class="pd-link"><b>連携</b></div>
+      <div class="pd-node" style="border-color:rgba(224,96,63,.65)"><small style="color:var(--red-hi)">CONSTRUCTION</small>充寵グループ<br>（施工）</div>
+      <div class="pd-link"><b>引き渡し</b></div>
+      <div class="pd-node"><small>QUALITY</small>高品質な成果</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SHEET R-01 採用 ============ -->
+<section class="sheet" id="recruit">
+  <div class="sheet-frame" aria-hidden="true"></div>
+  <span class="sheet-tag">JYUCHOU GROUP — 施工図</span>
+
+  <div class="sec-head rv">
+    <p class="sec-kicker">SHEET R-01 — RECRUIT</p>
+    <h2>未来の設立メンバーを<br>募集しています</h2>
+    <div class="leader" aria-hidden="true"><i></i><b>募集要領</b></div>
+  </div>
+
+  <div class="recruit-wrap">
+    <div class="recruit-lead rv">
+      <p>図面の読み方も、工具の握り方も、現場で一から教える。未経験から“職”を持ち、手に職の一生モノの技術を積み上げていく仲間を待っています。</p>
+      <div class="cta-row">
+        <a class="btn primary" href="https://www.juchou-group.com/recruit"><span class="no">R-01</span>採用情報を見る</a>
+      </div>
+    </div>
+    <dl class="spec-table rv rv2">
+      <div class="spec-row">
+        <dt>応募資格</dt>
+        <dd><b>18歳以上・学歴/性別不問</b>。未経験者を積極採用。</dd>
+      </div>
+      <div class="spec-row">
+        <dt>日当</dt>
+        <dd>未経験 <span class="yen">￥13,000〜</span>（できる作業により随時アップ）／経験者は要相談。</dd>
+      </div>
+      <div class="spec-row">
+        <dt>資格取得サポート</dt>
+        <dd>低圧電気取扱・高所作業車・職長安全衛生 など、サポート制度あり。</dd>
+      </div>
+      <div class="spec-row">
+        <dt>工具</dt>
+        <dd>最大<b>6ヶ月</b>貸出可。手ぶらからのスタートに対応。</dd>
+      </div>
+    </dl>
+  </div>
+</section>
+
+<!-- ============ SHEET F-01 FAQ（質疑応答書） ============ -->
+<section class="sheet" id="faq">
+  <div class="sheet-frame" aria-hidden="true"></div>
+  <span class="sheet-tag">JYUCHOU GROUP — 施工図</span>
+
+  <div class="sec-head rv">
+    <p class="sec-kicker">SHEET F-01 — Q&amp;A</p>
+    <h2>よくあるご質問<span style="display:block;font-size:.44em;letter-spacing:.3em;color:var(--ink-dim);margin-top:10px;font-weight:400">質疑応答書</span></h2>
+    <div class="leader" aria-hidden="true"><i></i><b>質疑応答</b></div>
+  </div>
+
+  <div class="qa-list">
+    <div class="qa rv">
+      <div class="q"><span class="m">Q.01</span><h3>対応エリアはどこまでですか？</h3></div>
+      <div class="a"><span class="m">A.01</span><p>東京・神奈川を中心に、埼玉・千葉まで対応しています。その他エリアも出張のご相談を承ります。</p></div>
+    </div>
+    <div class="qa rv">
+      <div class="q"><span class="m">Q.02</span><h3>どのような電気工事を依頼できますか？</h3></div>
+      <div class="a"><span class="m">A.02</span><p>低圧設備工事・幹線工事・配管/ラック据付・配線工事・盤据付/結線など、一般電気用工作物工事全般に対応しています。</p></div>
+    </div>
+    <div class="qa rv">
+      <div class="q"><span class="m">Q.03</span><h3>未経験でも電気工事の仕事に応募できますか？</h3></div>
+      <div class="a"><span class="m">A.03</span><p>応募できます。未経験者は日当13,000円〜スタートし、できる作業に応じて随時アップ。資格取得のサポート制度もあります。</p></div>
+    </div>
+    <div class="qa rv">
+      <div class="q"><span class="m">Q.04</span><h3>協力会社・元請けとしての取引は可能ですか？</h3></div>
+      <div class="a"><span class="m">A.04</span><p>可能です。<a href="https://www.juchou-group.com/contact">お問い合わせフォーム</a>またはお電話（<a href="tel:05058734183">050-5873-4183</a>）からご相談ください。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SHEET A-01 会社概要（表題欄） ============ -->
+<section class="sheet" id="company">
+  <div class="sheet-frame" aria-hidden="true"></div>
+  <span class="sheet-tag">JYUCHOU GROUP — 施工図</span>
+
+  <div class="sec-head rv" style="text-align:center">
+    <p class="sec-kicker" style="justify-content:center">SHEET A-01 — TITLE BLOCK</p>
+    <h2>会社概要</h2>
+  </div>
+
+  <div class="titleblock rv">
+    <div class="tb-head">
+      <div class="name">
+        <small>屋号 / TRADE NAME</small>
+        <strong>充寵グループ</strong>
+      </div>
+      <div class="stamp-cell" aria-hidden="true">
+        <span class="seal" style="opacity:.9;transform:scale(1) rotate(-8deg)">充</span>
+      </div>
+    </div>
+    <div class="tb-rows">
+      <div class="tb-row"><dt>英文表記</dt><dd>JYUCHOU GROUP</dd></div>
+      <div class="tb-row"><dt>所在地</dt><dd>神奈川県秦野市</dd></div>
+      <div class="tb-row"><dt>事業内容</dt><dd>一般電気用工作物工事／電気工事施工</dd></div>
+      <div class="tb-row"><dt>活動エリア</dt><dd>東京・神奈川中心（埼玉・千葉）</dd></div>
+      <div class="tb-row"><dt>メール</dt><dd><a href="mailto:info@juchou-group.com">info@juchou-group.com</a></dd></div>
+      <div class="tb-row"><dt>電話</dt><dd><a href="tel:05058734183">050-5873-4183</a></dd></div>
+      <div class="tb-row"><dt>INSTAGRAM</dt><dd><a href="https://www.instagram.com/juchou.group">@juchou.group</a></dd></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA / 添付資料 ============ -->
+<section class="sheet" id="contact-cta">
+  <div class="sheet-frame" aria-hidden="true"></div>
+  <span class="sheet-tag">JYUCHOU GROUP — 施工図</span>
+
+  <div class="foot-cta rv">
+    <p class="sec-kicker" style="justify-content:center">FINAL SHEET — CONTACT</p>
+    <h2>次の現場を、一緒に。</h2>
+    <p>工事のご相談から、未経験での応募まで。まずは一度、お気軽にご連絡ください。</p>
+    <div class="cta-row">
+      <a class="btn primary" href="https://www.juchou-group.com/recruit"><span class="no">R-01</span>採用情報を見る</a>
+      <a class="btn" href="https://www.juchou-group.com/contact"><span class="no">C-01</span>お取引・工事のご相談</a>
+    </div>
+
+    <div class="contact-line">
+      <span><small>TEL</small><a href="tel:05058734183">050-5873-4183</a></span>
+      <span><small>MAIL</small><a href="mailto:info@juchou-group.com">info@juchou-group.com</a></span>
+    </div>
+
+    <div class="qr-row rv rv2">
+      <a class="qr-card" href="https://www.instagram.com/juchou.group">
+        <img src="img/QR_INSTAGRAM.png" alt="充寵グループ Instagram（@juchou.group）のQRコード" loading="lazy">
+        <span>INSTAGRAM<br>@juchou.group</span>
+      </a>
+      <a class="qr-card" href="https://works.do/GGOfZpH">
+        <img src="img/QR_LINEWORKS.png" alt="充寵グループ LINE WORKS お問い合わせ用QRコード" loading="lazy">
+        <span>LINE WORKS<br>お問い合わせ</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="in">
+    <span>© 充寵グループ</span>
+    <span>SEKOUZU — ALL SHEETS DRAWN BY JYUCHOU GROUP</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var vh = window.innerHeight;
+  var vw = window.innerWidth;
+  var mobile = vw < 768;
+
+  window.addEventListener("resize", function(){
+    vh = window.innerHeight;
+    vw = window.innerWidth;
+    mobile = vw < 768;
+  }, { passive: true });
+
+  /* ---------- リビール（IntersectionObserver） ---------- */
+  var rvEls = [].slice.call(document.querySelectorAll(".rv"));
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if (en.isIntersecting) {
+          en.target.classList.add("in");
+          io.unobserve(en.target);
+        }
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.06 });
+    rvEls.forEach(function(el){ io.observe(el); });
+  } else {
+    rvEls.forEach(function(el){ el.classList.add("in"); });
+  }
+
+  /* ---------- 検収印「合」スタンプ（順にスタンプされる） ---------- */
+  var checklist = document.getElementById("checklist");
+  if (checklist) {
+    var stampItems = [].slice.call(checklist.querySelectorAll(".chk-item"));
+    var stampAll = function(instant){
+      stampItems.forEach(function(item, i){
+        if (instant) { item.classList.add("on"); return; }
+        window.setTimeout(function(){ item.classList.add("on"); }, 320 + i * 340);
+      });
+    };
+    if ("IntersectionObserver" in window) {
+      var sio = new IntersectionObserver(function(entries){
+        entries.forEach(function(en){
+          if (en.isIntersecting) {
+            stampAll(reduced);
+            sio.disconnect();
+          }
+        });
+      }, { threshold: 0.3 });
+      sio.observe(checklist);
+    } else {
+      stampAll(true);
+    }
+  }
+
+  /* ---------- CAD線画: スクロールで作図 ---------- */
+  var drawPaths = [].slice.call(document.querySelectorAll("#heroDraw .dw"));
+  var drawLabels = [].slice.call(document.querySelectorAll("#heroDraw .lbl"));
+  var drawPct = document.getElementById("drawPct");
+  var lastG = -1;
+
+  function clamp01(v){ return v < 0 ? 0 : (v > 1 ? 1 : v); }
+  function easeOut(t){ return 1 - Math.pow(1 - t, 3); }
+
+  function applyDraw(g){
+    if (Math.abs(g - lastG) < 0.002 && g !== 1 && g !== 0) return;
+    lastG = g;
+    drawPaths.forEach(function(p){
+      var s = parseFloat(p.getAttribute("data-s")) || 0;
+      var e = parseFloat(p.getAttribute("data-e")) || 1;
+      var t = clamp01((g - s) / (e - s));
+      p.style.strokeDashoffset = String(1 - t);
+    });
+    drawLabels.forEach(function(l){
+      var at = parseFloat(l.getAttribute("data-at")) || 0;
+      l.classList.toggle("show", g >= at);
+    });
+    if (drawPct) {
+      var n = Math.round(g * 100);
+      drawPct.textContent = "作図進捗 " + (n < 10 ? "00" : (n < 100 ? "0" : "")) + n + "%";
+    }
+  }
+
+  /* ---------- 縮尺スケール（右端） ---------- */
+  var rulerMark = document.getElementById("rulerMark");
+  var rulerPct = document.getElementById("rulerPct");
+  function applyRuler(y){
+    var max = document.documentElement.scrollHeight - vh;
+    var p = max > 0 ? clamp01(y / max) : 0;
+    var pc = Math.round(p * 100);
+    var top = (p * 100).toFixed(2) + "%";
+    if (rulerMark) rulerMark.style.top = top;
+    if (rulerPct) {
+      rulerPct.style.top = top;
+      rulerPct.textContent = (pc < 10 ? "00" : (pc < 100 ? "0" : "")) + pc + "%";
+    }
+  }
+
+  /* ---------- パララックス（rAF + translate3d のみ） ---------- */
+  var gridFine = document.getElementById("gridFine");
+  var gridMajor = document.getElementById("gridMajor");
+  var paraImgs = [].slice.call(document.querySelectorAll("[data-para]"));
+
+  if (reduced) {
+    /* 動きを止め、完成状態で表示 */
+    applyDraw(1);
+    applyRuler(window.pageYOffset || 0);
+    window.addEventListener("scroll", function(){
+      applyRuler(window.pageYOffset || 0);
+    }, { passive: true });
+    return;
+  }
+
+  var startTime = null;
+
+  function frame(ts){
+    if (startTime === null) startTime = ts;
+    var y = window.pageYOffset || document.documentElement.scrollTop || 0;
+
+    /* 方眼2層: 異なる速度（パターン周期でモジュロして無限に） */
+    if (gridFine) {
+      var fy = -((y * 0.05) % 24);
+      gridFine.style.transform = "translate3d(0," + fy.toFixed(2) + "px,0)";
+    }
+    if (gridMajor) {
+      var my = -((y * 0.12) % 120);
+      gridMajor.style.transform = "translate3d(0," + my.toFixed(2) + "px,0)";
+    }
+
+    /* 貼付写真のパララックス（モバイルは半減） */
+    var damp = mobile ? 0.5 : 1;
+    for (var i = 0; i < paraImgs.length; i++) {
+      var img = paraImgs[i];
+      var rect = img.parentNode.getBoundingClientRect();
+      if (rect.bottom < -80 || rect.top > vh + 80) continue;
+      var center = rect.top + rect.height / 2 - vh / 2;
+      var f = parseFloat(img.getAttribute("data-para")) || 0.08;
+      var dy = Math.max(-70, Math.min(70, -center * f * damp));
+      img.style.transform = "translate3d(0," + dy.toFixed(2) + "px,0) scale(1.14)";
+    }
+
+    /* CAD作図: 導入アニメ（0→0.32）+ スクロール進捗（→1.0）。逆スクロールで巻き戻る */
+    var intro = easeOut(clamp01((ts - startTime) / 2000)) * 0.32;
+    var scrollG = clamp01((y / (vh * 0.85)) * 1.1);
+    applyDraw(Math.max(intro, scrollG));
+
+    applyRuler(y);
+    window.requestAnimationFrame(frame);
+  }
+  window.requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
