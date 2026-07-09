@@ -42,6 +42,7 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
   const [editZoneId, setEditZoneId] = useState<string | null>(null);
   const [editPoly, setEditPoly] = useState<Pt[]>([]);
   const [selVtx, setSelVtx] = useState<number | null>(null);
+  const [snapOn, setSnapOn] = useState(true); // 隣接エリアの境界へ頂点をスナップ
 
   // ズーム/パン/フォーカス (null = 全体表示)
   const [vb, setVb] = useState<ViewBox | null>(null);
@@ -151,6 +152,34 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
     toast.success(`「${name}」を作成しました`);
   }
   function cancelDraft() { setDraftPoly([]); setMode("view"); setDraftParentZoneId(null); }
+
+  // ── 隣接エリアの境界へのスナップ (綺麗に境目を合わせる/埋める) ──
+  const SNAP_T = 18; // 画像px単位の吸着しきい値
+  const neighborPolys = useMemo(
+    () => zoneList.filter((z) => z.id !== editZoneId).map((z) => (z.polygon as Pt[]) || []).filter((p) => p.length >= 2),
+    [zoneList, editZoneId],
+  );
+  function closestOnSeg(p: Pt, a: Pt, b: Pt): Pt {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const l2 = dx * dx + dy * dy;
+    if (l2 === 0) return a;
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return { x: a.x + t * dx, y: a.y + t * dy };
+  }
+  /** 隣接エリアの頂点/辺のうち最も近い点へ吸着 (しきい値内のみ)。境目の隙間や重なりを補正 */
+  function snapForce(p: Pt): Pt {
+    let best: Pt | null = null, bestD = SNAP_T;
+    for (const poly of neighborPolys) {
+      for (let i = 0; i < poly.length; i++) {
+        const c = closestOnSeg(p, poly[i], poly[(i + 1) % poly.length]);
+        const d = Math.hypot(c.x - p.x, c.y - p.y);
+        if (d < bestD) { bestD = d; best = c; }
+      }
+    }
+    return best ? { x: Math.round(best.x), y: Math.round(best.y) } : p;
+  }
+  const snapVtx = (p: Pt): Pt => (snapOn ? snapForce(p) : p);
 
   // ── 頂点編集 (範囲後編集) ──
   function startEditRange(zone: ZoneWithAgg) {
@@ -285,10 +314,10 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
       return;
     }
 
-    // 頂点ドラッグ (edit)
+    // 頂点ドラッグ (edit)。隣接スナップが有効なら境界へ吸着
     if (mode === "edit" && dragIdx.current !== null) {
       const p = svgPoint(evt);
-      if (p) setEditPoly((prev) => prev.map((pt, i) => (i === dragIdx.current ? p : pt)));
+      if (p) { const q = snapVtx(p); setEditPoly((prev) => prev.map((pt, i) => (i === dragIdx.current ? q : pt))); }
       return;
     }
 
@@ -389,6 +418,10 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
           ) : (
             <>
               <span className="text-sm text-muted-foreground flex-1">✏ 頂点をドラッグで移動 / ＋タップで追加（{editPoly.length}）</span>
+              <label className="text-xs flex items-center gap-1 cursor-pointer select-none" title="隣接エリアの境界に頂点を吸着">
+                <input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /> 隣接スナップ
+              </label>
+              <Button size="sm" variant="outline" onClick={() => { setEditPoly((prev) => prev.map(snapForce)); toast.success("隣接エリアの境界に合わせました"); }}>境界を補正</Button>
               <Button size="sm" variant="secondary" onClick={deleteSelVtx}>選択頂点を削除</Button>
               <Button size="sm" onClick={saveEditRange}>保存</Button>
               <Button size="sm" variant="ghost" className="text-destructive" onClick={cancelEditRange}>キャンセル</Button>

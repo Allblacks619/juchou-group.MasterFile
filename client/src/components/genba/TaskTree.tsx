@@ -2,7 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { ChevronDown, Plus } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { PRIORITY, STATUS } from "@/lib/genbaMap";
 import { colorForKey } from "@/lib/genbaTeamColor";
 import { childrenMap, computeTaskProgress, rootTasks, fmtDate, todayStr, type GenbaTaskDto } from "@/lib/genbaTask";
@@ -15,7 +15,7 @@ import { enqueueStatus, isNetworkError } from "@/lib/genbaOutbox";
 export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged }: { zoneId: string; siteId: string; meUserId: number | null; canEdit: boolean; onChanged: () => void }) {
   const utils = trpc.useUtils();
   const { data: tasks } = trpc.genba.tasks.listByZone.useQuery({ zoneId }, { retry: false });
-  const { data: users } = trpc.genba.users.listAssignable.useQuery(undefined, { retry: false, enabled: canEdit, staleTime: 5 * 60 * 1000 });
+  const { data: users } = trpc.genba.users.listAssignable.useQuery({ siteId }, { retry: false, enabled: canEdit, staleTime: 5 * 60 * 1000 });
   const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { retry: false, staleTime: 60 * 1000 });
   const [statusTask, setStatusTask] = useState<GenbaTaskDto | null>(null);
   const [detailTask, setDetailTask] = useState<GenbaTaskDto | null>(null);
@@ -23,10 +23,21 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
   const refresh = () => { utils.genba.tasks.listByZone.invalidate({ zoneId }); onChanged(); };
 
   const setStatus = trpc.genba.tasks.setStatus.useMutation();
-  const assignUser = trpc.genba.tasks.assignUser.useMutation({ onSuccess: () => utils.genba.tasks.listByZone.invalidate({ zoneId }), onError: (e) => toast.error(e.message) });
+  const assignUser = trpc.genba.tasks.assignUser.useMutation({
+    onSuccess: (r) => {
+      // サブエリアの同名作業へ伝播した可能性があるため全ゾーンを invalidate
+      utils.genba.tasks.listByZone.invalidate();
+      if (r?.propagated) toast.success(`サブエリアの同じ作業 ${r.propagated}件にも割り当てました`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const assignTeam = trpc.genba.tasks.assignTeam.useMutation({ onSuccess: () => utils.genba.tasks.listByZone.invalidate({ zoneId }), onError: (e) => toast.error(e.message) });
   const createTask = trpc.genba.tasks.create.useMutation({
     onSuccess: () => { refresh(); toast.success("作業を追加しました"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const removeTask = trpc.genba.tasks.remove.useMutation({
+    onSuccess: () => { refresh(); toast.success("作業を削除しました"); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -119,6 +130,15 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
               onToggleUser={(userId, on) => assignUser.mutate({ taskId: task.id, userId, on })}
               onToggleTeam={(teamId, on) => assignTeam.mutate({ taskId: task.id, teamId, on })}
             />
+          )}
+          {canEdit && (
+            <button
+              onClick={() => { if (window.confirm(`「${task.name}」を削除しますか？${!isLeaf ? "\n(サブ作業も削除されます)" : ""}`)) removeTask.mutate({ id: task.id }); }}
+              className="shrink-0 text-muted-foreground hover:text-destructive p-1"
+              title="作業を削除"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
           )}
         </div>
         {kids.sort((a, b) => a.sortOrder - b.sortOrder).map((c) => renderRow(c, depth + 1))}

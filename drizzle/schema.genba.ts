@@ -372,3 +372,42 @@ export const genbaActivityLogs = mysqlTable("genba_activity_logs", {
 
 export type GenbaActivityLog = typeof genbaActivityLogs.$inferSelect;
 export type InsertGenbaActivityLog = typeof genbaActivityLogs.$inferInsert;
+
+/**
+ * 今日の急ぎ手配: エリアを選び、その日に急ぎで対応してほしい作業を作業員へ手配する。
+ * 対象作業(taskId) + 対象日(date) + メモ + 担当(下の dispatch_assignees) をまとめる。
+ */
+export const genbaDispatches = mysqlTable("genba_dispatches", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  siteId: varchar("siteId", { length: 24 }).notNull(),
+  zoneId: varchar("zoneId", { length: 24 }).notNull(),
+  taskId: varchar("taskId", { length: 24 }).notNull(),
+  /** 対象日 YYYY-MM-DD (既定は当日) */
+  date: varchar("date", { length: 10 }).notNull(),
+  memo: text("memo"),
+  byUserId: int("byUserId"),
+  /** 対応済みフラグ (手配ボードで消し込み) */
+  done: boolean("done").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  index("genba_dispatches_site_date_idx").on(table.siteId, table.date),
+]));
+
+export type GenbaDispatch = typeof genbaDispatches.$inferSelect;
+export type InsertGenbaDispatch = typeof genbaDispatches.$inferInsert;
+
+/** 急ぎ手配の担当作業員 (既存 users.id への参照) */
+export const genbaDispatchAssignees = mysqlTable("genba_dispatch_assignees", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  dispatchId: varchar("dispatchId", { length: 24 }).notNull(),
+  userId: int("userId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("genba_dispatch_assignees_dispatch_user").on(table.dispatchId, table.userId),
+  index("genba_dispatch_assignees_user_idx").on(table.userId),
+]));
+
+export type GenbaDispatchAssignee = typeof genbaDispatchAssignees.$inferSelect;
+export type InsertGenbaDispatchAssignee = typeof genbaDispatchAssignees.$inferInsert;

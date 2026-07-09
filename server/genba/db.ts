@@ -19,6 +19,8 @@ import {
   genbaBudgetAttendance, GenbaBudgetAttendance, InsertGenbaBudgetAttendance,
   genbaShares, GenbaShare, InsertGenbaShare,
   genbaActivityLogs, GenbaActivityLog, InsertGenbaActivityLog,
+  genbaDispatches, GenbaDispatch, InsertGenbaDispatch,
+  genbaDispatchAssignees, GenbaDispatchAssignee, InsertGenbaDispatchAssignee,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { users, attendance, projects } from "../../drizzle/schema";
@@ -287,11 +289,41 @@ export async function listGenbaTaskEvents(taskId: string): Promise<GenbaTaskEven
 
 export type AssignableUser = { id: number; name: string | null; appRole: string };
 
-export async function listAssignableUsers(): Promise<AssignableUser[]> {
+/**
+ * 割当可能な作業員一覧。
+ * siteId 指定かつ現場が案件(projectId)にリンクされている場合は、
+ * その案件の出面(attendance)に登録された作業員(users.employeeId 一致)のみを返す。
+ * 未リンク/未指定なら全ユーザーを返す (従来動作)。
+ */
+export async function listAssignableUsers(siteId?: string): Promise<AssignableUser[]> {
   const db = await getDb();
   if (!db) return [];
+  if (siteId) {
+    const site = await getGenbaSiteById(siteId);
+    if (site?.projectId) {
+      const rows = await db
+        .select({ id: users.id, name: users.name, appRole: users.appRole })
+        .from(users)
+        .innerJoin(attendance, eq(attendance.employeeId, users.employeeId))
+        .where(eq(attendance.projectId, site.projectId))
+        .groupBy(users.id, users.name, users.appRole)
+        .orderBy(asc(users.name));
+      return rows as AssignableUser[];
+    }
+  }
   const rows = await db.select({ id: users.id, name: users.name, appRole: users.appRole }).from(users).orderBy(asc(users.name));
   return rows as AssignableUser[];
+}
+
+/** 現場に連携できる工事案件(projects)の一覧 (案件ピッカー用)。active を先頭に新しい順 */
+export async function listLinkableProjects(): Promise<{ id: number; name: string; status: string; startDate: Date | null; endDate: Date | null }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ id: projects.id, name: projects.name, status: projects.status, startDate: projects.startDate, endDate: projects.endDate })
+    .from(projects)
+    .orderBy(desc(projects.createdAt));
+  return rows;
 }
 
 // ── genba_teams / genba_team_members ──
@@ -804,4 +836,55 @@ export async function listGenbaActivityLogs(type: string | undefined, limit: num
     if (typeof payload === "string") { try { payload = JSON.parse(payload); } catch { /* keep raw */ } }
     return { id: r.id, type: r.type, byUserId: r.byUserId, payload, createdAt: r.createdAt };
   });
+}
+
+// ── genba_dispatches (今日の急ぎ手配) ──
+
+export async function getGenbaDispatchById(id: string): Promise<GenbaDispatch | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaDispatches).where(eq(genbaDispatches.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+/** 手配 + 担当作業員を一括作成 */
+export async function createGenbaDispatch(
+  dispatch: InsertGenbaDispatch,
+  assignees: InsertGenbaDispatchAssignee[],
+): Promise<GenbaDispatch | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaDispatches).values(dispatch);
+  if (assignees.length) await db.insert(genbaDispatchAssignees).values(assignees);
+  return getGenbaDispatchById(dispatch.id);
+}
+
+/** 現場の手配一覧 (date 指定でその日のみ)。新しい順 */
+export async function listGenbaDispatchesBySite(siteId: string, date?: string): Promise<GenbaDispatch[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [eq(genbaDispatches.siteId, siteId)];
+  if (date) conds.push(eq(genbaDispatches.date, date));
+  return db.select().from(genbaDispatches).where(and(...conds)).orderBy(desc(genbaDispatches.createdAt));
+}
+
+export async function listGenbaDispatchAssignees(dispatchIds: string[]): Promise<GenbaDispatchAssignee[]> {
+  const db = await getDb();
+  if (!db || dispatchIds.length === 0) return [];
+  return db.select().from(genbaDispatchAssignees).where(inArray(genbaDispatchAssignees.dispatchId, dispatchIds));
+}
+
+export async function updateGenbaDispatch(id: string, patch: Partial<Pick<InsertGenbaDispatch, "done" | "memo">>): Promise<GenbaDispatch | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaDispatches).set(patch).where(eq(genbaDispatches.id, id));
+  return getGenbaDispatchById(id);
+}
+
+/** 手配を担当ごと削除 */
+export async function deleteGenbaDispatchCascade(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaDispatchAssignees).where(eq(genbaDispatchAssignees.dispatchId, id));
+  await db.delete(genbaDispatches).where(eq(genbaDispatches.id, id));
 }

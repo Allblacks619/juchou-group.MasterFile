@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Map as MapIcon, ClipboardList, Megaphone, LayoutGrid, BarChart3, Wallet, Settings, Plus, ChevronDown, CloudOff, UploadCloud, Package } from "lucide-react";
-import { resolveGenbaTheme } from "@shared/genba/themes";
+import { Map as MapIcon, ClipboardList, Megaphone, LayoutGrid, BarChart3, Wallet, Settings, Plus, ChevronDown, CloudOff, UploadCloud, Package, Zap } from "lucide-react";
+import { resolveGenbaTheme, genbaThemeTokens } from "@shared/genba/themes";
 import type { GenbaLang } from "@shared/genba/i18n";
 import { useGenbaOutbox } from "@/lib/useGenbaOutbox";
 import FloorWorkspace from "./FloorWorkspace";
@@ -10,6 +10,7 @@ import TasksTab from "./TasksTab";
 import DashTab from "./DashTab";
 import InstructionsPanel from "./InstructionsPanel";
 import MaterialsPanel from "./MaterialsPanel";
+import DispatchPanel from "./DispatchPanel";
 import BoardPanel from "./BoardPanel";
 import BudgetPanel from "./BudgetPanel";
 import GenbaSettingsPanel from "./GenbaSettingsPanel";
@@ -50,6 +51,7 @@ export default function GenbaShell({
   const [tab, setTab] = useState<TabKey>("map");
   const [showGuide, setShowGuide] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
+  const [showDispatch, setShowDispatch] = useState(false);
 
   const site = sites.find((s) => s.id === siteId) || sites[0] || null;
   const outbox = useGenbaOutbox();
@@ -88,7 +90,7 @@ export default function GenbaShell({
   return (
     <div
       className="flex flex-col rounded-2xl overflow-hidden border shadow-sm -m-1"
-      style={{ background: theme.appBg, borderColor: "rgba(0,0,0,0.08)", minHeight: "calc(100dvh - 6.5rem)" }}
+      style={{ ...genbaThemeTokens(me.settings.theme), background: theme.appBg, borderColor: "rgba(0,0,0,0.08)", minHeight: "calc(100dvh - 6.5rem)" } as CSSProperties}
     >
       {/* ヘッダ */}
       <header
@@ -172,7 +174,10 @@ export default function GenbaShell({
         {tab === "tasks" && <TasksTab siteId={site.id} meUserId={me.userId ?? null} canEdit={canEdit} />}
         {tab === "inst" && (
           <div className="space-y-3">
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowDispatch(true)} className="inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 border border-[#FF4B00]/50 text-[#FF4B00] font-medium">
+                <Zap className="h-4 w-4" /> 今日の急ぎ手配
+              </button>
               <button onClick={() => setShowMaterials(true)} className="inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 border border-border font-medium">
                 <Package className="h-4 w-4" /> 材料発注
               </button>
@@ -231,6 +236,7 @@ export default function GenbaShell({
 
       {showGuide && <GuideModal lang={lang} isAdmin={isAdmin} open={showGuide} onOpenChange={setShowGuide} />}
       {showMaterials && <MaterialsPanel siteId={site.id} canEdit={canEdit} meUserId={me.userId ?? null} open={showMaterials} onOpenChange={setShowMaterials} />}
+      {showDispatch && <DispatchPanel siteId={site.id} canEdit={canEdit} meUserId={me.userId ?? null} open={showDispatch} onOpenChange={setShowDispatch} />}
     </div>
   );
 }

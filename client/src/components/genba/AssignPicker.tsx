@@ -44,6 +44,11 @@ export default function AssignPicker({
               );
             })}
             <div className="text-[10px] text-muted-foreground px-1">個人</div>
+            {users.length === 0 && (
+              <div className="text-[11px] text-muted-foreground px-2 py-1.5 leading-snug">
+                割当可能な作業員がいません。案件連携中は出面表に登録された作業員のみ表示されます（設定→この現場）。
+              </div>
+            )}
             {users.map((w) => {
               const on = assigneeIds.includes(w.id);
               return (
