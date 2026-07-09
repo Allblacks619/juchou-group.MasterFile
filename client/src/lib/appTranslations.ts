@@ -47,6 +47,7 @@ const dict = {
   nav_myAttendance: { ja: "マイ出面表", pt: "Minha Presença" },
   nav_myClosing: { ja: "月締め提出", pt: "Fechar Mês" },
   nav_attendance: { ja: "出面表管理", pt: "Presença" },
+  nav_workReports: { ja: "作業日報", pt: "Relatório de trabalho" },
   nav_invoices: { ja: "請求書", pt: "Faturas" },
   nav_closings: { ja: "締め管理", pt: "Fechamento" },
   nav_monthlyCloseV2: { ja: "月締めV2", pt: "Fechamento V2" },
