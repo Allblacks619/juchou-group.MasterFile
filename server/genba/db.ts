@@ -17,6 +17,7 @@ import {
   genbaMaterialRequestItems, GenbaMaterialRequestItem, InsertGenbaMaterialRequestItem,
   genbaBudgets, GenbaBudget, InsertGenbaBudget,
   genbaBudgetAttendance, GenbaBudgetAttendance, InsertGenbaBudgetAttendance,
+  genbaShares, GenbaShare, InsertGenbaShare,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { users, attendance, projects } from "../../drizzle/schema";
@@ -582,6 +583,53 @@ export async function deleteGenbaMaterialRequestCascade(id: string): Promise<voi
   if (!db) throw new Error("Database not available");
   await db.delete(genbaMaterialRequestItems).where(eq(genbaMaterialRequestItems.requestId, id));
   await db.delete(genbaMaterialRequests).where(eq(genbaMaterialRequests.id, id));
+}
+
+// ── genba_shares ──
+
+/** scopes(json) を配列/オブジェクトへ正規化 */
+export function normalizeShare(row: GenbaShare): GenbaShare & { scopes: Record<string, boolean> } {
+  let scopes: Record<string, boolean> = {};
+  const raw = row.scopes as unknown;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) scopes = raw as Record<string, boolean>;
+  else if (typeof raw === "string" && raw.trim()) {
+    try { const p = JSON.parse(raw); if (p && typeof p === "object") scopes = p; } catch { /* noop */ }
+  }
+  return { ...row, scopes };
+}
+
+export async function listGenbaSharesBySite(siteId: string): Promise<(GenbaShare & { scopes: Record<string, boolean> })[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(genbaShares).where(eq(genbaShares.siteId, siteId)).orderBy(desc(genbaShares.createdAt));
+  return rows.map(normalizeShare);
+}
+
+export async function getGenbaShareById(id: string): Promise<GenbaShare | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaShares).where(eq(genbaShares.id, id)).limit(1);
+  return rows[0] ? normalizeShare(rows[0]) : null;
+}
+
+export async function getGenbaShareByToken(token: string): Promise<(GenbaShare & { scopes: Record<string, boolean> }) | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaShares).where(eq(genbaShares.token, token)).limit(1);
+  return rows[0] ? normalizeShare(rows[0]) : null;
+}
+
+export async function createGenbaShare(data: InsertGenbaShare): Promise<GenbaShare | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaShares).values(data);
+  return getGenbaShareById(data.id);
+}
+
+export async function deleteGenbaShare(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaShares).where(eq(genbaShares.id, id));
 }
 
 // ── genba_budgets / genba_budget_attendance ──

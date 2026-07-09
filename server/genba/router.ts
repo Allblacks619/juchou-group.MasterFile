@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { genbaRoleOf } from "../../shared/genba/roles";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import * as db from "../db";
 import * as genbaDb from "./db";
 import { storageGet, storagePut } from "../storage";
@@ -11,6 +11,7 @@ import { computeZoneAggregates } from "./aggregate";
 import { computeBoard } from "./board";
 import { buildTemplateTree, DEFAULT_TEMPLATE_DATA, type TemplateNode, type TemplateTreeNode } from "../../shared/genba/template";
 import { computeBudgetSummary } from "../../shared/genba/budget";
+import { buildPublicShareView, isShareExpired, type ShareScopes } from "../../shared/genba/shareView";
 
 /** テンプレートツリーから新規ゾーン用の作業タスク行を生成 (親子リンク付き) */
 function instantiateTemplateTasks(
@@ -911,10 +912,137 @@ const templatesRouter = router({
     }),
 });
 
+/** 非認証だが GENBA_ENABLED は尊重する公開手続き (外部共有ビュー専用) */
+const genbaPublicProcedure = publicProcedure.use(({ next }) => {
+  assertGenbaEnabled();
+  return next();
+});
+
+const shareScopeSchema = z.object({
+  map: z.boolean().optional(),
+  tasks: z.boolean().optional(),
+  board: z.boolean().optional(),
+  dash: z.boolean().optional(),
+});
+
+/**
+ * 外部共有ビュー用にサイトのデータを収集し、scopes に応じてサニタイズした公開ビューを返す。
+ * 収集ロジックは boardRouter / zonesRouter と同じ純粋関数を再利用し、
+ * 出力は必ず buildPublicShareView (ホワイトリスト) を通す。
+ */
+async function gatherPublicShareView(siteId: string, siteName: string, scopes: ShareScopes) {
+  const floors = await genbaDb.listGenbaFloorsBySite(siteId);
+  const zones = await genbaDb.listGenbaZonesByFloorIds(floors.map((f) => f.id));
+  const tasks = await genbaDb.listGenbaTasksByZoneIds(zones.map((z) => z.id));
+
+  const agg = computeZoneAggregates(
+    zones.map((z) => ({ id: z.id, parentZoneId: z.parentZoneId })),
+    tasks.map((t) => ({ id: t.id, zoneId: t.zoneId, parentTaskId: t.parentTaskId, status: t.status, percent: t.percent })),
+  );
+  const zonesWithAgg = zones.map((z) => {
+    const a = agg.get(z.id) ?? { progress: 0, issues: 0 };
+    return { id: z.id, floorId: z.floorId, parentZoneId: z.parentZoneId, name: z.name, polygon: z.polygon, priority: z.priority, progress: a.progress, issues: a.issues };
+  });
+
+  // フロア進捗 = ルートゾーン進捗の平均 / 全体 = フロア進捗の平均
+  const floorProgress = floors.map((f) => {
+    const roots = zonesWithAgg.filter((z) => z.floorId === f.id && !z.parentZoneId);
+    const p = roots.length ? Math.round(roots.reduce((s, z) => s + z.progress, 0) / roots.length) : 0;
+    return { id: f.id, name: f.name, progress: p };
+  });
+  const withZones = floorProgress.filter((f) => zonesWithAgg.some((z) => z.floorId === f.id && !z.parentZoneId));
+  const overallProgress = withZones.length ? Math.round(withZones.reduce((s, f) => s + f.progress, 0) / withZones.length) : 0;
+
+  const floorsWithUrls = await withFloorImageUrls(floors);
+
+  // board (件数のみ) — computeBoard を再利用し名前は捨てる
+  let boardZones: { id: string; name: string; floorName: string; taskCount: number; assignedCount: number }[] = [];
+  if (scopes.board) {
+    const taskIds = tasks.map((t) => t.id);
+    const [assignees, taskTeams, teams, users] = await Promise.all([
+      genbaDb.listTaskAssigneesByTaskIds(taskIds),
+      genbaDb.listTaskTeamsByTaskIds(taskIds),
+      genbaDb.listGenbaTeamsBySite(siteId),
+      genbaDb.listAssignableUsers(),
+    ]);
+    const members = await genbaDb.listGenbaTeamMembers(teams.map((t) => t.id));
+    const board = computeBoard({
+      floors: floors.map((f) => ({ id: f.id, name: f.name })),
+      zones: zones.map((z) => ({ id: z.id, floorId: z.floorId, name: z.name, priority: z.priority, workStatus: z.workStatus })),
+      tasks: tasks.map((t) => ({ id: t.id, zoneId: t.zoneId, parentTaskId: t.parentTaskId, name: t.name, romaji: t.romaji, status: t.status })),
+      assignees: assignees.map((a) => ({ taskId: a.taskId, userId: a.userId })),
+      taskTeams: taskTeams.map((t) => ({ taskId: t.taskId, teamId: t.teamId })),
+      members: members.map((m) => ({ teamId: m.teamId, userId: m.userId })),
+      users: users.map((u) => ({ id: u.id, name: u.name, appRole: u.appRole })),
+    });
+    boardZones = board.zones.map((z) => ({ id: z.id, name: z.name, floorName: z.floorName, taskCount: z.taskCount, assignedCount: z.assignedUserIds.length }));
+  }
+
+  return buildPublicShareView({
+    siteName,
+    scopes,
+    floors: floorsWithUrls.map((f) => ({ id: f.id, name: f.name, imageUrl: f.imageUrl, w: f.w, h: f.h })),
+    zones: zonesWithAgg,
+    tasks: tasks.map((t) => ({ id: t.id, zoneId: t.zoneId, parentTaskId: t.parentTaskId, name: t.name, status: t.status, percent: t.percent })),
+    boardZones,
+    overall: { progress: overallProgress, floors: floorProgress },
+  });
+}
+
 const sharesRouter = router({
-  list: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(notImplemented),
-  create: genbaFieldProcedure.input(z.object({ siteId: genbaIdSchema, name: z.string().trim().min(1).max(120), scopes: z.array(z.string()).optional(), expiresAt: z.string().nullish() })).mutation(notImplemented),
-  revoke: genbaFieldProcedure.input(z.object({ id: genbaIdSchema })).mutation(notImplemented),
+  /** 現場の共有リンク一覧 (token 同梱・field) */
+  list: genbaFieldProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    return genbaDb.listGenbaSharesBySite(input.siteId);
+  }),
+
+  /** 共有リンク作成 (token 自動生成・field) */
+  create: genbaFieldProcedure
+    .input(z.object({
+      siteId: genbaIdSchema,
+      name: z.string().trim().min(1).max(120),
+      scopes: shareScopeSchema.optional(),
+      expiresAt: z.string().nullish(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const site = await genbaDb.getGenbaSiteById(input.siteId);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      const id = nanoid(21);
+      const token = nanoid(32); // 推測困難な公開トークン
+      const scopes = input.scopes ?? { map: true, dash: true };
+      const share = await genbaDb.createGenbaShare({
+        id, siteId: input.siteId, name: input.name, token,
+        scopes: scopes as any,
+        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      });
+      await safeGenbaAuditLog(ctx.user.id, "genba.shares.create", { entityId: id, note: `共有リンクを作成: ${input.name} (${site.name})` });
+      return share ? genbaDb.normalizeShare(share) : null;
+    }),
+
+  /** 共有リンクの失効 (削除・field) */
+  revoke: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaShareById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "共有リンクが見つかりません" });
+      await genbaDb.deleteGenbaShare(input.id);
+      await safeGenbaAuditLog(ctx.user.id, "genba.shares.revoke", { entityId: input.id, note: `共有リンクを失効: ${existing.name}` });
+      return { success: true as const };
+    }),
+
+  /**
+   * 【非認証】トークンで公開ビューを取得。内部情報 (社内メモ・Driveリンク・予算・作業員名・
+   * 問題本文・写真・指示) は buildPublicShareView のホワイトリストにより一切返さない。
+   */
+  viewByToken: genbaPublicProcedure
+    .input(z.object({ token: z.string().trim().min(8).max(64) }))
+    .query(async ({ input }) => {
+      const share = await genbaDb.getGenbaShareByToken(input.token);
+      if (!share) throw new TRPCError({ code: "NOT_FOUND", message: "共有リンクが見つかりません" });
+      if (isShareExpired(share.expiresAt, new Date())) throw new TRPCError({ code: "FORBIDDEN", message: "共有リンクの有効期限が切れています" });
+      const site = await genbaDb.getGenbaSiteById(share.siteId);
+      if (!site || site.archived) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      return gatherPublicShareView(share.siteId, site.name, share.scopes as ShareScopes);
+    }),
 });
 
 /** 予算行を BudgetInput 形へ (decimal 文字列 → number) */
