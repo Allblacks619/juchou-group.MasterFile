@@ -505,6 +505,18 @@ async function buildPaymentDetail(projectId: number, closingMonth: string) {
   };
 }
 
+/** 作業員単位の支払ビュー用: 締め月の全支払行を closing 付きで収集する（支払行が無い closing は空扱い）。 */
+async function collectMonthPaymentRows(closingMonth: string) {
+  const closings = await db.getProjectClosingsByMonth(closingMonth);
+  const rows: { closing: any; payment: any }[] = [];
+  for (const closing of closings) {
+    if (!closing?.id) continue;
+    const payments = await db.getEmployeePaymentsByClosing(closing.id);
+    for (const payment of payments) rows.push({ closing, payment });
+  }
+  return rows;
+}
+
 async function ensureClosingInitializedForProjectMonth(projectId: number, closingMonth: string) {
   const existing = await db.getProjectClosingByProjectMonth(projectId, closingMonth);
   const closing = existing?.id
@@ -4463,6 +4475,113 @@ export const appRouter = router({
         await safeAuditLog(ctx.user.id, "payment.markUnpaid", "payment", { entityId: input.id, closingId: current.closingId, employeeId: current.employeeId, note: "支払済み解除" });
         return { success: true };
       }),
+
+    // 作業員単位の月次支払サマリー（支払は作業員単位で行うため、案件横断で集計する）。
+    workerMonthSummary: leaderOrAdminProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        const [monthRows, projects, employees, allAdvances] = await Promise.all([
+          collectMonthPaymentRows(input.closingMonth),
+          db.getAllProjects(),
+          db.getAllEmployees(),
+          db.getAllWorkerAdvances(),
+        ]);
+        const projectMap = new Map<number, any>(projects.map((p: any) => [p.id, p]));
+        const empMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
+
+        const advByEmp = new Map<number, any[]>();
+        const advByPay = new Map<number, any[]>();
+        for (const a of allAdvances as any[]) {
+          const e = advByEmp.get(a.employeeId);
+          if (e) e.push(a); else advByEmp.set(a.employeeId, [a]);
+          if (a.relatedPaymentId) {
+            const p = advByPay.get(a.relatedPaymentId);
+            if (p) p.push(a); else advByPay.set(a.relatedPaymentId, [a]);
+          }
+        }
+
+        const byWorker = new Map<number, any[]>();
+        for (const { closing, payment } of monthRows) {
+          const project = projectMap.get(closing.projectId);
+          const list = byWorker.get(payment.employeeId) || [];
+          list.push({
+            projectId: closing.projectId,
+            projectName: project?.name || `案件${closing.projectId}`,
+            paymentId: payment.id,
+            baseAmount: Number(payment.baseAmount || 0),
+            transportAmount: Number(payment.transportAmount || 0),
+            expenseAmount: Number(payment.expenseAmount || 0),
+            adjustmentAmount: Number(payment.adjustmentAmount || 0),
+            totalAmount: Number(payment.totalAmount || 0),
+            status: payment.status,
+            paidAt: payment.paidAt || null,
+          });
+          byWorker.set(payment.employeeId, list);
+        }
+
+        const workers = Array.from(byWorker.entries())
+          .map(([employeeId, projectRows]) => {
+            const emp = empMap.get(employeeId);
+            const totalAmount = projectRows.reduce((sum, r) => sum + r.totalAmount, 0);
+            const advanceBalance = computeAdvanceBalance(advByEmp.get(employeeId) || []);
+            const appliedOffset = projectRows.reduce((sum, r) => sum + computeAppliedOffset(advByPay.get(r.paymentId) || []), 0);
+            const maxOffset = computeMaxOffset(advanceBalance, totalAmount, appliedOffset);
+            const paidRows = projectRows.filter((r) => r.status === "paid");
+            const paidStatus = paidRows.length === projectRows.length ? "paid" : paidRows.length > 0 ? "partial" : "unpaid";
+            const lastPaidAt = paidRows.reduce<any>((latest, r) => {
+              if (!r.paidAt) return latest;
+              return !latest || new Date(r.paidAt) > new Date(latest) ? r.paidAt : latest;
+            }, null);
+            return {
+              employeeId,
+              name: emp?.nameKanji || emp?.nameRomaji || `従業員${employeeId}`,
+              projects: projectRows,
+              totalAmount,
+              advanceBalance,
+              appliedOffset,
+              maxOffset,
+              netPayable: Math.max(totalAmount - appliedOffset, 0),
+              paidStatus,
+              lastPaidAt,
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+
+        return {
+          workers,
+          summary: {
+            workerCount: workers.length,
+            totalAmount: workers.reduce((sum, w) => sum + w.totalAmount, 0),
+            netPayableTotal: workers.reduce((sum, w) => sum + w.netPayable, 0),
+            paidCount: workers.filter((w) => w.paidStatus === "paid").length,
+            unpaidCount: workers.filter((w) => w.paidStatus !== "paid").length,
+          },
+        };
+      }),
+
+    // 作業員単位の一括支払済み（その月のその作業員の全支払行を paid にする）。
+    markWorkerPaid: leaderOrAdminProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const rows = (await collectMonthPaymentRows(input.closingMonth)).filter((r) => r.payment.employeeId === input.employeeId);
+        for (const { payment } of rows) {
+          await db.updateEmployeePayment(payment.id, { status: "paid", paidAt: new Date(), paidBy: ctx.user.id } as any);
+        }
+        await safeAuditLog(ctx.user.id, "payment.markWorkerPaid", "payment", { employeeId: input.employeeId, note: `${input.closingMonth} 作業員単位で支払済み` });
+        return { success: true };
+      }),
+
+    // 作業員単位の一括未払い戻し。
+    markWorkerUnpaid: leaderOrAdminProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const rows = (await collectMonthPaymentRows(input.closingMonth)).filter((r) => r.payment.employeeId === input.employeeId);
+        for (const { payment } of rows) {
+          await db.updateEmployeePayment(payment.id, { status: "pending", paidAt: null, paidBy: null } as any);
+        }
+        await safeAuditLog(ctx.user.id, "payment.markWorkerUnpaid", "payment", { employeeId: input.employeeId, note: `${input.closingMonth} 作業員単位で未払いに戻す` });
+        return { success: true };
+      }),
   }),
 
   // 前借り／立替 台帳（残高）と支払時の自動相殺。
@@ -4576,6 +4695,56 @@ export const appRouter = router({
         } as any);
         const newBalance = balance - input.amount;
         await safeAuditLog(ctx.user.id, "advance.offsetPayment", "worker_advance", { entityId: (created as any).id, employeeId: payment.employeeId, closingId: payment.closingId, note: `支払相殺 ${input.amount}円 / 残高${newBalance}円` });
+        return { success: true, applied: input.amount, balance: newBalance };
+      }),
+
+    // 作業員単位の月次相殺（その月の支払行へ順に相殺を配分して repayment を記録）。
+    offsetWorkerMonth: leaderOrAdminProcedure
+      .input(z.object({
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        employeeId: z.number().int().positive(),
+        amount: z.number().int().positive(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const rows = (await collectMonthPaymentRows(input.closingMonth))
+          .filter((r) => r.payment.employeeId === input.employeeId)
+          .map((r) => r.payment);
+        const entries = await db.getWorkerAdvancesByEmployee(input.employeeId);
+        const balance = computeAdvanceBalance(entries as any[]);
+
+        const rowInfos: { payment: any; applied: number }[] = [];
+        for (const payment of rows) {
+          const applied = computeAppliedOffset(await db.getWorkerAdvancesByPayment(payment.id) as any[]);
+          rowInfos.push({ payment, applied });
+        }
+        const totalPayable = rowInfos.reduce((sum, r) => sum + Number(r.payment.totalAmount || 0), 0);
+        const appliedTotal = rowInfos.reduce((sum, r) => sum + r.applied, 0);
+        const maxOffset = computeMaxOffset(balance, totalPayable, appliedTotal);
+        if (input.amount > maxOffset) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `相殺可能額を超えています（最大 ${maxOffset}円）` });
+        }
+
+        let remaining = input.amount;
+        let remainingBalance = balance;
+        for (const { payment, applied } of rowInfos) {
+          if (remaining <= 0) break;
+          const room = computeMaxOffset(remainingBalance, Number(payment.totalAmount || 0), applied);
+          const take = Math.min(room, remaining);
+          if (take <= 0) continue;
+          await db.createWorkerAdvance({
+            employeeId: input.employeeId,
+            entryType: "repayment",
+            amount: -take,
+            reason: "支払時相殺",
+            relatedPaymentId: payment.id,
+            closingMonth: input.closingMonth,
+            createdBy: ctx.user.id,
+          } as any);
+          remaining -= take;
+          remainingBalance -= take;
+        }
+        const newBalance = balance - input.amount;
+        await safeAuditLog(ctx.user.id, "advance.offsetWorkerMonth", "worker_advance", { employeeId: input.employeeId, note: `${input.closingMonth} 月次相殺 ${input.amount}円 / 残高${newBalance}円` });
         return { success: true, applied: input.amount, balance: newBalance };
       }),
 
