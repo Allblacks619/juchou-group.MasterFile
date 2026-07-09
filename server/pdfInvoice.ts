@@ -220,11 +220,17 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   metaY += 10;
 
   // Company logo (if enabled and available)
+  // 位置・大きさは会社設定の logoSettings（基準50pt・offsetX/Yは基準位置からの補正pt）で調整できる。
   if (showLogo && company?.logoUrl) {
     try {
       const logoPath = await downloadImage(company.logoUrl);
       if (logoPath) {
-        doc.image(logoPath, metaX + 140, metaY - 5, { width: 50, height: 50, fit: [50, 50] });
+        const ls = ((company as any).logoSettings || {}) as any;
+        const logoScale = Number(ls.scale) > 0 ? Number(ls.scale) : 1;
+        const logoSize = 50 * logoScale;
+        const logoX = metaX + 140 + (Number(ls.offsetX) || 0);
+        const logoY = metaY - 5 + (Number(ls.offsetY) || 0);
+        doc.image(logoPath, logoX, logoY, { width: logoSize, height: logoSize, fit: [logoSize, logoSize] });
       }
     } catch { /* ignore logo errors */ }
   }

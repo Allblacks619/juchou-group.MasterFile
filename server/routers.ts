@@ -505,6 +505,18 @@ async function buildPaymentDetail(projectId: number, closingMonth: string) {
   };
 }
 
+/** 作業員単位の支払ビュー用: 締め月の全支払行を closing 付きで収集する（支払行が無い closing は空扱い）。 */
+async function collectMonthPaymentRows(closingMonth: string) {
+  const closings = await db.getProjectClosingsByMonth(closingMonth);
+  const rows: { closing: any; payment: any }[] = [];
+  for (const closing of closings) {
+    if (!closing?.id) continue;
+    const payments = await db.getEmployeePaymentsByClosing(closing.id);
+    for (const payment of payments) rows.push({ closing, payment });
+  }
+  return rows;
+}
+
 async function ensureClosingInitializedForProjectMonth(projectId: number, closingMonth: string) {
   const existing = await db.getProjectClosingByProjectMonth(projectId, closingMonth);
   const closing = existing?.id
@@ -1006,6 +1018,23 @@ async function buildInvoiceAttendanceSheetBuffers(invoice: any, opts?: { include
   return { year, month, sheets };
 }
 
+/** ダウンロード時の推奨ファイル名の基部（オーナー指定: 「○○○○年○○月分請求書 取引先名」）。 */
+function invoicePackageBaseName(invoice: any, clientName: string): string {
+  const p = invoice?.periodStart ? new Date(invoice.periodStart) : new Date();
+  const name = String(clientName || "取引先").replace(/[\\/:*?"<>|]/g, "");
+  return `${p.getUTCFullYear()}年${p.getUTCMonth() + 1}月分請求書 ${name}`;
+}
+
+/** MIMEタイプから保存用拡張子を推定（不明はpdf扱いにしない・binにする）。 */
+function extFromMime(mimeType: string, fallbackName?: string): string {
+  const mime = (mimeType || "").toLowerCase();
+  if (mime.includes("pdf")) return "pdf";
+  if (mime.includes("png")) return "png";
+  if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
+  const m = String(fallbackName || "").match(/\.([A-Za-z0-9]{1,5})$/);
+  return m ? m[1].toLowerCase() : "bin";
+}
+
 /**
  * 請求書に添付できるアップロード済み書類の候補を集める。
  * 対象: 作業員が月締めで提出した領収書等（closing_submission_documents＋旧単発領収書）と、
@@ -1029,6 +1058,15 @@ async function collectInvoiceAttachableDocuments(invoice: any) {
     if (!doc.key || seen.has(doc.key)) return;
     seen.add(doc.key);
     documents.push(doc);
+  };
+  // 保存時の署名URLは期限切れの可能性があるため、返す前にまとめて再署名する。
+  const resignAll = async () => {
+    await Promise.all(documents.map(async (doc) => {
+      try {
+        const { url } = await storageGet(doc.key);
+        doc.url = url;
+      } catch { /* 再署名に失敗した場合は保存済みURLのまま */ }
+    }));
   };
 
   for (const projectId of projectIds) {
@@ -1074,6 +1112,7 @@ async function collectInvoiceAttachableDocuments(invoice: any) {
       });
     }
   }
+  await resignAll();
   return documents;
 }
 
@@ -4189,7 +4228,8 @@ export const appRouter = router({
           projectId: draft.primaryProjectId,
           periodStart: draft.periodStart,
           periodEnd: draft.periodEnd,
-          issueDate: new Date(),
+          // 発行日の既定は月締め月の末日（オーナー指定）。請求書詳細のカレンダーで変更可能。
+          issueDate: draft.periodEnd,
           dueDate: null,
           subtotal: draft.subtotal,
           taxAmount: draft.taxAmount,
@@ -4463,6 +4503,113 @@ export const appRouter = router({
         await safeAuditLog(ctx.user.id, "payment.markUnpaid", "payment", { entityId: input.id, closingId: current.closingId, employeeId: current.employeeId, note: "支払済み解除" });
         return { success: true };
       }),
+
+    // 作業員単位の月次支払サマリー（支払は作業員単位で行うため、案件横断で集計する）。
+    workerMonthSummary: leaderOrAdminProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        const [monthRows, projects, employees, allAdvances] = await Promise.all([
+          collectMonthPaymentRows(input.closingMonth),
+          db.getAllProjects(),
+          db.getAllEmployees(),
+          db.getAllWorkerAdvances(),
+        ]);
+        const projectMap = new Map<number, any>(projects.map((p: any) => [p.id, p]));
+        const empMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
+
+        const advByEmp = new Map<number, any[]>();
+        const advByPay = new Map<number, any[]>();
+        for (const a of allAdvances as any[]) {
+          const e = advByEmp.get(a.employeeId);
+          if (e) e.push(a); else advByEmp.set(a.employeeId, [a]);
+          if (a.relatedPaymentId) {
+            const p = advByPay.get(a.relatedPaymentId);
+            if (p) p.push(a); else advByPay.set(a.relatedPaymentId, [a]);
+          }
+        }
+
+        const byWorker = new Map<number, any[]>();
+        for (const { closing, payment } of monthRows) {
+          const project = projectMap.get(closing.projectId);
+          const list = byWorker.get(payment.employeeId) || [];
+          list.push({
+            projectId: closing.projectId,
+            projectName: project?.name || `案件${closing.projectId}`,
+            paymentId: payment.id,
+            baseAmount: Number(payment.baseAmount || 0),
+            transportAmount: Number(payment.transportAmount || 0),
+            expenseAmount: Number(payment.expenseAmount || 0),
+            adjustmentAmount: Number(payment.adjustmentAmount || 0),
+            totalAmount: Number(payment.totalAmount || 0),
+            status: payment.status,
+            paidAt: payment.paidAt || null,
+          });
+          byWorker.set(payment.employeeId, list);
+        }
+
+        const workers = Array.from(byWorker.entries())
+          .map(([employeeId, projectRows]) => {
+            const emp = empMap.get(employeeId);
+            const totalAmount = projectRows.reduce((sum, r) => sum + r.totalAmount, 0);
+            const advanceBalance = computeAdvanceBalance(advByEmp.get(employeeId) || []);
+            const appliedOffset = projectRows.reduce((sum, r) => sum + computeAppliedOffset(advByPay.get(r.paymentId) || []), 0);
+            const maxOffset = computeMaxOffset(advanceBalance, totalAmount, appliedOffset);
+            const paidRows = projectRows.filter((r) => r.status === "paid");
+            const paidStatus = paidRows.length === projectRows.length ? "paid" : paidRows.length > 0 ? "partial" : "unpaid";
+            const lastPaidAt = paidRows.reduce<any>((latest, r) => {
+              if (!r.paidAt) return latest;
+              return !latest || new Date(r.paidAt) > new Date(latest) ? r.paidAt : latest;
+            }, null);
+            return {
+              employeeId,
+              name: emp?.nameKanji || emp?.nameRomaji || `従業員${employeeId}`,
+              projects: projectRows,
+              totalAmount,
+              advanceBalance,
+              appliedOffset,
+              maxOffset,
+              netPayable: Math.max(totalAmount - appliedOffset, 0),
+              paidStatus,
+              lastPaidAt,
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+
+        return {
+          workers,
+          summary: {
+            workerCount: workers.length,
+            totalAmount: workers.reduce((sum, w) => sum + w.totalAmount, 0),
+            netPayableTotal: workers.reduce((sum, w) => sum + w.netPayable, 0),
+            paidCount: workers.filter((w) => w.paidStatus === "paid").length,
+            unpaidCount: workers.filter((w) => w.paidStatus !== "paid").length,
+          },
+        };
+      }),
+
+    // 作業員単位の一括支払済み（その月のその作業員の全支払行を paid にする）。
+    markWorkerPaid: leaderOrAdminProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const rows = (await collectMonthPaymentRows(input.closingMonth)).filter((r) => r.payment.employeeId === input.employeeId);
+        for (const { payment } of rows) {
+          await db.updateEmployeePayment(payment.id, { status: "paid", paidAt: new Date(), paidBy: ctx.user.id } as any);
+        }
+        await safeAuditLog(ctx.user.id, "payment.markWorkerPaid", "payment", { employeeId: input.employeeId, note: `${input.closingMonth} 作業員単位で支払済み` });
+        return { success: true };
+      }),
+
+    // 作業員単位の一括未払い戻し。
+    markWorkerUnpaid: leaderOrAdminProcedure
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const rows = (await collectMonthPaymentRows(input.closingMonth)).filter((r) => r.payment.employeeId === input.employeeId);
+        for (const { payment } of rows) {
+          await db.updateEmployeePayment(payment.id, { status: "pending", paidAt: null, paidBy: null } as any);
+        }
+        await safeAuditLog(ctx.user.id, "payment.markWorkerUnpaid", "payment", { employeeId: input.employeeId, note: `${input.closingMonth} 作業員単位で未払いに戻す` });
+        return { success: true };
+      }),
   }),
 
   // 前借り／立替 台帳（残高）と支払時の自動相殺。
@@ -4576,6 +4723,56 @@ export const appRouter = router({
         } as any);
         const newBalance = balance - input.amount;
         await safeAuditLog(ctx.user.id, "advance.offsetPayment", "worker_advance", { entityId: (created as any).id, employeeId: payment.employeeId, closingId: payment.closingId, note: `支払相殺 ${input.amount}円 / 残高${newBalance}円` });
+        return { success: true, applied: input.amount, balance: newBalance };
+      }),
+
+    // 作業員単位の月次相殺（その月の支払行へ順に相殺を配分して repayment を記録）。
+    offsetWorkerMonth: leaderOrAdminProcedure
+      .input(z.object({
+        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
+        employeeId: z.number().int().positive(),
+        amount: z.number().int().positive(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const rows = (await collectMonthPaymentRows(input.closingMonth))
+          .filter((r) => r.payment.employeeId === input.employeeId)
+          .map((r) => r.payment);
+        const entries = await db.getWorkerAdvancesByEmployee(input.employeeId);
+        const balance = computeAdvanceBalance(entries as any[]);
+
+        const rowInfos: { payment: any; applied: number }[] = [];
+        for (const payment of rows) {
+          const applied = computeAppliedOffset(await db.getWorkerAdvancesByPayment(payment.id) as any[]);
+          rowInfos.push({ payment, applied });
+        }
+        const totalPayable = rowInfos.reduce((sum, r) => sum + Number(r.payment.totalAmount || 0), 0);
+        const appliedTotal = rowInfos.reduce((sum, r) => sum + r.applied, 0);
+        const maxOffset = computeMaxOffset(balance, totalPayable, appliedTotal);
+        if (input.amount > maxOffset) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `相殺可能額を超えています（最大 ${maxOffset}円）` });
+        }
+
+        let remaining = input.amount;
+        let remainingBalance = balance;
+        for (const { payment, applied } of rowInfos) {
+          if (remaining <= 0) break;
+          const room = computeMaxOffset(remainingBalance, Number(payment.totalAmount || 0), applied);
+          const take = Math.min(room, remaining);
+          if (take <= 0) continue;
+          await db.createWorkerAdvance({
+            employeeId: input.employeeId,
+            entryType: "repayment",
+            amount: -take,
+            reason: "支払時相殺",
+            relatedPaymentId: payment.id,
+            closingMonth: input.closingMonth,
+            createdBy: ctx.user.id,
+          } as any);
+          remaining -= take;
+          remainingBalance -= take;
+        }
+        const newBalance = balance - input.amount;
+        await safeAuditLog(ctx.user.id, "advance.offsetWorkerMonth", "worker_advance", { employeeId: input.employeeId, note: `${input.closingMonth} 月次相殺 ${input.amount}円 / 残高${newBalance}円` });
         return { success: true, applied: input.amount, balance: newBalance };
       }),
 
@@ -4858,7 +5055,8 @@ export const appRouter = router({
           projectId: draft.primaryProjectId,
           periodStart: draft.periodStart,
           periodEnd: draft.periodEnd,
-          issueDate: new Date(),
+          // 発行日の既定は月締め月の末日（オーナー指定）。請求書詳細のカレンダーで変更可能。
+          issueDate: draft.periodEnd,
           dueDate: null,
           subtotal: draft.subtotal,
           taxAmount: draft.taxAmount,
@@ -4983,6 +5181,93 @@ export const appRouter = router({
         return { documents: await collectInvoiceAttachableDocuments(invoice) };
       }),
 
+    /**
+     * 一括ダウンロード用パッケージ: 請求書PDF＋出面表＋選択書類を「個別ファイル」のまま、
+     * 関連づいた推奨ファイル名（○○年○○月分請求書 取引先名 / …出面表 / …領収書N）で返す。
+     * PDF合体はしない（オーナー要望: 合体生成が失敗するため個別添付方式に変更）。
+     */
+    downloadPackage: leaderOrAdminProcedure
+      .input(z.object({
+        id: z.number(),
+        includeAttendanceSheets: z.boolean().optional().default(true),
+        includeGuests: z.boolean().optional().default(true),
+        attachDocumentKeys: z.array(z.string()).optional().default([]),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const invoice = await db.getInvoiceById(input.id);
+        if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+        const items = await db.getInvoiceItemsByInvoice(input.id);
+        const company = await db.getCompanyProfile();
+        const client = invoice.clientId ? await db.getClientById(invoice.clientId) : null;
+        const clientName = client?.name || "取引先";
+        const baseName = invoicePackageBaseName(invoice, clientName);
+
+        const files: Array<{ fileName: string; url: string; kind: "invoice" | "attendance" | "document"; mimeType: string }> = [];
+        const warnings: string[] = [];
+
+        // 1) 請求書PDF
+        const pdfBuffer = await generateInvoicePdf({
+          invoice, items, company, clientName,
+          clientAddress: client?.address || "",
+          clientPostalCode: client?.postalCode || "",
+          clientContactPerson: client?.contactPerson || "",
+          showSeal: invoice.showSeal,
+          showLogo: invoice.showLogo,
+        });
+        const invoiceKey = `invoices/invoice_${invoice.invoiceNumber}_${Date.now()}.pdf`;
+        const { url: invoiceUrl } = await storagePut(invoiceKey, pdfBuffer, "application/pdf");
+        await db.updateInvoice(input.id, { pdfUrl: invoiceUrl });
+        files.push({ fileName: `${baseName}.pdf`, url: invoiceUrl, kind: "invoice", mimeType: "application/pdf" });
+
+        // 2) 出面表（現場別）
+        if (input.includeAttendanceSheets) {
+          try {
+            const built = await buildInvoiceAttendanceSheetBuffers(invoice, { includeGuests: input.includeGuests });
+            const { storagePut: put } = await import("./storage");
+            for (const sheet of built.sheets) {
+              if (!sheet.hasData) {
+                warnings.push(`${sheet.projectName}: 出面データが無いため出面表を除外しました`);
+                continue;
+              }
+              const { url } = await put(`attendance/${sheet.fileName}`, sheet.buffer, "application/pdf");
+              files.push({
+                fileName: `${baseName} 出面表（${sheet.projectName}）.pdf`,
+                url,
+                kind: "attendance",
+                mimeType: "application/pdf",
+              });
+            }
+          } catch (e: any) {
+            warnings.push(`出面表の生成に失敗したため除外しました（${e?.message || "不明なエラー"}）`);
+          }
+        }
+
+        // 3) アップロード書類（候補に含まれるキーのみ許可）
+        if (input.attachDocumentKeys.length > 0) {
+          const candidates = await collectInvoiceAttachableDocuments(invoice);
+          const candidateMap = new Map(candidates.map((doc) => [doc.key, doc]));
+          let receiptIndex = 0;
+          for (const key of input.attachDocumentKeys) {
+            const doc = candidateMap.get(key);
+            if (!doc) {
+              warnings.push("添付候補に無い書類キーをスキップしました");
+              continue;
+            }
+            receiptIndex += 1;
+            const ext = extFromMime(doc.mimeType, doc.fileName);
+            files.push({
+              fileName: `${baseName} 領収書${receiptIndex}.${ext}`,
+              url: doc.url,
+              kind: "document",
+              mimeType: doc.mimeType,
+            });
+          }
+        }
+
+        await safeAuditLog(ctx.user.id, "invoice.downloadPackage", "invoice", { entityId: input.id, invoiceId: input.id, note: `一括ダウンロード ${files.length}件` });
+        return { baseName, files, warnings };
+      }),
+
     /** Create invoice from attendance data */
     createFromAttendance: leaderOrAdminProcedure
       .input(z.object({
@@ -5019,7 +5304,8 @@ export const appRouter = router({
           projectId: draft.primaryProjectId,
           periodStart: draft.periodStart,
           periodEnd: draft.periodEnd,
-          issueDate: new Date(),
+          // 発行日の既定は月締め月の末日（オーナー指定）。請求書詳細のカレンダーで変更可能。
+          issueDate: draft.periodEnd,
           dueDate: input.dueDate ? parseDateString(input.dueDate) : null,
           subtotal: draft.subtotal,
           taxAmount: draft.taxAmount,
@@ -5377,6 +5663,7 @@ export const appRouter = router({
         id: z.number(),
         subject: z.string().max(255).optional(),
         notes: z.string().optional(),
+        issueDate: z.string().optional(),
         dueDate: z.string().optional(),
         honorific: z.string().optional(),
         paymentMethod: z.string().optional(),
@@ -5386,6 +5673,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
         const updateData: any = { ...data };
+        if (data.issueDate) updateData.issueDate = new Date(data.issueDate);
         if (data.dueDate) updateData.dueDate = new Date(data.dueDate);
         await safeAuditLog(ctx.user.id, "invoice.update", "invoice", { entityId: id, invoiceId: id, note: "請求書情報更新" });
         return db.updateInvoice(id, updateData);
