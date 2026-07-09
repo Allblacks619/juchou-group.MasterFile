@@ -47,11 +47,17 @@ export type BudgetCalc = {
   budgetPct: number;
 };
 
-/** 契約金額が未設定 (0) なら計算不能として null を返す (プロトタイプ準拠) */
+/**
+ * 契約金額が未設定 (0) なら計算不能として null を返す (プロトタイプ準拠)。
+ * 工期 (periodStart/periodEnd) は両方揃っていないと月数ベースの経費・ペースが破綻するため、
+ * 片方でも欠けていれば null を返す (以前は欠損側を 1970-01-01 で代用し、
+ * 工期が約684ヶ月として経費が数億円に膨らむ不正な予算表になっていた)。
+ */
 export function computeBudget(input: BudgetCalcInput): BudgetCalc | null {
   if (!input.contractAmount) return null;
-  const start = new Date((input.periodStart || "1970-01-01") + "T00:00:00");
-  const end = new Date((input.periodEnd || "1970-01-01") + "T00:00:00");
+  if (!input.periodStart || !input.periodEnd) return null;
+  const start = new Date(input.periodStart + "T00:00:00");
+  const end = new Date(input.periodEnd + "T00:00:00");
   const now = input.now ?? new Date();
 
   const totalMonths = Math.max((end.getTime() - start.getTime()) / MONTH_MS, 0.1);

@@ -50,4 +50,12 @@ describe("computeBudget", () => {
     const c = computeBudget({ ...base, preManDays: 0, attendanceManDays: 10 })!;
     expect(c.usedManDays).toBe(10);
   });
+
+  it("工期が片方でも欠けていれば null (1970年代用による経費暴走を防ぐ)", () => {
+    expect(computeBudget({ ...base, periodStart: null })).toBeNull();
+    expect(computeBudget({ ...base, periodEnd: null })).toBeNull();
+    expect(computeBudget({ ...base, periodStart: null, periodEnd: null })).toBeNull();
+    // 両方揃っていれば従来どおり算出できる
+    expect(computeBudget(base)).not.toBeNull();
+  });
 });
