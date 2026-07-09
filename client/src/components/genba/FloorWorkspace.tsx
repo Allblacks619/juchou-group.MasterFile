@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package } from "lucide-react";
+import { Loader2, ArrowLeft, Upload, Trash2, Link2, ImageOff, ListChecks, Users, Megaphone, LayoutGrid, Package, Wallet } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, type Pt } from "@/lib/genbaMap";
 import ProgressBadge from "./ProgressBadge";
@@ -12,12 +12,14 @@ import TeamManager from "./TeamManager";
 import InstructionsPanel from "./InstructionsPanel";
 import BoardPanel from "./BoardPanel";
 import MaterialsPanel from "./MaterialsPanel";
+import BudgetPanel from "./BudgetPanel";
 
 type FloorWorkspaceProps = {
   siteId: string;
   siteName: string;
   driveUrl: string | null;
   canEdit: boolean;
+  isAdmin?: boolean;
   meUserId: number | null;
   onBack: () => void;
 };
@@ -29,7 +31,7 @@ type Mode = "view" | "draw" | "edit";
  * 図面アップロード/表示(M2-A) + エリア(ゾーン)のポリゴン描画・頂点編集・優先度・
  * 稼働状態・階層・進捗表示(M2-B)。作業(タスク)は M2-C。
  */
-export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, meUserId, onBack }: FloorWorkspaceProps) {
+export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, isAdmin = false, meUserId, onBack }: FloorWorkspaceProps) {
   const utils = trpc.useUtils();
   const fileRef = useRef<HTMLInputElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -42,6 +44,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
   const [showInstructions, setShowInstructions] = useState(false);
   const [showBoard, setShowBoard] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
+  const [showBudget, setShowBudget] = useState(false);
 
   const { data: unreadCount } = trpc.genba.instructions.unreadCount.useQuery({ siteId }, { retry: false, staleTime: 30 * 1000 });
 
@@ -226,6 +229,11 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
           <Button size="sm" variant="outline" onClick={() => setShowMaterials(true)}>
             <Package className="h-4 w-4 mr-1" /> 材料
           </Button>
+          {isAdmin && (
+            <Button size="sm" variant="outline" onClick={() => setShowBudget(true)}>
+              <Wallet className="h-4 w-4 mr-1" /> 予算
+            </Button>
+          )}
         </div>
         {canEdit && (
           <div className="ml-auto flex items-center gap-2">
@@ -257,6 +265,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
       )}
       {showBoard && <BoardPanel siteId={siteId} meUserId={meUserId} open={showBoard} onOpenChange={setShowBoard} />}
       {showMaterials && <MaterialsPanel siteId={siteId} canEdit={canEdit} meUserId={meUserId} open={showMaterials} onOpenChange={setShowMaterials} />}
+      {showBudget && isAdmin && <BudgetPanel siteId={siteId} siteName={siteName} open={showBudget} onOpenChange={setShowBudget} />}
 
       {/* フロアバー */}
       {list.length > 0 && (
