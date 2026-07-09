@@ -78,11 +78,11 @@ export default function AppWorkReports() {
     enabled: isManager,
   });
   // workReport ルーターの型がクライアント側 worktree に無い場合があるため any 経由で呼ぶ。
-  const dataQuery = (trpc as any).workReport.data.useQuery(
+  const dataQuery = trpc.workReport.data.useQuery(
     { month, employeeId },
     { enabled: /^\d{4}-\d{2}$/.test(month) }
   );
-  const generatePdfMutation = (trpc as any).workReport.generatePdf.useMutation({
+  const generatePdfMutation = trpc.workReport.generatePdf.useMutation({
     onSuccess: (res: any) => {
       pdfViewer.open(res.url, res.fileName, "作業日報");
     },
