@@ -71,7 +71,7 @@ export function buildShareView(input: ShareViewInput): ShareView {
         id: z.id, floorId: z.floorId, parentZoneId: z.parentZoneId, name: z.name,
         polygon: z.polygon, priority: z.priority,
         color: z.color ?? null, fillOpacity: z.fillOpacity ?? null,
-        progress: progressOf(z.id), issues: agg.get(z.id)?.issues ?? 0,
+        progress: Math.round(progressOf(z.id)), issues: agg.get(z.id)?.issues ?? 0,
       })),
     };
   }
