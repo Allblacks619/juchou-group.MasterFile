@@ -86,3 +86,19 @@ export function romanize(text: string): string {
   }
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
+
+/** 表示言語 (日本語 / ポルトガル語) */
+export type GenbaLang = "ja" | "pt";
+
+/** バックエンドは既定 "ja"。旧値 "jp" や "pt-BR" も許容して正規化する */
+export function normalizeLang(raw: string | null | undefined): GenbaLang {
+  if (raw && raw.toLowerCase().startsWith("pt")) return "pt";
+  return "ja";
+}
+
+/** 日本語名を保ち、pt のときのみ「名前 — Romaji」を返す (プロトタイプ dispName 移植) */
+export function dispName(name: string, romaji: string | null | undefined, lang: GenbaLang): string {
+  if (lang !== "pt") return name;
+  const r = (romaji && romaji.trim()) || romanize(name);
+  return r && r !== name ? `${name} — ${r}` : name;
+}

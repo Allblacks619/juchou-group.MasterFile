@@ -9,10 +9,12 @@ import { childrenMap, computeTaskProgress, rootTasks, fmtDate, todayStr, type Ge
 import StatusModal, { type SetStatusPayload } from "./StatusModal";
 import TaskDetailModal from "./TaskDetailModal";
 import AssignPicker from "./AssignPicker";
+import { useGenbaLang } from "@/lib/genbaLang";
 
 /** ゾーン配下の作業ツリー (プロトタイプ TaskTree/TaskRow 移植)。進捗登録・詳細・追加・担当割当。 */
 export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged }: { zoneId: string; siteId: string; meUserId: number | null; canEdit: boolean; onChanged: () => void }) {
   const utils = trpc.useUtils();
+  const { disp } = useGenbaLang();
   const { data: tasks } = trpc.genba.tasks.listByZone.useQuery({ zoneId }, { retry: false });
   const { data: users } = trpc.genba.users.listAssignable.useQuery(undefined, { retry: false, enabled: canEdit, staleTime: 5 * 60 * 1000 });
   const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { retry: false, staleTime: 60 * 1000 });
@@ -70,17 +72,25 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
           )}
           <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setDetailTask(task)}>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className={`text-sm ${isLeaf ? "" : "font-bold"}`}>{task.name}</span>
+              <span className={`text-sm ${isLeaf ? "" : "font-bold"}`}>{disp(task.name, task.romaji)}</span>
               {!isLeaf && <span className="text-xs text-muted-foreground tabular-nums">{Math.round(prog)}%</span>}
               {task.dueDate && <span className={`text-[11px] px-1.5 py-0.5 rounded ${overdue ? "bg-destructive/10 text-destructive font-bold" : "bg-muted text-muted-foreground"}`}>📅 {fmtDate(task.dueDate)}{overdue ? " 期限超過" : ""}</span>}
               {task.memo && task.memoVisible && <span title="メモあり">📝</span>}
               {task.linkUrl && <span title="図面リンク">📐</span>}
               {tTeamIds.map((id) => {
                 const g = teamList.find((t) => t.id === id);
-                return g ? <span key={id} className="text-[10px] px-1.5 py-0.5 rounded font-bold text-white" style={{ background: colorForKey(id) }}>{g.name}</span> : null;
+                return g ? (
+                  <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold text-white" style={{ background: colorForKey(id) }}>
+                    {g.name}
+                    {canEdit && <button title="この班を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignTeam.mutate({ taskId: task.id, teamId: id, on: false }); }}>✕</button>}
+                  </span>
+                ) : null;
               })}
               {assigneeIds.map((id) => (
-                <span key={id} className="text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }}>{userName(id)}</span>
+                <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }}>
+                  {userName(id)}
+                  {canEdit && <button title="担当を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignUser.mutate({ taskId: task.id, userId: id, on: false }); }}>✕</button>}
+                </span>
               ))}
             </div>
             {!isLeaf && (
@@ -90,7 +100,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
             )}
             {task.status === "issue" && task.issueText && <div className="text-xs text-[#b91c1c] mt-0.5">⚠ {task.issueText}</div>}
           </div>
-          {canEdit && isLeaf && (
+          {canEdit && (isLeaf || assigneeIds.length > 0 || tTeamIds.length > 0) && (
             <AssignPicker
               assigneeIds={assigneeIds}
               teamIds={tTeamIds}

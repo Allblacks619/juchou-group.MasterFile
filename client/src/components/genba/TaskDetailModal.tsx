@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Trash2, Plus, ExternalLink, Share2 } from "lucide-react";
 import { romanize } from "@/lib/genbaRomaji";
 import { todayStr, fmtDate, type GenbaTaskDto } from "@/lib/genbaTask";
+import { useGenbaLang } from "@/lib/genbaLang";
 
 /** 作業詳細 (プロトタイプ TaskDetailModal 移植): 名前/ローマ字/期限/リンク/メモ/問題写真/引き継ぎ/削除/サブ作業 */
 export default function TaskDetailModal({
@@ -21,6 +22,7 @@ export default function TaskDetailModal({
   onOpenChange: (v: boolean) => void;
   onChanged: () => void;
 }) {
+  const { disp } = useGenbaLang();
   const [name, setName] = useState(task.name);
   const [memo, setMemo] = useState(task.memo || "");
   const [hoTarget, setHoTarget] = useState("");
@@ -55,7 +57,7 @@ export default function TaskDetailModal({
               <Input value={name} onChange={(e) => setName(e.target.value)}
                 onBlur={() => name.trim() && name !== task.name && update.mutate({ id: task.id, name: name.trim() })}
                 className="font-bold" />
-            ) : task.name}
+            ) : disp(task.name, task.romaji)}
           </DialogTitle>
         </DialogHeader>
 

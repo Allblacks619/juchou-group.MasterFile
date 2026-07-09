@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { STATUS, PRIORITY } from "@/lib/genbaMap";
 import { colorForKey } from "@/lib/genbaTeamColor";
+import { useGenbaLang } from "@/lib/genbaLang";
 
 /** 配置ボード (プロトタイプ BoardTab 移植): 現在の割当から人別/エリア別を自動生成 (毎日の入力不要) */
 export default function BoardPanel({
@@ -14,6 +15,7 @@ export default function BoardPanel({
   onOpenChange: (v: boolean) => void;
 }) {
   const [view, setView] = useState<"people" | "zone">("people");
+  const { disp } = useGenbaLang();
   const { data: board } = trpc.genba.board.get.useQuery({ siteId }, { enabled: open, retry: false });
   const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { enabled: open, retry: false });
   const { data: users } = trpc.genba.users.listAssignable.useQuery(undefined, { enabled: open, retry: false });
@@ -55,10 +57,10 @@ export default function BoardPanel({
                   ) : (
                     Array.from(groups.entries()).map(([zoneId, ts]) => (
                       <div key={zoneId} className="mt-2">
-                        <div className="text-xs font-bold text-muted-foreground">📍 {ts[0].zoneName}</div>
+                        <div className="text-xs font-bold text-muted-foreground">📍 {disp(ts[0].zoneName)}</div>
                         {ts.map((t) => (
                           <div key={t.id} className="flex items-center gap-2 py-1 border-b border-border/50">
-                            <span className="text-sm flex-1">{t.name}</span>
+                            <span className="text-sm flex-1">{disp(t.name, t.romaji)}</span>
                             {t.status === "progress" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#e0f2fe] text-[#0369a1]">↻ 継続中</span>}
                             <StatusChip s={t.status} />
                           </div>
@@ -78,7 +80,7 @@ export default function BoardPanel({
               return (
                 <div key={z.id} className="rounded-lg border border-border p-2" style={{ borderTop: `5px solid ${pr ? pr.color : "#cbd5e1"}` }}>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <strong className="text-sm">{z.floorName ? z.floorName + " / " : ""}{z.name}</strong>
+                    <strong className="text-sm">{z.floorName ? z.floorName + " / " : ""}{disp(z.name)}</strong>
                     {pr && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: pr.color, color: pr.text }}>{pr.label}</span>}
                     <span className="ml-auto text-xs text-muted-foreground">{z.taskCount}件</span>
                   </div>

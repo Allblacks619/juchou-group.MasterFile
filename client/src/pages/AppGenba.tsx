@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 import { Plus, Loader2, HardHat, Link2, Pencil, FolderOpen } from "lucide-react";
 import FloorWorkspace from "@/components/genba/FloorWorkspace";
+import { GenbaLangProvider, LangToggle } from "@/lib/genbaLang";
 
 /**
  * 現場ビジョン (genba) — 現場一覧 + 図面ワークスペース(M2-A)。
@@ -87,18 +88,21 @@ export default function AppGenba() {
 
   if (openSite) {
     return (
-      <FloorWorkspace
-        siteId={openSite.id}
-        siteName={openSite.name}
-        driveUrl={openSite.driveUrl}
-        canEdit={canEdit}
-        meUserId={me.userId ?? null}
-        onBack={() => setOpenSiteId(null)}
-      />
+      <GenbaLangProvider initialLang={me.settings?.lang}>
+        <FloorWorkspace
+          siteId={openSite.id}
+          siteName={openSite.name}
+          driveUrl={openSite.driveUrl}
+          canEdit={canEdit}
+          meUserId={me.userId ?? null}
+          onBack={() => setOpenSiteId(null)}
+        />
+      </GenbaLangProvider>
     );
   }
 
   return (
+    <GenbaLangProvider initialLang={me.settings?.lang}>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -110,6 +114,8 @@ export default function AppGenba() {
             {me.name || "ユーザー"} さん（{genbaRoleLabel[me.genbaRole] || me.genbaRole}） — 現場を開いて図面を管理（エリア・作業は順次追加）
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <LangToggle />
         {canEdit && (
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
@@ -145,6 +151,7 @@ export default function AppGenba() {
             </DialogContent>
           </Dialog>
         )}
+        </div>
       </div>
 
       {sitesLoading ? (
@@ -250,5 +257,6 @@ export default function AppGenba() {
         </DialogContent>
       </Dialog>
     </div>
+    </GenbaLangProvider>
   );
 }

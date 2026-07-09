@@ -12,6 +12,7 @@ import TeamManager from "./TeamManager";
 import InstructionsPanel from "./InstructionsPanel";
 import BoardPanel from "./BoardPanel";
 import MaterialsPanel from "./MaterialsPanel";
+import { useGenbaLang, LangToggle } from "@/lib/genbaLang";
 
 type FloorWorkspaceProps = {
   siteId: string;
@@ -31,6 +32,7 @@ type Mode = "view" | "draw" | "edit";
  */
 export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, meUserId, onBack }: FloorWorkspaceProps) {
   const utils = trpc.useUtils();
+  const { disp } = useGenbaLang();
   const fileRef = useRef<HTMLInputElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragIdx = useRef<number | null>(null);
@@ -226,6 +228,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
           <Button size="sm" variant="outline" onClick={() => setShowMaterials(true)}>
             <Package className="h-4 w-4 mr-1" /> 材料
           </Button>
+          <LangToggle className="inline-flex items-center justify-center h-8 w-9 rounded-md border border-border text-base leading-none hover:bg-muted" />
         </div>
         {canEdit && (
           <div className="ml-auto flex items-center gap-2">
@@ -343,6 +346,10 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
                   const sel = selectedZoneId === z.id;
                   const isChild = !!z.parentZoneId;
                   const c = centroid(poly);
+                  // ラベルの重なり対策: 選択中のゾーンのみ全バッジ、他はコンパクトなハロー付きチップ。
+                  // 子ゾーンのラベルは親または自身が選択されているときだけ表示して密集を防ぐ。
+                  const showLabel = sel || !isChild || selectedZoneId === z.parentZoneId;
+                  const labelName = (z.workStatus === "paused" ? "⏸ " : "") + disp(z.name);
                   return (
                     <g key={z.id} style={{ cursor: "pointer" }}
                       onClick={(e) => { if (mode === "draw") return; e.stopPropagation(); setSelectedZoneId(sel ? null : z.id); }}>
@@ -352,9 +359,25 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
                         strokeWidth={(sel ? 7 : isChild ? 3 : 5) * scale}
                         strokeDasharray={isChild ? `${10 * scale} ${7 * scale}` : "none"}
                       />
-                      <g transform={`translate(${c.x},${c.y}) scale(${scale})`}>
-                        <ProgressBadge name={(z.workStatus === "paused" ? "⏸" : "") + z.name} progress={z.progress} issues={z.issues} small={isChild} priority={z.priority} />
-                      </g>
+                      {sel ? (
+                        <g transform={`translate(${c.x},${c.y}) scale(${scale})`}>
+                          <ProgressBadge name={labelName} progress={z.progress} issues={z.issues} small={isChild} priority={z.priority} />
+                        </g>
+                      ) : showLabel ? (
+                        <g transform={`translate(${c.x},${c.y}) scale(${scale})`}>
+                          <circle r={6} fill={pr ? pr.color : "#64748b"} stroke="#fff" strokeWidth={2} />
+                          <text y={-11} textAnchor="middle" fontSize={14} fontWeight={800}
+                            fill="#0f172a" stroke="#fff" strokeWidth={3.5} paintOrder="stroke" style={{ pointerEvents: "none" }}>
+                            {labelName}
+                          </text>
+                          {z.issues > 0 && (
+                            <text y={18} textAnchor="middle" fontSize={12} fontWeight={800}
+                              fill="#FF4B00" stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: "none" }}>
+                              ⚠{z.issues}
+                            </text>
+                          )}
+                        </g>
+                      ) : null}
                     </g>
                   );
                 })}
