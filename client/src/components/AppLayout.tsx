@@ -49,6 +49,7 @@ const navItems: NavItem[] = [
   { path: "/app/projects", labelKey: "nav_projects", icon: FolderOpen, roles: ["manager"] },
   { path: "/app/rates", labelKey: "nav_rates", icon: DollarSign, roles: ["manager"] },
   { path: "/app/attendance", labelKey: "nav_attendance", icon: CalendarDays, roles: ["manager"] },
+  { path: "/app/work-reports", labelKey: "nav_workReports", icon: ClipboardList, roles: ["manager", "worker"] },
   { path: "/app/invoices", labelKey: "nav_invoices", icon: FileText, roles: ["manager"] },
   { path: "/app/monthly-close-v2", labelKey: "nav_monthlyCloseV2", icon: FileCheck2, roles: ["manager"] },
   { path: "/app/worker-invoice-v2", labelKey: "nav_workerInvoiceV2", icon: FileText, roles: ["manager"] },
@@ -74,8 +75,8 @@ function getNavGroups(): NavGroup[] {
     {
       groupKey: "nav_siteManagement",
       icon: FolderOpen,
-      items: navItems.filter(item => 
-        ["nav_projects", "nav_rates", "nav_attendance"].includes(item.labelKey)
+      items: navItems.filter(item =>
+        ["nav_projects", "nav_rates", "nav_attendance", "nav_workReports"].includes(item.labelKey)
       ),
     },
     {
@@ -183,7 +184,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
             {/* Dashboard and Profile - Always visible at top */}
             {navItems
-              .filter((item) => ["nav_dashboard", "nav_myProfile", "nav_myClosing", ...(genbaAvailable ? ["nav_genba"] : [])].includes(item.labelKey) && isNavItemVisible(item, appRole))
+              .filter((item) => ["nav_dashboard", "nav_myProfile", "nav_myClosing", ...(isManagerLikeAppRole(appRole) ? [] : ["nav_workReports"]), ...(genbaAvailable ? ["nav_genba"] : [])].includes(item.labelKey) && isNavItemVisible(item, appRole))
               .map((item) => {
                 const isActive = location === item.path || (item.path !== "/app" && location.startsWith(item.path));
                 return (

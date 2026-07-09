@@ -27,6 +27,7 @@ const AppProjects = lazy(() => import("./pages/AppProjects"));
 const AppRates = lazy(() => import("./pages/AppRates"));
 const AppAttendance = lazy(() => import("./pages/AppAttendance"));
 const AppMyClosing = lazy(() => import("./pages/AppMyClosing"));
+const AppWorkReports = lazy(() => import("./pages/AppWorkReports"));
 const AppInvoices = lazy(() => import("./pages/AppInvoices"));
 const AppClosings = lazy(() => import("./pages/AppClosings"));
 const AppMonthlyCloseV2 = lazy(() => import("./pages/AppMonthlyCloseV2"));
@@ -71,6 +72,7 @@ function AppRoutes() {
           <Route path="/app" component={AppDashboard} />
           <Route path="/app/my-profile" component={AppMyProfile} />
           <Route path="/app/my-closing" component={AppMyClosing} />
+          <Route path="/app/work-reports" component={AppWorkReports} />
           <Route path="/app/support" component={AppSupport} />
           <Route path="/app/genba" component={AppGenba} />
 
