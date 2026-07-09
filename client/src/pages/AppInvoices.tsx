@@ -200,6 +200,10 @@ function InvoiceDetailDialog({
 
   const attachableDocsQuery = trpc.invoice.listAttachableDocuments.useQuery({ invoiceId });
   const attachableDocs = attachableDocsQuery.data?.documents || [];
+  const reportWorkers = (attachableDocsQuery.data as any)?.workers || [];
+  // 作業日報の添付選択（対象作業員）と、日報への交通費記載の有無
+  const [selectedReportIds, setSelectedReportIds] = useState<Set<number>>(new Set());
+  const [reportIncludeTransport, setReportIncludeTransport] = useState(true);
 
   const updateInvoiceMutation = trpc.invoice.update.useMutation({
     onSuccess: () => {
@@ -223,6 +227,8 @@ function InvoiceDetailDialog({
         includeAttendanceSheets: attachAttendance,
         includeGuests,
         attachDocumentKeys: Array.from(selectedDocKeys),
+        workReportEmployeeIds: Array.from(selectedReportIds),
+        workReportIncludeTransport: reportIncludeTransport,
       });
       for (const w of res.warnings || []) toast.warning(w, { duration: 8000 });
       let ok = 0;
@@ -644,6 +650,47 @@ function InvoiceDetailDialog({
                     <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-gold hover:text-gold-dim text-xs shrink-0">
                       表示
                     </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* 個別作業日報の添付選択 */}
+          <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm">作業日報を含める（作業員別・対象月）</p>
+                <p className="text-[11px] text-muted-foreground">その月に作業員がどの現場に行ったか一目でわかる社内書類です</p>
+              </div>
+              {selectedReportIds.size > 0 && (
+                <label className="flex items-center gap-2 text-[12px] text-muted-foreground shrink-0">
+                  交通費を記載する
+                  <Switch checked={reportIncludeTransport} onCheckedChange={setReportIncludeTransport} />
+                </label>
+              )}
+            </div>
+            {attachableDocsQuery.isLoading ? (
+              <p className="text-[11px] text-muted-foreground">読み込み中…</p>
+            ) : reportWorkers.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">この請求書の対象月・現場に出面のある作業員がいません</p>
+            ) : (
+              <ul className="flex flex-wrap gap-x-4 gap-y-1">
+                {reportWorkers.map((w: any) => (
+                  <li key={w.employeeId} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      id={`report-${w.employeeId}`}
+                      checked={selectedReportIds.has(w.employeeId)}
+                      onCheckedChange={(checked) => {
+                        setSelectedReportIds((prev) => {
+                          const next = new Set(prev);
+                          if (checked) next.add(w.employeeId);
+                          else next.delete(w.employeeId);
+                          return next;
+                        });
+                      }}
+                    />
+                    <label htmlFor={`report-${w.employeeId}`} className="cursor-pointer">{w.name}</label>
                   </li>
                 ))}
               </ul>

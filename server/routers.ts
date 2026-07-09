@@ -22,6 +22,7 @@ import { buildWorkerInvoiceDraftFromV2, WorkerMonthlyClosingNotSubmittedError } 
 import { seedBetaFixture, BETA_TEST_MONTH } from "./betaFixture";
 import { seedSimulationFixture } from "./simulationFixture";
 import { buildAccountingCsv, accountingCsvFilename, type AccountingCsvInvoice } from "./accountingCsv";
+import { buildWorkerWorkReport } from "./workReport";
 import { computeAdvanceBalance, computeAppliedOffset, computeMaxOffset, signedDelta } from "./workerAdvance";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 import { genbaRouter } from "./genba/router";
@@ -4813,6 +4814,63 @@ export const appRouter = router({
       }),
   }),
 
+  // 個別作業日報（月×作業員）。作業員は自分の分のみ、管理者系ロールは全員分を参照できる。
+  workReport: router({
+    // 日報データ（画面表示用）。employeeId 未指定なら自分。
+    data: protectedProcedure
+      .input(z.object({
+        month: z.string().regex(/^\d{4}-\d{2}$/),
+        employeeId: z.number().int().positive().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const role = (ctx.user as any).appRole;
+        const canViewOthers = ["super_admin", "admin", "manager", "leader", "supervisor"].includes(String(role || ""));
+        const me = await db.getEmployeeByUserId(ctx.user.id);
+        if (input.employeeId && !canViewOthers && Number(input.employeeId) !== Number(me?.id)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の日報は参照できません" });
+        }
+        const targetEmployeeId = input.employeeId ?? (me?.id ? Number(me.id) : null);
+        if (!targetEmployeeId) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+        const report = await buildWorkerWorkReport(targetEmployeeId, input.month);
+        if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+        return report;
+      }),
+
+    // 日報PDFを生成してURLを返す。ファイル名は「○○○○年○○月_氏名_作業日報.pdf」。
+    generatePdf: protectedProcedure
+      .input(z.object({
+        month: z.string().regex(/^\d{4}-\d{2}$/),
+        employeeId: z.number().int().positive().optional(),
+        includeTransport: z.boolean().optional().default(true),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const role = (ctx.user as any).appRole;
+        const canViewOthers = ["super_admin", "admin", "manager", "leader", "supervisor"].includes(String(role || ""));
+        const me = await db.getEmployeeByUserId(ctx.user.id);
+        if (input.employeeId && !canViewOthers && Number(input.employeeId) !== Number(me?.id)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の日報は参照できません" });
+        }
+        const targetEmployeeId = input.employeeId ?? (me?.id ? Number(me.id) : null);
+        if (!targetEmployeeId) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+        const report = await buildWorkerWorkReport(targetEmployeeId, input.month);
+        if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
+
+        const company = await db.getCompanyProfile();
+        const { generateWorkReportPdf } = await import("./pdfWorkReport");
+        const buffer = await generateWorkReportPdf({
+          data: report,
+          companyName: company?.companyName || "充寵グループ",
+          sealUrl: company?.sealUrl || null,
+          includeTransport: input.includeTransport,
+        });
+        const key = `work-reports/report-${targetEmployeeId}-${input.month}-${Date.now()}.pdf`;
+        const { url } = await storagePut(key, buffer, "application/pdf");
+        const fileName = `${report.year}年${String(report.monthNum).padStart(2, "0")}月_${report.name.replace(/[\\/:*?"<>|]/g, "")}_作業日報.pdf`;
+        await safeAuditLog(ctx.user.id, "workReport.generatePdf", "work_report", { employeeId: targetEmployeeId, note: `${input.month} の作業日報PDFを生成` });
+        return { url, fileName, summary: report.summary, transportByProject: report.transportByProject };
+      }),
+  }),
+
   receivable: router({
     listByMonth: leaderOrAdminProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
@@ -5172,13 +5230,34 @@ export const appRouter = router({
         return { year: built.year, month: built.month, sheets };
       }),
 
-    /** 請求書に添付できるアップロード済み書類（領収書など）の候補一覧。 */
+    /** 請求書に添付できるアップロード済み書類（領収書など）と、作業日報の対象作業員候補。 */
     listAttachableDocuments: leaderOrAdminProcedure
       .input(z.object({ invoiceId: z.number() }))
       .query(async ({ input }) => {
         const invoice = await db.getInvoiceById(input.invoiceId);
         if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
-        return { documents: await collectInvoiceAttachableDocuments(invoice) };
+
+        // 作業日報の候補: この請求書の現場×対象月に出面のある社員（ゲスト除外）
+        const period = invoice.periodStart ? new Date(invoice.periodStart) : new Date();
+        const start = new Date(Date.UTC(period.getUTCFullYear(), period.getUTCMonth(), 1));
+        const end = new Date(Date.UTC(period.getUTCFullYear(), period.getUTCMonth() + 1, 0, 23, 59, 59));
+        const projectIds = new Set(getInvoiceProjectIds(invoice));
+        const [records, employees] = await Promise.all([
+          db.getAttendanceByDateRange(start, end),
+          db.getAllEmployees(),
+        ]);
+        const empMap = new Map<number, any>((employees as any[]).map((e) => [Number(e.id), e]));
+        const workerIds = new Set<number>();
+        for (const rec of records as any[]) {
+          if (rec.employeeId && projectIds.has(Number(rec.projectId)) && Number(rec.hoursWorked || 0) > 0) {
+            workerIds.add(Number(rec.employeeId));
+          }
+        }
+        const workers = Array.from(workerIds)
+          .map((id) => ({ employeeId: id, name: empMap.get(id)?.nameKanji || empMap.get(id)?.nameRomaji || `従業員${id}` }))
+          .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+
+        return { documents: await collectInvoiceAttachableDocuments(invoice), workers };
       }),
 
     /**
@@ -5192,6 +5271,9 @@ export const appRouter = router({
         includeAttendanceSheets: z.boolean().optional().default(true),
         includeGuests: z.boolean().optional().default(true),
         attachDocumentKeys: z.array(z.string()).optional().default([]),
+        // 個別作業日報の添付（対象作業員のID）と、日報に交通費列を載せるか
+        workReportEmployeeIds: z.array(z.number().int().positive()).optional().default([]),
+        workReportIncludeTransport: z.boolean().optional().default(true),
       }))
       .mutation(async ({ ctx, input }) => {
         const invoice = await db.getInvoiceById(input.id);
@@ -5261,6 +5343,37 @@ export const appRouter = router({
               kind: "document",
               mimeType: doc.mimeType,
             });
+          }
+        }
+
+        // 4) 個別作業日報（対象作業員×対象月）
+        if (input.workReportEmployeeIds.length > 0) {
+          const monthKey = `${new Date(invoice.periodStart).getUTCFullYear()}-${String(new Date(invoice.periodStart).getUTCMonth() + 1).padStart(2, "0")}`;
+          const { generateWorkReportPdf } = await import("./pdfWorkReport");
+          for (const employeeId of Array.from(new Set(input.workReportEmployeeIds))) {
+            try {
+              const report = await buildWorkerWorkReport(employeeId, monthKey);
+              if (!report) {
+                warnings.push(`従業員ID ${employeeId}: 情報が見つからないため作業日報を除外しました`);
+                continue;
+              }
+              const buffer = await generateWorkReportPdf({
+                data: report,
+                companyName: company?.companyName || "充寵グループ",
+                sealUrl: company?.sealUrl || null,
+                includeTransport: input.workReportIncludeTransport,
+              });
+              const key = `work-reports/invoice-${invoice.id}-emp-${employeeId}-${Date.now()}.pdf`;
+              const { url } = await storagePut(key, buffer, "application/pdf");
+              files.push({
+                fileName: `${baseName} 作業日報（${report.name.replace(/[\\/:*?"<>|]/g, "")}）.pdf`,
+                url,
+                kind: "document",
+                mimeType: "application/pdf",
+              });
+            } catch (e: any) {
+              warnings.push(`作業日報の生成に失敗しました（従業員ID ${employeeId}: ${e?.message || "不明なエラー"}）`);
+            }
           }
         }
 
