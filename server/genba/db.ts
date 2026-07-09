@@ -287,11 +287,41 @@ export async function listGenbaTaskEvents(taskId: string): Promise<GenbaTaskEven
 
 export type AssignableUser = { id: number; name: string | null; appRole: string };
 
-export async function listAssignableUsers(): Promise<AssignableUser[]> {
+/**
+ * 割当可能な作業員一覧。
+ * siteId 指定かつ現場が案件(projectId)にリンクされている場合は、
+ * その案件の出面(attendance)に登録された作業員(users.employeeId 一致)のみを返す。
+ * 未リンク/未指定なら全ユーザーを返す (従来動作)。
+ */
+export async function listAssignableUsers(siteId?: string): Promise<AssignableUser[]> {
   const db = await getDb();
   if (!db) return [];
+  if (siteId) {
+    const site = await getGenbaSiteById(siteId);
+    if (site?.projectId) {
+      const rows = await db
+        .select({ id: users.id, name: users.name, appRole: users.appRole })
+        .from(users)
+        .innerJoin(attendance, eq(attendance.employeeId, users.employeeId))
+        .where(eq(attendance.projectId, site.projectId))
+        .groupBy(users.id, users.name, users.appRole)
+        .orderBy(asc(users.name));
+      return rows as AssignableUser[];
+    }
+  }
   const rows = await db.select({ id: users.id, name: users.name, appRole: users.appRole }).from(users).orderBy(asc(users.name));
   return rows as AssignableUser[];
+}
+
+/** 現場に連携できる工事案件(projects)の一覧 (案件ピッカー用)。active を先頭に新しい順 */
+export async function listLinkableProjects(): Promise<{ id: number; name: string; status: string; startDate: Date | null; endDate: Date | null }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ id: projects.id, name: projects.name, status: projects.status, startDate: projects.startDate, endDate: projects.endDate })
+    .from(projects)
+    .orderBy(desc(projects.createdAt));
+  return rows;
 }
 
 // ── genba_teams / genba_team_members ──

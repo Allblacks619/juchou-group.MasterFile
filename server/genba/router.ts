@@ -177,6 +177,27 @@ const sitesRouter = router({
       await safeGenbaAuditLog(ctx.user.id, "genba.sites.setDriveUrl", { entityId: input.id, note: `${existing.name} のDriveリンクを更新` });
       return site;
     }),
+
+  /** 連携先の工事案件(projects)一覧。現場↔案件リンクのピッカー用 (field) */
+  listProjects: genbaFieldProcedure.query(async () => {
+    const rows = await genbaDb.listLinkableProjects();
+    return rows.map((p) => ({ id: p.id, name: p.name, status: p.status, startDate: toYmd(p.startDate), endDate: toYmd(p.endDate) }));
+  }),
+
+  /** 現場に工事案件をリンク/解除 (field)。リンクすると出面連動・予算project集計・出面担当が有効になる */
+  setProject: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema, projectId: z.number().int().positive().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaSiteById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      if (input.projectId != null) {
+        const project = await genbaDb.getProjectPeriod(input.projectId);
+        if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "工事案件が見つかりません" });
+      }
+      const site = await genbaDb.updateGenbaSite(input.id, { projectId: input.projectId });
+      await safeGenbaAuditLog(ctx.user.id, "genba.sites.setProject", { entityId: input.id, note: input.projectId != null ? `案件#${input.projectId} を連携` : "案件連携を解除" });
+      return site;
+    }),
 });
 
 const settingsRouter = router({
@@ -653,9 +674,12 @@ const teamsRouter = router({
 // ── users (M3-A): 割り当て可能ユーザー一覧 (既存 users を読み取り専用) ──
 
 const usersRouter = router({
-  listAssignable: genbaProcedure.query(async () => {
-    return genbaDb.listAssignableUsers();
-  }),
+  /** 割当可能な作業員。siteId 指定かつ案件リンク時は出面登録メンバーのみ */
+  listAssignable: genbaProcedure
+    .input(z.object({ siteId: genbaIdSchema }).optional())
+    .query(async ({ input }) => {
+      return genbaDb.listAssignableUsers(input?.siteId);
+    }),
 });
 
 // ── board (M3-C): 現在の割当から人別/エリア別を自動生成 ──
