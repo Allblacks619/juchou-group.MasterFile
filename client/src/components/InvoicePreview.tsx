@@ -61,12 +61,26 @@ interface CompanyData {
   sealUrl?: string | null;
 }
 
+/** 社印・ロゴのレイアウト調整（PDFと同じ座標系: A4=595.28×841.89pt、社印基準40pt/ロゴ基準50pt）。 */
+export interface InvoiceLayoutSettings {
+  seal?: { x?: number; y?: number; scale?: number; opacity?: number };
+  logo?: { scale?: number; offsetX?: number; offsetY?: number };
+}
+
 interface InvoicePreviewProps {
   invoice: InvoiceData;
   items: InvoiceItemData[];
   client?: ClientData | null;
   company?: CompanyData | null;
+  /** 未指定時は company.sealSettings / logoSettings を使う。プレビュー調整のライブ反映用。 */
+  layout?: InvoiceLayoutSettings;
 }
+
+const A4_W = 595.28;
+const A4_H = 841.89;
+const SEAL_BASE = 40;
+const SEAL_DEFAULT_X = 480;
+const SEAL_DEFAULT_Y = 110;
 
 function toJaDate(d: Date | string | null | undefined): string {
   if (!d) return "";
@@ -83,10 +97,22 @@ function quantityDisplay(quantity: number, unit: string): string {
   return String(quantity);
 }
 
-export default function InvoicePreview({ invoice, items, client, company }: InvoicePreviewProps) {
+export default function InvoicePreview({ invoice, items, client, company, layout }: InvoicePreviewProps) {
   const honorific = invoice.honorific || "御中";
   const showSeal = invoice.showSeal !== false;
   const showLogo = invoice.showLogo !== false;
+
+  // 社印: PDFと同じ絶対座標で重ねる（会社設定 or ライブ調整値）。
+  const sealRaw = layout?.seal ?? ((company as any)?.sealSettings || {});
+  const sealX = Number(sealRaw?.x) > 0 ? Number(sealRaw.x) : SEAL_DEFAULT_X;
+  const sealY = Number(sealRaw?.y) > 0 ? Number(sealRaw.y) : SEAL_DEFAULT_Y;
+  const sealScale = Number(sealRaw?.scale) > 0 ? Number(sealRaw.scale) : 1;
+  const sealOpacity = sealRaw?.opacity != null && sealRaw?.opacity !== "" ? Number(sealRaw.opacity) : 0.85;
+  // ロゴ: 大きさ・位置補正（基準50pt相当=40px表示）。
+  const logoRaw = layout?.logo ?? ((company as any)?.logoSettings || {});
+  const logoScale = Number(logoRaw?.scale) > 0 ? Number(logoRaw.scale) : 1;
+  const logoOffsetX = Number(logoRaw?.offsetX) || 0;
+  const logoOffsetY = Number(logoRaw?.offsetY) || 0;
 
   // Tax breakdown by rate
   const taxByRate = new Map<number, number>();
@@ -102,6 +128,20 @@ export default function InvoicePreview({ invoice, items, client, company }: Invo
     <div className="bg-white text-black font-sans text-[11px] leading-relaxed w-full max-w-[210mm] mx-auto shadow-lg" style={{ fontFamily: "'Noto Sans JP', sans-serif" }}>
       {/* A4 page container */}
       <div className="relative p-8 min-h-[297mm]">
+        {/* 社印オーバーレイ — PDF(pdfInvoice.ts)と同じA4絶対座標・大きさ・透明度で表示 */}
+        {showSeal && company?.sealUrl && (
+          <img
+            src={company.sealUrl}
+            alt="社印"
+            className="pointer-events-none absolute object-contain"
+            style={{
+              left: `${(sealX / A4_W) * 100}%`,
+              top: `${(sealY / A4_H) * 100}%`,
+              width: `${((SEAL_BASE * sealScale) / A4_W) * 100}%`,
+              opacity: sealOpacity,
+            }}
+          />
+        )}
         {/* ── Title ── */}
         <h1 className="text-center text-xl font-bold tracking-widest mb-6 border-b-2 border-black pb-2">
           請 求 書
@@ -171,7 +211,15 @@ export default function InvoicePreview({ invoice, items, client, company }: Invo
               <div className="mt-4 text-[10px] text-left border-t pt-3">
                 {showLogo && company.logoUrl && (
                   <div className="flex justify-end mb-2">
-                    <img src={company.logoUrl} alt="Logo" className="h-10 object-contain" />
+                    <img
+                      src={company.logoUrl}
+                      alt="Logo"
+                      className="object-contain"
+                      style={{
+                        height: `${40 * logoScale}px`,
+                        transform: `translate(${logoOffsetX}px, ${logoOffsetY}px)`,
+                      }}
+                    />
                   </div>
                 )}
                 <p className="font-bold text-sm">{company.companyName}</p>
@@ -185,12 +233,7 @@ export default function InvoicePreview({ invoice, items, client, company }: Invo
                   </p>
                 )}
 
-                {/* Seal */}
-                {showSeal && company.sealUrl && (
-                  <div className="flex justify-end mt-2">
-                    <img src={company.sealUrl} alt="社印" className="h-16 w-16 object-contain opacity-80" />
-                  </div>
-                )}
+                {/* 社印はPDFと同じ絶対座標で下のオーバーレイに描画する（ここには置かない） */}
               </div>
             )}
           </div>

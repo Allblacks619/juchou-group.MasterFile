@@ -181,29 +181,79 @@ function InvoiceDetailDialog({
   const [includeGuests, setIncludeGuests] = useState(true);
   const [selectedDocKeys, setSelectedDocKeys] = useState<Set<string>>(new Set());
   const [subjectDraft, setSubjectDraft] = useState<string | null>(null);
+  const [issueDateDraft, setIssueDateDraft] = useState<string | null>(null);
+  // 社印・ロゴのレイアウト調整（会社設定として保存。PDFとプレビューの両方に反映）
+  const [layoutDraft, setLayoutDraft] = useState<{
+    seal: { x: number; y: number; scale: number; opacity: number };
+    logo: { scale: number; offsetX: number; offsetY: number };
+  } | null>(null);
+  const [showLayoutPanel, setShowLayoutPanel] = useState(false);
   const pdfViewer = usePdfViewer();
+
+  const saveLayoutMutation = trpc.company.upsert.useMutation({
+    onSuccess: () => {
+      toast.success("社印・ロゴの設定を保存しました（今後のPDFに反映されます）");
+      detailQuery.refetch();
+    },
+    onError: (e: any) => toast.error(`保存エラー: ${e.message}`),
+  });
 
   const attachableDocsQuery = trpc.invoice.listAttachableDocuments.useQuery({ invoiceId });
   const attachableDocs = attachableDocsQuery.data?.documents || [];
 
   const updateInvoiceMutation = trpc.invoice.update.useMutation({
     onSuccess: () => {
-      toast.success("件名を保存しました");
+      toast.success("保存しました");
       setSubjectDraft(null);
+      setIssueDateDraft(null);
       detailQuery.refetch();
     },
     onError: (e: any) => toast.error(`保存エラー: ${e.message}`),
   });
 
-  const generatePdfWithAttachmentsMutation = trpc.invoice.generatePdf.useMutation({
-    onSuccess: (data: any) => {
-      toast.success(data.attachedCount ? `PDFを生成しました（添付${data.attachedCount}件を合体）` : "PDFを生成しました");
-      for (const w of data.warnings || []) toast.warning(w, { duration: 8000 });
-      pdfViewer.open(data.url, data.fileName, "請求書PDF");
+  // 一括ダウンロード: 請求書PDF＋出面表＋選択書類を「個別ファイル」のまま、関連づいたファイル名で保存する。
+  // （PDF合体は本番で失敗が続いたため廃止。個別添付方式に変更）
+  const [packageDownloading, setPackageDownloading] = useState(false);
+  const downloadPackageMutation = trpc.invoice.downloadPackage.useMutation();
+  const handlePackageDownload = async () => {
+    setPackageDownloading(true);
+    try {
+      const res = await downloadPackageMutation.mutateAsync({
+        id: invoiceId,
+        includeAttendanceSheets: attachAttendance,
+        includeGuests,
+        attachDocumentKeys: Array.from(selectedDocKeys),
+      });
+      for (const w of res.warnings || []) toast.warning(w, { duration: 8000 });
+      let ok = 0;
+      for (const f of res.files) {
+        try {
+          const r = await fetch(f.url);
+          if (!r.ok) throw new Error(String(r.status));
+          const blob = await r.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = f.fileName;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          ok += 1;
+          // 連続ダウンロードのブラウザブロックを避けるための間隔
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        } catch {
+          toast.error(`${f.fileName} のダウンロードに失敗しました`);
+        }
+      }
+      toast.success(`${ok}/${res.files.length} 件をダウンロードしました`);
       detailQuery.refetch();
-    },
-    onError: (e: any) => toast.error(`PDF生成エラー: ${e.message}`),
-  });
+    } catch (e: any) {
+      toast.error(`一括ダウンロードエラー: ${e?.message || "不明なエラー"}`);
+    } finally {
+      setPackageDownloading(false);
+    }
+  };
 
   const generateAttendanceSheetsMutation = trpc.invoice.generateAttendanceSheets.useMutation({
     onSuccess: (data: any) => {
@@ -309,8 +359,106 @@ function InvoiceDetailDialog({
 
       {activeTab === "preview" ? (
         <div className="max-h-[70vh] overflow-y-auto space-y-4">
+          {/* 社印・ロゴの調整（プレビューに即時反映。保存で会社設定として全請求書PDFに適用） */}
+          {(() => {
+            const cs = ((company as any)?.sealSettings || {}) as any;
+            const cl = ((company as any)?.logoSettings || {}) as any;
+            const current = layoutDraft ?? {
+              seal: {
+                x: Number(cs.x) > 0 ? Number(cs.x) : 480,
+                y: Number(cs.y) > 0 ? Number(cs.y) : 110,
+                scale: Number(cs.scale) > 0 ? Number(cs.scale) : 1,
+                opacity: cs.opacity != null && cs.opacity !== "" ? Number(cs.opacity) : 0.85,
+              },
+              logo: {
+                scale: Number(cl.scale) > 0 ? Number(cl.scale) : 1,
+                offsetX: Number(cl.offsetX) || 0,
+                offsetY: Number(cl.offsetY) || 0,
+              },
+            };
+            const set = (patch: Partial<typeof current.seal>, target: "seal" | "logo") =>
+              setLayoutDraft({ ...current, [target]: { ...current[target], ...patch } } as any);
+            const slider = (
+              label: string,
+              value: number,
+              min: number,
+              max: number,
+              step: number,
+              onChange: (v: number) => void,
+              display?: string,
+            ) => (
+              <label className="flex items-center gap-2 text-xs">
+                <span className="w-20 shrink-0 text-muted-foreground">{label}</span>
+                <input
+                  type="range"
+                  min={min}
+                  max={max}
+                  step={step}
+                  value={value}
+                  onChange={(e) => onChange(Number(e.target.value))}
+                  className="flex-1 accent-[#D4AF37]"
+                />
+                <span className="w-12 shrink-0 text-right tabular-nums">{display ?? value}</span>
+              </label>
+            );
+            return (
+              <div className="rounded-md border border-border p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    className="text-sm font-medium flex items-center gap-1.5"
+                    onClick={() => setShowLayoutPanel((v) => !v)}
+                  >
+                    <Pencil className="h-3.5 w-3.5 text-gold" />
+                    社印・ロゴの調整（位置・大きさ・透明度）
+                    <span className="text-xs text-muted-foreground">{showLayoutPanel ? "閉じる" : "開く"}</span>
+                  </button>
+                  {layoutDraft && (
+                    <Button
+                      size="sm"
+                      className="h-8 gap-1 shrink-0"
+                      disabled={saveLayoutMutation.isPending || !(company as any)?.companyName}
+                      onClick={() =>
+                        saveLayoutMutation.mutate({
+                          companyName: (company as any).companyName,
+                          sealSettings: current.seal,
+                          logoSettings: current.logo,
+                        } as any)
+                      }
+                    >
+                      {saveLayoutMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      保存
+                    </Button>
+                  )}
+                </div>
+                {showLayoutPanel && (
+                  <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold text-gold">社印</p>
+                      {slider("位置 X", current.seal.x, 0, 555, 2, (v) => set({ x: v }, "seal"))}
+                      {slider("位置 Y", current.seal.y, 0, 800, 2, (v) => set({ y: v }, "seal"))}
+                      {slider("大きさ", current.seal.scale, 0.5, 2.5, 0.05, (v) => set({ scale: v }, "seal"), `×${current.seal.scale.toFixed(2)}`)}
+                      {slider("透明度", current.seal.opacity, 0.1, 1, 0.05, (v) => set({ opacity: v }, "seal"), `${Math.round(current.seal.opacity * 100)}%`)}
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold text-gold">ロゴ</p>
+                      {slider("大きさ", current.logo.scale, 0.5, 2.5, 0.05, (v) => set({ scale: v } as any, "logo"), `×${current.logo.scale.toFixed(2)}`)}
+                      {slider("位置 X", current.logo.offsetX, -140, 140, 2, (v) => set({ offsetX: v } as any, "logo"))}
+                      {slider("位置 Y", current.logo.offsetY, -60, 200, 2, (v) => set({ offsetY: v } as any, "logo"))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <div className="border rounded-md">
-            <InvoicePreview invoice={invoice} items={previewItems} client={client} company={company} />
+            <InvoicePreview
+              invoice={invoice}
+              items={previewItems}
+              client={client}
+              company={company}
+              layout={layoutDraft ?? undefined}
+            />
           </div>
 
           {/* 添付のプレビュー（PDF生成時にこの順で後ろに合体される） */}
@@ -318,7 +466,7 @@ function InvoiceDetailDialog({
             <div className="space-y-3">
               <p className="text-sm font-medium flex items-center gap-1.5">
                 <Paperclip className="h-4 w-4 text-gold" />
-                添付プレビュー（この順で請求書PDFの後ろに合体されます）
+                添付プレビュー（一括ダウンロードに含まれるファイル）
               </p>
               {attachAttendance && (
                 generateAttendanceSheetsMutation.isPending ? (
@@ -386,6 +534,32 @@ function InvoiceDetailDialog({
             )}
           </div>
         </div>
+        <div className="col-span-2 flex flex-wrap items-end gap-3">
+          {/* 発行日: 既定は月締め月の末日。カレンダーで変更できる。 */}
+          <div>
+            <Label className="text-xs text-muted-foreground">発行日（既定: 対象月の末日）</Label>
+            <Input
+              type="date"
+              className="h-9 w-[170px] mt-1"
+              value={issueDateDraft ?? (invoice.issueDate ? format(new Date(invoice.issueDate), "yyyy-MM-dd") : "")}
+              onChange={(e) => setIssueDateDraft(e.target.value)}
+            />
+          </div>
+          {issueDateDraft !== null && issueDateDraft !== (invoice.issueDate ? format(new Date(invoice.issueDate), "yyyy-MM-dd") : "") && (
+            <Button
+              size="sm"
+              className="h-9 gap-1 shrink-0"
+              disabled={updateInvoiceMutation.isPending || !issueDateDraft}
+              onClick={() => updateInvoiceMutation.mutate({ id: invoice.id, issueDate: issueDateDraft })}
+            >
+              {updateInvoiceMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              発行日を保存
+            </Button>
+          )}
+          <div className="pb-2 text-xs text-muted-foreground">
+            対象期間: {invoice.periodStart ? format(new Date(invoice.periodStart), "yyyy/MM/dd") : "-"} 〜 {invoice.periodEnd ? format(new Date(invoice.periodEnd), "yyyy/MM/dd") : "-"}
+          </div>
+        </div>
         <div>
           <span className="text-muted-foreground">小計:</span> {formatYen(invoice.subtotal)}
         </div>
@@ -404,24 +578,20 @@ function InvoiceDetailDialog({
         <div className="col-span-2 rounded-md border border-border p-3 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-xs font-medium flex items-center gap-1.5"><Paperclip className="h-3.5 w-3.5 text-gold" />添付設定</p>
-              <p className="text-[11px] text-muted-foreground">選んだ添付を請求書PDFの後ろに合体して、1つのPDFとして生成します</p>
+              <p className="text-xs font-medium flex items-center gap-1.5"><Paperclip className="h-3.5 w-3.5 text-gold" />添付・一括ダウンロード</p>
+              <p className="text-[11px] text-muted-foreground">
+                請求書PDFと選んだ添付を個別ファイルのまま一括保存します。
+                ファイル名は「○○年○○月分請求書 取引先名（＋出面表／領収書N）」で自動的に関連づけます。
+              </p>
             </div>
             <Button
               size="sm"
               className="gap-1.5 shrink-0 bg-gold text-black hover:bg-gold/90"
-              disabled={generatePdfWithAttachmentsMutation.isPending}
-              onClick={() =>
-                generatePdfWithAttachmentsMutation.mutate({
-                  id: invoice.id,
-                  attachAttendanceSheets: attachAttendance,
-                  includeGuests,
-                  attachDocumentKeys: Array.from(selectedDocKeys),
-                })
-              }
+              disabled={packageDownloading}
+              onClick={handlePackageDownload}
             >
-              {generatePdfWithAttachmentsMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
-              PDF生成（添付込み）
+              {packageDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              一括ダウンロード
             </Button>
           </div>
 
@@ -430,7 +600,7 @@ function InvoiceDetailDialog({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <p className="text-sm">出面表を添付する</p>
-                <p className="text-[11px] text-muted-foreground">現場別の出面表を自動生成して請求書の後ろに付けます（平日の未記入・休は×で統一）</p>
+                <p className="text-[11px] text-muted-foreground">現場別の出面表を自動生成して一括ダウンロードに含めます（平日の未記入・休は×で統一）</p>
               </div>
               <Switch checked={attachAttendance} onCheckedChange={setAttachAttendance} />
             </div>
@@ -444,7 +614,7 @@ function InvoiceDetailDialog({
 
           {/* アップロード書類の選択 */}
           <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2 space-y-1.5">
-            <p className="text-sm">アップロード書類を添付する</p>
+            <p className="text-sm">アップロード書類を含める（領収書など）</p>
             {attachableDocsQuery.isLoading ? (
               <p className="text-[11px] text-muted-foreground">読み込み中…</p>
             ) : attachableDocs.length === 0 ? (
