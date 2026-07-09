@@ -16,6 +16,8 @@ import {
   genbaMaterialRequests, GenbaMaterialRequest, InsertGenbaMaterialRequest,
   genbaMaterialRequestItems, GenbaMaterialRequestItem, InsertGenbaMaterialRequestItem,
   genbaUserSettings, GenbaUserSettings,
+  genbaUserRoles, GenbaUserRole,
+  genbaShares, GenbaShare, InsertGenbaShare,
 } from "../../drizzle/schema.genba";
 import { users } from "../../drizzle/schema";
 import { getDb } from "../db";
@@ -475,6 +477,39 @@ export async function upsertGenbaUserSettings(userId: number, patch: Partial<Pic
   return getGenbaUserSettings(userId);
 }
 
+// ── genba_user_roles (現場ビジョン内の役割上書き) ──
+
+/** 1ユーザーの役割上書き (無ければ null = appRole から導出) */
+export async function getGenbaUserRole(userId: number): Promise<GenbaUserRole | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaUserRoles).where(eq(genbaUserRoles.userId, userId)).limit(1);
+  return rows[0] ?? null;
+}
+
+/** 全役割上書きを userId→role の Map で返す */
+export async function listGenbaUserRoles(): Promise<Map<number, string>> {
+  const db = await getDb();
+  if (!db) return new Map();
+  const rows = await db.select().from(genbaUserRoles);
+  return new Map(rows.map((r) => [r.userId, r.role]));
+}
+
+/** 役割上書きを設定 (upsert) */
+export async function setGenbaUserRole(userId: number, role: string, updatedByUserId: number | null): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaUserRoles).values({ userId, role, updatedByUserId })
+    .onDuplicateKeyUpdate({ set: { role, updatedByUserId } });
+}
+
+/** 役割上書きを解除 (appRole 由来に戻す) */
+export async function deleteGenbaUserRole(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaUserRoles).where(eq(genbaUserRoles.userId, userId));
+}
+
 // ── genba_material_presets ──
 
 /** MariaDB は json 列を文字列で返すため parts を配列へ正規化する (normalizeZone と同方針) */
@@ -617,4 +652,59 @@ export async function aggregateGenbaMaterials(
     qty: Number(r.qty) || 0,
     count: Number(r.count) || 0,
   }));
+}
+
+// ── genba_shares (外部共有リンク) ──
+
+/** 公開スコープ。map=図面 tasks=作業 board=配置 dash=全体、showWorkerNames=実名表示 */
+export type GenbaShareScopes = { map: boolean; tasks: boolean; board: boolean; dash: boolean; showWorkerNames: boolean };
+export const GENBA_SHARE_DEFAULT_SCOPES: GenbaShareScopes = { map: true, tasks: false, board: false, dash: true, showWorkerNames: false };
+
+/** MariaDB は json 列を文字列で返すため scopes をオブジェクトへ正規化する */
+export function normalizeShare(row: GenbaShare): GenbaShare & { scopes: GenbaShareScopes } {
+  let raw: any = row.scopes;
+  if (typeof raw === "string" && raw.trim()) { try { raw = JSON.parse(raw); } catch { raw = null; } }
+  const s = raw && typeof raw === "object" ? raw : {};
+  return {
+    ...row,
+    scopes: {
+      map: !!s.map, tasks: !!s.tasks, board: !!s.board, dash: !!s.dash,
+      showWorkerNames: !!s.showWorkerNames,
+    },
+  };
+}
+
+export async function listGenbaSharesBySite(siteId: string): Promise<(GenbaShare & { scopes: GenbaShareScopes })[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(genbaShares).where(eq(genbaShares.siteId, siteId)).orderBy(desc(genbaShares.createdAt));
+  return rows.map(normalizeShare);
+}
+
+export async function getGenbaShareById(id: string): Promise<(GenbaShare & { scopes: GenbaShareScopes }) | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaShares).where(eq(genbaShares.id, id)).limit(1);
+  return rows[0] ? normalizeShare(rows[0]) : null;
+}
+
+export async function getGenbaShareByToken(token: string): Promise<(GenbaShare & { scopes: GenbaShareScopes }) | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaShares).where(eq(genbaShares.token, token)).limit(1);
+  return rows[0] ? normalizeShare(rows[0]) : null;
+}
+
+export async function createGenbaShare(data: InsertGenbaShare): Promise<(GenbaShare & { scopes: GenbaShareScopes }) | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaShares).values(data);
+  return getGenbaShareById(data.id);
+}
+
+/** 共有リンクの失効 = 物理削除 (トークンを即座に無効化) */
+export async function deleteGenbaShare(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaShares).where(eq(genbaShares.id, id));
 }

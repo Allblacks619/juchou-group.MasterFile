@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import { genbaRoleOf } from "../../shared/genba/roles";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -54,10 +55,26 @@ function assertGenbaEnabled() {
   }
 }
 
-/** ログイン済み + genba有効。ctx.genbaRole を付与 */
-const genbaProcedure = protectedProcedure.use(({ ctx, next }) => {
+/** genba 内の有効な役割: 上書き(genba_user_roles) があれば優先、無ければ appRole から導出 */
+async function resolveGenbaRole(userId: number, appRole: unknown): Promise<"admin" | "leader" | "worker"> {
+  try {
+    const override = await genbaDb.getGenbaUserRole(userId);
+    if (override && (override.role === "admin" || override.role === "leader" || override.role === "worker")) {
+      return override.role;
+    }
+  } catch (error) {
+    // フェイルクローズ: 上書きは「降格」の安全制御なので、参照失敗時に appRole の
+    // 高権限へ戻さない (最小権限の worker として扱う)。
+    console.warn("[genba] role override lookup failed; failing closed to worker:", error);
+    return "worker";
+  }
+  return genbaRoleOf(appRole as any);
+}
+
+/** ログイン済み + genba有効。ctx.genbaRole を付与 (genba専用の役割上書きを反映) */
+const genbaProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   assertGenbaEnabled();
-  const role = genbaRoleOf((ctx.user as any).appRole);
+  const role = await resolveGenbaRole(ctx.user.id, (ctx.user as any).appRole);
   return next({ ctx: { ...ctx, genbaRole: role } });
 });
 
@@ -629,10 +646,96 @@ const teamsRouter = router({
 
 // ── users (M3-A): 割り当て可能ユーザー一覧 (既存 users を読み取り専用) ──
 
+/** 現場に関わっている作業員のユーザーIDを集約 (班メンバー ∪ 作業の担当者) */
+async function siteWorkerUserIds(siteId: string): Promise<Set<number>> {
+  const [floors, teams] = await Promise.all([
+    genbaDb.listGenbaFloorsBySite(siteId),
+    genbaDb.listGenbaTeamsBySite(siteId),
+  ]);
+  const zones = await genbaDb.listGenbaZonesByFloorIds(floors.map((f) => f.id));
+  const tasks = await genbaDb.listGenbaTasksByZoneIds(zones.map((z) => z.id));
+  const [assignees, members] = await Promise.all([
+    genbaDb.listTaskAssigneesByTaskIds(tasks.map((t) => t.id)),
+    genbaDb.listGenbaTeamMembers(teams.map((t) => t.id)),
+  ]);
+  const set = new Set<number>();
+  for (const a of assignees) set.add(a.userId);
+  for (const m of members) set.add(m.userId);
+  return set;
+}
+
+const genbaRoleEnum = z.enum(["admin", "leader", "worker"]);
+
 const usersRouter = router({
   listAssignable: genbaProcedure.query(async () => {
     return genbaDb.listAssignableUsers();
   }),
+
+  /** この現場に関わる作業員一覧 + 有効な genba 役割 (上書き有無・関与経路つき) */
+  listSiteWorkers: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const [ids, allUsers, overrides] = await Promise.all([
+      siteWorkerUserIds(input.siteId),
+      genbaDb.listAssignableUsers(),
+      genbaDb.listGenbaUserRoles(),
+    ]);
+    const teams = await genbaDb.listGenbaTeamsBySite(input.siteId);
+    const members = await genbaDb.listGenbaTeamMembers(teams.map((t) => t.id));
+    const viaTeam = new Set(members.map((m) => m.userId));
+    return allUsers
+      .filter((u) => ids.has(u.id))
+      .map((u) => {
+        const ov = overrides.get(u.id);
+        return {
+          id: u.id,
+          name: u.name,
+          appRole: u.appRole,
+          genbaRole: (ov === "admin" || ov === "leader" || ov === "worker") ? ov : genbaRoleOf(u.appRole as any),
+          roleOverridden: !!ov,
+          viaTeam: viaTeam.has(u.id),
+        };
+      })
+      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
+  }),
+
+  /** genba 役割の上書き設定 (admin のみ)。最後の管理者を降格できない */
+  setGenbaRole: genbaAdminProcedure
+    .input(z.object({ userId: z.number().int().positive(), role: genbaRoleEnum }))
+    .mutation(async ({ ctx, input }) => {
+      const [allUsers, overrides] = await Promise.all([
+        genbaDb.listAssignableUsers(),
+        genbaDb.listGenbaUserRoles(),
+      ]);
+      const effective = (u: { id: number; appRole: string }) => {
+        const ov = overrides.get(u.id);
+        return (ov === "admin" || ov === "leader" || ov === "worker") ? ov : genbaRoleOf(u.appRole as any);
+      };
+      const target = allUsers.find((u) => u.id === input.userId);
+      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "ユーザーが見つかりません" });
+      // 管理者を減らす場合、他に有効な管理者が残るか確認
+      if (effective(target) === "admin" && input.role !== "admin") {
+        const otherAdmins = allUsers.filter((u) => u.id !== input.userId && effective(u) === "admin").length;
+        if (otherAdmins === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "管理者が0人になるため変更できません" });
+      }
+      // appRole 由来と同じ役割に戻す場合は上書きを削除 (クリーンに保つ)
+      if (genbaRoleOf(target.appRole as any) === input.role) {
+        await genbaDb.deleteGenbaUserRole(input.userId);
+      } else {
+        await genbaDb.setGenbaUserRole(input.userId, input.role, ctx.user.id);
+      }
+      // 書き込み後の再確認 (同時降格レースで管理者0人になるのを防ぐ)。
+      // 書き込み後に再集計し、有効な管理者が居なければ対象を admin へ戻して拒否する。
+      const overridesAfter = await genbaDb.listGenbaUserRoles();
+      const effAfter = (u: { id: number; appRole: string }) => {
+        const ov = overridesAfter.get(u.id);
+        return (ov === "admin" || ov === "leader" || ov === "worker") ? ov : genbaRoleOf(u.appRole as any);
+      };
+      if (!allUsers.some((u) => effAfter(u) === "admin")) {
+        await genbaDb.setGenbaUserRole(input.userId, "admin", ctx.user.id); // 復旧 (フェイルセーフ)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "管理者が0人になるため変更できません" });
+      }
+      await safeGenbaAuditLog(ctx.user.id, "genba.users.setRole", { entityId: String(input.userId), note: `${target.name || input.userId} の権限を${input.role}に設定` });
+      return { success: true as const, userId: input.userId, role: input.role };
+    }),
 });
 
 // ── board (M3-C): 現在の割当から人別/エリア別を自動生成 ──
@@ -910,10 +1013,56 @@ const templatesRouter = router({
     }),
 });
 
+const shareScopesSchema = z.object({
+  map: z.boolean().default(false),
+  tasks: z.boolean().default(false),
+  board: z.boolean().default(false),
+  dash: z.boolean().default(false),
+  showWorkerNames: z.boolean().default(false),
+});
+
 const sharesRouter = router({
-  list: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(notImplemented),
-  create: genbaFieldProcedure.input(z.object({ siteId: genbaIdSchema, name: z.string().trim().min(1).max(120), scopes: z.array(z.string()).optional(), expiresAt: z.string().nullish() })).mutation(notImplemented),
-  revoke: genbaFieldProcedure.input(z.object({ id: genbaIdSchema })).mutation(notImplemented),
+  /** 共有リンク一覧 (field のみ。トークンは機微情報) */
+  list: genbaFieldProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const shares = await genbaDb.listGenbaSharesBySite(input.siteId);
+    return shares.map((s) => ({ id: s.id, name: s.name, token: s.token, scopes: s.scopes, expiresAt: s.expiresAt, createdAt: s.createdAt }));
+  }),
+
+  /** 共有リンク作成: CSPRNG トークン。閲覧画面を1つ以上選択必須 */
+  create: genbaFieldProcedure
+    .input(z.object({
+      siteId: genbaIdSchema,
+      name: z.string().trim().min(1).max(120),
+      scopes: shareScopesSchema,
+      expiresAt: z.string().datetime().nullish(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const site = await genbaDb.getGenbaSiteById(input.siteId);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      if (!input.scopes.map && !input.scopes.tasks && !input.scopes.board && !input.scopes.dash) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "表示する画面を1つ以上選択してください" });
+      }
+      const id = nanoid(21);
+      const token = randomBytes(24).toString("base64url"); // 32文字・推測不能
+      const share = await genbaDb.createGenbaShare({
+        id, siteId: input.siteId, name: input.name, token,
+        scopes: input.scopes,
+        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      });
+      await safeGenbaAuditLog(ctx.user.id, "genba.shares.create", { entityId: id, note: `共有リンク作成: ${input.name} (${site.name})` });
+      return share ? { id: share.id, name: share.name, token: share.token, scopes: share.scopes, expiresAt: share.expiresAt, createdAt: share.createdAt } : null;
+    }),
+
+  /** 共有リンクの失効 (物理削除でトークン即無効化) */
+  revoke: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaShareById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "共有リンクが見つかりません" });
+      await safeGenbaAuditLog(ctx.user.id, "genba.shares.revoke", { entityId: input.id, note: `共有リンク失効: ${existing.name}` });
+      await genbaDb.deleteGenbaShare(input.id);
+      return { success: true as const };
+    }),
 });
 
 const budgetsRouter = router({

@@ -355,6 +355,22 @@ export const genbaUserSettings = mysqlTable("genba_user_settings", {
 export type GenbaUserSettings = typeof genbaUserSettings.$inferSelect;
 export type InsertGenbaUserSettings = typeof genbaUserSettings.$inferInsert;
 
+/**
+ * genba 専用の役割上書き (現場ビジョンアプリ内の権限)。
+ * 既存 users.appRole は変更せず、ここに行があればその役割を genba 内で優先する。
+ * admin=全機能+予算 / leader=予算以外 / worker=現場入力のみ。
+ */
+export const genbaUserRoles = mysqlTable("genba_user_roles", {
+  userId: int("userId").primaryKey(),
+  role: varchar("role", { length: 16 }).notNull(),
+  updatedByUserId: int("updatedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GenbaUserRole = typeof genbaUserRoles.$inferSelect;
+export type InsertGenbaUserRole = typeof genbaUserRoles.$inferInsert;
+
 /** アクティビティログ (高頻度追記のため autoincrement PK) */
 export const genbaActivityLogs = mysqlTable("genba_activity_logs", {
   id: int("id").autoincrement().primaryKey(),

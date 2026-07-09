@@ -12,6 +12,7 @@ import TeamManager from "./TeamManager";
 import InstructionsPanel from "./InstructionsPanel";
 import BoardPanel from "./BoardPanel";
 import MaterialsPanel from "./MaterialsPanel";
+import WorkerManager from "./WorkerManager";
 import { useGenbaLang, LangToggle } from "@/lib/genbaLang";
 
 type FloorWorkspaceProps = {
@@ -19,6 +20,7 @@ type FloorWorkspaceProps = {
   siteName: string;
   driveUrl: string | null;
   canEdit: boolean;
+  isAdmin: boolean;
   meUserId: number | null;
   onBack: () => void;
 };
@@ -30,7 +32,7 @@ type Mode = "view" | "draw" | "edit";
  * 図面アップロード/表示(M2-A) + エリア(ゾーン)のポリゴン描画・頂点編集・優先度・
  * 稼働状態・階層・進捗表示(M2-B)。作業(タスク)は M2-C。
  */
-export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, meUserId, onBack }: FloorWorkspaceProps) {
+export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, isAdmin, meUserId, onBack }: FloorWorkspaceProps) {
   const utils = trpc.useUtils();
   const { disp } = useGenbaLang();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -44,6 +46,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
   const [showInstructions, setShowInstructions] = useState(false);
   const [showBoard, setShowBoard] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
+  const [showWorkers, setShowWorkers] = useState(false);
 
   const { data: unreadCount } = trpc.genba.instructions.unreadCount.useQuery({ siteId }, { retry: false, staleTime: 30 * 1000 });
 
@@ -235,6 +238,9 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
             <Button size="sm" variant="outline" onClick={() => setShowTeams(true)}>
               <Users className="h-4 w-4 mr-1" /> 班管理
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowWorkers(true)}>
+              <Users className="h-4 w-4 mr-1" /> 作業員・共有
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setShowTemplate(true)}>
               <ListChecks className="h-4 w-4 mr-1" /> 作業テンプレート
             </Button>
@@ -260,6 +266,7 @@ export default function FloorWorkspace({ siteId, siteName, driveUrl, canEdit, me
       )}
       {showBoard && <BoardPanel siteId={siteId} meUserId={meUserId} open={showBoard} onOpenChange={setShowBoard} />}
       {showMaterials && <MaterialsPanel siteId={siteId} canEdit={canEdit} meUserId={meUserId} open={showMaterials} onOpenChange={setShowMaterials} />}
+      {showWorkers && <WorkerManager siteId={siteId} siteName={siteName} isAdmin={isAdmin} open={showWorkers} onOpenChange={setShowWorkers} />}
 
       {/* フロアバー */}
       {list.length > 0 && (

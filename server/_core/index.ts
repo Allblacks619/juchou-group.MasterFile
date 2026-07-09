@@ -35,6 +35,17 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // Custom auth routes (ID/password login, invitation acceptance, password change)
   registerCustomAuthRoutes(app);
+  // 現場ビジョン: 外部共有ビュー (非認証・トークン閲覧専用)。tRPC より前に登録
+  app.get("/api/genba/share/:token", async (req, res) => {
+    try {
+      const { handleGenbaShareView } = await import("../genba/publicShare");
+      const result = await handleGenbaShareView(req.params.token);
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      console.error("[genba.share] view failed:", error);
+      res.status(500).json({ error: "エラーが発生しました" });
+    }
+  });
   // tRPC API
   app.use(
     "/api/trpc",

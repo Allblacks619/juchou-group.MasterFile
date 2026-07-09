@@ -211,6 +211,13 @@
       "when": 1783300000000,
       "tag": "0029_genba_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1783400000000,
+      "tag": "0030_genba_user_roles",
+      "breakpoints": true
     }
   ]
 }
