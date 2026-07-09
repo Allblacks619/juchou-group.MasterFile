@@ -322,6 +322,16 @@ export async function upsertMonthlyClosingV2TransportationExpense(data: {
 }
 
 
+/** 対象月×現場の交通費領収書（管理側アップロード）。請求書への添付候補に使う。 */
+export async function getMonthlyClosingV2ExpenseLineReceiptsByMonthProject(targetMonth: string, projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(monthlyClosingV2ExpenseLineReceipts).where(and(
+    eq(monthlyClosingV2ExpenseLineReceipts.targetMonth, targetMonth),
+    eq(monthlyClosingV2ExpenseLineReceipts.projectId, projectId),
+  ));
+}
+
 export async function getMonthlyClosingV2ExpenseLineReceiptsByExpenseLineIds(expenseLineIds: number[]) {
   const db = await getDb();
   if (!db || expenseLineIds.length === 0) return [];
@@ -1285,6 +1295,21 @@ export async function listClosingSubmissionDocuments(submissionId: number) {
     // 添付書類テーブル/列が本番DBに未適用(マイグレーション遅延)でも、月締め画面全体を落とさない。
     // 書類一覧は空で返し、提出フォームは利用可能にする。
     console.warn("listClosingSubmissionDocuments failed (returning []):", (error as any)?.message || error);
+    return [];
+  }
+}
+
+/** 対象月×現場の作業員アップロード書類（領収書など）。請求書への添付候補に使う。 */
+export async function listClosingSubmissionDocumentsByProjectMonth(projectId: number, closingMonth: string) {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    return await db.select().from(closingSubmissionDocuments).where(and(
+      eq(closingSubmissionDocuments.projectId, projectId),
+      eq(closingSubmissionDocuments.closingMonth, closingMonth),
+    ));
+  } catch (error) {
+    console.warn("listClosingSubmissionDocumentsByProjectMonth failed (returning []):", (error as any)?.message || error);
     return [];
   }
 }

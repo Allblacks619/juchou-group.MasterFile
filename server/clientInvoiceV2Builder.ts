@@ -262,10 +262,10 @@ export async function buildClientInvoiceDraftFromV2(args: {
     projectInputs.push({ projectId, projectName, transportTotal });
   }
 
-  const monthLabel = `${start.getUTCMonth() + 1}`;
+  // 件名の既定形式（オーナー指定）: 「○○年○○月分請求書　取引先名○○様」。編集は請求書詳細で可能。
   const subject =
     args.subject?.trim() ||
-    `${monthLabel}月分請求書 ${resolvedProjects.map((project) => project.name).join("・")}`;
+    `${start.getUTCFullYear()}年${start.getUTCMonth() + 1}月分請求書　${client?.name || "取引先"}様`;
 
   const computed = computeClientInvoiceDraft({
     targetMonth: args.targetMonth,

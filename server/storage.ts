@@ -67,3 +67,14 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
   );
   return { key, url };
 }
+
+/** オブジェクトの中身をバイト列で取得する（PDF合体などサーバー内処理用）。 */
+export async function storageGetBytes(relKey: string): Promise<Buffer> {
+  const { bucket } = getS3Config();
+  const key = normalizeKey(relKey);
+  const client = getS3Client();
+  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  const bytes = await result.Body?.transformToByteArray();
+  if (!bytes) throw new Error(`Storage object empty: ${key}`);
+  return Buffer.from(bytes);
+}
