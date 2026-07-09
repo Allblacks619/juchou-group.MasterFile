@@ -340,6 +340,14 @@ const zonesRouter = router({
     });
   }),
 
+  /** 現場配下の全エリア (フロア横断・急ぎ手配のエリア選択などに使う軽量版) */
+  listBySite: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const floors = await genbaDb.listGenbaFloorsBySite(input.siteId);
+    const floorName = new Map(floors.map((f) => [f.id, f.name]));
+    const zones = await genbaDb.listGenbaZonesByFloorIds(floors.map((f) => f.id));
+    return zones.map((z) => ({ id: z.id, floorId: z.floorId, floorName: floorName.get(z.floorId) ?? "", name: z.name, parentZoneId: z.parentZoneId, priority: z.priority }));
+  }),
+
   /** エリア(ポリゴン)の作成 + 作業テンプレートの自動適用 (applyTemplate=false で無効化可) */
   create: genbaFieldProcedure
     .input(z.object({
@@ -1173,6 +1181,89 @@ const logsRouter = router({
     }),
 });
 
+// ── dispatches (今日の急ぎ手配): エリア→作業→作業員→メモ ──
+
+const ymdOptSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日付は YYYY-MM-DD 形式");
+
+const dispatchesRouter = router({
+  /** 現場の急ぎ手配一覧 (date 指定でその日のみ)。エリア名・作業名・担当を同梱 */
+  list: genbaProcedure
+    .input(z.object({ siteId: genbaIdSchema, date: ymdOptSchema.optional() }))
+    .query(async ({ input }) => {
+      const dispatches = await genbaDb.listGenbaDispatchesBySite(input.siteId, input.date);
+      const assignees = await genbaDb.listGenbaDispatchAssignees(dispatches.map((d) => d.id));
+      const byDispatch = new Map<string, number[]>();
+      for (const a of assignees) { const arr = byDispatch.get(a.dispatchId) || []; arr.push(a.userId); byDispatch.set(a.dispatchId, arr); }
+      // エリア名・作業名を解決
+      const floors = await genbaDb.listGenbaFloorsBySite(input.siteId);
+      const zones = await genbaDb.listGenbaZonesByFloorIds(floors.map((f) => f.id));
+      const zoneName = new Map(zones.map((z) => [z.id, z.name]));
+      const tasks = await genbaDb.listGenbaTasksByZoneIds(zones.map((z) => z.id));
+      const taskName = new Map(tasks.map((t) => [t.id, t.name]));
+      return dispatches.map((d) => ({
+        id: d.id, siteId: d.siteId, zoneId: d.zoneId, taskId: d.taskId, date: d.date,
+        memo: d.memo, byUserId: d.byUserId, done: d.done, createdAt: d.createdAt,
+        zoneName: zoneName.get(d.zoneId) ?? "?", taskName: taskName.get(d.taskId) ?? "?",
+        assigneeIds: byDispatch.get(d.id) || [],
+      }));
+    }),
+
+  /** 急ぎ手配を作成 (field): エリア・作業・担当作業員・メモ・対象日 */
+  create: genbaFieldProcedure
+    .input(z.object({
+      siteId: genbaIdSchema,
+      zoneId: genbaIdSchema,
+      taskId: genbaIdSchema,
+      date: ymdOptSchema.optional(),
+      memo: z.string().max(1000).optional(),
+      userIds: z.array(z.number().int().positive()).min(1, "作業員を1名以上選択してください"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const site = await genbaDb.getGenbaSiteById(input.siteId);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      const task = await genbaDb.getGenbaTaskById(input.taskId);
+      if (!task || task.zoneId !== input.zoneId) throw new TRPCError({ code: "BAD_REQUEST", message: "作業とエリアが一致しません" });
+      const id = nanoid(21);
+      const date = input.date ?? toYmd(new Date())!;
+      const uniqueIds = Array.from(new Set(input.userIds));
+      const assignees = uniqueIds.map((userId) => ({ id: nanoid(21), dispatchId: id, userId }));
+      const dispatch = await genbaDb.createGenbaDispatch(
+        { id, siteId: input.siteId, zoneId: input.zoneId, taskId: input.taskId, date, memo: input.memo?.trim() || null, byUserId: ctx.user.id, done: false },
+        assignees,
+      );
+      await safeGenbaAuditLog(ctx.user.id, "genba.dispatches.create", { entityId: id, note: `急ぎ手配 ${date}: ${task.name} → ${uniqueIds.length}名` });
+      return dispatch ? { ...dispatch, assigneeIds: uniqueIds } : null;
+    }),
+
+  /** 対応済み/未対応のトグル (field または担当作業員本人) */
+  setDone: genbaProcedure
+    .input(z.object({ id: genbaIdSchema, done: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaDispatchById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "手配が見つかりません" });
+      if (ctx.genbaRole === "worker") {
+        const assignees = await genbaDb.listGenbaDispatchAssignees([input.id]);
+        if (!assignees.some((a) => a.userId === ctx.user.id)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "自分の手配のみ更新できます" });
+        }
+      }
+      const dispatch = await genbaDb.updateGenbaDispatch(input.id, { done: input.done });
+      await safeGenbaAuditLog(ctx.user.id, "genba.dispatches.setDone", { entityId: input.id, note: input.done ? "対応済み" : "未対応へ戻す" });
+      return dispatch;
+    }),
+
+  /** 手配の削除 (field) */
+  remove: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaDispatchById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "手配が見つかりません" });
+      await genbaDb.deleteGenbaDispatchCascade(input.id);
+      await safeGenbaAuditLog(ctx.user.id, "genba.dispatches.remove", { entityId: input.id, note: "急ぎ手配を削除" });
+      return { success: true as const };
+    }),
+});
+
 // ── genbaRouter 本体 ──
 
 export const genbaRouter = router({
@@ -1211,4 +1302,5 @@ export const genbaRouter = router({
   shares: sharesRouter,
   budgets: budgetsRouter,
   logs: logsRouter,
+  dispatches: dispatchesRouter,
 });
