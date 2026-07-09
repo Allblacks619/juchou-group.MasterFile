@@ -23,7 +23,14 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
   const refresh = () => { utils.genba.tasks.listByZone.invalidate({ zoneId }); onChanged(); };
 
   const setStatus = trpc.genba.tasks.setStatus.useMutation();
-  const assignUser = trpc.genba.tasks.assignUser.useMutation({ onSuccess: () => utils.genba.tasks.listByZone.invalidate({ zoneId }), onError: (e) => toast.error(e.message) });
+  const assignUser = trpc.genba.tasks.assignUser.useMutation({
+    onSuccess: (r) => {
+      // サブエリアの同名作業へ伝播した可能性があるため全ゾーンを invalidate
+      utils.genba.tasks.listByZone.invalidate();
+      if (r?.propagated) toast.success(`サブエリアの同じ作業 ${r.propagated}件にも割り当てました`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const assignTeam = trpc.genba.tasks.assignTeam.useMutation({ onSuccess: () => utils.genba.tasks.listByZone.invalidate({ zoneId }), onError: (e) => toast.error(e.message) });
   const createTask = trpc.genba.tasks.create.useMutation({
     onSuccess: () => { refresh(); toast.success("作業を追加しました"); },

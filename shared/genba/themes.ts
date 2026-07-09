@@ -46,3 +46,58 @@ export const DEFAULT_GENBA_THEME = "dark";
 export function resolveGenbaTheme(key: string | null | undefined): GenbaTheme {
   return (key && GENBA_THEMES[key]) || GENBA_THEMES[DEFAULT_GENBA_THEME];
 }
+
+/**
+ * 背景(appBg)が暗いテーマ。これ以外は明るい背景のため、コンテンツの文字色は暗色にする。
+ * (以前は全テーマでアプリのダークトークン=明色文字が使われ、明るい背景のテーマで
+ *  文字が背景とほぼ同色になり読めなかった。)
+ */
+export const GENBA_DARK_THEME_KEYS = new Set(["dark", "cyber"]);
+
+export function isGenbaThemeDark(key: string | null | undefined): boolean {
+  return GENBA_DARK_THEME_KEYS.has(resolveGenbaTheme(key).key);
+}
+
+/** 明るい背景テーマ用のデザイントークン (暗い文字・明るい面) */
+const GENBA_LIGHT_TOKENS: Record<string, string> = {
+  "--background": "#ffffff",
+  "--foreground": "#0f172a",
+  "--card": "#ffffff",
+  "--card-foreground": "#0f172a",
+  "--popover": "#ffffff",
+  "--popover-foreground": "#0f172a",
+  "--muted": "#eef2f6",
+  "--muted-foreground": "#52627a",
+  "--border": "#dbe1ea",
+  "--input": "#dbe1ea",
+  "--secondary": "#eef2f6",
+  "--secondary-foreground": "#0f172a",
+  "--accent": "#eef2f6",
+  "--accent-foreground": "#0f172a",
+};
+
+/** 暗い背景テーマ用のデザイントークン (明るい文字・暗い面) */
+const GENBA_DARK_TOKENS: Record<string, string> = {
+  "--background": "#0e1627",
+  "--foreground": "#e6ebf2",
+  "--card": "#141c2e",
+  "--card-foreground": "#e6ebf2",
+  "--popover": "#141c2e",
+  "--popover-foreground": "#e6ebf2",
+  "--muted": "#1e293b",
+  "--muted-foreground": "#93a1b5",
+  "--border": "#2a3446",
+  "--input": "#2a3446",
+  "--secondary": "#1e293b",
+  "--secondary-foreground": "#e6ebf2",
+  "--accent": "#1e293b",
+  "--accent-foreground": "#e6ebf2",
+};
+
+/**
+ * テーマに応じた CSS 変数 (デザイントークン) を返す。genba のルート要素に適用すると、
+ * text-foreground / bg-card / border-border などが背景に対して読める色になる。
+ */
+export function genbaThemeTokens(key: string | null | undefined): Record<string, string> {
+  return isGenbaThemeDark(key) ? GENBA_DARK_TOKENS : GENBA_LIGHT_TOKENS;
+}

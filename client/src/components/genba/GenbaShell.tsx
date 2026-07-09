@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Map as MapIcon, ClipboardList, Megaphone, LayoutGrid, BarChart3, Wallet, Settings, Plus, ChevronDown, CloudOff, UploadCloud, Package, Zap } from "lucide-react";
-import { resolveGenbaTheme } from "@shared/genba/themes";
+import { resolveGenbaTheme, genbaThemeTokens } from "@shared/genba/themes";
 import type { GenbaLang } from "@shared/genba/i18n";
 import { useGenbaOutbox } from "@/lib/useGenbaOutbox";
 import FloorWorkspace from "./FloorWorkspace";
@@ -90,7 +90,7 @@ export default function GenbaShell({
   return (
     <div
       className="flex flex-col rounded-2xl overflow-hidden border shadow-sm -m-1"
-      style={{ background: theme.appBg, borderColor: "rgba(0,0,0,0.08)", minHeight: "calc(100dvh - 6.5rem)" }}
+      style={{ ...genbaThemeTokens(me.settings.theme), background: theme.appBg, borderColor: "rgba(0,0,0,0.08)", minHeight: "calc(100dvh - 6.5rem)" } as CSSProperties}
     >
       {/* ヘッダ */}
       <header

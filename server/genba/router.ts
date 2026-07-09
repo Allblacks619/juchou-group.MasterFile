@@ -564,14 +564,37 @@ const tasksRouter = router({
 
   /** 作業への担当者(ユーザー)割当のトグル (M3-A) */
   assignUser: genbaFieldProcedure
-    .input(z.object({ taskId: genbaIdSchema, userId: z.number().int().positive(), on: z.boolean() }))
+    .input(z.object({
+      taskId: genbaIdSchema,
+      userId: z.number().int().positive(),
+      on: z.boolean(),
+      /** 割当時、サブエリアの同名作業へ自動でも割り当てる (既定 true)。解除は伝播しない */
+      propagate: z.boolean().default(true),
+    }))
     .mutation(async ({ ctx, input }) => {
       const task = await genbaDb.getGenbaTaskById(input.taskId);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
       if (input.on) await genbaDb.addTaskAssignee({ id: nanoid(21), taskId: input.taskId, userId: input.userId });
       else await genbaDb.removeTaskAssignee(input.taskId, input.userId);
-      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.assignUser", { entityId: input.taskId, note: `担当 ${input.on ? "追加" : "解除"}: user#${input.userId}` });
-      return { success: true as const };
+
+      // 親エリアで割り当てたら、サブエリア(子ゾーン)の同名作業にも同じ担当を自動付与
+      let propagated = 0;
+      if (input.on && input.propagate) {
+        const zone = await genbaDb.getGenbaZoneById(task.zoneId);
+        if (zone) {
+          const floorZones = await genbaDb.listGenbaZonesByFloor(zone.floorId);
+          const childZones = floorZones.filter((zz) => zz.parentZoneId === task.zoneId);
+          for (const cz of childZones) {
+            const childTasks = await genbaDb.listGenbaTasksByZone(cz.id);
+            for (const t of childTasks.filter((t) => t.name === task.name)) {
+              await genbaDb.addTaskAssignee({ id: nanoid(21), taskId: t.id, userId: input.userId });
+              propagated++;
+            }
+          }
+        }
+      }
+      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.assignUser", { entityId: input.taskId, note: `担当 ${input.on ? "追加" : "解除"}: user#${input.userId}${propagated ? ` (サブエリア${propagated}件へ伝播)` : ""}` });
+      return { success: true as const, propagated };
     }),
 
   /** 作業への班割当のトグル (M3-A) */
