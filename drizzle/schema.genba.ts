@@ -463,3 +463,31 @@ export const genbaGuestAssignees = mysqlTable("genba_guest_assignees", {
 
 export type GenbaGuestAssignee = typeof genbaGuestAssignees.$inferSelect;
 export type InsertGenbaGuestAssignee = typeof genbaGuestAssignees.$inferInsert;
+
+/**
+ * 作業員専用リンク (G2)。現場名簿 (genba_site_workers) の1行につき1本。
+ * ゲストはログイン不要でこのトークンから自分の担当を確認・更新する。
+ * 失効はソフト (active=false → 再有効化可)。再発行は token を差し替え (旧URLは即無効)。
+ */
+export const genbaWorkerLinks = mysqlTable("genba_worker_links", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  siteId: varchar("siteId", { length: 24 }).notNull(),
+  /** genba_site_workers.id */
+  siteWorkerId: varchar("siteWorkerId", { length: 24 }).notNull(),
+  token: varchar("token", { length: 64 }).notNull(),
+  /** worker=自分の担当のみ更新可 / leader=現場の全作業を更新可 */
+  role: mysqlEnum("genbaWorkerLinkRole", ["worker", "leader"]).default("worker").notNull(),
+  active: boolean("active").default(true).notNull(),
+  expiresAt: timestamp("expiresAt"),
+  lastAccessAt: timestamp("lastAccessAt"),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("genba_worker_links_token").on(table.token),
+  uniqueIndex("genba_worker_links_worker").on(table.siteWorkerId),
+  index("genba_worker_links_site_idx").on(table.siteId),
+]));
+
+export type GenbaWorkerLink = typeof genbaWorkerLinks.$inferSelect;
+export type InsertGenbaWorkerLink = typeof genbaWorkerLinks.$inferInsert;

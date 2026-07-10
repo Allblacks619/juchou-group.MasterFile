@@ -23,6 +23,7 @@ import {
   genbaDispatchAssignees, GenbaDispatchAssignee, InsertGenbaDispatchAssignee,
   genbaSiteWorkers, GenbaSiteWorker, InsertGenbaSiteWorker,
   genbaGuestAssignees, GenbaGuestAssignee, InsertGenbaGuestAssignee,
+  genbaWorkerLinks, GenbaWorkerLink, InsertGenbaWorkerLink,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { users, attendance, projects, employees } from "../../drizzle/schema";
@@ -1026,4 +1027,81 @@ export async function removeGuestAssignee(taskId: string, siteWorkerId: string):
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(genbaGuestAssignees).where(and(eq(genbaGuestAssignees.taskId, taskId), eq(genbaGuestAssignees.siteWorkerId, siteWorkerId)));
+}
+
+// ── genba_worker_links (G2 作業員専用リンク) ──
+
+export async function getGenbaWorkerLinkById(id: string): Promise<GenbaWorkerLink | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaWorkerLinks).where(eq(genbaWorkerLinks.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getGenbaWorkerLinkByToken(token: string): Promise<GenbaWorkerLink | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaWorkerLinks).where(eq(genbaWorkerLinks.token, token)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getGenbaWorkerLinkBySiteWorker(siteWorkerId: string): Promise<GenbaWorkerLink | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaWorkerLinks).where(eq(genbaWorkerLinks.siteWorkerId, siteWorkerId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function listGenbaWorkerLinksBySite(siteId: string): Promise<GenbaWorkerLink[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaWorkerLinks).where(eq(genbaWorkerLinks.siteId, siteId)).orderBy(asc(genbaWorkerLinks.createdAt));
+}
+
+export async function createGenbaWorkerLink(data: InsertGenbaWorkerLink): Promise<GenbaWorkerLink | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaWorkerLinks).values(data);
+  return getGenbaWorkerLinkById(data.id);
+}
+
+export async function updateGenbaWorkerLink(
+  id: string,
+  patch: Partial<Pick<InsertGenbaWorkerLink, "token" | "role" | "active" | "expiresAt" | "lastAccessAt">>,
+): Promise<GenbaWorkerLink | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaWorkerLinks).set(patch).where(eq(genbaWorkerLinks.id, id));
+  return getGenbaWorkerLinkById(id);
+}
+
+export async function deleteGenbaWorkerLink(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaWorkerLinks).where(eq(genbaWorkerLinks.id, id));
+}
+
+/** 最終アクセスの打刻 (公開viewごと。失敗は無視できるよう分離) */
+export async function touchGenbaWorkerLinkAccess(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(genbaWorkerLinks).set({ lastAccessAt: new Date() }).where(eq(genbaWorkerLinks.id, id));
+}
+
+/** 指定ユーザーのタスク割当 (直接) をタスクID集合で返す (作業員リンクのスコープ判定用) */
+export async function listTaskIdsAssignedToUser(taskIds: string[], userId: number): Promise<Set<string>> {
+  const db = await getDb();
+  if (!db || taskIds.length === 0) return new Set();
+  const rows = await db.select({ taskId: genbaTaskAssignees.taskId }).from(genbaTaskAssignees)
+    .where(and(inArray(genbaTaskAssignees.taskId, taskIds), eq(genbaTaskAssignees.userId, userId)));
+  return new Set(rows.map((r) => r.taskId));
+}
+
+/** 指定名簿行(ゲスト)のタスク割当をタスクID集合で返す */
+export async function listTaskIdsAssignedToGuest(taskIds: string[], siteWorkerId: string): Promise<Set<string>> {
+  const db = await getDb();
+  if (!db || taskIds.length === 0) return new Set();
+  const rows = await db.select({ taskId: genbaGuestAssignees.taskId }).from(genbaGuestAssignees)
+    .where(and(inArray(genbaGuestAssignees.taskId, taskIds), eq(genbaGuestAssignees.siteWorkerId, siteWorkerId)));
+  return new Set(rows.map((r) => r.taskId));
 }

@@ -1343,6 +1343,267 @@ const dispatchesRouter = router({
     }),
 });
 
+// ── worker links (G2 作業員専用リンク) ──
+
+type ResolvedWorkerLink =
+  | { ok: false; reason: "invalid" | "disabled" | "expired" }
+  | { ok: true; link: NonNullable<Awaited<ReturnType<typeof genbaDb.getGenbaWorkerLinkByToken>>>; worker: NonNullable<Awaited<ReturnType<typeof genbaDb.getGenbaSiteWorkerById>>>; site: NonNullable<Awaited<ReturnType<typeof genbaDb.getGenbaSiteById>>> };
+
+/** トークン→リンク解決。無効化(ソフト)は disabled、期限切れは expired、それ以外の不備は invalid */
+async function resolveWorkerLink(token: string): Promise<ResolvedWorkerLink> {
+  const link = await genbaDb.getGenbaWorkerLinkByToken(token);
+  if (!link) return { ok: false, reason: "invalid" };
+  if (!link.active) return { ok: false, reason: "disabled" };
+  if (link.expiresAt && link.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
+  const worker = await genbaDb.getGenbaSiteWorkerById(link.siteWorkerId);
+  const site = worker ? await genbaDb.getGenbaSiteById(worker.siteId) : null;
+  if (!worker || !site || site.archived) return { ok: false, reason: "invalid" };
+  return { ok: true, link, worker, site };
+}
+
+/** リンク主体が更新できるタスクID集合 (worker=自分の担当のみ / leader=現場全葉タスク) */
+async function workerLinkEditableTaskIds(
+  resolved: Extract<ResolvedWorkerLink, { ok: true }>,
+  siteTasks: { id: string; parentTaskId: string | null }[],
+): Promise<Set<string>> {
+  const leafIds = siteTasks.filter((t) => !siteTasks.some((x) => x.parentTaskId === t.id)).map((t) => t.id);
+  if (resolved.link.role === "leader") return new Set(leafIds);
+  const own = new Set<string>();
+  const guestSet = await genbaDb.listTaskIdsAssignedToGuest(leafIds, resolved.worker.id);
+  guestSet.forEach((id) => own.add(id));
+  if (resolved.worker.userId != null) {
+    const direct = await genbaDb.listTaskIdsAssignedToUser(leafIds, resolved.worker.userId);
+    direct.forEach((id) => own.add(id));
+    const myTeams = await myTeamIdsForSite(resolved.site.id, resolved.worker.userId);
+    if (myTeams.size) {
+      const taskTeams = await genbaDb.listTaskTeamsByTaskIds(leafIds);
+      for (const tt of taskTeams) if (myTeams.has(tt.teamId)) own.add(tt.taskId);
+    }
+  }
+  return own;
+}
+
+/** 現場の全タスク (フロア→ゾーン→タスク) とゾーン索引をまとめて取得 */
+async function loadSiteTaskContext(siteId: string) {
+  const floors = await genbaDb.listGenbaFloorsBySite(siteId);
+  const zones = await genbaDb.listGenbaZonesByFloorIds(floors.map((f) => f.id));
+  const tasks = await genbaDb.listGenbaTasksByZoneIds(zones.map((z) => z.id));
+  const zoneById = new Map(zones.map((z) => [z.id, z]));
+  return { floors, zones, tasks, zoneById };
+}
+
+/** 管理: リンクの発行/一覧/失効/有効化/再発行/削除 (field=リーダー以上) */
+const workerLinksRouter = router({
+  /** 現場のリンク一覧 (名簿情報つき)。token も返す (管理画面のコピー用) */
+  list: genbaFieldProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const links = await genbaDb.listGenbaWorkerLinksBySite(input.siteId);
+    const workers = await genbaDb.listGenbaSiteWorkersByIds(links.map((l) => l.siteWorkerId));
+    const byId = new Map(workers.map((w) => [w.id, w]));
+    return links.map((l) => {
+      const w = byId.get(l.siteWorkerId);
+      return {
+        id: l.id, siteWorkerId: l.siteWorkerId, token: l.token, role: l.role, active: l.active,
+        expiresAt: l.expiresAt, lastAccessAt: l.lastAccessAt, createdAt: l.createdAt,
+        displayName: w?.displayName ?? "?", kind: w?.kind ?? "guest", userId: w?.userId ?? null,
+      };
+    });
+  }),
+
+  /** 発行/再発行: 名簿行に1本。既存があれば token を差し替えて有効化 (旧URLは即無効) */
+  issue: genbaFieldProcedure
+    .input(z.object({
+      siteWorkerId: genbaIdSchema,
+      role: z.enum(["worker", "leader"]).default("worker"),
+      /** 有効期限 (日数)。null/省略で無期限 */
+      expiresDays: z.number().int().min(1).max(365).nullish(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const worker = await genbaDb.getGenbaSiteWorkerById(input.siteWorkerId);
+      if (!worker) throw new TRPCError({ code: "NOT_FOUND", message: "作業員が名簿に見つかりません" });
+      const token = nanoid(32);
+      const expiresAt = input.expiresDays ? new Date(Date.now() + input.expiresDays * 86400000) : null;
+      const existing = await genbaDb.getGenbaWorkerLinkBySiteWorker(input.siteWorkerId);
+      let link;
+      if (existing) {
+        link = await genbaDb.updateGenbaWorkerLink(existing.id, { token, role: input.role, active: true, expiresAt });
+      } else {
+        link = await genbaDb.createGenbaWorkerLink({
+          id: nanoid(21), siteId: worker.siteId, siteWorkerId: worker.id,
+          token, role: input.role, active: true, expiresAt, createdByUserId: ctx.user.id,
+        });
+      }
+      await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.issue", { entityId: link?.id, note: `作業員リンクを${existing ? "再発行" : "発行"}: ${worker.displayName} (${input.role})` });
+      return link;
+    }),
+
+  /** 無効化 / 有効化 (ソフト。トークンはそのまま) */
+  setActive: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema, active: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaWorkerLinkById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "リンクが見つかりません" });
+      const link = await genbaDb.updateGenbaWorkerLink(input.id, { active: input.active });
+      const worker = await genbaDb.getGenbaSiteWorkerById(existing.siteWorkerId);
+      await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.setActive", { entityId: input.id, note: `作業員リンクを${input.active ? "有効化" : "無効化"}: ${worker?.displayName ?? existing.siteWorkerId}` });
+      return link;
+    }),
+
+  /** リンク権限の変更 (worker/leader) */
+  setRole: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema, role: z.enum(["worker", "leader"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaWorkerLinkById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "リンクが見つかりません" });
+      const link = await genbaDb.updateGenbaWorkerLink(input.id, { role: input.role });
+      await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.setRole", { entityId: input.id, note: `作業員リンクの権限を${input.role}へ変更` });
+      return link;
+    }),
+
+  /** リストから完全消去 (物理削除) */
+  remove: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaWorkerLinkById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "リンクが見つかりません" });
+      const worker = await genbaDb.getGenbaSiteWorkerById(existing.siteWorkerId);
+      await genbaDb.deleteGenbaWorkerLink(input.id);
+      await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.remove", { entityId: input.id, note: `作業員リンクを削除: ${worker?.displayName ?? existing.siteWorkerId}` });
+      return { success: true as const };
+    }),
+});
+
+/** 公開: 作業員専用リンク (トークン認証・ログイン不要)。閲覧+自分の担当のステータス更新 */
+const workerLinkRouter = router({
+  /**
+   * リンクの表示ペイロード。ホワイトリスト払い出し (メモ・Driveリンク・図面リンク・
+   * 他人の担当情報・予算等は返さない)。アクセスごとに lastAccessAt を打刻。
+   */
+  view: publicProcedure.input(z.object({ token: z.string().trim().min(8).max(64) })).query(async ({ input }) => {
+    assertGenbaEnabled();
+    const resolved = await resolveWorkerLink(input.token);
+    if (!resolved.ok) return { ok: false as const, reason: resolved.reason };
+    const { link, worker, site } = resolved;
+    try { await genbaDb.touchGenbaWorkerLinkAccess(link.id); } catch { /* 打刻失敗は無視 */ }
+
+    const { floors, zones, tasks, zoneById } = await loadSiteTaskContext(site.id);
+    const editable = await workerLinkEditableTaskIds(resolved, tasks);
+    const zoneName = (id: string) => zoneById.get(id)?.name ?? "?";
+    const myTasks = tasks
+      .filter((t) => editable.has(t.id))
+      .map((t) => ({
+        id: t.id, zoneId: t.zoneId, zoneName: zoneName(t.zoneId),
+        name: t.name, romaji: t.romaji, status: t.status, percent: t.percent,
+        dueDate: t.dueDate, issueText: t.issueText,
+      }))
+      .sort((a, b) => a.zoneName.localeCompare(b.zoneName, "ja") || a.name.localeCompare(b.name, "ja"));
+
+    // 図面 (署名URL) と自分の担当があるゾーンのみのポリゴン (leaderリンクは全ゾーン)
+    const floorsWithUrls = await withFloorImageUrls(floors);
+    const myZoneIds = new Set(myTasks.map((t) => t.zoneId));
+
+    // 指示: 全員宛て + (登録作業員なら) 自分/自分の班宛て
+    const allInst = await genbaDb.listGenbaInstructionsBySite(site.id);
+    const myTeams = worker.userId != null ? await myTeamIdsForSite(site.id, worker.userId) : new Set<string>();
+    const myInst = allInst
+      .filter((i) => worker.userId != null ? instructionTargetedTo(i, worker.userId, myTeams) : i.targetKind === "all")
+      .map((i) => ({ id: i.id, text: i.text, createdAt: i.createdAt }))
+      .reverse();
+
+    return {
+      ok: true as const,
+      site: { name: site.name },
+      me: { displayName: worker.displayName, kind: worker.kind, role: link.role },
+      floors: floorsWithUrls.map((f) => ({ id: f.id, name: f.name, imageUrl: f.imageUrl, w: f.w, h: f.h })),
+      zones: zones
+        .filter((z) => link.role === "leader" || myZoneIds.has(z.id) || (z.parentZoneId && myZoneIds.has(z.parentZoneId)))
+        .map((z) => ({ id: z.id, floorId: z.floorId, parentZoneId: z.parentZoneId, name: z.name, polygon: z.polygon, priority: z.priority, color: (z as any).color ?? null, fillOpacity: (z as any).fillOpacity ?? null })),
+      myTasks,
+      instructions: myInst,
+    };
+  }),
+
+  /** ステータス更新 (worker=自分の担当のみ / leader=現場の全葉タスク)。写真はR2キーのみDB */
+  setStatus: publicProcedure
+    .input(z.object({
+      token: z.string().trim().min(8).max(64),
+      taskId: genbaIdSchema,
+      status: genbaTaskStatusSchema,
+      percent: z.number().int().min(0).max(100).nullish(),
+      issueText: z.string().max(2000).optional(),
+      photos: z.array(issuePhotoSchema).max(4).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      assertGenbaEnabled();
+      const resolved = await resolveWorkerLink(input.token);
+      if (!resolved.ok) throw new TRPCError({ code: "FORBIDDEN", message: "このリンクは無効です。管理者に確認してください。" });
+      const { worker, site } = resolved;
+
+      const existing = await genbaDb.getGenbaTaskById(input.taskId);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      const { tasks } = await loadSiteTaskContext(site.id);
+      const editable = await workerLinkEditableTaskIds(resolved, tasks);
+      if (!editable.has(input.taskId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "この作業はあなたの担当ではありません" });
+      }
+
+      const photoKeys: string[] = [];
+      if (input.status === "issue" && input.photos?.length) {
+        for (const p of input.photos) {
+          const buffer = Buffer.from(p.base64, "base64");
+          const err = validateFile(p.fileName, p.mimeType, buffer.length);
+          if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
+          const key = `genba/task-${input.taskId}/issue-${nanoid(8)}-${safeKeyPart(p.fileName)}`;
+          await storagePut(key, buffer, p.mimeType);
+          photoKeys.push(key);
+        }
+      }
+
+      const percent = input.status === "done" ? 100 : input.status === "todo" ? null : (input.percent ?? existing.percent ?? (input.status === "progress" ? 50 : null));
+      const task = await genbaDb.updateGenbaTask(input.taskId, {
+        status: input.status,
+        percent,
+        issueText: input.status === "issue" ? (input.issueText ?? "") : null,
+      });
+
+      // 履歴イベント: ゲストは byUserId を持たないため、記名は text に含める
+      const signature = worker.userId != null ? "" : `（${worker.displayName}・リンク入力）`;
+      await genbaDb.createGenbaTaskEvent({
+        id: nanoid(21),
+        taskId: input.taskId,
+        kind: input.status === "issue" ? "issue" : "status",
+        byUserId: worker.userId ?? null,
+        text: (input.status === "issue" ? (input.issueText ?? "") : `「${input.status}」に変更`) + signature,
+        photoKeys: photoKeys.length ? photoKeys : null,
+      } as any);
+
+      await safeGenbaAuditLog(worker.userId ?? null, "genba.workerLink.setStatus", { entityId: input.taskId, note: `${existing.name}: ${input.status} (リンク: ${worker.displayName})` });
+      await safeGenbaActivity(input.status === "issue" ? "issue" : "status", worker.userId ?? null, { taskId: input.taskId, taskName: existing.name, zoneId: existing.zoneId, status: input.status, viaWorkerLink: true });
+      return task;
+    }),
+
+  /** コメント (返信イベント)。スコープは setStatus と同じ */
+  reply: publicProcedure
+    .input(z.object({ token: z.string().trim().min(8).max(64), taskId: genbaIdSchema, text: z.string().trim().min(1).max(2000) }))
+    .mutation(async ({ input }) => {
+      assertGenbaEnabled();
+      const resolved = await resolveWorkerLink(input.token);
+      if (!resolved.ok) throw new TRPCError({ code: "FORBIDDEN", message: "このリンクは無効です。管理者に確認してください。" });
+      const { worker, site } = resolved;
+      const existing = await genbaDb.getGenbaTaskById(input.taskId);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      const { tasks } = await loadSiteTaskContext(site.id);
+      const editable = await workerLinkEditableTaskIds(resolved, tasks);
+      if (!editable.has(input.taskId)) throw new TRPCError({ code: "FORBIDDEN", message: "この作業はあなたの担当ではありません" });
+      const signature = worker.userId != null ? "" : `（${worker.displayName}・リンク入力）`;
+      await genbaDb.createGenbaTaskEvent({
+        id: nanoid(21), taskId: input.taskId, kind: "reply",
+        byUserId: worker.userId ?? null, text: input.text + signature, photoKeys: null,
+      } as any);
+      await safeGenbaAuditLog(worker.userId ?? null, "genba.workerLink.reply", { entityId: input.taskId, note: `コメント (リンク: ${worker.displayName})` });
+      return { success: true as const };
+    }),
+});
+
 // ── genbaRouter 本体 ──
 
 export const genbaRouter = router({
@@ -1382,4 +1643,6 @@ export const genbaRouter = router({
   budgets: budgetsRouter,
   logs: logsRouter,
   dispatches: dispatchesRouter,
+  workerLinks: workerLinksRouter,
+  workerLink: workerLinkRouter,
 });
