@@ -23,11 +23,13 @@ const fmt = (d: string | Date | null) => {
  * ゲストはログイン不要でリンクから自分の担当を確認・更新できる。
  */
 export default function WorkerLinksPanel({
-  siteId, open, onOpenChange,
+  siteId, open, onOpenChange, isAdmin,
 }: {
   siteId: string;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** admin は登録作業員の genba内権限 (管理者/リーダー/作業員) を変更できる */
+  isAdmin?: boolean;
 }) {
   const utils = trpc.useUtils();
   const [expiresDays, setExpiresDays] = useState<string>("");
@@ -45,6 +47,10 @@ export default function WorkerLinksPanel({
   const setActive = trpc.genba.workerLinks.setActive.useMutation({ onSuccess: invalidate, onError: (e) => toast.error(e.message) });
   const setRole = trpc.genba.workerLinks.setRole.useMutation({ onSuccess: invalidate, onError: (e) => toast.error(e.message) });
   const remove = trpc.genba.workerLinks.remove.useMutation({ onSuccess: () => { invalidate(); toast.success("リンクを削除しました"); }, onError: (e) => toast.error(e.message) });
+  const setGenbaRole = trpc.genba.users.setGenbaRole.useMutation({
+    onSuccess: () => { utils.genba.users.siteRoster.invalidate({ siteId }); toast.success("権限を変更しました"); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const roster = (rosterData?.roster || []) as RosterEntry[];
   const linked = rosterData?.linked ?? false;
@@ -144,6 +150,17 @@ export default function WorkerLinksPanel({
               <div key={r.siteWorkerId} className="p-2 flex items-center gap-2 flex-wrap">
                 <strong className="text-sm">{r.displayName}</strong>
                 <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${kind.cls}`}>{kind.label}</span>
+                {isAdmin && r.userId != null && (
+                  <select value={(r as any).genbaRole ?? "worker"}
+                    title="genba内の権限 (システム全体の権限は変わりません)"
+                    onChange={(e) => setGenbaRole.mutate({ userId: r.userId as number, role: e.target.value as any })}
+                    className="rounded border border-border bg-background px-1 py-0.5 text-[11px]">
+                    <option value="admin">管理者</option>
+                    <option value="leader">リーダー</option>
+                    <option value="worker">作業員</option>
+                  </select>
+                )}
+                {(r as any).roleOverridden && <span title="genba内で上書きされた権限" className="text-[10px] text-[#005AFF] font-bold">*</span>}
                 <Button size="sm" variant="outline" className="h-7 text-xs ml-auto"
                   disabled={issue.isPending}
                   onClick={() => issue.mutate({ siteWorkerId: r.siteWorkerId as string, role: "worker", expiresDays: expiryOpt })}>

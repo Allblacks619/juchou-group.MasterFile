@@ -47,7 +47,13 @@ export default function GenbaShell({
   const isAdmin = me.genbaRole === "admin";
   const canEdit = me.genbaRole !== "worker";
 
-  const [siteId, setSiteId] = useState<string>(sites[0]?.id ?? "");
+  // 深リンク (?site=) からの初期現場指定 (G3)
+  const initialSiteId = (() => {
+    try { return new URLSearchParams(window.location.search).get("site"); } catch { return null; }
+  })();
+  const [siteId, setSiteId] = useState<string>(
+    (initialSiteId && sites.some((s) => s.id === initialSiteId) ? initialSiteId : sites[0]?.id) ?? "",
+  );
   const [tab, setTab] = useState<TabKey>("map");
   const [showGuide, setShowGuide] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);

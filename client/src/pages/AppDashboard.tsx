@@ -122,10 +122,41 @@ export default function AppDashboard() {
 
       <WorkflowShortcuts appRole={appRole} />
 
+      <GenbaMyWorkCard />
+
       {isManagerLike && <AdminStats />}
 
       <AttendanceCalendar />
     </div>
+  );
+}
+
+/**
+ * 現場ビジョン: 自分の担当カード (G3)。自分が配置されている現場と担当作業数を表示し、
+ * その現場の「自分の作業」へ深リンクする。担当ゼロ・genba無効時は何も表示しない。
+ */
+function GenbaMyWorkCard() {
+  const [, setLocation] = useLocation();
+  const { data } = trpc.genba.users.mySummary.useQuery(undefined, { retry: false, staleTime: 60 * 1000 });
+  const sites = (data || []) as { siteId: string; siteName: string; taskCount: number; issueCount: number }[];
+  if (sites.length === 0) return null;
+  return (
+    <Card className="border-[#005AFF]/25 bg-[#005AFF]/5">
+      <CardContent className="py-3 space-y-2">
+        <div className="text-sm font-bold flex items-center gap-1.5">🏗 現場ビジョン — 自分の担当</div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {sites.map((s) => (
+            <button key={s.siteId}
+              onClick={() => setLocation(`/app/genba?site=${encodeURIComponent(s.siteId)}`)}
+              className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-left hover:bg-muted/50">
+              <span className="text-sm font-medium flex-1 truncate">{s.siteName}</span>
+              {s.issueCount > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded bg-[#FF4B00] text-white font-bold">⚠{s.issueCount}</span>}
+              <span className="text-xs text-muted-foreground tabular-nums">担当 {s.taskCount}件</span>
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

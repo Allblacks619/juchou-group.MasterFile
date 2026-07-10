@@ -491,3 +491,19 @@ export const genbaWorkerLinks = mysqlTable("genba_worker_links", {
 
 export type GenbaWorkerLink = typeof genbaWorkerLinks.$inferSelect;
 export type InsertGenbaWorkerLink = typeof genbaWorkerLinks.$inferInsert;
+
+/**
+ * genba内の役割上書き (G3)。システム全体の権限 (users.appRole) は変更せず、
+ * 現場ビジョン内の役割 (admin/leader/worker) だけをユーザー単位で上書きする。
+ * 行が無ければ appRole から導出 (shared/genba/roles.ts)。
+ */
+export const genbaUserRoles = mysqlTable("genba_user_roles", {
+  userId: int("userId").primaryKey(),
+  role: varchar("role", { length: 16 }).notNull(),
+  updatedByUserId: int("updatedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GenbaUserRole = typeof genbaUserRoles.$inferSelect;
+export type InsertGenbaUserRole = typeof genbaUserRoles.$inferInsert;

@@ -58,10 +58,30 @@ function assertGenbaEnabled() {
   }
 }
 
-/** ログイン済み + genba有効。ctx.genbaRole を付与 */
-const genbaProcedure = protectedProcedure.use(({ ctx, next }) => {
+const GENBA_ROLES = ["admin", "leader", "worker"] as const;
+type GenbaRole = (typeof GENBA_ROLES)[number];
+
+/**
+ * genba内の実効役割を解決 (G3): genba_user_roles の上書きが最優先、無ければ appRole から導出。
+ * 参照に失敗した場合は worker へフェイルクローズ (権限昇格側に倒さない)。
+ */
+async function resolveGenbaRole(userId: number, appRole: unknown): Promise<GenbaRole> {
+  try {
+    const override = await genbaDb.getGenbaUserRole(userId);
+    if (override && (GENBA_ROLES as readonly string[]).includes(override.role)) {
+      return override.role as GenbaRole;
+    }
+    return genbaRoleOf(appRole as any);
+  } catch (error) {
+    console.warn("[genba] role resolve failed (fail-closed to worker):", error);
+    return "worker";
+  }
+}
+
+/** ログイン済み + genba有効。ctx.genbaRole を付与 (genba内上書きを考慮) */
+const genbaProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   assertGenbaEnabled();
-  const role = genbaRoleOf((ctx.user as any).appRole);
+  const role = await resolveGenbaRole(ctx.user.id, (ctx.user as any).appRole);
   return next({ ctx: { ...ctx, genbaRole: role } });
 });
 
@@ -453,6 +473,30 @@ const tasksRouter = router({
     }));
   }),
 
+  /**
+   * 自分の担当作業 (G3): 現場内で自分に割り当てられた葉タスク (直接 + 班経由)。
+   * 「自分の作業」フィルタとダッシュボード導線に使う。
+   */
+  listMine: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ ctx, input }) => {
+    const { tasks, zoneById } = await loadSiteTaskContext(input.siteId);
+    const leafIds = tasks.filter((t) => !tasks.some((x) => x.parentTaskId === t.id)).map((t) => t.id);
+    const mine = new Set<string>();
+    (await genbaDb.listTaskIdsAssignedToUser(leafIds, ctx.user.id)).forEach((id) => mine.add(id));
+    const myTeams = await myTeamIdsForSite(input.siteId, ctx.user.id);
+    if (myTeams.size) {
+      const taskTeams = await genbaDb.listTaskTeamsByTaskIds(leafIds);
+      for (const tt of taskTeams) if (myTeams.has(tt.teamId)) mine.add(tt.taskId);
+    }
+    return tasks
+      .filter((t) => mine.has(t.id))
+      .map((t) => ({
+        id: t.id, zoneId: t.zoneId, zoneName: zoneById.get(t.zoneId)?.name ?? "?",
+        name: t.name, romaji: t.romaji, status: t.status, percent: t.percent,
+        dueDate: t.dueDate, issueText: t.issueText,
+      }))
+      .sort((a, b) => a.zoneName.localeCompare(b.zoneName, "ja") || a.name.localeCompare(b.name, "ja"));
+  }),
+
   create: genbaFieldProcedure
     .input(z.object({ id: genbaIdSchema.optional(), zoneId: genbaIdSchema, parentTaskId: genbaIdSchema.nullish(), name: z.string().trim().min(1).max(200), romaji: z.string().max(200).optional() }))
     .mutation(async ({ ctx, input }) => {
@@ -748,8 +792,21 @@ const usersRouter = router({
   siteRoster: genbaProcedure
     .input(z.object({ siteId: genbaIdSchema }))
     .query(async ({ input }) => {
+      // genba内上書きを実効役割として同梱 (G3)。UI の種別ラベル/権限selectに使う
+      const overrides = new Map((await genbaDb.listGenbaUserRoles()).map((r) => [r.userId, r.role]));
+      const effective = (userId: number | null, appRole: string | null) => {
+        if (userId == null) return null;
+        const ov = overrides.get(userId);
+        if (ov && (GENBA_ROLES as readonly string[]).includes(ov)) return ov as GenbaRole;
+        return genbaRoleOf(appRole as any);
+      };
       const roster = await genbaDb.syncSiteRosterFromAttendance(input.siteId, () => nanoid(21));
-      if (roster !== null) return { linked: true as const, roster };
+      if (roster !== null) {
+        return {
+          linked: true as const,
+          roster: roster.map((r) => ({ ...r, genbaRole: effective(r.userId, r.appRole), roleOverridden: r.userId != null && overrides.has(r.userId) })),
+        };
+      }
       const all = await genbaDb.listAssignableUsers();
       return {
         linked: false as const,
@@ -760,8 +817,76 @@ const usersRouter = router({
           employeeId: null,
           displayName: u.name || `user#${u.id}`,
           appRole: u.appRole,
+          genbaRole: effective(u.id, u.appRole),
+          roleOverridden: overrides.has(u.id),
         })),
       };
+    }),
+
+  /**
+   * ダッシュボード用サマリ (G3): 自分が配置されている現場と担当作業数 (未完了/問題)。
+   * 担当ゼロの現場は返さない。
+   */
+  mySummary: genbaProcedure.query(async ({ ctx }) => {
+    const sites = await genbaDb.listGenbaSites();
+    const result: { siteId: string; siteName: string; taskCount: number; issueCount: number }[] = [];
+    for (const site of sites) {
+      const { tasks } = await loadSiteTaskContext(site.id);
+      const leafIds = tasks.filter((t) => !tasks.some((x) => x.parentTaskId === t.id)).map((t) => t.id);
+      const mine = new Set<string>();
+      (await genbaDb.listTaskIdsAssignedToUser(leafIds, ctx.user.id)).forEach((id) => mine.add(id));
+      const myTeams = await myTeamIdsForSite(site.id, ctx.user.id);
+      if (myTeams.size) {
+        const taskTeams = await genbaDb.listTaskTeamsByTaskIds(leafIds);
+        for (const tt of taskTeams) if (myTeams.has(tt.teamId)) mine.add(tt.taskId);
+      }
+      const myActive = tasks.filter((t) => mine.has(t.id) && t.status !== "done");
+      if (myActive.length === 0) continue;
+      result.push({
+        siteId: site.id,
+        siteName: site.name,
+        taskCount: myActive.length,
+        issueCount: myActive.filter((t) => t.status === "issue").length,
+      });
+    }
+    return result;
+  }),
+
+  /**
+   * genba内役割の上書き (G3, admin専用)。role=null で上書き解除 (appRole由来に戻る)。
+   * システム全体の権限 (users.appRole) は変更しない。最後の管理者は降格できない。
+   */
+  setGenbaRole: genbaAdminProcedure
+    .input(z.object({ userId: z.number().int().positive(), role: z.enum(["admin", "leader", "worker"]).nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const countAdmins = async () => {
+        const appAdminIds = await genbaDb.listAppAdminUserIds();
+        const overrides = new Map((await genbaDb.listGenbaUserRoles()).map((r) => [r.userId, r.role]));
+        const set = new Set<number>();
+        for (const id of appAdminIds) { const ov = overrides.get(id); if (!ov || ov === "admin") set.add(id); }
+        overrides.forEach((role, id) => { if (role === "admin") set.add(id); });
+        return set;
+      };
+
+      // 事前チェック: 実効adminを降格すると誰も残らない場合は拒否
+      const before = await countAdmins();
+      const demoting = before.has(input.userId) && input.role !== "admin" && !(input.role === null && (await genbaDb.listAppAdminUserIds()).includes(input.userId));
+      if (demoting && before.size <= 1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "最後の管理者は降格できません" });
+      }
+
+      if (input.role === null) await genbaDb.deleteGenbaUserRole(input.userId);
+      else await genbaDb.setGenbaUserRole(input.userId, input.role, ctx.user.id);
+
+      // 書き込み後の再チェック (同時降格レース対策): admin が0になっていたら復旧して拒否
+      const after = await countAdmins();
+      if (after.size === 0) {
+        await genbaDb.setGenbaUserRole(input.userId, "admin", ctx.user.id);
+        throw new TRPCError({ code: "BAD_REQUEST", message: "最後の管理者は降格できません" });
+      }
+
+      await safeGenbaAuditLog(ctx.user.id, "genba.users.setGenbaRole", { note: `genba役割を変更: user#${input.userId} → ${input.role ?? "上書き解除"}` });
+      return { success: true as const };
     }),
 });
 
