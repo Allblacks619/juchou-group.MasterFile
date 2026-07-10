@@ -86,23 +86,21 @@ export default function AppGenba() {
   const editingSite = (sites || []).find((s) => s.id === editSiteId) || null;
   const openSite = (sites || []).find((s) => s.id === openSiteId) || null;
 
-  if (openSite) {
-    return (
-      <GenbaLangProvider initialLang={me.settings?.lang}>
-        <FloorWorkspace
-          siteId={openSite.id}
-          siteName={openSite.name}
-          driveUrl={openSite.driveUrl}
-          canEdit={canEdit}
-          meUserId={me.userId ?? null}
-          onBack={() => setOpenSiteId(null)}
-        />
-      </GenbaLangProvider>
-    );
-  }
-
+  // 言語プロバイダは openSite の分岐より上に1つだけ置く。
+  // 図面を開く/戻る の切替でプロバイダが再マウントされ、settings 未反映の
+  // 古い me.settings.lang から言語が巻き戻る不具合を防ぐ (単一の状態源にする)。
   return (
     <GenbaLangProvider initialLang={me.settings?.lang}>
+    {openSite ? (
+      <FloorWorkspace
+        siteId={openSite.id}
+        siteName={openSite.name}
+        driveUrl={openSite.driveUrl}
+        canEdit={canEdit}
+        meUserId={me.userId ?? null}
+        onBack={() => setOpenSiteId(null)}
+      />
+    ) : (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -257,6 +255,7 @@ export default function AppGenba() {
         </DialogContent>
       </Dialog>
     </div>
+    )}
     </GenbaLangProvider>
   );
 }
