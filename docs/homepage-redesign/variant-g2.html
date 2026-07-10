@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>充寵グループ｜電気工事施工のプロフェッショナル｜東京・神奈川・埼玉・千葉</title>
+<meta name="description" content="充寵グループ（JYUCHOU GROUP）は一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。低圧設備・幹線・配管・配線・盤据付まで、東京・神奈川・埼玉・千葉で確実な施工品質をお届けします。協力会社募集・未経験OKの採用情報も。">
+<meta property="og:title" content="充寵グループ｜電気工事施工のプロフェッショナル｜東京・神奈川・埼玉・千葉">
+<meta property="og:description" content="充寵グループ（JYUCHOU GROUP）は一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。低圧設備・幹線・配管・配線・盤据付まで、東京・神奈川・埼玉・千葉で確実な施工品質をお届けします。">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:site_name" content="充寵グループ / JYUCHOU GROUP">
+<link rel="canonical" href="https://juchou-group.com/">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Electrician","name":"充寵グループ","alternateName":"JYUCHOU GROUP","address":{"@type":"PostalAddress","addressRegion":"神奈川県","addressLocality":"秦野市"},"telephone":"050-5873-4183","email":"info@juchou-group.com","areaServed":["東京都","神奈川県","埼玉県","千葉県"],"url":"https://juchou-group.com/"}
+</script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"対応エリアはどこまでですか？","acceptedAnswer":{"@type":"Answer","text":"東京・神奈川を中心に、埼玉・千葉まで対応しています。その他エリアも出張のご相談を承ります。"}},
+{"@type":"Question","name":"どのような電気工事を依頼できますか？","acceptedAnswer":{"@type":"Answer","text":"低圧設備工事・幹線工事・配管/ラック据付・配線工事・盤据付/結線など、一般電気用工作物工事全般に対応しています。"}},
+{"@type":"Question","name":"未経験でも電気工事の仕事に応募できますか？","acceptedAnswer":{"@type":"Answer","text":"応募できます。未経験者は日当13,000円〜スタートし、できる作業に応じて随時アップ。資格取得のサポート制度もあります。"}},
+{"@type":"Question","name":"協力会社・元請けとしての取引は可能ですか？","acceptedAnswer":{"@type":"Answer","text":"可能です。お問い合わせフォームまたはお電話（050-5873-4183）からご相談ください。"}}]}
+</script>
+<style>
+:root{
+  --bg:#121417; --bg2:#15181C; --ink:#ECE9E4; --mut:#9A958D; --line:#23262C; --line2:#2E323A;
+  --red:#B84A3C; --blue:#3A66B8; --green:#3B7D5E; --wht:#C9C7C2; --blk:#33363C; --yel:#C9A227;
+  --mono:"SFMono-Regular",ui-monospace,Menlo,Consolas,"Courier New",monospace;
+  --sans:"Avenir Next","Helvetica Neue","Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","Noto Sans JP","Meiryo",sans-serif;
+  --padL:170px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+html.rm{scroll-behavior:auto}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-feature-settings:"palt";line-height:1.8;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+::selection{background:#C9A227;color:#121417}
+
+/* ---------- header ---------- */
+.hd{position:fixed;top:0;left:0;right:0;z-index:60;display:flex;align-items:center;justify-content:space-between;padding:0 28px;height:64px;background:rgba(18,20,23,.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.hd-logo{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.06em;font-size:15px}
+.hd-logo svg{display:block}
+.hd-nav{display:flex;gap:26px;font-family:var(--mono);font-size:11px;letter-spacing:.14em}
+.hd-nav a{color:var(--mut);transition:color .25s}
+.hd-nav a:hover{color:var(--ink)}
+.hd-nav a.cta{color:var(--yel);border:1px solid rgba(201,162,39,.45);padding:7px 14px;border-radius:2px}
+.hd-nav a.cta:hover{background:rgba(201,162,39,.12)}
+@media(max-width:900px){.hd-nav a.hide-m{display:none}.hd-nav{gap:16px}}
+
+/* ---------- hero ---------- */
+.hero{position:relative;min-height:100vh;overflow:hidden;background:var(--bg)}
+.hero .lyr{position:absolute;inset:0;will-change:transform}
+.hero .lyr svg{position:absolute;inset:0;display:block}
+.hero-txt{position:relative;z-index:5;padding:calc(64px + 9vh) var(--padL) 230px;max-width:1450px}
+.kick{font-family:var(--mono);font-size:11px;letter-spacing:.32em;color:var(--mut);display:flex;align-items:center;gap:14px}
+.kick i{display:inline-block;width:38px;height:1px;background:var(--line2)}
+.giant{font-size:clamp(58px,10.4vw,148px);font-weight:900;letter-spacing:.015em;line-height:1.04;margin:2.2vh 0 0;color:var(--ink)}
+.giant em{font-style:normal;color:transparent;-webkit-text-stroke:1.5px rgba(236,233,228,.4)}
+h1.h1c{font-size:clamp(19px,2.1vw,29px);font-weight:800;letter-spacing:.1em;margin-top:3.4vh;color:var(--ink)}
+h1.h1c b{color:var(--yel);font-weight:800}
+.hero-sub{max-width:600px;color:var(--mut);font-size:14px;margin-top:1.8vh;line-height:2.05}
+.hero-cta{display:flex;gap:14px;margin-top:3.4vh;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:12px;font-size:13.5px;font-weight:700;letter-spacing:.12em;padding:15px 28px;border-radius:2px;transition:transform .25s,background .25s,color .25s;position:relative}
+.btn svg{transition:transform .25s}
+.btn:hover svg{transform:translateX(4px)}
+.btn-y{background:var(--yel);color:#15130a}
+.btn-y:hover{transform:translateY(-2px)}
+.btn-o{border:1px solid var(--line2);color:var(--ink)}
+.btn-o:hover{border-color:var(--mut);transform:translateY(-2px)}
+.hero-spec{position:absolute;z-index:5;top:calc(64px + 9vh);right:34px;text-align:right;font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:#5d6069;line-height:2.2}
+.hero-foot{position:absolute;z-index:5;left:var(--padL);bottom:26px;font-family:var(--mono);font-size:10px;letter-spacing:.26em;color:#5d6069;display:flex;gap:36px}
+.hero-foot span b{color:var(--mut);font-weight:400}
+@media(max-width:1100px){:root{--padL:150px}}
+
+/* ---------- flow (trunk overlay) ---------- */
+.flow{position:relative}
+#trunkWrap{position:absolute;inset:0;pointer-events:none;z-index:1;overflow:hidden}
+#trunkWrap svg{display:block}
+.flow>section,.flow>footer,.flow .tblock{position:relative;z-index:2}
+
+/* ---------- sections ---------- */
+section.sec{padding:110px var(--padL) 110px var(--padL);max-width:1500px;position:relative}
+.sec-tag{display:inline-flex;align-items:center;gap:12px;font-family:var(--mono);font-size:11px;letter-spacing:.3em;margin-bottom:18px}
+.sec-tag .dot{width:9px;height:9px;border-radius:50%;border:2px solid currentColor;display:inline-block}
+.sec-tag[data-b] .dot{display:none}
+h2{font-size:clamp(27px,3.6vw,46px);font-weight:900;letter-spacing:.04em;line-height:1.3}
+.lead{max-width:640px;color:var(--mut);font-size:14.5px;margin-top:26px;line-height:2.15}
+.c-red{color:var(--red)} .c-blue{color:#6E92CF} .c-green{color:#5F9E7F} .c-wht{color:var(--wht)} .c-blk{color:#7A8089} .c-yel{color:var(--yel)}
+.hr{height:1px;background:var(--line);margin:0 var(--padL);max-width:1160px}
+
+/* philosophy */
+.ph-grid{display:grid;grid-template-columns:1.25fr .75fr;gap:70px;align-items:center;margin-top:10px}
+.ph-art{display:flex;justify-content:center}
+.ph-art svg{width:100%;max-width:380px;height:auto}
+
+/* stance cards */
+.st-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-top:48px}
+.st-card{background:var(--bg);padding:30px 22px 34px;position:relative;transition:background .3s}
+.st-card:hover{background:var(--bg2)}
+.st-card .no{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:#6E92CF}
+.st-card .bar{height:2px;width:26px;background:var(--blue);margin:14px 0 16px;transition:width .5s}
+.st-card:hover .bar{width:44px}
+.st-card h3{font-size:16.5px;font-weight:800;letter-spacing:.08em;margin-bottom:12px}
+.st-card p{font-size:12.5px;color:var(--mut);line-height:1.95}
+
+/* services */
+.sv-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-top:48px}
+.sv-card{background:var(--bg);padding:34px 28px 38px;transition:background .3s;position:relative;overflow:hidden}
+.sv-card:hover{background:var(--bg2)}
+.sv-card .ic{height:44px;display:flex;align-items:flex-start;margin-bottom:20px}
+.sv-card .ic svg{display:block}
+.sv-card h3{font-size:17.5px;font-weight:800;letter-spacing:.08em}
+.sv-card h3 small{display:block;font-family:var(--mono);font-weight:400;font-size:9.5px;letter-spacing:.22em;color:#5F9E7F;margin-top:6px}
+.sv-card p{font-size:12.5px;color:var(--mut);margin-top:14px;line-height:1.95}
+
+/* area */
+.area-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-top:48px}
+.area-cell{background:var(--bg);padding:38px 20px;text-align:center}
+.area-cell b{display:block;font-size:clamp(22px,2.6vw,34px);font-weight:900;letter-spacing:.14em}
+.area-cell span{font-family:var(--mono);font-size:9.5px;letter-spacing:.3em;color:var(--mut)}
+.area-cell em{display:block;font-style:normal;font-size:10.5px;color:#6b6f78;margin-top:8px;letter-spacing:.14em}
+.area-note{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--mut);margin-top:22px}
+
+/* recruit */
+.rc-wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:64px;margin-top:40px;align-items:start}
+.rc-list{list-style:none}
+.rc-list li{display:flex;gap:16px;padding:17px 0;border-bottom:1px solid var(--line);font-size:13.5px;align-items:baseline}
+.rc-list li i{font-family:var(--mono);font-style:normal;font-size:10px;letter-spacing:.16em;color:var(--yel);white-space:nowrap;min-width:74px}
+.rc-list li b{font-weight:700}
+.rc-day{background:var(--bg2);border:1px solid var(--line);padding:38px 34px;position:relative}
+.rc-day .lab{font-family:var(--mono);font-size:10px;letter-spacing:.3em;color:var(--mut)}
+.rc-day .val{font-size:clamp(38px,4.4vw,58px);font-weight:900;letter-spacing:.02em;color:var(--yel);line-height:1.2;margin-top:10px}
+.rc-day .val small{font-size:.42em;color:var(--ink);font-weight:700;letter-spacing:.1em}
+.rc-day p{font-size:12px;color:var(--mut);margin-top:12px}
+.rc-day .btn{margin-top:26px}
+
+/* faq */
+.faq{max-width:860px}
+details{border-bottom:1px solid var(--line)}
+summary{cursor:pointer;list-style:none;display:flex;gap:18px;align-items:baseline;padding:24px 0;font-weight:700;font-size:15px;letter-spacing:.05em}
+summary::-webkit-details-marker{display:none}
+summary .q{font-family:var(--mono);font-size:11px;color:var(--mut);letter-spacing:.2em}
+summary .pm{margin-left:auto;font-family:var(--mono);color:var(--mut);transition:transform .3s;font-size:14px}
+details[open] .pm{transform:rotate(45deg)}
+.ans{padding:0 0 26px 46px;color:var(--mut);font-size:13.5px;line-height:2.05}
+
+/* company */
+.co-tbl{width:100%;max-width:860px;border-collapse:collapse;margin-top:40px}
+.co-tbl th,.co-tbl td{border-bottom:1px solid var(--line);padding:17px 8px;font-size:13.5px;text-align:left;vertical-align:top}
+.co-tbl th{font-family:var(--mono);font-weight:400;font-size:10.5px;letter-spacing:.24em;color:var(--mut);width:190px;white-space:nowrap}
+
+/* terminal climax */
+.tblock{padding:130px var(--padL) 60px;max-width:1500px}
+.t-cap{text-align:left}
+#termWrap{margin-top:54px;position:relative;margin-left:calc(var(--padL) * -1)}
+#termWrap svg{display:block;width:100%;height:auto}
+.t-done{font-size:clamp(24px,3vw,40px);font-weight:900;letter-spacing:.2em;margin-top:38px;opacity:0;transform:translateY(14px);transition:opacity .9s ease .2s,transform .9s ease .2s}
+.t-done small{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.34em;color:var(--mut);margin-top:10px;font-weight:400}
+.tblock.done .t-done{opacity:1;transform:none}
+.t-cta{display:flex;gap:16px;margin-top:44px;flex-wrap:wrap}
+
+/* footer */
+footer{border-top:1px solid var(--line);padding:70px var(--padL) 46px;max-width:1500px}
+.ft-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:56px;align-items:start}
+.ft-logo{font-size:26px;font-weight:900;letter-spacing:.05em}
+.ft-logo span{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.34em;color:var(--mut);margin-top:8px;font-weight:400}
+.ft-links{display:flex;gap:26px;margin-top:26px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--mut);flex-wrap:wrap}
+.ft-links a:hover{color:var(--ink)}
+.ft-contact{margin-top:26px;font-size:13px;color:var(--mut);line-height:2.2}
+.ft-contact a{color:var(--ink)}
+.qr-row{display:flex;gap:22px;justify-content:flex-end}
+.qr{border:1px solid var(--line);padding:14px;background:var(--bg2);text-align:center;transition:border-color .3s}
+.qr:hover{border-color:var(--mut)}
+.qr img{width:104px;height:104px;background:#fff}
+.qr span{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--mut);margin-top:10px}
+.copy{margin-top:56px;padding-top:22px;border-top:1px solid var(--line);display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:#5d6069;flex-wrap:wrap;gap:10px}
+
+/* reveal */
+.rv{opacity:0;transform:translateY(26px);transition:opacity .9s cubic-bezier(.2,.6,.2,1),transform .9s cubic-bezier(.2,.6,.2,1)}
+.rv.on{opacity:1;transform:none}
+.rv2{transition-delay:.12s}.rv3{transition-delay:.24s}.rv4{transition-delay:.36s}.rv5{transition-delay:.48s}.rv6{transition-delay:.6s}
+html.rm .rv{opacity:1;transform:none;transition:none}
+
+/* ---------- responsive ---------- */
+@media(max-width:900px){
+  .ph-grid,.rc-wrap,.ft-grid{grid-template-columns:1fr;gap:44px}
+  .st-grid{grid-template-columns:repeat(2,1fr)}
+  .sv-grid{grid-template-columns:repeat(2,1fr)}
+  .area-row{grid-template-columns:repeat(2,1fr)}
+  .qr-row{justify-content:flex-start}
+  .hero-spec{display:none}
+}
+@media(max-width:760px){
+  :root{--padL:56px}
+  .hd{padding:0 16px;height:56px}
+  .hd-nav{display:none}
+  .hero-txt{padding-top:calc(56px + 7vh);padding-bottom:330px}
+  .kick{font-size:9px;letter-spacing:.2em}
+  .giant{font-size:16.5vw;line-height:1.1}
+  .giant em{display:block;-webkit-text-stroke:1px rgba(236,233,228,.4)}
+  .hero-foot{gap:18px;flex-wrap:wrap;right:16px}
+  section.sec{padding-top:84px;padding-bottom:84px;padding-right:22px}
+  .st-grid,.sv-grid{grid-template-columns:1fr}
+  .ans{padding-left:0}
+  .co-tbl th{width:118px}
+  .btn{padding:13px 20px;font-size:12.5px}
+  footer{padding-right:22px}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body id="top">
+
+<header class="hd">
+  <a class="hd-logo" href="#top" aria-label="充寵グループ ホーム">
+    <svg width="26" height="18" viewBox="0 0 26 18" aria-hidden="true">
+      <path d="M1 3 H18 A4 4 0 0 1 22 7 V17" fill="none" stroke="#B84A3C" stroke-width="2.4"/>
+      <path d="M1 9 H12 A4 4 0 0 1 16 13 V17" fill="none" stroke="#C9A227" stroke-width="2.4"/>
+      <path d="M1 15 H10" fill="none" stroke="#3A66B8" stroke-width="2.4"/>
+    </svg>
+    充寵グループ
+  </a>
+  <nav class="hd-nav" aria-label="メインナビゲーション">
+    <a href="#top">HOME</a>
+    <a href="#services">施工内容</a>
+    <a href="#stance" class="hide-m">施工スタンス</a>
+    <a href="https://www.juchou-group.com/recruit">採用情報</a>
+    <a href="https://www.juchou-group.com/contact" class="cta">お問い合わせ</a>
+  </nav>
+</header>
+
+<div class="hero" id="hero">
+  <div class="lyr" id="lyrBack"></div>
+  <div class="lyr" id="lyrMid"></div>
+  <div class="lyr" id="lyrFront"></div>
+  <div class="hero-txt">
+    <p class="kick"><i></i>JYUCHOU GROUP — ELECTRICAL INSTALLATION WORKS</p>
+    <p class="giant">充寵<em>グループ</em></p>
+    <h1 class="h1c">未来をつなぐ、<b>地図に残る仕事。</b></h1>
+    <p class="hero-sub">一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。東京・神奈川・埼玉・千葉の現場で、確かな品質を積み重ねる。</p>
+    <div class="hero-cta">
+      <a class="btn btn-y" href="https://www.juchou-group.com/contact">工事のご相談<svg width="14" height="10" viewBox="0 0 14 10" aria-hidden="true"><path d="M0 5h12M8 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></a>
+      <a class="btn btn-o" href="https://www.juchou-group.com/recruit">採用情報を見る<svg width="14" height="10" viewBox="0 0 14 10" aria-hidden="true"><path d="M0 5h12M8 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></a>
+    </div>
+  </div>
+  <div class="hero-spec" aria-hidden="true">
+    CABLE TRAY — LADDER TYPE<br>
+    6 × 600V CV / PITCH 18<br>
+    BEND R — CONCENTRIC 90°<br>
+    TIE INTERVAL — 192PX<br>
+    HADANO, KANAGAWA
+  </div>
+  <div class="hero-foot" aria-hidden="true">
+    <span>TOKYO <b>/</b> KANAGAWA <b>/</b> SAITAMA <b>/</b> CHIBA</span>
+    <span>SCROLL ↓</span>
+  </div>
+</div>
+
+<div class="flow" id="flow">
+<div id="trunkWrap" aria-hidden="true"></div>
+
+<section class="sec" id="philosophy">
+  <p class="sec-tag c-red rv" data-b="0"><span class="dot"></span>01 / PHILOSOPHY</p>
+  <div class="ph-grid">
+    <div>
+      <h2 class="rv">仕事ではなく、<span class="c-red">“職”</span>を持つ。</h2>
+      <p class="lead rv rv2">「仕事」はその日の作業を指す。だが「職」は、一生をかけて磨き上げる技能であり、自分自身の価値そのものだ。充寵グループでは、ただ働くのではなく、電気工事という“職”を身につけ、誇りを持って現場に立つことを大切にしている。日々の作業の積み重ねが、やがて揺るぎない技術と信頼になる。それが「職を持つ」ということだ。</p>
+    </div>
+    <div class="ph-art rv rv3" aria-hidden="true">
+      <svg viewBox="0 0 380 300" role="img" aria-label="整線されたケーブル断面の図">
+        <g fill="none">
+          <circle cx="120" cy="120" r="86" stroke="#23262C" stroke-width="1"/>
+          <circle cx="120" cy="120" r="62" stroke="#2E323A" stroke-width="10"/>
+          <circle cx="120" cy="120" r="62" stroke="#3a3f47" stroke-width="2" stroke-dasharray="2 10"/>
+          <circle cx="97" cy="102" r="16" fill="#B84A3C"/><circle cx="92" cy="96" r="4.5" fill="#E08B7D"/>
+          <circle cx="143" cy="102" r="16" fill="#3A66B8"/><circle cx="138" cy="96" r="4.5" fill="#7E9CD6"/>
+          <circle cx="74" cy="126" r="16" fill="#3B7D5E"/><circle cx="69" cy="120" r="4.5" fill="#7FAE95"/>
+          <circle cx="120" cy="130" r="16" fill="#C9C7C2"/><circle cx="115" cy="124" r="4.5" fill="#FFFFFF"/>
+          <circle cx="166" cy="126" r="16" fill="#33363C"/><circle cx="161" cy="120" r="4.5" fill="#6A6F78"/>
+          <circle cx="97" cy="153" r="16" fill="#C9A227"/><circle cx="92" cy="147" r="4.5" fill="#E6C86A"/>
+          <circle cx="143" cy="153" r="16" fill="#1a1d21" stroke="#3a3f47" stroke-width="1.5" stroke-dasharray="3 4"/>
+          <path d="M258 36 V112 A72 72 0 0 0 330 184 H352" stroke="#B84A3C" stroke-width="9"/>
+          <path d="M255.2 36 V112 A74.8 74.8 0 0 0 330 186.8 H352" stroke="#E08B7D" stroke-width="1.8" opacity=".9"/>
+          <path d="M284 36 V112 A46 46 0 0 0 330 158 H352" stroke="#C9A227" stroke-width="9"/>
+          <path d="M281.2 36 V112 A48.8 48.8 0 0 0 330 160.8 H352" stroke="#E6C86A" stroke-width="1.8" opacity=".9"/>
+          <path d="M310 36 V112 A20 20 0 0 0 330 132 H352" stroke="#3A66B8" stroke-width="9"/>
+          <path d="M307.2 36 V112 A22.8 22.8 0 0 0 330 134.8 H352" stroke="#7E9CD6" stroke-width="1.8" opacity=".9"/>
+          <g stroke="#0d0e11" stroke-width="4"><path d="M251 62 h14M251 100 h14M277 62 h14M277 100 h14M303 62 h14M303 100 h14"/></g>
+          <g stroke="#575d66" stroke-width="1" opacity=".8"><path d="M251 60 h14M251 98 h14M277 60 h14M277 98 h14M303 60 h14M303 98 h14"/></g>
+          <g font-family="SFMono-Regular,ui-monospace,Menlo,monospace" font-size="9" letter-spacing="2" fill="#5d6069">
+            <text x="34" y="248">SEC. A–A / BUNDLE ×6</text>
+            <text x="238" y="248">BEND — SAME CENTER</text>
+          </g>
+          <path d="M34 228 h140M238 228 h114" stroke="#23262C" stroke-width="1"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<div class="hr"></div>
+
+<section class="sec" id="stance">
+  <p class="sec-tag c-blue rv" data-b="1"><span class="dot"></span>02 / STANCE</p>
+  <h2 class="rv">施工スタンス<span class="c-blue">.</span></h2>
+  <p class="lead rv rv2">現場で信頼される職人チームであるための、五つの約束。</p>
+  <div class="st-grid">
+    <div class="st-card rv"><span class="no">S-01</span><div class="bar"></div><h3>施工品質</h3><p>一つひとつの接続、一本一本の配線に妥協しない。現場で求められる品質を、確実に実現する。</p></div>
+    <div class="st-card rv rv2"><span class="no">S-02</span><div class="bar"></div><h3>図面に忠実</h3><p>設計図面の意図を正確に読み取り、忠実に施工する。図面通りの仕上がりが、信頼の基盤となる。</p></div>
+    <div class="st-card rv rv3"><span class="no">S-03</span><div class="bar"></div><h3>工程遵守</h3><p>決められた工程を守り、全体の進行に貢献する。遅延なく、確実に自分の工程を完了させる。</p></div>
+    <div class="st-card rv rv4"><span class="no">S-04</span><div class="bar"></div><h3>安全最優先</h3><p>どんな状況でも安全を最優先とする。事故ゼロは、プロとしての最低限の責任である。</p></div>
+    <div class="st-card rv rv5"><span class="no">S-05</span><div class="bar"></div><h3>確実な仕上がり</h3><p>引き渡し後に手直しが不要な施工を目指す。一度で確実に仕上げることが、職人の矜持である。</p></div>
+  </div>
+</section>
+
+<div class="hr"></div>
+
+<section class="sec" id="services">
+  <p class="sec-tag c-green rv" data-b="2"><span class="dot"></span>03 / SERVICES</p>
+  <h2 class="rv">施工内容<span class="c-green">.</span></h2>
+  <p class="lead rv rv2">電気工事“施工”の専門家として、低圧設備から盤結線まで一貫して対応します。</p>
+  <div class="sv-grid">
+    <div class="sv-card rv">
+      <div class="ic"><svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true" fill="none"><rect x="10" y="6" width="24" height="32" rx="2" stroke="#3B7D5E" stroke-width="2"/><circle cx="22" cy="18" r="6" stroke="#7FAE95" stroke-width="2"/><path d="M19.5 16v4M24.5 16v4" stroke="#7FAE95" stroke-width="2"/><path d="M16 32h12" stroke="#3B7D5E" stroke-width="2"/></svg></div>
+      <h3>低圧設備工事<small>LOW-VOLTAGE EQUIPMENT</small></h3>
+      <p>照明器具・コンセント・スイッチなど、建物内の低圧電気設備の設置・配線工事。</p>
+    </div>
+    <div class="sv-card rv rv2">
+      <div class="ic"><svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true" fill="none"><path d="M4 14h22a6 6 0 0 1 6 6v18" stroke="#3B7D5E" stroke-width="3.4"/><path d="M4 11.4h22a8.6 8.6 0 0 1 8.6 8.6v18" stroke="#7FAE95" stroke-width="1.4"/><path d="M4 24h14a4 4 0 0 1 4 4v10" stroke="#3B7D5E" stroke-width="3.4"/></svg></div>
+      <h3>幹線工事<small>MAIN FEEDER</small></h3>
+      <p>受変電設備から各分電盤への幹線ケーブルの敷設・接続工事。</p>
+    </div>
+    <div class="sv-card rv rv3">
+      <div class="ic"><svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true" fill="none"><path d="M4 14h36M4 30h36" stroke="#3B7D5E" stroke-width="2.6"/><path d="M10 14v16M20 14v16M30 14v16M40 14v16" stroke="#7FAE95" stroke-width="2"/></svg></div>
+      <h3>配管・ラック据付工事<small>CONDUIT &amp; CABLE TRAY</small></h3>
+      <p>電線管やケーブルラックの据付・固定工事を行い、配線経路を確保。</p>
+    </div>
+    <div class="sv-card rv rv4">
+      <div class="ic"><svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true" fill="none"><path d="M2 12h40M2 20h40M2 28h40" stroke="#3B7D5E" stroke-width="3"/><path d="M12 8v8M12 24v8M30 8v8M30 24v8" stroke="#0d0e11" stroke-width="4"/><path d="M10.5 8v8M10.5 24v8M28.5 8v8M28.5 24v8" stroke="#7FAE95" stroke-width="1.2"/></svg></div>
+      <h3>配線工事<small>WIRING &amp; DRESSING</small></h3>
+      <p>各種ケーブルの布設・結線工事。整線・結束まで丁寧に仕上げる。</p>
+    </div>
+    <div class="sv-card rv rv5">
+      <div class="ic"><svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true" fill="none"><rect x="8" y="4" width="28" height="36" rx="2" stroke="#3B7D5E" stroke-width="2"/><path d="M14 12h16M14 19h16M14 26h16" stroke="#7FAE95" stroke-width="2"/><circle cx="16" cy="34" r="1.6" fill="#7FAE95"/><circle cx="22" cy="34" r="1.6" fill="#7FAE95"/><circle cx="28" cy="34" r="1.6" fill="#7FAE95"/></svg></div>
+      <h3>盤据付・結線工事<small>PANEL &amp; TERMINATION</small></h3>
+      <p>分電盤・制御盤の据付から内部結線まで一貫対応。</p>
+    </div>
+    <div class="sv-card rv rv6">
+      <div class="ic"><svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true" fill="none"><path d="M24 3 12 24h9l-3 17 14-24h-9l1-14z" stroke="#3B7D5E" stroke-width="2" stroke-linejoin="round"/></svg></div>
+      <h3>一般電気用工作物工事<small>GENERAL ELECTRICAL WORKS</small></h3>
+      <p>上記を含む一般電気用工作物工事全般に対応。</p>
+    </div>
+  </div>
+</section>
+
+<div class="hr"></div>
+
+<section class="sec" id="area">
+  <p class="sec-tag c-wht rv" data-b="3"><span class="dot"></span>04 / SERVICE AREA</p>
+  <h2 class="rv">対応エリア<span class="c-wht">.</span></h2>
+  <div class="area-row">
+    <div class="area-cell rv"><span>TOKYO</span><b>東京</b><em>中心エリア</em></div>
+    <div class="area-cell rv rv2"><span>KANAGAWA</span><b>神奈川</b><em>中心エリア</em></div>
+    <div class="area-cell rv rv3"><span>SAITAMA</span><b>埼玉</b><em>対応エリア</em></div>
+    <div class="area-cell rv rv4"><span>CHIBA</span><b>千葉</b><em>対応エリア</em></div>
+  </div>
+  <p class="area-note rv rv3">※ 上記以外のエリアも、出張のご相談を承ります。</p>
+</section>
+
+<div class="hr"></div>
+
+<section class="sec" id="partner">
+  <p class="sec-tag c-blk rv" data-b="4"><span class="dot"></span>05 / PARTNERSHIP</p>
+  <h2 class="rv">協力体制<span class="c-blk">.</span></h2>
+  <p class="lead rv rv2">設計やコンサルティングが必要な案件については、信頼のおけるパートナー企業と連携し、プロジェクトごとに最適なチームを編成します。施工の専門家として、協力会社と共に高品質な成果を実現します。</p>
+</section>
+
+<div class="hr"></div>
+
+<section class="sec" id="recruit">
+  <p class="sec-tag c-yel rv" data-b="5"><span class="dot"></span>06 / RECRUIT</p>
+  <h2 class="rv">未来の設立メンバーを<br>募集しています<span class="c-yel">.</span></h2>
+  <div class="rc-wrap">
+    <ul class="rc-list">
+      <li class="rv"><i>ENTRY</i><span><b>18歳以上・学歴/性別不問。</b>未経験者を積極採用しています。</span></li>
+      <li class="rv rv2"><i>LICENSE</i><span><b>資格取得サポートあり。</b>低圧電気取扱・高所作業車・職長安全衛生など。</span></li>
+      <li class="rv rv3"><i>TOOLS</i><span><b>工具は最大6ヶ月貸出可。</b>手ぶらで“職”を始められる。</span></li>
+      <li class="rv rv4"><i>CAREER</i><span><b>経験者は要相談。</b>できる作業により待遇は随時アップ。</span></li>
+    </ul>
+    <div class="rc-day rv rv2">
+      <p class="lab">DAILY WAGE — 未経験スタート</p>
+      <p class="val">¥13,000<small>〜 / 日</small></p>
+      <p>できる作業により随時アップ。経験者は要相談。</p>
+      <a class="btn btn-y" href="https://www.juchou-group.com/recruit">採用情報を見る<svg width="14" height="10" viewBox="0 0 14 10" aria-hidden="true"><path d="M0 5h12M8 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></a>
+    </div>
+  </div>
+</section>
+
+<div class="hr"></div>
+
+<section class="sec" id="faq">
+  <p class="sec-tag rv" style="color:var(--mut)"><span class="dot"></span>07 / FAQ</p>
+  <h2 class="rv">よくあるご質問<span style="color:var(--mut)">.</span></h2>
+  <div class="faq rv rv2" style="margin-top:34px">
+    <details open>
+      <summary><span class="q">Q.01</span>対応エリアはどこまでですか？<span class="pm">＋</span></summary>
+      <p class="ans">東京・神奈川を中心に、埼玉・千葉まで対応しています。その他エリアも出張のご相談を承ります。</p>
+    </details>
+    <details>
+      <summary><span class="q">Q.02</span>どのような電気工事を依頼できますか？<span class="pm">＋</span></summary>
+      <p class="ans">低圧設備工事・幹線工事・配管/ラック据付・配線工事・盤据付/結線など、一般電気用工作物工事全般に対応しています。</p>
+    </details>
+    <details>
+      <summary><span class="q">Q.03</span>未経験でも電気工事の仕事に応募できますか？<span class="pm">＋</span></summary>
+      <p class="ans">応募できます。未経験者は日当13,000円〜スタートし、できる作業に応じて随時アップ。資格取得のサポート制度もあります。</p>
+    </details>
+    <details>
+      <summary><span class="q">Q.04</span>協力会社・元請けとしての取引は可能ですか？<span class="pm">＋</span></summary>
+      <p class="ans">可能です。お問い合わせフォームまたはお電話（<a href="tel:0508734183" style="color:var(--ink)">050-5873-4183</a>）からご相談ください。</p>
+    </details>
+  </div>
+</section>
+
+<div class="hr"></div>
+
+<section class="sec" id="company">
+  <p class="sec-tag rv" style="color:var(--mut)"><span class="dot"></span>08 / COMPANY</p>
+  <h2 class="rv">会社概要<span style="color:var(--mut)">.</span></h2>
+  <table class="co-tbl rv rv2">
+    <tbody>
+      <tr><th>屋号</th><td>充寵グループ / JYUCHOU GROUP</td></tr>
+      <tr><th>所在地</th><td>神奈川県秦野市</td></tr>
+      <tr><th>事業内容</th><td>一般電気用工作物工事／電気工事施工</td></tr>
+      <tr><th>活動エリア</th><td>東京・神奈川中心（埼玉・千葉）</td></tr>
+      <tr><th>メール</th><td><a href="mailto:info@juchou-group.com">info@juchou-group.com</a></td></tr>
+      <tr><th>電話</th><td><a href="tel:0508734183">050-5873-4183</a></td></tr>
+      <tr><th>Instagram</th><td><a href="https://www.instagram.com/juchou.group">@juchou.group</a></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<div class="tblock" id="contact">
+  <div class="t-cap">
+    <p class="sec-tag rv" style="color:var(--mut)"><span class="dot"></span>TERMINATION — 端子台</p>
+    <h2 class="rv">六本の幹線が、ここに着く。</h2>
+  </div>
+  <div id="termWrap" aria-label="6色のケーブルが端子台へ整然と結線されるイラスト" role="img"></div>
+  <p class="t-done">結線、完了。<small>ALL CIRCUITS TERMINATED — READY FOR YOUR PROJECT</small></p>
+  <div class="t-cta">
+    <a class="btn btn-y" href="https://www.juchou-group.com/recruit">採用情報を見る<svg width="14" height="10" viewBox="0 0 14 10" aria-hidden="true"><path d="M0 5h12M8 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></a>
+    <a class="btn btn-o" href="https://www.juchou-group.com/contact">お取引・工事のご相談<svg width="14" height="10" viewBox="0 0 14 10" aria-hidden="true"><path d="M0 5h12M8 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></a>
+  </div>
+</div>
+
+<footer>
+  <div class="ft-grid">
+    <div>
+      <p class="ft-logo">充寵グループ<span>JYUCHOU GROUP — ELECTRICAL INSTALLATION WORKS</span></p>
+      <nav class="ft-links" aria-label="フッターナビゲーション">
+        <a href="#top">HOME</a>
+        <a href="#services">施工内容</a>
+        <a href="#stance">施工スタンス</a>
+        <a href="https://www.juchou-group.com/recruit">採用情報</a>
+        <a href="https://www.juchou-group.com/contact">お問い合わせ</a>
+      </nav>
+      <p class="ft-contact">
+        神奈川県秦野市｜東京・神奈川・埼玉・千葉<br>
+        TEL <a href="tel:0508734183">050-5873-4183</a>／MAIL <a href="mailto:info@juchou-group.com">info@juchou-group.com</a>
+      </p>
+    </div>
+    <div class="qr-row">
+      <a class="qr" href="https://www.instagram.com/juchou.group">
+        <img src="img/QR_INSTAGRAM.png" alt="充寵グループ InstagramのQRコード" width="104" height="104">
+        <span>INSTAGRAM<br>@juchou.group</span>
+      </a>
+      <a class="qr" href="https://works.do/GGOfZpH">
+        <img src="img/QR_LINEWORKS.png" alt="充寵グループ LINE WORKSのQRコード" width="104" height="104">
+        <span>LINE WORKS<br>お問い合わせ</span>
+      </a>
+    </div>
+  </div>
+  <div class="copy">
+    <span>© 充寵グループ</span>
+    <span>SEISEN — THE BEAUTY OF ORDERED WIRING</span>
+  </div>
+</footer>
+
+</div><!-- /flow -->
+
+<script>
+(function(){
+'use strict';
+var RM=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+if(RM)document.documentElement.classList.add('rm');
+var NS='http://www.w3.org/2000/svg';
+var COL=[
+ {c:'#B84A3C',h:'#E08B7D'},
+ {c:'#3A66B8',h:'#7E9CD6'},
+ {c:'#3B7D5E',h:'#7FAE95'},
+ {c:'#C9C7C2',h:'#FFFFFF'},
+ {c:'#33363C',h:'#6A6F78'},
+ {c:'#C9A227',h:'#E6C86A'}
+];
+var OUTC='#0b0c0e';
+function E(n,a,p){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
+function G(){
+  var m=innerWidth<760;
+  return m?{m:1,pitch:5,w:3,hl:1,off:1.1,out:1.4,x0:10,tie:96,rung:64,r0:56,br:10}
+          :{m:0,pitch:18,w:10,hl:2.6,off:2.9,out:3.5,x0:46,tie:192,rung:96,r0:150,br:22};
+}
+var GP=G();
+function mkSvg(parent,w,h){parent.innerHTML='';return E('svg',{width:w,height:h,viewBox:'0 0 '+w+' '+h,'aria-hidden':'true'},parent);}
+function cablePath(y,xv,r,x1,yEnd){return 'M'+x1+' '+y+' L'+(xv+r)+' '+y+' A'+r+' '+r+' 0 0 0 '+xv+' '+(y+r)+' L'+xv+' '+yEnd;}
+
+/* ================= HERO ================= */
+var hero=document.getElementById('hero');
+var lyrB=document.getElementById('lyrBack'),lyrM=document.getElementById('lyrMid'),lyrF=document.getElementById('lyrFront');
+var hiPaths=[],pulsePaths=[],heroH=0,heroW=0;
+function buildHero(){
+  var p=GP;
+  heroW=hero.clientWidth;heroH=hero.clientHeight;
+  var W=heroW,H=heroH,EX=H+420;
+  hiPaths=[];pulsePaths=[];
+  /* back: rhythm grid + EMT conduits */
+  var sb=mkSvg(lyrB,W,EX);
+  var gridG=E('g',{stroke:'#1a1d22','stroke-width':1},sb);
+  for(var gx=p.x0;gx<W;gx+=p.rung*2)E('line',{x1:gx,y1:0,x2:gx,y2:H,opacity:.45},gridG);
+  var conY=p.m?[]:[H*0.845,H*0.895,H*0.945];
+  for(var ci=0;ci<conY.length;ci++){
+    var cy0=conY[ci];
+    E('line',{x1:-20,y1:cy0,x2:W+20,y2:cy0,stroke:'#31363D','stroke-width':p.m?3:6},sb);
+    E('line',{x1:-20,y1:cy0-(p.m?0.8:1.7),x2:W+20,y2:cy0-(p.m?0.8:1.7),stroke:'#565D66','stroke-width':p.m?0.7:1.3,opacity:.65},sb);
+    for(var cx0=150+ci*105;cx0<W;cx0+=340){
+      E('line',{x1:cx0-(p.m?5:10),y1:cy0,x2:cx0+(p.m?5:10),y2:cy0,stroke:'#454C56','stroke-width':p.m?4.4:9.5},sb);
+    }
+  }
+  /* mid: ladder cable tray */
+  var sm=mkSvg(lyrM,W,EX);
+  var ctaEl=document.querySelector('.hero-cta');
+  var textBot=ctaEl?(ctaEl.getBoundingClientRect().bottom-hero.getBoundingClientRect().top):H*0.6;
+  var yTop=Math.max(H*(p.m?0.70:0.66),textBot+(p.m?46:38));
+  var band=5*p.pitch;
+  var railA=yTop-p.w-(p.m?7:13),railB=yTop+band+p.w+(p.m?7:13);
+  var rackX0=p.x0+p.r0+p.pitch;
+  for(var hx=rackX0+p.rung*1.5;hx<W+40;hx+=p.rung*4){
+    E('line',{x1:hx,y1:0,x2:hx,y2:railA,stroke:'#1C2026','stroke-width':p.m?1.5:2.5},sm);
+    E('line',{x1:hx-(p.m?4:8),y1:railA-(p.m?2:4),x2:hx+(p.m?4:8),y2:railA-(p.m?2:4),stroke:'#262B31','stroke-width':p.m?2:4},sm);
+  }
+  for(var rx=rackX0+p.rung/2;rx<W+40;rx+=p.rung){
+    E('line',{x1:rx,y1:railA,x2:rx,y2:railB,stroke:'#1F242A','stroke-width':p.m?4:8},sm);
+  }
+  E('line',{x1:rackX0,y1:railA,x2:W+20,y2:railA,stroke:'#282D34','stroke-width':p.m?2:3.5},sm);
+  E('line',{x1:rackX0,y1:railB,x2:W+20,y2:railB,stroke:'#282D34','stroke-width':p.m?2:3.5},sm);
+  /* front: 6 cables, concentric bend to vertical trunk */
+  var sf=mkSvg(lyrF,W,EX);
+  var K=yTop-p.x0;
+  for(var i=0;i<6;i++){
+    var xv=p.x0+i*p.pitch,y=xv+K,r=p.r0-i*p.pitch;
+    var d=cablePath(y,xv,r,W+20,EX);
+    E('path',{d:d,fill:'none',stroke:OUTC,'stroke-width':p.w+p.out},sf);
+    E('path',{d:d,fill:'none',stroke:COL[i].c,'stroke-width':p.w},sf);
+    var dh=cablePath(y-p.off,xv-p.off,r+p.off,W+20,EX);
+    E('path',{d:dh,fill:'none',stroke:COL[i].h,'stroke-width':p.hl,opacity:.85},sf);
+    if(!RM){
+      var hp=E('path',{d:dh,fill:'none',stroke:'#FFFFFF','stroke-width':p.hl,'stroke-linecap':'round',opacity:.5},sf);
+      var len=hp.getTotalLength();
+      hp.setAttribute('stroke-dasharray','90 '+len);
+      hiPaths.push({el:hp,len:len+90,ph:i/6});
+      var pp=E('path',{d:d,fill:'none',stroke:COL[i].h,'stroke-width':Math.max(1.5,p.w*0.5),'stroke-linecap':'round',opacity:0},sf);
+      pp.setAttribute('stroke-dasharray','34 '+len);
+      pulsePaths.push({el:pp,len:len+34});
+    }
+  }
+  /* cable ties: aligned with rung rhythm on straights */
+  var tieG=E('g',{},sf);
+  for(var tx=rackX0+p.rung/2;tx<W-10;tx+=p.tie){
+    for(var j=0;j<6;j++){
+      var ty=p.x0+j*p.pitch+K;
+      E('line',{x1:tx,y1:ty-p.w/2-1.5,x2:tx,y2:ty+p.w/2+1.5,stroke:'#0d0e11','stroke-width':p.m?2.4:5},tieG);
+      E('line',{x1:tx-(p.m?1.5:3),y1:ty-p.w/2-1,x2:tx-(p.m?1.5:3),y2:ty+p.w/2+1,stroke:'#5a6069','stroke-width':1,opacity:.7},tieG);
+    }
+  }
+  var cyAll=yTop+p.r0;
+  var bx1=p.x0-p.w/2-3,bx2=p.x0+5*p.pitch+p.w/2+3;
+  for(var tyv=cyAll+p.tie*0.5;tyv<EX-20;tyv+=p.tie){
+    E('line',{x1:bx1,y1:tyv,x2:bx2,y2:tyv,stroke:'#0d0e11','stroke-width':p.m?5:9,'stroke-linecap':'round'},tieG);
+    E('line',{x1:bx1,y1:tyv-(p.m?1.8:3.2),x2:bx2,y2:tyv-(p.m?1.8:3.2),stroke:'#5a6069','stroke-width':1,opacity:.6},tieG);
+  }
+}
+/* film grain (self-generated, static) */
+(function(){
+  try{
+    var c=document.createElement('canvas');c.width=c.height=120;
+    var x=c.getContext('2d');var d=x.createImageData(120,120);
+    for(var i=0;i<d.data.length;i+=4){var v=100+(Math.random()*56|0);d.data[i]=d.data[i+1]=d.data[i+2]=v;d.data[i+3]=13;}
+    x.putImageData(d,0,0);
+    var div=document.createElement('div');
+    div.style.cssText='position:absolute;inset:0;z-index:4;pointer-events:none;background-image:url('+c.toDataURL()+');background-repeat:repeat;opacity:.55';
+    hero.appendChild(div);
+  }catch(e){}
+})();
+
+/* ================= TRUNK + BRANCHES ================= */
+var flow=document.getElementById('flow');
+var trunkWrap=document.getElementById('trunkWrap');
+var branches=[],trunkPulses=[];
+function docTop(el){return el.getBoundingClientRect().top+(scrollY||pageYOffset);}
+function buildTrunk(){
+  var p=GP;
+  branches=[];trunkPulses=[];
+  var W=flow.clientWidth;
+  var flowTop=docTop(flow);
+  var term=document.getElementById('termWrap');
+  var H=Math.max(100,docTop(term)-flowTop);
+  var sv=mkSvg(trunkWrap,W,H);
+  /* 6 vertical trunk cables (continuous from hero bend) */
+  for(var i=0;i<6;i++){
+    var x=p.x0+i*p.pitch;
+    E('line',{x1:x,y1:0,x2:x,y2:H,stroke:OUTC,'stroke-width':p.w+p.out},sv);
+    E('line',{x1:x,y1:0,x2:x,y2:H,stroke:COL[i].c,'stroke-width':p.w},sv);
+    E('line',{x1:x-p.off,y1:0,x2:x-p.off,y2:H,stroke:COL[i].h,'stroke-width':p.hl,opacity:.8},sv);
+    if(!RM){
+      var pl=E('line',{x1:x,y1:0,x2:x,y2:H,stroke:COL[i].h,'stroke-width':Math.max(1.2,p.w*0.42),'stroke-linecap':'round',opacity:0},sv);
+      pl.setAttribute('stroke-dasharray','60 '+H);
+      trunkPulses.push({el:pl,len:H+60});
+    }
+  }
+  /* ties across trunk (band rhythm) */
+  var tieG=E('g',{},sv);
+  var sx1=p.x0-p.w/2-3,sx2=p.x0+5*p.pitch+p.w/2+3;
+  for(var ty=p.tie*0.55;ty<H-30;ty+=p.tie){
+    E('line',{x1:sx1,y1:ty,x2:sx2,y2:ty,stroke:'#0d0e11','stroke-width':p.m?5:9,'stroke-linecap':'round'},tieG);
+    E('line',{x1:sx1,y1:ty-(p.m?1.8:3.2),x2:sx2,y2:ty-(p.m?1.8:3.2),stroke:'#5a6069','stroke-width':1,opacity:.6},tieG);
+  }
+  /* metro branches to section headings (perpendicular overpass, wide outline) */
+  var gBr=E('g',{},sv);
+  var tags=document.querySelectorAll('[data-b]');
+  for(var t=0;t<tags.length;t++){
+    (function(tag){
+      var b=+tag.getAttribute('data-b');
+      var r1=tag.getBoundingClientRect();
+      var yh=r1.top+(scrollY||pageYOffset)-flowTop+r1.height/2;
+      if(tag.classList.contains('rv')&&!tag.classList.contains('on'))yh-=26;
+      var xh=Math.max(p.x0+b*p.pitch+p.br+4,r1.left-(p.m?8:16));
+      var x=p.x0+b*p.pitch,br=p.br;
+      var start=yh-(p.m?90:150);
+      var d='M'+x+' '+start+' L'+x+' '+(yh-br)+' A'+br+' '+br+' 0 0 0 '+(x+br)+' '+yh+' L'+xh+' '+yh;
+      var g=E('g',{},gBr);
+      var o=E('path',{d:d,fill:'none',stroke:OUTC,'stroke-width':p.w+p.out*1.3},g);
+      var body=E('path',{d:d,fill:'none',stroke:COL[b].c,'stroke-width':p.w},g);
+      var h1=E('line',{x1:x-p.off,y1:start,x2:x-p.off,y2:yh-br,stroke:COL[b].h,'stroke-width':p.hl,opacity:0},g);
+      var h2=E('line',{x1:x+br,y1:yh-p.off,x2:xh-2,y2:yh-p.off,stroke:COL[b].h,'stroke-width':p.hl,opacity:0},g);
+      var ring=E('circle',{cx:xh+(p.m?4:7),cy:yh,r:p.m?3.4:5.5,fill:'#121417',stroke:COL[b].c,'stroke-width':p.m?1.6:2,opacity:0},g);
+      var dot=E('circle',{cx:xh+(p.m?4:7),cy:yh,r:p.m?1.2:2,fill:COL[b].c,opacity:0},g);
+      ring.style.transition='opacity .35s';dot.style.transition='opacity .35s';
+      var len=body.getTotalLength();
+      o.setAttribute('stroke-dasharray',len);body.setAttribute('stroke-dasharray',len);
+      if(RM){o.setAttribute('stroke-dashoffset',0);body.setAttribute('stroke-dashoffset',0);
+        h1.setAttribute('opacity',.8);h2.setAttribute('opacity',.8);ring.setAttribute('opacity',1);dot.setAttribute('opacity',1);}
+      else{o.setAttribute('stroke-dashoffset',len);body.setAttribute('stroke-dashoffset',len);}
+      branches.push({o:o,body:body,h1:h1,h2:h2,ring:ring,dot:dot,len:len,absStart:flowTop+start});
+    })(tags[t]);
+  }
+}
+function updateBranches(){
+  var vh=innerHeight;
+  for(var i=0;i<branches.length;i++){
+    var b=branches[i];
+    var prog=Math.min(1,Math.max(0,((sy+vh*0.82)-b.absStart)/(b.len*1.15)));
+    var e=1-Math.pow(1-prog,2);
+    var off=b.len*(1-e);
+    b.body.setAttribute('stroke-dashoffset',off);
+    b.o.setAttribute('stroke-dashoffset',off);
+    var ho=Math.max(0,(prog-0.55)*2.2);
+    b.h1.setAttribute('opacity',Math.min(.8,ho));
+    b.h2.setAttribute('opacity',Math.min(.8,ho));
+    var don=prog>0.96?1:0;
+    b.ring.style.opacity=don;b.dot.style.opacity=don;
+  }
+}
+function updateTrunkPulse(tt){
+  if(!trunkPulses.length)return;
+  var per=3.4,idx=Math.floor(tt/per)%6,ph=(tt%per)/per;
+  for(var i=0;i<trunkPulses.length;i++){
+    var p=trunkPulses[i];
+    if(i===idx){p.el.style.opacity=0.5*Math.sin(Math.PI*Math.min(1,ph));p.el.setAttribute('stroke-dashoffset',-(p.len*ph));}
+    else p.el.style.opacity=0;
+  }
+}
+
+/* ================= TERMINAL BLOCK (climax) ================= */
+var tblock=document.getElementById('contact');
+var termCables=[],tdone=false;
+function buildTerminal(){
+  var p=GP,m=p.m;
+  termCables=[];
+  var wrap=document.getElementById('termWrap');
+  var W=wrap.clientWidth;if(W<60)return;
+  var Hh=m?338:470;
+  var yBase=p.br+(m?18:40);
+  var yMax=yBase+5*p.pitch;
+  var blockTop=yMax+p.br+(m?58:104);
+  var blockH=m?62:96;
+  var fh=m?9:17,fw=p.w+(m?2.4:5);
+  var tp=m?Math.min(48,(W-70)/5):96;
+  var blockPad=m?20:46;
+  var blockW=5*tp+blockPad*2;
+  var blockX0=Math.max(p.x0+p.br*2+30,(W-blockW)/2);
+  var sv=mkSvg(wrap,W,Hh);
+  sv.style.height=Hh+'px';
+  /* block */
+  E('rect',{x:blockX0,y:blockTop,width:blockW,height:blockH,rx:3,fill:'#191C21',stroke:'#2E323A','stroke-width':1.5},sv);
+  E('line',{x1:blockX0,y1:blockTop+(m?14:20),x2:blockX0+blockW,y2:blockTop+(m?14:20),stroke:'#23262C','stroke-width':1},sv);
+  E('text',{x:blockX0,y:blockTop+blockH+(m?22:30),'font-family':'SFMono-Regular,ui-monospace,Menlo,monospace','font-size':m?8:10,'letter-spacing':2,fill:'#5d6069'},sv).textContent=m?'TB-01 / TERMINAL BLOCK — 600V':'TB-01 / TERMINAL BLOCK — 600V / TORQUE CHECKED';
+  for(var i=0;i<6;i++){
+    var x=p.x0+i*p.pitch;
+    var yT=yBase+(5-i)*p.pitch;
+    var xt=blockX0+blockPad+i*tp;
+    var br=p.br;
+    var d='M'+x+' 0 L'+x+' '+(yT-br)+' A'+br+' '+br+' 0 0 0 '+(x+br)+' '+yT+' L'+(xt-br)+' '+yT+' A'+br+' '+br+' 0 0 1 '+xt+' '+(yT+br)+' L'+xt+' '+(blockTop-fh);
+    var g=E('g',{},sv);
+    var o=E('path',{d:d,fill:'none',stroke:OUTC,'stroke-width':p.w+p.out*0.8},g);
+    var body=E('path',{d:d,fill:'none',stroke:COL[i].c,'stroke-width':p.w},g);
+    /* highlights on straight runs */
+    var h1=E('line',{x1:x-p.off,y1:0,x2:x-p.off,y2:yT-br,stroke:COL[i].h,'stroke-width':p.hl,opacity:0},g);
+    var h2=E('line',{x1:x+br,y1:yT-p.off,x2:xt-br,y2:yT-p.off,stroke:COL[i].h,'stroke-width':p.hl,opacity:0},g);
+    var h3=E('line',{x1:xt-p.off,y1:yT+br,x2:xt-p.off,y2:blockTop-fh,stroke:COL[i].h,'stroke-width':p.hl,opacity:0},g);
+    /* ties on the horizontal run, rack rhythm */
+    for(var tx=x+br+(m?26:48);tx<xt-br-(m?16:30);tx+=p.tie/2){
+      E('line',{x1:tx,y1:yT-p.w/2-1.5,x2:tx,y2:yT+p.w/2+1.5,stroke:'#0d0e11','stroke-width':m?2.2:4.5},g);
+    }
+    /* ferrule + screw + LED */
+    var fer=E('rect',{x:xt-fw/2,y:blockTop-fh,width:fw,height:fh,rx:1,fill:'#89929C',opacity:0},sv);
+    var scy=blockTop+blockH*0.62;
+    E('circle',{cx:xt,cy:scy,r:m?5.5:10,fill:'#23262C',stroke:'#4A515A','stroke-width':1.5},sv);
+    E('line',{x1:xt-(m?2.4:4.2),y1:scy-(m?2.4:4.2),x2:xt+(m?2.4:4.2),y2:scy+(m?2.4:4.2),stroke:'#6A727C','stroke-width':m?1.4:2},sv);
+    E('text',{x:xt,y:blockTop+(m?11:15),'text-anchor':'middle','font-family':'SFMono-Regular,ui-monospace,Menlo,monospace','font-size':m?6.5:8.5,fill:'#5d6069'},sv).textContent='0'+(i+1);
+    var lcy=blockTop+blockH*0.36;
+    var halo=E('circle',{cx:xt,cy:lcy,r:m?7:13,fill:COL[i].h,opacity:0},sv);
+    var led=E('circle',{cx:xt,cy:lcy,r:m?2.4:4.2,fill:COL[i].h,opacity:.14},sv);
+    var len=body.getTotalLength();
+    [o,body].forEach(function(pth){pth.style.strokeDasharray=len;pth.style.strokeDashoffset=len;});
+    [h1,h2,h3,fer,led,halo].forEach(function(el2){el2.style.transition='opacity .55s ease';});
+    termCables.push({paths:[o,body],hls:[h1,h2,h3],fer:fer,led:led,halo:halo});
+  }
+}
+function fireTerminal(inst){
+  if(tdone)return;tdone=true;
+  for(var i=0;i<termCables.length;i++){
+    (function(tc,i){
+      tc.paths.forEach(function(pth){
+        pth.style.transition=inst?'none':'stroke-dashoffset 1.15s cubic-bezier(.55,0,.15,1) '+(i*0.16)+'s';
+        pth.style.strokeDashoffset='0';
+      });
+      setTimeout(function(){
+        tc.hls.forEach(function(el2){el2.style.opacity=.85;});
+        tc.fer.style.opacity=1;tc.led.style.opacity=1;tc.halo.style.opacity=.28;
+      },inst?0:1120+i*170);
+    })(termCables[i],i);
+  }
+  setTimeout(function(){tblock.classList.add('done');},inst?0:2260);
+}
+
+/* ================= LOOP / EVENTS ================= */
+var sy=scrollY||pageYOffset,mx=0,my=0,tmx=0,tmy=0,heroVisible=true,t0=performance.now();
+addEventListener('scroll',function(){sy=scrollY||pageYOffset;},{passive:true});
+if(!RM&&matchMedia('(pointer:fine)').matches){
+  hero.addEventListener('pointermove',function(e){tmx=(e.clientX/innerWidth-.5)*2;tmy=(e.clientY/innerHeight-.5)*2;});
+}
+function frame(t){
+  var tt=(t-t0)/1000;
+  if(heroVisible){
+    var s=Math.min(sy,heroH||1);
+    mx+=(tmx-mx)*0.06;my+=(tmy-my)*0.06;
+    lyrB.style.transform='translate3d('+(mx*10).toFixed(2)+'px,'+(s*0.45+my*8).toFixed(2)+'px,0)';
+    lyrM.style.transform='translate3d('+(mx*6).toFixed(2)+'px,'+(s*0.28+my*5).toFixed(2)+'px,0)';
+    lyrF.style.transform='translate3d('+(mx*3).toFixed(2)+'px,'+(s*0.12+my*2.5).toFixed(2)+'px,0)';
+    for(var i=0;i<hiPaths.length;i++){var hp=hiPaths[i];hp.el.setAttribute('stroke-dashoffset',-(((tt*140)+hp.ph*hp.len)%hp.len));}
+    var per=2.8,idx=Math.floor(tt/per)%6,ph=(tt%per)/per;
+    for(var k=0;k<pulsePaths.length;k++){var pp=pulsePaths[k];
+      if(k===idx){pp.el.style.opacity=(0.85*Math.sin(Math.PI*Math.min(1,ph))).toFixed(3);pp.el.setAttribute('stroke-dashoffset',-(pp.len*ph));}
+      else if(pp.el.style.opacity!=='0'){pp.el.style.opacity='0';}}
+  }
+  updateBranches();
+  updateTrunkPulse(tt);
+  requestAnimationFrame(frame);
+}
+/* observers */
+new IntersectionObserver(function(en){heroVisible=en[0].isIntersecting;},{threshold:0}).observe(hero);
+var io=new IntersectionObserver(function(es){
+  for(var i=0;i<es.length;i++){if(es[i].isIntersecting){es[i].target.classList.add('on');io.unobserve(es[i].target);}}
+},{threshold:0.12,rootMargin:'0px 0px -8% 0px'});
+var rvs=document.querySelectorAll('.rv');
+for(var ri=0;ri<rvs.length;ri++)io.observe(rvs[ri]);
+new IntersectionObserver(function(en){
+  if(en[0].isIntersecting){fireTerminal(RM);}
+},{threshold:0.3}).observe(tblock);
+/* init + resize */
+buildHero();buildTrunk();buildTerminal();
+if(RM)fireTerminal(true);
+addEventListener('load',function(){
+  buildTrunk();
+  var wasDone=tdone;tdone=false;buildTerminal();
+  if(wasDone||RM)fireTerminal(true);
+});
+var lastW=innerWidth,rt;
+addEventListener('resize',function(){
+  clearTimeout(rt);
+  rt=setTimeout(function(){
+    if(innerWidth===lastW){buildTrunk();return;}
+    lastW=innerWidth;GP=G();
+    var wasDone=tdone;tdone=false;
+    buildHero();buildTrunk();buildTerminal();
+    if(wasDone||RM)fireTerminal(true);
+  },260);
+});
+if(!RM)requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
