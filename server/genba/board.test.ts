@@ -55,4 +55,34 @@ describe("computeBoard", () => {
     // people は全ユーザー分（タスク0）を返す
     expect(b.people).toHaveLength(3);
   });
+
+  it("ゲスト割当 (G1): guestPeople と assignedGuestNames に集約 (done除外・割当ゲストのみ)", () => {
+    const b = computeBoard({
+      ...base,
+      guests: [
+        { id: "Genba_Beta_SW_g1", name: "応援 太郎" },
+        { id: "Genba_Beta_SW_g2", name: "外注 次郎" }, // 割当なし → guestPeople に出ない
+      ],
+      guestAssignees: [
+        { taskId: "t1", guestId: "Genba_Beta_SW_g1" },
+        { taskId: "t2", guestId: "Genba_Beta_SW_g1" }, // done → 除外
+        { taskId: "t4", guestId: "Genba_Beta_SW_g1" },
+      ],
+    });
+    expect(b.guestPeople).toHaveLength(1);
+    expect(b.guestPeople[0].name).toBe("応援 太郎");
+    expect(b.guestPeople[0].tasks.map((t) => t.id).sort()).toEqual(["t1", "t4"]);
+    const z1 = b.zones.find((z) => z.id === "z1")!;
+    expect(z1.assignedGuestNames).toEqual(["応援 太郎"]);
+    const z2 = b.zones.find((z) => z.id === "z2")!;
+    expect(z2.assignedGuestNames).toEqual(["応援 太郎"]);
+    // 登録ユーザー側は従来どおり
+    expect(z1.assignedUserIds.sort()).toEqual([10, 20]);
+  });
+
+  it("ゲスト未指定 (省略) でも従来の形を維持 (guestPeople空・assignedGuestNames空)", () => {
+    const b = computeBoard(base);
+    expect(b.guestPeople).toEqual([]);
+    expect(b.zones.every((z) => Array.isArray(z.assignedGuestNames) && z.assignedGuestNames.length === 0)).toBe(true);
+  });
 });

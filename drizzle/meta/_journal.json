@@ -232,6 +232,13 @@
       "when": 1784600000000,
       "tag": "0032_genba_dispatches",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1784700000000,
+      "tag": "0033_genba_site_workers",
+      "breakpoints": true
     }
   ]
 }

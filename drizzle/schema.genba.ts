@@ -411,3 +411,55 @@ export const genbaDispatchAssignees = mysqlTable("genba_dispatch_assignees", {
 
 export type GenbaDispatchAssignee = typeof genbaDispatchAssignees.$inferSelect;
 export type InsertGenbaDispatchAssignee = typeof genbaDispatchAssignees.$inferInsert;
+
+/**
+ * 現場名簿 (G1)。出面 (attendance) から導出される「この現場に入っている人」の安定ID。
+ * - 登録作業員: userId (users.id)
+ * - アカウント無し従業員: employeeId のみ (employees.userId が null のケース)
+ * - ゲスト/応援/外注: guestName のみ (attendance.guestName 由来。他にIDを持たない)
+ * ゲストの配置 (genba_guest_assignees) と作業員専用リンク (G2) はこの id に紐づく。
+ */
+export const genbaSiteWorkers = mysqlTable("genba_site_workers", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  siteId: varchar("siteId", { length: 24 }).notNull(),
+  /** 登録ユーザー (users.id)。ゲストは null */
+  userId: int("userId"),
+  /** 従業員 (employees.id)。ゲストは null */
+  employeeId: int("employeeId"),
+  /** 出面上のゲスト名 (attendance.guestName)。登録者は null */
+  guestName: varchar("guestName", { length: 128 }),
+  /** registered=登録作業員 / guest=ゲスト */
+  kind: mysqlEnum("genbaSiteWorkerKind", ["registered", "guest"]).default("registered").notNull(),
+  /** 表示名 (出面/ユーザー名のスナップショット) */
+  displayName: varchar("displayName", { length: 128 }).notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  index("genba_site_workers_site_idx").on(table.siteId),
+  uniqueIndex("genba_site_workers_site_user").on(table.siteId, table.userId),
+  uniqueIndex("genba_site_workers_site_guest").on(table.siteId, table.guestName),
+]));
+
+export type GenbaSiteWorker = typeof genbaSiteWorkers.$inferSelect;
+export type InsertGenbaSiteWorker = typeof genbaSiteWorkers.$inferInsert;
+
+/**
+ * ゲスト(名簿行)のタスク割当 (G1)。
+ * 既存 genba_task_assignees は userId int NOT NULL のため、users.id を持たない
+ * 名簿行 (ゲスト/アカウント無し従業員) はこの加算テーブルで割り当てる。
+ */
+export const genbaGuestAssignees = mysqlTable("genba_guest_assignees", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  taskId: varchar("taskId", { length: 24 }).notNull(),
+  /** genba_site_workers.id */
+  siteWorkerId: varchar("siteWorkerId", { length: 24 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("genba_guest_assignees_task_worker").on(table.taskId, table.siteWorkerId),
+  index("genba_guest_assignees_worker_idx").on(table.siteWorkerId),
+]));
+
+export type GenbaGuestAssignee = typeof genbaGuestAssignees.$inferSelect;
+export type InsertGenbaGuestAssignee = typeof genbaGuestAssignees.$inferInsert;
