@@ -277,7 +277,7 @@ export default function AppMyClosing() {
     if (queryMonth) setClosingMonth(queryMonth);
   }, [queryProjectId, queryMonth]);
   const workerInvoiceDraftQuery = trpc.workerInvoice.getMyDraft.useQuery(
-    { projectId: selectedProjectId || 0, closingMonth },
+    { projectId: selectedProjectId || 0, closingMonth, employeeId: queryEmployeeId },
     { enabled: !!selectedProjectId && !!detailQuery.data?.eligible }
   );
 
@@ -368,8 +368,12 @@ export default function AppMyClosing() {
     onError: e => toast.error(`解除エラー: ${e.message}`),
   });
 
-  const projects = projectsQuery.data || [];
-  const workerInvoicesQuery = trpc.workerInvoice.listMyInvoices.useQuery();
+  // 代行モード(?employeeId=)では対象作業員の当月出面がある現場を出す。
+  // attendance.myProjects はログイン中の管理者自身の現場を返すため、代行では使わない（データ混在の原因）。
+  const projects = queryEmployeeId
+    ? ((overviewQuery.data as any)?.projectLines || []).map((line: any) => ({ id: Number(line.projectId), name: line.projectName }))
+    : projectsQuery.data || [];
+  const workerInvoicesQuery = trpc.workerInvoice.listMyInvoices.useQuery({ employeeId: queryEmployeeId });
   const trpcUtils = trpc.useUtils();
   const detail: any = detailQuery.data ?? null;
   const monthlyOverview = detail?.monthlyOverview || overviewQuery.data || null;
@@ -455,6 +459,7 @@ export default function AppMyClosing() {
     !invoiceReadOnly;
 
   const buildWorkerDraftInput = () => ({
+    employeeId: queryEmployeeId,
     projectId: selectedProjectId!,
     closingMonth,
     subject: invoiceSubject.trim() || undefined,
@@ -540,6 +545,7 @@ export default function AppMyClosing() {
     try {
       await saveWorkerDraftMutation.mutateAsync(buildWorkerDraftInput());
       const submitted = await submitWorkerInvoiceMutation.mutateAsync({
+        employeeId: queryEmployeeId,
         projectId: selectedProjectId,
         closingMonth,
       });
@@ -680,7 +686,7 @@ export default function AppMyClosing() {
         </Card>
       )}
 
-      <MonthlyInvoicePanel closingMonth={closingMonth} />
+      <MonthlyInvoicePanel closingMonth={closingMonth} employeeId={queryEmployeeId} />
 {!selectedProjectId ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
@@ -1330,7 +1336,7 @@ export default function AppMyClosing() {
 
           {/* ── Worker Invoice Section (post-submission view) ── */}
           {detail?.submission?.status === "submitted" || detail?.submission?.status === "approved" ? (
-            <WorkerInvoiceSection projectId={selectedProjectId!} closingMonth={closingMonth} />
+            <WorkerInvoiceSection projectId={selectedProjectId!} closingMonth={closingMonth} employeeId={queryEmployeeId} />
           ) : null}
 
           <Dialog
@@ -1543,9 +1549,9 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
  * ・全現場の月締め提出が完了すると発行できる（②B: 途中でも下書きプレビューは見える）。
  * ・各現場の月締め状況をチェックリストで表示。交通費0円は「なし(0円)」＝入力済み扱い。
  */
-function MonthlyInvoicePanel({ closingMonth }: { closingMonth: string }) {
+function MonthlyInvoicePanel({ closingMonth, employeeId }: { closingMonth: string; employeeId?: number }) {
   const monthlyQuery = trpc.workerInvoice.getMyMonthlyInvoice.useQuery(
-    { closingMonth },
+    { closingMonth, employeeId },
     { enabled: !!closingMonth }
   );
   const data = monthlyQuery.data as any;
@@ -1618,7 +1624,7 @@ function MonthlyInvoicePanel({ closingMonth }: { closingMonth: string }) {
             <span>全現場の月締めが完了しました。請求書を発行できます。</span>
             <Button
               size="sm"
-              onClick={() => issueMutation.mutate({ closingMonth })}
+              onClick={() => issueMutation.mutate({ closingMonth, employeeId })}
               disabled={issueMutation.isPending || items.length === 0}
               className="bg-gold text-background hover:bg-gold-dim"
             >
@@ -1710,8 +1716,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const TAX_RATES = [0, 8, 10];
 
-function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; closingMonth: string }) {
-  const draftQuery = trpc.workerInvoice.getMyDraft.useQuery({ projectId, closingMonth });
+function WorkerInvoiceSection({ projectId, closingMonth, employeeId }: { projectId: number; closingMonth: string; employeeId?: number }) {
+  const draftQuery = trpc.workerInvoice.getMyDraft.useQuery({ projectId, closingMonth, employeeId });
   const saveDraftMutation = trpc.workerInvoice.saveMyDraft.useMutation({
     onSuccess: () => { toast.success("下書きを保存しました"); draftQuery.refetch(); },
     onError: (e) => toast.error(`保存エラー: ${e.message}`),
@@ -1783,7 +1789,7 @@ function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; 
   };
 
   const handleSaveDraft = () => {
-    saveDraftMutation.mutate({ projectId, closingMonth, subject, notes, items });
+    saveDraftMutation.mutate({ projectId, closingMonth, subject, notes, items, employeeId });
   };
 
   const handleSubmit = () => {
@@ -1796,9 +1802,9 @@ function WorkerInvoiceSection({ projectId, closingMonth }: { projectId: number; 
       return;
     }
     // Save first, then submit
-    saveDraftMutation.mutate({ projectId, closingMonth, subject, notes, items }, {
+    saveDraftMutation.mutate({ projectId, closingMonth, subject, notes, items, employeeId }, {
       onSuccess: () => {
-        submitInvoiceMutation.mutate({ projectId, closingMonth });
+        submitInvoiceMutation.mutate({ projectId, closingMonth, employeeId });
       },
     });
   };

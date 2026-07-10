@@ -49,6 +49,7 @@ vi.mock('./db', () => ({
   getCompanyProfile: vi.fn(async ()=>({companyName:'Juchou',address:'Tokyo',phone:'03',email:'billing@example.com'})),
   getEmployeeById: vi.fn(async (id:number)=>({id,nameKanji:`W${id}`,invoiceIssuerNumber:'T1234567890123',bankName:'Bank',branchName:'Main',accountType:'ordinary',accountNumber:'123',accountHolder:'W',stampUrl:null})),
   updateWorkerInvoice: vi.fn(async (id:number,data:any)=>{ const i=invoices.findIndex(v=>v.id===id); if(i>=0) invoices[i]={...invoices[i],...data}; return invoices[i]; }),
+  replaceWorkerInvoiceItems: vi.fn(async ()=>({})),
   createAuditLog: vi.fn(async ()=>({id:1})),
 }));
 vi.mock('./storage', () => ({
@@ -182,5 +183,32 @@ describe('worker invoice access/snapshot',()=>{
     await caller.workerInvoice.submitMyInvoice({projectId:1,closingMonth:'2026-04'});
     expect(snapshots[0].snapshotJson).toContain('fileKey');
     expect(snapshots[0].snapshotJson).toContain('invoiceIssuerNumber');
+  });
+});
+
+describe('worker invoice 管理者代行（employeeId 指定）',()=>{
+  beforeEach(()=>{ invoices.length=0; snapshots.length=0; });
+
+  it('管理者は employeeId 指定で対象作業員の請求書一覧を取得できる（自分の分と混ざらない）',async()=>{
+    addInvoiceWithSnapshot(1,10); // 管理者自身(employee 10)の請求書
+    addInvoiceWithSnapshot(2,11); // 対象作業員(employee 11)の請求書
+    const caller=appRouter.createCaller(ctx(mkUser(2,'admin',10)));
+    const delegated=await caller.workerInvoice.listMyInvoices({employeeId:11});
+    expect(delegated.map((v:any)=>v.employeeId)).toEqual([11]);
+    const own=await caller.workerInvoice.listMyInvoices();
+    expect(own.map((v:any)=>v.employeeId)).toEqual([10]);
+  });
+
+  it('管理者の saveMyDraft(employeeId指定) は対象作業員のレコードに保存される',async()=>{
+    const caller=appRouter.createCaller(ctx(mkUser(2,'admin',10)));
+    await caller.workerInvoice.saveMyDraft({projectId:1,closingMonth:'2026-04',employeeId:11,items:[{label:'作業費',quantity:2,unitPrice:10000}]});
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0].employeeId).toBe(11);
+  });
+
+  it('作業員が他人の employeeId を指定すると FORBIDDEN',async()=>{
+    const caller=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
+    await expect(caller.workerInvoice.listMyInvoices({employeeId:11})).rejects.toMatchObject({code:'FORBIDDEN'});
+    await expect(caller.workerInvoice.getMyDraft({projectId:1,closingMonth:'2026-04',employeeId:11})).rejects.toMatchObject({code:'FORBIDDEN'});
   });
 });
