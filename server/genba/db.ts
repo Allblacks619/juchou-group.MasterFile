@@ -24,6 +24,7 @@ import {
   genbaSiteWorkers, GenbaSiteWorker, InsertGenbaSiteWorker,
   genbaGuestAssignees, GenbaGuestAssignee, InsertGenbaGuestAssignee,
   genbaWorkerLinks, GenbaWorkerLink, InsertGenbaWorkerLink,
+  genbaUserRoles, GenbaUserRole, InsertGenbaUserRole,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
 import { users, attendance, projects, employees } from "../../drizzle/schema";
@@ -1104,4 +1105,41 @@ export async function listTaskIdsAssignedToGuest(taskIds: string[], siteWorkerId
   const rows = await db.select({ taskId: genbaGuestAssignees.taskId }).from(genbaGuestAssignees)
     .where(and(inArray(genbaGuestAssignees.taskId, taskIds), eq(genbaGuestAssignees.siteWorkerId, siteWorkerId)));
   return new Set(rows.map((r) => r.taskId));
+}
+
+// ── genba_user_roles (G3 genba内役割上書き) ──
+
+export async function getGenbaUserRole(userId: number): Promise<GenbaUserRole | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaUserRoles).where(eq(genbaUserRoles.userId, userId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function listGenbaUserRoles(): Promise<GenbaUserRole[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaUserRoles);
+}
+
+export async function setGenbaUserRole(userId: number, role: string, updatedByUserId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaUserRoles).values({ userId, role, updatedByUserId })
+    .onDuplicateKeyUpdate({ set: { role, updatedByUserId } });
+}
+
+export async function deleteGenbaUserRole(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaUserRoles).where(eq(genbaUserRoles.userId, userId));
+}
+
+/** appRole が admin 級のユーザーID一覧 (最後の管理者ガード用) */
+export async function listAppAdminUserIds(): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ id: users.id }).from(users)
+    .where(or(eq(users.appRole, "super_admin" as any), eq(users.appRole, "admin" as any)));
+  return rows.map((r) => r.id);
 }

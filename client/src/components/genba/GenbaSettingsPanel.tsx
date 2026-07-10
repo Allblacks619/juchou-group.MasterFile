@@ -171,7 +171,7 @@ export default function GenbaSettingsPanel({
       {showTeams && site && <TeamManager siteId={site.id} open={showTeams} onOpenChange={setShowTeams} />}
       {showTemplate && <TemplateEditor open={showTemplate} onOpenChange={setShowTemplate} />}
       {showShares && site && <SharesPanel siteId={site.id} open={showShares} onOpenChange={setShowShares} />}
-      {showWorkerLinks && site && <WorkerLinksPanel siteId={site.id} open={showWorkerLinks} onOpenChange={setShowWorkerLinks} />}
+      {showWorkerLinks && site && <WorkerLinksPanel siteId={site.id} open={showWorkerLinks} onOpenChange={setShowWorkerLinks} isAdmin={isAdmin} />}
       {showInsights && site && <InsightsPanel siteId={site.id} open={showInsights} onOpenChange={setShowInsights} />}
     </>
   );
