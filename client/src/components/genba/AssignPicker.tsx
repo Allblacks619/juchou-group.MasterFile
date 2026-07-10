@@ -36,10 +36,12 @@ export default function AssignPicker({
               const on = teamIds.includes(g.id);
               return (
                 <button key={g.id}
-                  className="w-full text-left text-xs rounded px-2 py-1 font-bold"
+                  className="w-full flex items-center gap-1 text-xs rounded px-2 py-1 font-bold"
                   style={{ background: on ? colorForKey(g.id) : "transparent", color: on ? "#fff" : undefined }}
+                  title={on ? "タップで解除" : "タップで割当"}
                   onClick={(e) => { e.stopPropagation(); onToggleTeam(g.id, !on); }}>
-                  {on ? "✓ " : ""}{g.name}（{g.memberIds.length}名）
+                  <span className="flex-1 text-left truncate">{on ? "✓ " : ""}{g.name}（{g.memberIds.length}名）</span>
+                  {on && <span className="opacity-90">✕</span>}
                 </button>
               );
             })}
@@ -53,10 +55,12 @@ export default function AssignPicker({
               const on = assigneeIds.includes(w.id);
               return (
                 <button key={w.id}
-                  className="w-full text-left text-xs rounded px-2 py-1"
+                  className="w-full flex items-center gap-1 text-xs rounded px-2 py-1"
                   style={{ background: on ? colorForKey(w.id) : "transparent", color: on ? "#fff" : undefined }}
+                  title={on ? "タップで解除" : "タップで割当"}
                   onClick={(e) => { e.stopPropagation(); onToggleUser(w.id, !on); }}>
-                  {on ? "✓ " : ""}{w.name || `user#${w.id}`}
+                  <span className="flex-1 text-left truncate">{on ? "✓ " : ""}{w.name || `user#${w.id}`}</span>
+                  {on && <span className="opacity-90">✕</span>}
                 </button>
               );
             })}

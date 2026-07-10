@@ -527,6 +527,10 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                   const sel = selectedZoneId === z.id;
                   const isChild = !!z.parentZoneId;
                   const c = centroid(poly);
+                  const labelName = (z.workStatus === "paused" ? "⏸" : "") + z.name;
+                  // ラベルの重なり対策: 選択中のゾーンのみ全バッジ、他はコンパクトなハロー付きチップ。
+                  // 子ゾーンのラベルは親または自身が選択されているときだけ表示して密集を防ぐ。
+                  const showLabel = sel || !isChild || selectedZoneId === z.parentZoneId;
                   return (
                     <g key={z.id} style={{ cursor: "pointer" }}
                       onClick={(e) => {
@@ -542,9 +546,25 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                         strokeWidth={(sel ? 7 : isChild ? 3 : 5) * scale}
                         strokeDasharray={isChild ? `${10 * scale} ${7 * scale}` : "none"}
                       />
-                      <g transform={`translate(${c.x},${c.y}) scale(${scale})`}>
-                        <ProgressBadge name={(z.workStatus === "paused" ? "⏸" : "") + z.name} progress={z.progress} issues={z.issues} small={isChild} priority={z.priority} />
-                      </g>
+                      {sel ? (
+                        <g transform={`translate(${c.x},${c.y}) scale(${scale})`}>
+                          <ProgressBadge name={labelName} progress={z.progress} issues={z.issues} small={isChild} priority={z.priority} />
+                        </g>
+                      ) : showLabel ? (
+                        <g transform={`translate(${c.x},${c.y}) scale(${scale})`}>
+                          <circle r={6} fill={pr ? pr.color : "#64748b"} stroke="#fff" strokeWidth={2} />
+                          <text y={-11} textAnchor="middle" fontSize={14} fontWeight={800}
+                            fill="#0f172a" stroke="#fff" strokeWidth={3.5} paintOrder="stroke" style={{ pointerEvents: "none" }}>
+                            {labelName}
+                          </text>
+                          {z.issues > 0 && (
+                            <text y={18} textAnchor="middle" fontSize={12} fontWeight={800}
+                              fill="#FF4B00" stroke="#fff" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: "none" }}>
+                              ⚠{z.issues}
+                            </text>
+                          )}
+                        </g>
+                      ) : null}
                     </g>
                   );
                 })}
