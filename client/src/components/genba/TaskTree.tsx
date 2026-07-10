@@ -77,10 +77,18 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
               {task.linkUrl && <span title="図面リンク">📐</span>}
               {tTeamIds.map((id) => {
                 const g = teamList.find((t) => t.id === id);
-                return g ? <span key={id} className="text-[10px] px-1.5 py-0.5 rounded font-bold text-white" style={{ background: colorForKey(id) }}>{g.name}</span> : null;
+                return g ? (
+                  <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold text-white" style={{ background: colorForKey(id) }}>
+                    {g.name}
+                    {canEdit && <button title="この班を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignTeam.mutate({ taskId: task.id, teamId: id, on: false }); }}>✕</button>}
+                  </span>
+                ) : null;
               })}
               {assigneeIds.map((id) => (
-                <span key={id} className="text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }}>{userName(id)}</span>
+                <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }}>
+                  {userName(id)}
+                  {canEdit && <button title="担当を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignUser.mutate({ taskId: task.id, userId: id, on: false }); }}>✕</button>}
+                </span>
               ))}
             </div>
             {!isLeaf && (
@@ -90,7 +98,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
             )}
             {task.status === "issue" && task.issueText && <div className="text-xs text-[#b91c1c] mt-0.5">⚠ {task.issueText}</div>}
           </div>
-          {canEdit && isLeaf && (
+          {canEdit && (isLeaf || assigneeIds.length > 0 || tTeamIds.length > 0) && (
             <AssignPicker
               assigneeIds={assigneeIds}
               teamIds={tTeamIds}
