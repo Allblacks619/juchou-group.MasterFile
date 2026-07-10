@@ -41,6 +41,7 @@ const AppPasswordResets = lazy(() => import("./pages/AppPasswordResets"));
 const AppResetPassword = lazy(() => import("./pages/AppResetPassword"));
 const AppGenba = lazy(() => import("./pages/AppGenba"));
 const AppGenbaShare = lazy(() => import("./pages/AppGenbaShare"));
+const AppGenbaWorker = lazy(() => import("./pages/AppGenbaWorker"));
 
 function ScrollToTop() {
   const [location] = useLocation();
@@ -158,6 +159,11 @@ function Router() {
         {/* 外部共有ビュー (非認証・AppLayout外・閲覧専用) */}
         <Route path="/app/share/:token">
           <Suspense fallback={<AppFallback />}><AppGenbaShare /></Suspense>
+        </Route>
+
+        {/* 作業員専用リンク (非認証・AppLayout外・自分の担当の確認と更新) */}
+        <Route path="/app/w/:token">
+          <Suspense fallback={<AppFallback />}><AppGenbaWorker /></Suspense>
         </Route>
 
         {/* Custom Auth Pages (no AppLayout wrapper, no auth required) */}

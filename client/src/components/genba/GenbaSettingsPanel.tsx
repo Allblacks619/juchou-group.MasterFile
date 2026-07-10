@@ -9,6 +9,7 @@ import type { GenbaLang } from "@shared/genba/i18n";
 import TeamManager from "./TeamManager";
 import TemplateEditor from "./TemplateEditor";
 import SharesPanel from "./SharesPanel";
+import WorkerLinksPanel from "./WorkerLinksPanel";
 import InsightsPanel from "./InsightsPanel";
 
 type SettingsSite = { id: string; name: string; driveUrl: string | null; projectId: number | null };
@@ -38,6 +39,7 @@ export default function GenbaSettingsPanel({
   const [showTeams, setShowTeams] = useState(false);
   const [showTemplate, setShowTemplate] = useState(false);
   const [showShares, setShowShares] = useState(false);
+  const [showWorkerLinks, setShowWorkerLinks] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
   const [driveUrl, setDriveUrlInput] = useState(site?.driveUrl || "");
 
@@ -60,10 +62,11 @@ export default function GenbaSettingsPanel({
             <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowTeams(true)}><Users className="h-4 w-4 mr-1.5" />{t("班・メンバー", "Turmas")}</Button>
             <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowTemplate(true)}><ListChecks className="h-4 w-4 mr-1.5" />{t("作業テンプレート", "Modelo de tarefas")}</Button>
             <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowShares(true)}><Share2 className="h-4 w-4 mr-1.5" />{t("外部共有リンク", "Compartilhar")}</Button>
+            <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowWorkerLinks(true)}><Share2 className="h-4 w-4 mr-1.5" />{t("作業員リンク", "Links de trabalhador")}</Button>
             <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowInsights(true)}><TrendingUp className="h-4 w-4 mr-1.5" />{t("学習と改善", "Aprendizado")}</Button>
           </div>
           <p className="text-[11px] text-muted-foreground pt-1">
-            {t("工事案件の連携は下の「この現場」から設定できます。作業員ごとの専用リンクは次のアップデートで追加します。", "O vínculo com a obra fica em “Esta obra”. Links por trabalhador virão depois.")}
+            {t("工事案件の連携は下の「この現場」から設定できます。作業員ごとの専用リンクは「作業員リンク」から発行できます。", "O vínculo com a obra fica em “Esta obra”. Links por trabalhador em “Links de trabalhador”.")}
           </p>
         </div>
       )}
@@ -168,6 +171,7 @@ export default function GenbaSettingsPanel({
       {showTeams && site && <TeamManager siteId={site.id} open={showTeams} onOpenChange={setShowTeams} />}
       {showTemplate && <TemplateEditor open={showTemplate} onOpenChange={setShowTemplate} />}
       {showShares && site && <SharesPanel siteId={site.id} open={showShares} onOpenChange={setShowShares} />}
+      {showWorkerLinks && site && <WorkerLinksPanel siteId={site.id} open={showWorkerLinks} onOpenChange={setShowWorkerLinks} />}
       {showInsights && site && <InsightsPanel siteId={site.id} open={showInsights} onOpenChange={setShowInsights} />}
     </>
   );
