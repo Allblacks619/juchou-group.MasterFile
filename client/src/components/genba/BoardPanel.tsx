@@ -23,6 +23,7 @@ export default function BoardPanel({
   const teamName = (id: string) => (teams || []).find((t: any) => t.id === id)?.name || "班";
   const userName = (id: number) => (users || []).find((u: any) => u.id === id)?.name || `user#${id}`;
   const people = (board?.people || []) as any[];
+  const guestPeople = ((board as any)?.guestPeople || []) as any[];
   const zones = (board?.zones || []) as any[];
 
   const StatusChip = ({ s }: { s: keyof typeof STATUS }) => (
@@ -70,6 +71,32 @@ export default function BoardPanel({
                 </div>
               );
             })}
+            {/* ゲスト (現場名簿・割当あり) */}
+            {guestPeople.map((p) => {
+              const groups = new Map<string, any[]>();
+              for (const t of p.tasks) { const arr = groups.get(t.zoneId) || []; arr.push(t); groups.set(t.zoneId, arr); }
+              return (
+                <div key={`g-${p.guestId}`} className="rounded-lg border border-border p-2" style={{ borderLeft: `5px solid ${colorForKey(p.guestId)}` }}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <strong className="text-sm">{p.name}</strong>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded border bg-[#F6AA00]/15 text-[#8a5a00] border-[#F6AA00]/40">ゲスト</span>
+                    <span className="ml-auto text-xs text-muted-foreground tabular-nums">{p.tasks.length}件</span>
+                  </div>
+                  {Array.from(groups.entries()).map(([zoneId, ts]) => (
+                    <div key={zoneId} className="mt-2">
+                      <div className="text-xs font-bold text-muted-foreground">📍 {ts[0].zoneName}</div>
+                      {ts.map((t: any) => (
+                        <div key={t.id} className="flex items-center gap-2 py-1 border-b border-border/50">
+                          <span className="text-sm flex-1">{t.name}</span>
+                          {t.status === "progress" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#e0f2fe] text-[#0369a1]">↻ 継続中</span>}
+                          <StatusChip s={t.status} />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="space-y-2">
@@ -84,13 +111,22 @@ export default function BoardPanel({
                     <span className="ml-auto text-xs text-muted-foreground">{z.taskCount}件</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {z.assignedUserIds.length === 0 ? (
+                    {z.assignedUserIds.length === 0 && (z.assignedGuestNames || []).length === 0 ? (
                       z.workStatus === "paused"
                         ? <span className="text-xs font-bold text-muted-foreground">⏸ 作業予定なし（設定済み）</span>
                         : <span className="text-xs font-bold text-[#b45309]">⚠ 担当者未割当</span>
-                    ) : z.assignedUserIds.map((id: number) => (
-                      <span key={id} className="text-xs px-2 py-1 rounded text-white" style={{ background: colorForKey(id) }}>{userName(id)}</span>
-                    ))}
+                    ) : (
+                      <>
+                        {z.assignedUserIds.map((id: number) => (
+                          <span key={id} className="text-xs px-2 py-1 rounded text-white" style={{ background: colorForKey(id) }}>{userName(id)}</span>
+                        ))}
+                        {(z.assignedGuestNames || []).map((name: string, i: number) => (
+                          <span key={`g${i}`} className="text-xs px-2 py-1 rounded text-white inline-flex items-center gap-1" style={{ background: colorForKey(name) }}>
+                            {name}<span className="text-[9px] px-0.5 rounded bg-white/25 leading-tight">G</span>
+                          </span>
+                        ))}
+                      </>
+                    )}
                   </div>
                 </div>
               );

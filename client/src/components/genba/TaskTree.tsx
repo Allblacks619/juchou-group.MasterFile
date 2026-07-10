@@ -15,7 +15,7 @@ import { enqueueStatus, isNetworkError } from "@/lib/genbaOutbox";
 export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged }: { zoneId: string; siteId: string; meUserId: number | null; canEdit: boolean; onChanged: () => void }) {
   const utils = trpc.useUtils();
   const { data: tasks } = trpc.genba.tasks.listByZone.useQuery({ zoneId }, { retry: false });
-  const { data: users } = trpc.genba.users.listAssignable.useQuery({ siteId }, { retry: false, enabled: canEdit, staleTime: 5 * 60 * 1000 });
+  const { data: rosterData } = trpc.genba.users.siteRoster.useQuery({ siteId }, { retry: false, enabled: canEdit, staleTime: 60 * 1000 });
   const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { retry: false, staleTime: 60 * 1000 });
   const [statusTask, setStatusTask] = useState<GenbaTaskDto | null>(null);
   const [detailTask, setDetailTask] = useState<GenbaTaskDto | null>(null);
@@ -32,6 +32,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
     onError: (e) => toast.error(e.message),
   });
   const assignTeam = trpc.genba.tasks.assignTeam.useMutation({ onSuccess: () => utils.genba.tasks.listByZone.invalidate({ zoneId }), onError: (e) => toast.error(e.message) });
+  const assignGuest = trpc.genba.tasks.assignGuest.useMutation({ onSuccess: () => utils.genba.tasks.listByZone.invalidate({ zoneId }), onError: (e) => toast.error(e.message) });
   const createTask = trpc.genba.tasks.create.useMutation({
     onSuccess: () => { refresh(); toast.success("作業を追加しました"); },
     onError: (e) => toast.error(e.message),
@@ -41,9 +42,11 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
     onError: (e) => toast.error(e.message),
   });
 
-  const userList = (users || []) as { id: number; name: string | null; appRole: string }[];
+  const roster = (rosterData?.roster || []) as import("./AssignPicker").RosterEntry[];
+  const linked = rosterData?.linked ?? false;
   const teamList = (teams || []) as { id: string; name: string; memberIds: number[] }[];
-  const userName = (id: number) => userList.find((u) => u.id === id)?.name || `user#${id}`;
+  const userName = (id: number) => roster.find((u) => u.userId === id)?.displayName || `user#${id}`;
+  const guestName = (siteWorkerId: string) => roster.find((u) => u.siteWorkerId === siteWorkerId)?.displayName || "ゲスト";
   const myTeamIds = new Set(teamList.filter((g) => meUserId != null && g.memberIds.includes(meUserId)).map((g) => g.id));
 
   const list = (tasks || []) as GenbaTaskDto[];
@@ -84,6 +87,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
     const overdue = task.dueDate && task.status !== "done" && task.dueDate < todayStr();
     const assigneeIds = task.assigneeIds || [];
     const tTeamIds = task.teamIds || [];
+    const tGuestIds = task.guestAssigneeIds || [];
     const isMine = meUserId != null && (assigneeIds.includes(meUserId) || tTeamIds.some((id) => myTeamIds.has(id)));
     return (
       <div key={task.id}>
@@ -121,6 +125,13 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
                   {canEdit && <button title="担当を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignUser.mutate({ taskId: task.id, userId: id, on: false }); }}>✕</button>}
                 </span>
               ))}
+              {tGuestIds.map((id) => (
+                <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }} title="ゲスト作業員">
+                  {guestName(id)}
+                  <span className="text-[8px] px-0.5 rounded bg-white/25 leading-tight">G</span>
+                  {canEdit && <button title="担当を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignGuest.mutate({ taskId: task.id, siteWorkerId: id, on: false }); }}>✕</button>}
+                </span>
+              ))}
             </div>
             {!isLeaf && (
               <div className="mt-1 h-1.5 rounded bg-muted overflow-hidden">
@@ -129,14 +140,17 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
             )}
             {task.status === "issue" && task.issueText && <div className="text-xs text-[#b91c1c] mt-0.5">⚠ {task.issueText}</div>}
           </div>
-          {canEdit && (isLeaf || assigneeIds.length > 0 || tTeamIds.length > 0) && (
+          {canEdit && (isLeaf || assigneeIds.length > 0 || tTeamIds.length > 0 || tGuestIds.length > 0) && (
             <AssignPicker
               assigneeIds={assigneeIds}
               teamIds={tTeamIds}
-              users={userList}
+              guestIds={tGuestIds}
+              roster={roster}
               teams={teamList}
+              linked={linked}
               onToggleUser={(userId, on) => assignUser.mutate({ taskId: task.id, userId, on })}
               onToggleTeam={(teamId, on) => assignTeam.mutate({ taskId: task.id, teamId, on })}
+              onToggleGuest={(siteWorkerId, on) => assignGuest.mutate({ taskId: task.id, siteWorkerId, on })}
             />
           )}
           {canEdit && (

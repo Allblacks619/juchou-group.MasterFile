@@ -21,9 +21,11 @@ import {
   genbaActivityLogs, GenbaActivityLog, InsertGenbaActivityLog,
   genbaDispatches, GenbaDispatch, InsertGenbaDispatch,
   genbaDispatchAssignees, GenbaDispatchAssignee, InsertGenbaDispatchAssignee,
+  genbaSiteWorkers, GenbaSiteWorker, InsertGenbaSiteWorker,
+  genbaGuestAssignees, GenbaGuestAssignee, InsertGenbaGuestAssignee,
   genbaUserSettings, GenbaUserSettings,
 } from "../../drizzle/schema.genba";
-import { users, attendance, projects } from "../../drizzle/schema";
+import { users, attendance, projects, employees } from "../../drizzle/schema";
 import { getDb } from "../db";
 
 /**
@@ -887,4 +889,141 @@ export async function deleteGenbaDispatchCascade(id: string): Promise<void> {
   if (!db) throw new Error("Database not available");
   await db.delete(genbaDispatchAssignees).where(eq(genbaDispatchAssignees.dispatchId, id));
   await db.delete(genbaDispatches).where(eq(genbaDispatches.id, id));
+}
+
+// ── genba_site_workers / genba_guest_assignees (G1 現場名簿) ──
+
+/** 出面ゲスト削除トンボストーンの接頭辞 (server/routers.ts と同値。名簿から除外する) */
+const REMOVED_GUEST_PREFIX = "__attendance_removed_guest__:";
+
+export type SiteRosterEntry = {
+  /** genba_site_workers.id。案件未連携のフォールバック時は null */
+  siteWorkerId: string | null;
+  kind: "registered" | "guest";
+  /** users.id (登録作業員のみ。アカウント無し従業員/ゲストは null) */
+  userId: number | null;
+  employeeId: number | null;
+  displayName: string;
+  /** users.appRole (種別ラベル用。ゲストは null) */
+  appRole: string | null;
+};
+
+/**
+ * 現場の出面(attendance)から「この現場に入っている人」を導出する。
+ * - 登録作業員: attendance.employeeId → employees (→ users LEFT JOIN)
+ * - ゲスト: attendance.guestName (employeeId null)。削除トンボストーンは除外
+ * 導出した人を genba_site_workers へ upsert して安定IDを与え、名簿として返す。
+ * 現場が案件未連携 (projectId null) の場合は null を返す (呼び出し側で全ユーザーへフォールバック)。
+ */
+export async function syncSiteRosterFromAttendance(siteId: string, genId: () => string): Promise<SiteRosterEntry[] | null> {
+  const db = await getDb();
+  if (!db) return [];
+  const site = await getGenbaSiteById(siteId);
+  if (!site?.projectId) return null;
+
+  // 出面上の登録作業員 (employees 起点。users アカウントが無い従業員も含める)
+  const regRows = await db
+    .select({
+      employeeId: attendance.employeeId,
+      empName: employees.nameKanji,
+      userId: users.id,
+      userName: users.name,
+      appRole: users.appRole,
+    })
+    .from(attendance)
+    .innerJoin(employees, eq(employees.id, attendance.employeeId))
+    .leftJoin(users, eq(users.employeeId, attendance.employeeId))
+    .where(eq(attendance.projectId, site.projectId))
+    .groupBy(attendance.employeeId, employees.nameKanji, users.id, users.name, users.appRole);
+
+  // 出面上のゲスト (トンボストーン除外)
+  const guestRows = await db
+    .select({ guestName: attendance.guestName })
+    .from(attendance)
+    .where(and(
+      eq(attendance.projectId, site.projectId),
+      isNull(attendance.employeeId),
+      sql`${attendance.guestName} IS NOT NULL`,
+      sql`${attendance.guestName} NOT LIKE ${REMOVED_GUEST_PREFIX + "%"}`,
+    ))
+    .groupBy(attendance.guestName);
+
+  // 既存名簿を1回読み、JS側で突き合わせて upsert (unique が NULL を重複扱いしないため)
+  const existing = await db.select().from(genbaSiteWorkers).where(eq(genbaSiteWorkers.siteId, siteId));
+  const byUser = new Map(existing.filter((w) => w.userId != null).map((w) => [w.userId as number, w]));
+  const byEmployee = new Map(existing.filter((w) => w.userId == null && w.employeeId != null).map((w) => [w.employeeId as number, w]));
+  const byGuest = new Map(existing.filter((w) => w.guestName != null).map((w) => [w.guestName as string, w]));
+
+  const inserts: InsertGenbaSiteWorker[] = [];
+  const roster: SiteRosterEntry[] = [];
+
+  for (const r of regRows) {
+    if (r.employeeId == null) continue;
+    const displayName = (r.userName || r.empName || `employee#${r.employeeId}`).trim();
+    let row = r.userId != null ? byUser.get(r.userId) : byEmployee.get(r.employeeId);
+    if (!row) {
+      const id = genId();
+      inserts.push({ id, siteId, userId: r.userId ?? null, employeeId: r.employeeId, guestName: null, kind: "registered", displayName, active: true });
+      row = { id } as GenbaSiteWorker;
+      if (r.userId != null) byUser.set(r.userId, row); else byEmployee.set(r.employeeId, row);
+    }
+    roster.push({ siteWorkerId: row.id, kind: "registered", userId: r.userId ?? null, employeeId: r.employeeId, displayName, appRole: r.appRole ?? null });
+  }
+
+  for (const g of guestRows) {
+    const name = (g.guestName || "").trim();
+    if (!name) continue;
+    let row = byGuest.get(name);
+    if (!row) {
+      const id = genId();
+      inserts.push({ id, siteId, userId: null, employeeId: null, guestName: name, kind: "guest", displayName: name, active: true });
+      row = { id } as GenbaSiteWorker;
+      byGuest.set(name, row);
+    }
+    roster.push({ siteWorkerId: row.id, kind: "guest", userId: null, employeeId: null, displayName: name, appRole: null });
+  }
+
+  if (inserts.length) await db.insert(genbaSiteWorkers).values(inserts);
+  roster.sort((a, b) => a.displayName.localeCompare(b.displayName, "ja"));
+  return roster;
+}
+
+export async function getGenbaSiteWorkerById(id: string): Promise<GenbaSiteWorker | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaSiteWorkers).where(eq(genbaSiteWorkers.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function listGenbaSiteWorkersByIds(ids: string[]): Promise<GenbaSiteWorker[]> {
+  const db = await getDb();
+  if (!db || ids.length === 0) return [];
+  return db.select().from(genbaSiteWorkers).where(inArray(genbaSiteWorkers.id, ids));
+}
+
+export async function listGenbaSiteWorkersBySite(siteId: string): Promise<GenbaSiteWorker[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaSiteWorkers).where(eq(genbaSiteWorkers.siteId, siteId)).orderBy(asc(genbaSiteWorkers.displayName));
+}
+
+export async function listGuestAssigneesByTaskIds(taskIds: string[]): Promise<GenbaGuestAssignee[]> {
+  const db = await getDb();
+  if (!db || taskIds.length === 0) return [];
+  return db.select().from(genbaGuestAssignees).where(inArray(genbaGuestAssignees.taskId, taskIds));
+}
+
+export async function addGuestAssignee(data: InsertGenbaGuestAssignee): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db.select().from(genbaGuestAssignees)
+    .where(and(eq(genbaGuestAssignees.taskId, data.taskId), eq(genbaGuestAssignees.siteWorkerId, data.siteWorkerId))).limit(1);
+  if (existing[0]) return;
+  await db.insert(genbaGuestAssignees).values(data);
+}
+
+export async function removeGuestAssignee(taskId: string, siteWorkerId: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaGuestAssignees).where(and(eq(genbaGuestAssignees.taskId, taskId), eq(genbaGuestAssignees.siteWorkerId, siteWorkerId)));
 }

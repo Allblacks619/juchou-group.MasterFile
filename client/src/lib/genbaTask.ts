@@ -18,6 +18,8 @@ export type GenbaTaskDto = {
   sortOrder: number;
   assigneeIds?: number[];
   teamIds?: string[];
+  /** ゲスト(現場名簿 genba_site_workers.id)の担当 (G1) */
+  guestAssigneeIds?: string[];
 };
 
 export function leafProgress(t: Pick<GenbaTaskDto, "status" | "percent">): number {
