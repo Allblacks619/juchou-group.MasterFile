@@ -805,6 +805,24 @@ async function buildWorkerMonthlyOverview(params: {
     projectLines: filteredLines.sort((a, b) => a.projectName.localeCompare(b.projectName, "ja")),
   };
 }
+/**
+ * 作業員本人（または管理者系の代行時は対象作業員）の従業員レコードを解決する。
+ * workerInvoice などの「My系」エンドポイントの代行対応に使う。作業員が他人を指定したら FORBIDDEN。
+ */
+async function resolveWorkerTargetEmployee(ctx: { user: { id: number; appRole?: string | null } }, requestedEmployeeId?: number) {
+  const role = (ctx.user as any)?.appRole;
+  const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+  const me = await db.getEmployeeByUserId(ctx.user.id);
+  if (requestedEmployeeId && !canDelegate && Number(requestedEmployeeId) !== Number(me?.id)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員のデータは操作できません" });
+  }
+  const targetId = canDelegate && requestedEmployeeId ? Number(requestedEmployeeId) : me?.id ? Number(me.id) : null;
+  if (!targetId) throw new TRPCError({ code: "FORBIDDEN", message: "従業員情報が見つかりません" });
+  const target = Number(me?.id) === targetId ? me : await db.getEmployeeById(targetId);
+  if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "対象の従業員が見つかりません" });
+  return target;
+}
+
 function toYmd(value: unknown): string {
   if (!value) return new Date().toISOString().slice(0, 10);
   const date = value instanceof Date ? value : new Date(String(value));
@@ -5830,9 +5848,9 @@ export const appRouter = router({
   }),
 
   workerInvoice: router({
-    getMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
-      const me = await db.getEmployeeByUserId(ctx.user.id);
-      if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+    getMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().optional() })).query(async ({ ctx, input }) => {
+      // 管理者代行時は employeeId の作業員を対象にする（resolveWorkerTargetEmployee が権限チェック）。
+      const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id);
 
@@ -5921,10 +5939,9 @@ export const appRouter = router({
      * ・入力途中でも自動計算の下書きプレビューは見られる（②B）。
      */
     getMyMonthlyInvoice: protectedProcedure
-      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().optional() }))
       .query(async ({ ctx, input }) => {
-        const me = await db.getEmployeeByUserId(ctx.user.id);
-        if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+        const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
 
         // 月内に出面のある全現場と、各現場の提出状況を集める。
         const overview = await buildWorkerMonthlyOverview({
@@ -6010,10 +6027,9 @@ export const appRouter = router({
      * 再利用し、現場見出し付きの集計明細を1枚にレンダリングする（新規テーブル不要）。
      */
     issueMyMonthlyInvoice: protectedProcedure
-      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().optional() }))
       .mutation(async ({ ctx, input }) => {
-        const me = await db.getEmployeeByUserId(ctx.user.id);
-        if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+        const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
 
         // ── 発行ゲート: 対象月に出面のある全現場の月締めが提出済みであること。
         const overview = await buildWorkerMonthlyOverview({
@@ -6120,8 +6136,8 @@ export const appRouter = router({
           throw error;
         }
       }),
-    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional(), itemType: z.enum(["normal", "text"]).optional() })).optional() })).mutation(async ({ ctx, input }) => {
-      const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), employeeId: z.number().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional(), itemType: z.enum(["normal", "text"]).optional() })).optional() })).mutation(async ({ ctx, input }) => {
+      const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
       const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
@@ -6146,8 +6162,8 @@ export const appRouter = router({
       }
       return { success: true };
     }),
-    submitMyInvoice: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string() })).mutation(async ({ ctx, input }) => {
-      const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+    submitMyInvoice: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), employeeId: z.number().optional() })).mutation(async ({ ctx, input }) => {
+      const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
       const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
@@ -6185,8 +6201,8 @@ export const appRouter = router({
       await db.createWorkerInvoiceSnapshot({ workerInvoiceId: invoice!.id!, snapshotVersion: (prevSnapshots?.length || 0) + 1, snapshotJson: JSON.stringify(snapshot), createdBy: ctx.user.id });
       return { success: true, id: invoice?.id };
     }),
-    listMyInvoices: protectedProcedure.query(async ({ ctx }) => {
-      const me = await db.getEmployeeByUserId(ctx.user.id); if (!me) throw new TRPCError({ code: "FORBIDDEN" });
+    listMyInvoices: protectedProcedure.input(z.object({ employeeId: z.number().optional() }).optional()).query(async ({ ctx, input }) => {
+      const me = await resolveWorkerTargetEmployee(ctx, input?.employeeId);
       return db.getWorkerInvoicesByEmployee(me.id);
     }),
     listForReview: protectedProcedure.query(async ({ ctx }) => {
