@@ -253,6 +253,13 @@
       "when": 1784900000000,
       "tag": "0035_genba_user_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1785000000000,
+      "tag": "0036_genba_site_worker_role",
+      "breakpoints": true
     }
   ]
 }

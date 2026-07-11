@@ -908,6 +908,8 @@ export type SiteRosterEntry = {
   displayName: string;
   /** users.appRole (種別ラベル用。ゲストは null) */
   appRole: string | null;
+  /** この現場での役割 (genba_site_workers.role)。リンク発行時の既定権限 */
+  workerRole: string;
 };
 
 /**
@@ -966,10 +968,10 @@ export async function syncSiteRosterFromAttendance(siteId: string, genId: () => 
     if (!row) {
       const id = genId();
       inserts.push({ id, siteId, userId: r.userId ?? null, employeeId: r.employeeId, guestName: null, kind: "registered", displayName, active: true });
-      row = { id } as GenbaSiteWorker;
+      row = { id, role: "worker" } as GenbaSiteWorker;
       if (r.userId != null) byUser.set(r.userId, row); else byEmployee.set(r.employeeId, row);
     }
-    roster.push({ siteWorkerId: row.id, kind: "registered", userId: r.userId ?? null, employeeId: r.employeeId, displayName, appRole: r.appRole ?? null });
+    roster.push({ siteWorkerId: row.id, kind: "registered", userId: r.userId ?? null, employeeId: r.employeeId, displayName, appRole: r.appRole ?? null, workerRole: (row as any).role ?? "worker" });
   }
 
   for (const g of guestRows) {
@@ -979,10 +981,10 @@ export async function syncSiteRosterFromAttendance(siteId: string, genId: () => 
     if (!row) {
       const id = genId();
       inserts.push({ id, siteId, userId: null, employeeId: null, guestName: name, kind: "guest", displayName: name, active: true });
-      row = { id } as GenbaSiteWorker;
+      row = { id, role: "worker" } as GenbaSiteWorker;
       byGuest.set(name, row);
     }
-    roster.push({ siteWorkerId: row.id, kind: "guest", userId: null, employeeId: null, displayName: name, appRole: null });
+    roster.push({ siteWorkerId: row.id, kind: "guest", userId: null, employeeId: null, displayName: name, appRole: null, workerRole: (row as any).role ?? "worker" });
   }
 
   if (inserts.length) await db.insert(genbaSiteWorkers).values(inserts);
@@ -1142,4 +1144,19 @@ export async function listAppAdminUserIds(): Promise<number[]> {
   const rows = await db.select({ id: users.id }).from(users)
     .where(or(eq(users.appRole, "super_admin" as any), eq(users.appRole, "admin" as any)));
   return rows.map((r) => r.id);
+}
+
+/** 名簿行の現場内役割 (worker/leader) を更新。専用リンク発行時の既定権限になる */
+export async function updateGenbaSiteWorkerRole(id: string, role: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaSiteWorkers).set({ role }).where(eq(genbaSiteWorkers.id, id));
+}
+
+/** users.appRole の取得 (オーナー=super_admin の保護判定用) */
+export async function getUserAppRoleById(userId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ appRole: users.appRole }).from(users).where(eq(users.id, userId)).limit(1);
+  return (rows[0]?.appRole as string) ?? null;
 }

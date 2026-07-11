@@ -51,6 +51,10 @@ export default function WorkerLinksPanel({
     onSuccess: () => { utils.genba.users.siteRoster.invalidate({ siteId }); toast.success("権限を変更しました"); },
     onError: (e) => toast.error(e.message),
   });
+  const setWorkerRole = trpc.genba.workerLinks.setWorkerRole.useMutation({
+    onSuccess: () => { utils.genba.users.siteRoster.invalidate({ siteId }); invalidate(); toast.success("権限を変更しました"); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const roster = (rosterData?.roster || []) as RosterEntry[];
   const linked = rosterData?.linked ?? false;
@@ -97,8 +101,10 @@ export default function WorkerLinksPanel({
                 <div className="flex items-center gap-2 flex-wrap">
                   <strong className="text-sm">{l.displayName}</strong>
                   <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${kind.cls}`}>{kind.label}</span>
-                  <select value={l.role} onChange={(e) => setRole.mutate({ id: l.id, role: e.target.value as "worker" | "leader" })}
-                    className="rounded border border-border bg-background px-1 py-0.5 text-[11px]">
+                  <select value={l.role} disabled={!isAdmin || setRole.isPending}
+                    title={isAdmin ? "このリンクの権限" : "権限を変更できるのは管理者のみです"}
+                    onChange={(e) => setRole.mutate({ id: l.id, role: e.target.value as "worker" | "leader" })}
+                    className="rounded border border-border bg-background px-1 py-0.5 text-[11px] disabled:opacity-60">
                     <option value="worker">作業員</option>
                     <option value="leader">リーダー</option>
                   </select>
@@ -146,24 +152,41 @@ export default function WorkerLinksPanel({
           {rosterWithoutLink.length === 0 && <p className="text-sm text-muted-foreground p-3">{roster.length === 0 ? "名簿が空です。案件連携と出面の登録を確認してください。" : "全員に発行済みです。"}</p>}
           {rosterWithoutLink.map((r) => {
             const kind = rosterKindLabel(r);
+            const isOwner = r.appRole === "super_admin";
             return (
               <div key={r.siteWorkerId} className="p-2 flex items-center gap-2 flex-wrap">
                 <strong className="text-sm">{r.displayName}</strong>
                 <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${kind.cls}`}>{kind.label}</span>
-                {isAdmin && r.userId != null && (
+                {/* 権限セレクト: 全員に表示。オーナー(super_admin)は固定、変更操作は管理者のみ */}
+                {isOwner ? (
+                  <select value="admin" disabled title="オーナーの権限は変更できません"
+                    className="rounded border border-border bg-muted/60 px-1 py-0.5 text-[11px] opacity-70">
+                    <option value="admin">管理者（固定）</option>
+                  </select>
+                ) : r.userId != null ? (
                   <select value={(r as any).genbaRole ?? "worker"}
-                    title="genba内の権限 (システム全体の権限は変わりません)"
+                    disabled={!isAdmin || setGenbaRole.isPending}
+                    title={isAdmin ? "genba内の権限 (システム全体の権限は変わりません)" : "権限を変更できるのは管理者のみです"}
                     onChange={(e) => setGenbaRole.mutate({ userId: r.userId as number, role: e.target.value as any })}
-                    className="rounded border border-border bg-background px-1 py-0.5 text-[11px]">
+                    className="rounded border border-border bg-background px-1 py-0.5 text-[11px] disabled:opacity-60">
                     <option value="admin">管理者</option>
                     <option value="leader">リーダー</option>
                     <option value="worker">作業員</option>
                   </select>
-                )}
+                ) : r.siteWorkerId != null ? (
+                  <select value={(r as any).workerRole ?? "worker"}
+                    disabled={!isAdmin || setWorkerRole.isPending}
+                    title={isAdmin ? "この現場での役割 (リンク発行時の権限になります)" : "権限を変更できるのは管理者のみです"}
+                    onChange={(e) => setWorkerRole.mutate({ siteWorkerId: r.siteWorkerId as string, role: e.target.value as "worker" | "leader" })}
+                    className="rounded border border-border bg-background px-1 py-0.5 text-[11px] disabled:opacity-60">
+                    <option value="leader">リーダー</option>
+                    <option value="worker">作業員</option>
+                  </select>
+                ) : null}
                 {(r as any).roleOverridden && <span title="genba内で上書きされた権限" className="text-[10px] text-[#005AFF] font-bold">*</span>}
                 <Button size="sm" variant="outline" className="h-7 text-xs ml-auto"
                   disabled={issue.isPending}
-                  onClick={() => issue.mutate({ siteWorkerId: r.siteWorkerId as string, role: "worker", expiresDays: expiryOpt })}>
+                  onClick={() => issue.mutate({ siteWorkerId: r.siteWorkerId as string, expiresDays: expiryOpt })}>
                   <LinkIcon className="h-3 w-3 mr-1" /> 専用リンクを発行
                 </Button>
               </div>
