@@ -78,11 +78,116 @@ async function resolveGenbaRole(userId: number, appRole: unknown): Promise<Genba
   }
 }
 
-/** ログイン済み + genba有効。ctx.genbaRole を付与 (genba内上書きを考慮) */
-const genbaProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+/** 作業員リンク由来のセッション情報 (ログインの代わりにトークンで認証された場合のみ) */
+type GenbaLinkCtx = {
+  linkId: string;
+  siteId: string;
+  siteWorkerId: string;
+  /** 登録作業員なら users.id、ゲストは null */
+  userId: number | null;
+  displayName: string;
+  role: "worker" | "leader";
+};
+
+/** 作業員リンクから実行できない操作 (現場設定・リンク管理・共有・権限・予算・学習・テンプレ書換) */
+const LINK_DENIED_PATH = /^genba\.(sites\.(create|rename|archive|setDriveUrl|setProject|listProjects)|workerLinks\.|shares\.|users\.(setGenbaRole|mySummary)|templates\.saveTree|budgets\.|logs\.)/;
+
+/** 実行主体のユーザーID (ログイン or リンクの登録作業員)。ゲストリンクは null */
+function uid(ctx: { user: { id: number } | null; genbaLink?: GenbaLinkCtx | null }): number | null {
+  return ctx.user?.id ?? ctx.genbaLink?.userId ?? null;
+}
+
+/** 参照ID群 (siteId/floorId/zoneId/taskId/teamId/instructionId) から現場を解決してリンクの現場と照合 */
+async function assertLinkRefScope(link: GenbaLinkCtx, raw: Record<string, unknown>): Promise<void> {
+  const deny = () => { throw new TRPCError({ code: "FORBIDDEN", message: "この現場のリンクでは操作できません" }); };
+  const s = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+  const siteId = s(raw.siteId);
+  if (siteId && siteId !== link.siteId) deny();
+  const floorId = s(raw.floorId);
+  if (floorId) {
+    const f = await genbaDb.getGenbaFloorById(floorId);
+    if (f && f.siteId !== link.siteId) deny();
+  }
+  const zoneId = s(raw.zoneId) ?? s(raw.parentZoneId);
+  if (zoneId) {
+    const z = await genbaDb.getGenbaZoneById(zoneId);
+    const f = z ? await genbaDb.getGenbaFloorById(z.floorId) : null;
+    if (f && f.siteId !== link.siteId) deny();
+  }
+  const taskId = s(raw.taskId);
+  if (taskId) {
+    const t = await genbaDb.getGenbaTaskById(taskId);
+    const z = t ? await genbaDb.getGenbaZoneById(t.zoneId) : null;
+    const f = z ? await genbaDb.getGenbaFloorById(z.floorId) : null;
+    if (f && f.siteId !== link.siteId) deny();
+  }
+  const teamId = s(raw.teamId);
+  if (teamId) {
+    const t = await genbaDb.getGenbaTeamById(teamId);
+    if (t && t.siteId !== link.siteId) deny();
+  }
+  const instructionId = s(raw.instructionId);
+  if (instructionId) {
+    const i = await genbaDb.getGenbaInstructionById(instructionId);
+    if (i && i.siteId !== link.siteId) deny();
+  }
+}
+
+/** リンクセッションで id 系入力しか無い手続き用: 取得済みエンティティの現場と照合 */
+function assertLinkSiteId(ctx: { genbaLink?: GenbaLinkCtx | null }, siteId: string | null | undefined): void {
+  if (ctx.genbaLink && siteId !== ctx.genbaLink.siteId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "この現場のリンクでは操作できません" });
+  }
+}
+
+/** タスク→ゾーン→フロアから現場を解決してリンクスコープを照合 */
+async function assertLinkTaskScope(ctx: { genbaLink?: GenbaLinkCtx | null }, task: { zoneId: string }): Promise<void> {
+  if (!ctx.genbaLink) return;
+  const z = await genbaDb.getGenbaZoneById(task.zoneId);
+  const f = z ? await genbaDb.getGenbaFloorById(z.floorId) : null;
+  assertLinkSiteId(ctx, f?.siteId ?? null);
+}
+
+/**
+ * ログイン済み または 作業員リンクトークン (x-genba-link ヘッダ) + genba有効。
+ * リンクセッションは link.role (worker/leader) を genbaRole とし、自現場のみ操作可。
+ * これにより「リンクを開いたら本体アプリをそのまま使う」を実現する (画面は同一、権限で出し分け)。
+ */
+const genbaProcedure = publicProcedure.use(async ({ ctx, next, path, getRawInput }) => {
   assertGenbaEnabled();
-  const role = await resolveGenbaRole(ctx.user.id, (ctx.user as any).appRole);
-  return next({ ctx: { ...ctx, genbaRole: role } });
+  if (ctx.user) {
+    const role = await resolveGenbaRole(ctx.user.id, (ctx.user as any).appRole);
+    return next({ ctx: { ...ctx, user: ctx.user as typeof ctx.user | null, genbaRole: role, genbaLink: null as GenbaLinkCtx | null } });
+  }
+  const header = (ctx.req as any)?.headers?.["x-genba-link"];
+  const token = (Array.isArray(header) ? header[0] : header || "").toString().trim();
+  if (!token) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "ログインが必要です" });
+  }
+  const resolved = await resolveWorkerLink(token);
+  if (!resolved.ok) {
+    const msg = resolved.reason === "disabled"
+      ? "このリンクは無効化されています。管理者に確認してください。"
+      : resolved.reason === "expired"
+        ? "このリンクは有効期限が切れています。管理者に再発行を依頼してください。"
+        : "リンクが無効です。URLを確認するか、管理者に問い合わせてください。";
+    throw new TRPCError({ code: "UNAUTHORIZED", message: msg });
+  }
+  if (LINK_DENIED_PATH.test(path)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "この操作は作業員リンクからは行えません" });
+  }
+  const link: GenbaLinkCtx = {
+    linkId: resolved.link.id,
+    siteId: resolved.site.id,
+    siteWorkerId: resolved.worker.id,
+    userId: resolved.worker.userId ?? null,
+    displayName: resolved.worker.displayName,
+    role: resolved.link.role === "leader" ? "leader" : "worker",
+  };
+  genbaDb.touchGenbaWorkerLinkAccess(link.linkId).catch(() => { /* 打刻失敗は無視 */ });
+  const raw = (await getRawInput()) as Record<string, unknown> | undefined;
+  if (raw && typeof raw === "object") await assertLinkRefScope(link, raw);
+  return next({ ctx: { ...ctx, user: null as typeof ctx.user | null, genbaRole: link.role, genbaLink: link } });
 });
 
 /** 現場の編集操作 (admin / leader)。worker は閲覧・現場入力のみ */
@@ -93,12 +198,22 @@ const genbaFieldProcedure = genbaProcedure.use(({ ctx, next }) => {
   return next({ ctx });
 });
 
-/** 予算・アーカイブ等の管理操作 (admin のみ) */
+/** 現場編集のうちログイン必須の操作 (現場設定・共有・リンク管理など)。リンクセッション不可 */
+const genbaStaffFieldProcedure = genbaFieldProcedure.use(({ ctx, next }) => {
+  const user = ctx.user;
+  if (!user) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "この操作は作業員リンクからは行えません" });
+  }
+  return next({ ctx: { ...ctx, user } });
+});
+
+/** 予算・アーカイブ等の管理操作 (admin のみ・リンク不可) */
 const genbaAdminProcedure = genbaProcedure.use(({ ctx, next }) => {
-  if (ctx.genbaRole !== "admin") {
+  const user = ctx.user;
+  if (!user || ctx.genbaRole !== "admin") {
     throw new TRPCError({ code: "FORBIDDEN", message: "管理者権限が必要です" });
   }
-  return next({ ctx: { ...ctx, genbaRole: "admin" as const } });
+  return next({ ctx: { ...ctx, user, genbaRole: "admin" as const } });
 });
 
 /** 監査ログ (既存 auditLogs 流用)。失敗しても本処理は落とさない */
@@ -143,11 +258,15 @@ function notImplemented(): never {
 
 const sitesRouter = router({
   /** アーカイブ済みを除く現場一覧 */
-  list: genbaProcedure.query(async () => {
+  list: genbaProcedure.query(async ({ ctx }) => {
+    if (ctx.genbaLink) {
+      const site = await genbaDb.getGenbaSiteById(ctx.genbaLink.siteId);
+      return site && !site.archived ? [site] : [];
+    }
     return genbaDb.listGenbaSites();
   }),
 
-  create: genbaFieldProcedure
+  create: genbaStaffFieldProcedure
     .input(z.object({
       /** プロトタイプ互換のクライアント生成uid。省略時はサーバー生成 */
       id: genbaIdSchema.optional(),
@@ -163,17 +282,17 @@ const sitesRouter = router({
         projectId: input.projectId ?? null,
         driveUrl: input.driveUrl || null,
       });
-      await safeGenbaAuditLog(ctx.user.id, "genba.sites.create", { entityId: id, note: `現場を作成: ${input.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.sites.create", { entityId: id, note: `現場を作成: ${input.name}` });
       return site;
     }),
 
-  rename: genbaFieldProcedure
+  rename: genbaStaffFieldProcedure
     .input(z.object({ id: genbaIdSchema, name: siteNameSchema }))
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaSiteById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
       const site = await genbaDb.updateGenbaSite(input.id, { name: input.name });
-      await safeGenbaAuditLog(ctx.user.id, "genba.sites.rename", { entityId: input.id, note: `現場名を変更: ${existing.name} → ${input.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.sites.rename", { entityId: input.id, note: `現場名を変更: ${existing.name} → ${input.name}` });
       return site;
     }),
 
@@ -184,28 +303,28 @@ const sitesRouter = router({
       const existing = await genbaDb.getGenbaSiteById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
       const site = await genbaDb.updateGenbaSite(input.id, { archived: input.archived });
-      await safeGenbaAuditLog(ctx.user.id, "genba.sites.archive", { entityId: input.id, note: `${existing.name} を${input.archived ? "アーカイブ" : "アーカイブ解除"}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.sites.archive", { entityId: input.id, note: `${existing.name} を${input.archived ? "アーカイブ" : "アーカイブ解除"}` });
       return site;
     }),
 
-  setDriveUrl: genbaFieldProcedure
+  setDriveUrl: genbaStaffFieldProcedure
     .input(z.object({ id: genbaIdSchema, driveUrl: driveUrlSchema }))
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaSiteById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
       const site = await genbaDb.updateGenbaSite(input.id, { driveUrl: input.driveUrl || null });
-      await safeGenbaAuditLog(ctx.user.id, "genba.sites.setDriveUrl", { entityId: input.id, note: `${existing.name} のDriveリンクを更新` });
+      await safeGenbaAuditLog(uid(ctx), "genba.sites.setDriveUrl", { entityId: input.id, note: `${existing.name} のDriveリンクを更新` });
       return site;
     }),
 
   /** 連携先の工事案件(projects)一覧。現場↔案件リンクのピッカー用 (field) */
-  listProjects: genbaFieldProcedure.query(async () => {
+  listProjects: genbaStaffFieldProcedure.query(async () => {
     const rows = await genbaDb.listLinkableProjects();
     return rows.map((p) => ({ id: p.id, name: p.name, status: p.status, startDate: toYmd(p.startDate), endDate: toYmd(p.endDate) }));
   }),
 
   /** 現場に工事案件をリンク/解除 (field)。リンクすると出面連動・予算project集計・出面担当が有効になる */
-  setProject: genbaFieldProcedure
+  setProject: genbaStaffFieldProcedure
     .input(z.object({ id: genbaIdSchema, projectId: z.number().int().positive().nullable() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaSiteById(input.id);
@@ -215,7 +334,7 @@ const sitesRouter = router({
         if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "工事案件が見つかりません" });
       }
       const site = await genbaDb.updateGenbaSite(input.id, { projectId: input.projectId });
-      await safeGenbaAuditLog(ctx.user.id, "genba.sites.setProject", { entityId: input.id, note: input.projectId != null ? `案件#${input.projectId} を連携` : "案件連携を解除" });
+      await safeGenbaAuditLog(uid(ctx), "genba.sites.setProject", { entityId: input.id, note: input.projectId != null ? `案件#${input.projectId} を連携` : "案件連携を解除" });
       return site;
     }),
 });
@@ -235,7 +354,9 @@ const settingsRouter = router({
       if (input.theme !== undefined) patch.theme = input.theme;
       if (input.lang !== undefined) patch.lang = input.lang;
       if (input.guideSeen !== undefined) patch.guideSeen = input.guideSeen;
-      const settings = await genbaDb.upsertGenbaUserSettings(ctx.user.id, patch);
+      const meId = uid(ctx);
+      if (meId == null) return null; // ゲストリンク: 設定は端末側 (localStorage) に保存する
+      const settings = await genbaDb.upsertGenbaUserSettings(meId, patch);
       return settings;
     }),
 });
@@ -307,7 +428,7 @@ const floorsRouter = router({
         h: input.h,
         sortOrder: input.sortOrder ?? 0,
       });
-      await safeGenbaAuditLog(ctx.user.id, "genba.floors.create", { entityId: id, note: `図面を追加: ${input.name} (${site.name})` });
+      await safeGenbaAuditLog(uid(ctx), "genba.floors.create", { entityId: id, note: `図面を追加: ${input.name} (${site.name})` });
       const [withUrl] = await withFloorImageUrls(floor ? [floor] : []);
       return withUrl ?? null;
     }),
@@ -318,11 +439,12 @@ const floorsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaFloorById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "フロアが見つかりません" });
+      assertLinkSiteId(ctx, existing.siteId);
       const patch: { name?: string; sortOrder?: number } = {};
       if (input.name !== undefined) patch.name = input.name;
       if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder;
       const floor = await genbaDb.updateGenbaFloor(input.id, patch);
-      await safeGenbaAuditLog(ctx.user.id, "genba.floors.update", { entityId: input.id, note: `フロアを更新: ${existing.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.floors.update", { entityId: input.id, note: `フロアを更新: ${existing.name}` });
       const [withUrl] = await withFloorImageUrls(floor ? [floor] : []);
       return withUrl ?? null;
     }),
@@ -333,8 +455,9 @@ const floorsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaFloorById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "フロアが見つかりません" });
+      assertLinkSiteId(ctx, existing.siteId);
       await genbaDb.deleteGenbaFloor(input.id);
-      await safeGenbaAuditLog(ctx.user.id, "genba.floors.remove", { entityId: input.id, note: `図面を削除: ${existing.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.floors.remove", { entityId: input.id, note: `図面を削除: ${existing.name}` });
       return { success: true as const };
     }),
 });
@@ -403,7 +526,7 @@ const zonesRouter = router({
         const tasks = instantiateTemplateTasks(tree, id, null);
         if (tasks.length) await genbaDb.createGenbaTasksBulk(tasks);
       }
-      await safeGenbaAuditLog(ctx.user.id, "genba.zones.create", { entityId: id, note: `エリアを作成: ${input.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.zones.create", { entityId: id, note: `エリアを作成: ${input.name}` });
       return zone;
     }),
 
@@ -421,6 +544,10 @@ const zonesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaZoneById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
+      if (ctx.genbaLink) {
+        const f = await genbaDb.getGenbaFloorById(existing.floorId);
+        assertLinkSiteId(ctx, f?.siteId ?? null);
+      }
       const patch: { name?: string; polygon?: { x: number; y: number }[]; priority?: number | null; workStatus?: "paused" | null; color?: string | null; fillOpacity?: number | null } = {};
       if (input.name !== undefined) patch.name = input.name;
       if (input.polygon !== undefined) patch.polygon = input.polygon;
@@ -429,7 +556,7 @@ const zonesRouter = router({
       if (input.color !== undefined) patch.color = input.color;
       if (input.fillOpacity !== undefined) patch.fillOpacity = input.fillOpacity;
       const zone = await genbaDb.updateGenbaZone(input.id, patch);
-      await safeGenbaAuditLog(ctx.user.id, "genba.zones.update", { entityId: input.id, note: `エリアを更新: ${existing.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.zones.update", { entityId: input.id, note: `エリアを更新: ${existing.name}` });
       return zone;
     }),
 
@@ -439,8 +566,12 @@ const zonesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaZoneById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
+      if (ctx.genbaLink) {
+        const f = await genbaDb.getGenbaFloorById(existing.floorId);
+        assertLinkSiteId(ctx, f?.siteId ?? null);
+      }
       await genbaDb.deleteGenbaZoneCascade(input.id);
-      await safeGenbaAuditLog(ctx.user.id, "genba.zones.remove", { entityId: input.id, note: `エリアを削除: ${existing.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.zones.remove", { entityId: input.id, note: `エリアを削除: ${existing.name}` });
       return { success: true as const };
     }),
 });
@@ -481,8 +612,10 @@ const tasksRouter = router({
     const { tasks, zoneById } = await loadSiteTaskContext(input.siteId);
     const leafIds = tasks.filter((t) => !tasks.some((x) => x.parentTaskId === t.id)).map((t) => t.id);
     const mine = new Set<string>();
-    (await genbaDb.listTaskIdsAssignedToUser(leafIds, ctx.user.id)).forEach((id) => mine.add(id));
-    const myTeams = await myTeamIdsForSite(input.siteId, ctx.user.id);
+    const meId = uid(ctx);
+    if (meId != null) (await genbaDb.listTaskIdsAssignedToUser(leafIds, meId)).forEach((id) => mine.add(id));
+    if (ctx.genbaLink) (await genbaDb.listTaskIdsAssignedToGuest(leafIds, ctx.genbaLink.siteWorkerId)).forEach((id) => mine.add(id));
+    const myTeams = await myTeamIdsForSite(input.siteId, meId);
     if (myTeams.size) {
       const taskTeams = await genbaDb.listTaskTeamsByTaskIds(leafIds);
       for (const tt of taskTeams) if (myTeams.has(tt.teamId)) mine.add(tt.taskId);
@@ -507,7 +640,7 @@ const tasksRouter = router({
         id, zoneId: input.zoneId, parentTaskId: input.parentTaskId ?? null,
         name: input.name, romaji: input.romaji ?? null, status: "todo",
       });
-      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.create", { entityId: id, note: `作業を追加: ${input.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.tasks.create", { entityId: id, note: `作業を追加: ${input.name}` });
       return task;
     }),
 
@@ -527,12 +660,13 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTaskById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      await assertLinkTaskScope(ctx, existing);
       const patch: Record<string, unknown> = {};
       for (const k of ["name", "romaji", "memo", "memoVisible", "linkUrl", "startDate", "dueDate", "priority", "sortOrder"] as const) {
         if (input[k] !== undefined) patch[k] = input[k];
       }
       const task = await genbaDb.updateGenbaTask(input.id, patch);
-      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.update", { entityId: input.id, note: `作業を更新: ${existing.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.tasks.update", { entityId: input.id, note: `作業を更新: ${existing.name}` });
       return task;
     }),
 
@@ -551,6 +685,26 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTaskById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      await assertLinkTaskScope(ctx, existing);
+
+      // 作業員リンク (非leader) は自分の担当のみ更新可 (直接/ゲスト割当/班経由)
+      if (ctx.genbaLink && ctx.genbaRole !== "leader") {
+        const own = new Set<string>();
+        (await genbaDb.listTaskIdsAssignedToGuest([input.id], ctx.genbaLink.siteWorkerId)).forEach((id) => own.add(id));
+        if (!own.size && ctx.genbaLink.userId != null) {
+          (await genbaDb.listTaskIdsAssignedToUser([input.id], ctx.genbaLink.userId)).forEach((id) => own.add(id));
+          if (!own.size) {
+            const myTeams = await myTeamIdsForSite(ctx.genbaLink.siteId, ctx.genbaLink.userId);
+            if (myTeams.size) {
+              const tts = await genbaDb.listTaskTeamsByTaskIds([input.id]);
+              if (tts.some((tt) => myTeams.has(tt.teamId))) own.add(input.id);
+            }
+          }
+        }
+        if (!own.has(input.id)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "この作業はあなたの担当ではありません" });
+        }
+      }
 
       // 問題報告: 写真を R2 へ保存しキーを集める (DBには base64 を入れない)
       const photoKeys: string[] = [];
@@ -577,17 +731,17 @@ const tasksRouter = router({
         id: nanoid(21),
         taskId: input.id,
         kind: input.status === "issue" ? "issue" : "status",
-        byUserId: ctx.user.id,
+        byUserId: uid(ctx),
         text: input.status === "issue" ? (input.issueText ?? "") : `「${input.status}」に変更`,
         photoKeys: photoKeys.length ? photoKeys : null,
       } as any);
 
-      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.setStatus", { entityId: input.id, note: `${existing.name}: ${input.status}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.tasks.setStatus", { entityId: input.id, note: `${existing.name}: ${input.status}` });
       // 学習ログ: 完了/問題を記録 (ゾーン単位で現場に紐づく)
       if (input.status === "issue") {
-        await safeGenbaActivity("issue", ctx.user.id, { taskId: input.id, taskName: existing.name, zoneId: existing.zoneId });
+        await safeGenbaActivity("issue", uid(ctx), { taskId: input.id, taskName: existing.name, zoneId: existing.zoneId });
       } else {
-        await safeGenbaActivity("status", ctx.user.id, { taskId: input.id, taskName: existing.name, zoneId: existing.zoneId, status: input.status });
+        await safeGenbaActivity("status", uid(ctx), { taskId: input.id, taskName: existing.name, zoneId: existing.zoneId, status: input.status });
       }
       return task;
     }),
@@ -609,8 +763,9 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTaskById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      await assertLinkTaskScope(ctx, existing);
       await genbaDb.deleteGenbaTaskCascade(input.id);
-      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.remove", { entityId: input.id, note: `作業を削除: ${existing.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.tasks.remove", { entityId: input.id, note: `作業を削除: ${existing.name}` });
       return { success: true as const };
     }),
 
@@ -645,7 +800,7 @@ const tasksRouter = router({
           }
         }
       }
-      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.assignUser", { entityId: input.taskId, note: `担当 ${input.on ? "追加" : "解除"}: user#${input.userId}${propagated ? ` (サブエリア${propagated}件へ伝播)` : ""}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.tasks.assignUser", { entityId: input.taskId, note: `担当 ${input.on ? "追加" : "解除"}: user#${input.userId}${propagated ? ` (サブエリア${propagated}件へ伝播)` : ""}` });
       return { success: true as const, propagated };
     }),
 
@@ -665,7 +820,7 @@ const tasksRouter = router({
       }
       if (input.on) await genbaDb.addGuestAssignee({ id: nanoid(21), taskId: input.taskId, siteWorkerId: input.siteWorkerId });
       else await genbaDb.removeGuestAssignee(input.taskId, input.siteWorkerId);
-      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.assignGuest", { entityId: input.taskId, note: `ゲスト担当 ${input.on ? "追加" : "解除"}: ${worker.displayName}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.tasks.assignGuest", { entityId: input.taskId, note: `ゲスト担当 ${input.on ? "追加" : "解除"}: ${worker.displayName}` });
       return { success: true as const };
     }),
 
@@ -677,7 +832,7 @@ const tasksRouter = router({
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
       if (input.on) await genbaDb.addTaskTeam({ id: nanoid(21), taskId: input.taskId, teamId: input.teamId });
       else await genbaDb.removeTaskTeam(input.taskId, input.teamId);
-      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.assignTeam", { entityId: input.taskId, note: `班 ${input.on ? "追加" : "解除"}: ${input.teamId}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.tasks.assignTeam", { entityId: input.taskId, note: `班 ${input.on ? "追加" : "解除"}: ${input.teamId}` });
       return { success: true as const };
     }),
 
@@ -690,16 +845,18 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const task = await genbaDb.getGenbaTaskById(input.taskId);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
-      if (input.toUserId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "自分自身には引き継げません" });
+      if (input.toUserId === uid(ctx)) throw new TRPCError({ code: "BAD_REQUEST", message: "自分自身には引き継げません" });
 
+      const meId = uid(ctx);
+      if (meId == null) throw new TRPCError({ code: "FORBIDDEN", message: "ゲストリンクからは引き継ぎできません" });
       // 担当の付け替え: 相手を追加し、自分を外す
       await genbaDb.addTaskAssignee({ id: nanoid(21), taskId: input.taskId, userId: input.toUserId });
-      await genbaDb.removeTaskAssignee(input.taskId, ctx.user.id);
+      await genbaDb.removeTaskAssignee(input.taskId, meId);
 
       // 履歴イベント (handover)
       const note = input.note?.trim();
       await genbaDb.createGenbaTaskEvent({
-        id: nanoid(21), taskId: input.taskId, kind: "handover", byUserId: ctx.user.id,
+        id: nanoid(21), taskId: input.taskId, kind: "handover", byUserId: uid(ctx),
         text: `引き継ぎ${note ? " — " + note : ""}`, photoKeys: null,
       } as any);
 
@@ -710,10 +867,10 @@ const tasksRouter = router({
         await genbaDb.createGenbaInstruction({
           id: nanoid(21), siteId: floor.siteId,
           text: `🤝 引き継ぎ: 「${task.name}」を引き継ぎました。${note ? "\n申し送り: " + note : ""}`,
-          targetKind: "worker", targetId: String(input.toUserId), zoneId: task.zoneId, byUserId: ctx.user.id,
+          targetKind: "worker", targetId: String(input.toUserId), zoneId: task.zoneId, byUserId: uid(ctx),
         });
       }
-      await safeGenbaAuditLog(ctx.user.id, "genba.tasks.handover", { entityId: input.taskId, note: `${task.name} を user#${input.toUserId} へ引き継ぎ` });
+      await safeGenbaAuditLog(uid(ctx), "genba.tasks.handover", { entityId: input.taskId, note: `${task.name} を user#${input.toUserId} へ引き継ぎ` });
       return { success: true as const };
     }),
 });
@@ -737,7 +894,7 @@ const teamsRouter = router({
       if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
       const id = input.id ?? nanoid(21);
       const team = await genbaDb.createGenbaTeam({ id, siteId: input.siteId, name: input.name });
-      await safeGenbaAuditLog(ctx.user.id, "genba.teams.create", { entityId: id, note: `班を作成: ${input.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.teams.create", { entityId: id, note: `班を作成: ${input.name}` });
       return team;
     }),
 
@@ -746,8 +903,9 @@ const teamsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTeamById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "班が見つかりません" });
+      assertLinkSiteId(ctx, existing.siteId);
       const team = await genbaDb.updateGenbaTeam(input.id, { name: input.name });
-      await safeGenbaAuditLog(ctx.user.id, "genba.teams.rename", { entityId: input.id, note: `班名を変更: ${existing.name} → ${input.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.teams.rename", { entityId: input.id, note: `班名を変更: ${existing.name} → ${input.name}` });
       return team;
     }),
 
@@ -756,8 +914,9 @@ const teamsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTeamById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "班が見つかりません" });
+      assertLinkSiteId(ctx, existing.siteId);
       await genbaDb.deleteGenbaTeamCascade(input.id);
-      await safeGenbaAuditLog(ctx.user.id, "genba.teams.remove", { entityId: input.id, note: `班を削除: ${existing.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.teams.remove", { entityId: input.id, note: `班を削除: ${existing.name}` });
       return { success: true as const };
     }),
 
@@ -769,7 +928,7 @@ const teamsRouter = router({
       if (!team) throw new TRPCError({ code: "NOT_FOUND", message: "班が見つかりません" });
       if (input.on) await genbaDb.addGenbaTeamMember({ id: nanoid(21), teamId: input.teamId, userId: input.userId });
       else await genbaDb.removeGenbaTeamMember(input.teamId, input.userId);
-      await safeGenbaAuditLog(ctx.user.id, "genba.teams.setMember", { entityId: input.teamId, note: `メンバー ${input.on ? "追加" : "解除"}: user#${input.userId}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.teams.setMember", { entityId: input.teamId, note: `メンバー ${input.on ? "追加" : "解除"}: user#${input.userId}` });
       return { success: true as const };
     }),
 });
@@ -780,8 +939,8 @@ const usersRouter = router({
   /** 割当可能な作業員。siteId 指定かつ案件リンク時は出面登録メンバーのみ */
   listAssignable: genbaProcedure
     .input(z.object({ siteId: genbaIdSchema }).optional())
-    .query(async ({ input }) => {
-      return genbaDb.listAssignableUsers(input?.siteId);
+    .query(async ({ ctx, input }) => {
+      return genbaDb.listAssignableUsers(ctx.genbaLink ? ctx.genbaLink.siteId : input?.siteId);
     }),
 
   /**
@@ -817,6 +976,7 @@ const usersRouter = router({
           employeeId: null,
           displayName: u.name || `user#${u.id}`,
           appRole: u.appRole,
+          workerRole: "worker",
           genbaRole: effective(u.id, u.appRole),
           roleOverridden: overrides.has(u.id),
         })),
@@ -834,8 +994,10 @@ const usersRouter = router({
       const { tasks } = await loadSiteTaskContext(site.id);
       const leafIds = tasks.filter((t) => !tasks.some((x) => x.parentTaskId === t.id)).map((t) => t.id);
       const mine = new Set<string>();
-      (await genbaDb.listTaskIdsAssignedToUser(leafIds, ctx.user.id)).forEach((id) => mine.add(id));
-      const myTeams = await myTeamIdsForSite(site.id, ctx.user.id);
+      const meId = uid(ctx);
+      if (meId == null) continue;
+      (await genbaDb.listTaskIdsAssignedToUser(leafIds, meId)).forEach((id) => mine.add(id));
+      const myTeams = await myTeamIdsForSite(site.id, meId);
       if (myTeams.size) {
         const taskTeams = await genbaDb.listTaskTeamsByTaskIds(leafIds);
         for (const tt of taskTeams) if (myTeams.has(tt.teamId)) mine.add(tt.taskId);
@@ -859,6 +1021,11 @@ const usersRouter = router({
   setGenbaRole: genbaAdminProcedure
     .input(z.object({ userId: z.number().int().positive(), role: z.enum(["admin", "leader", "worker"]).nullable() }))
     .mutation(async ({ ctx, input }) => {
+      // オーナー(appRole=super_admin)の権限は誰からも変更・消去できない
+      const targetAppRole = await genbaDb.getUserAppRoleById(input.userId);
+      if (targetAppRole === "super_admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "オーナーの権限は変更できません" });
+      }
       const countAdmins = async () => {
         const appAdminIds = await genbaDb.listAppAdminUserIds();
         const overrides = new Map((await genbaDb.listGenbaUserRoles()).map((r) => [r.userId, r.role]));
@@ -885,7 +1052,7 @@ const usersRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "最後の管理者は降格できません" });
       }
 
-      await safeGenbaAuditLog(ctx.user.id, "genba.users.setGenbaRole", { note: `genba役割を変更: user#${input.userId} → ${input.role ?? "上書き解除"}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.users.setGenbaRole", { note: `genba役割を変更: user#${input.userId} → ${input.role ?? "上書き解除"}` });
       return { success: true as const };
     }),
 });
@@ -924,14 +1091,16 @@ const boardRouter = router({
 // ── instructions (M3-B) ──
 
 /** 指定ユーザーが所属する現場の班IDセット */
-async function myTeamIdsForSite(siteId: string, userId: number): Promise<Set<string>> {
+async function myTeamIdsForSite(siteId: string, userId: number | null): Promise<Set<string>> {
+  if (userId == null) return new Set();
   const teams = await genbaDb.listGenbaTeamsBySite(siteId);
   const members = await genbaDb.listGenbaTeamMembers(teams.map((t) => t.id));
   return new Set(members.filter((m) => m.userId === userId).map((m) => m.teamId));
 }
 
 /** 指示が自分宛てか (all / 自分の班 / 自分個人) */
-function instructionTargetedTo(inst: { targetKind: string; targetId: string | null }, userId: number, myTeamIds: Set<string>): boolean {
+function instructionTargetedTo(inst: { targetKind: string; targetId: string | null }, userId: number | null, myTeamIds: Set<string>): boolean {
+  if (userId == null) return inst.targetKind === "all";
   if (inst.targetKind === "all") return true;
   if (inst.targetKind === "team") return !!inst.targetId && myTeamIds.has(inst.targetId);
   if (inst.targetKind === "worker") return inst.targetId === String(userId);
@@ -942,9 +1111,9 @@ const instructionsRouter = router({
   /** 自分宛ての指示一覧 (field は全件)。既読フラグ・既読者ID付き */
   listForMe: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ ctx, input }) => {
     const all = await genbaDb.listGenbaInstructionsBySite(input.siteId);
-    const myTeamIds = await myTeamIdsForSite(input.siteId, ctx.user.id);
+    const myTeamIds = await myTeamIdsForSite(input.siteId, uid(ctx));
     const visible = ctx.genbaRole === "worker"
-      ? all.filter((i) => instructionTargetedTo(i, ctx.user.id, myTeamIds))
+      ? all.filter((i) => instructionTargetedTo(i, uid(ctx), myTeamIds))
       : all;
     const reads = await genbaDb.listGenbaInstructionReads(visible.map((i) => i.id));
     const readersByInst = new Map<string, number[]>();
@@ -952,18 +1121,20 @@ const instructionsRouter = router({
     return visible
       .map((i) => {
         const readerIds = readersByInst.get(i.id) || [];
-        return { ...i, readerIds, read: readerIds.includes(ctx.user.id), mine: instructionTargetedTo(i, ctx.user.id, myTeamIds) };
+        const meId = uid(ctx);
+        return { ...i, readerIds, read: meId == null ? true : readerIds.includes(meId), mine: instructionTargetedTo(i, meId, myTeamIds) };
       })
       .reverse(); // 新しい順
   }),
 
   /** 自分宛ての未読件数 */
   unreadCount: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ ctx, input }) => {
+    if (uid(ctx) == null) return 0; // ゲストリンク: 既読を保持できないためバッジは出さない
     const all = await genbaDb.listGenbaInstructionsBySite(input.siteId);
-    const myTeamIds = await myTeamIdsForSite(input.siteId, ctx.user.id);
-    const mine = all.filter((i) => instructionTargetedTo(i, ctx.user.id, myTeamIds));
+    const myTeamIds = await myTeamIdsForSite(input.siteId, uid(ctx));
+    const mine = all.filter((i) => instructionTargetedTo(i, uid(ctx), myTeamIds));
     const reads = await genbaDb.listGenbaInstructionReads(mine.map((i) => i.id));
-    const readSet = new Set(reads.filter((r) => r.userId === ctx.user.id).map((r) => r.instructionId));
+    const readSet = new Set(reads.filter((r) => r.userId === uid(ctx)).map((r) => r.instructionId));
     return mine.filter((i) => !readSet.has(i.id)).length;
   }),
 
@@ -984,9 +1155,9 @@ const instructionsRouter = router({
       const inst = await genbaDb.createGenbaInstruction({
         id, siteId: input.siteId, text: input.text,
         targetKind: input.targetKind, targetId: input.targetId ?? null,
-        zoneId: input.zoneId ?? null, byUserId: ctx.user.id,
+        zoneId: input.zoneId ?? null, byUserId: uid(ctx),
       });
-      await safeGenbaAuditLog(ctx.user.id, "genba.instructions.create", { entityId: id, note: `指示を送信 (${input.targetKind})` });
+      await safeGenbaAuditLog(uid(ctx), "genba.instructions.create", { entityId: id, note: `指示を送信 (${input.targetKind})` });
       return inst;
     }),
 
@@ -994,7 +1165,9 @@ const instructionsRouter = router({
   markRead: genbaProcedure.input(z.object({ instructionId: genbaIdSchema })).mutation(async ({ ctx, input }) => {
     const inst = await genbaDb.getGenbaInstructionById(input.instructionId);
     if (!inst) throw new TRPCError({ code: "NOT_FOUND", message: "指示が見つかりません" });
-    await genbaDb.addGenbaInstructionRead({ id: nanoid(21), instructionId: input.instructionId, userId: ctx.user.id });
+    const meId = uid(ctx);
+    if (meId == null) return { success: true as const }; // ゲストは既読を保持しない
+    await genbaDb.addGenbaInstructionRead({ id: nanoid(21), instructionId: input.instructionId, userId: meId });
     return { success: true as const };
   }),
 });
@@ -1045,13 +1218,13 @@ const materialsRouter = router({
         unit: it.unit || "個",
       }));
       const request = await genbaDb.createGenbaMaterialRequest(
-        { id, siteId: input.siteId, byUserId: ctx.user.id, status: "pending", note: input.note?.trim() || null },
+        { id, siteId: input.siteId, byUserId: uid(ctx), status: "pending", note: input.note?.trim() || null },
         items,
       );
-      await safeGenbaAuditLog(ctx.user.id, "genba.materials.createRequest", { entityId: id, note: `資材依頼 (${items.length}品目, ${site.name})` });
+      await safeGenbaAuditLog(uid(ctx), "genba.materials.createRequest", { entityId: id, note: `資材依頼 (${items.length}品目, ${site.name})` });
       // 学習ログ: カタログ外(自由入力)判定して記録
       for (const it of items) {
-        await safeGenbaActivity("material", ctx.user.id, { siteId: input.siteId, name: it.name, qty: it.qty, unit: it.unit, freeInput: !CATALOG_LABELS.has(it.name) });
+        await safeGenbaActivity("material", uid(ctx), { siteId: input.siteId, name: it.name, qty: it.qty, unit: it.unit, freeInput: !CATALOG_LABELS.has(it.name) });
       }
       return request ? { ...request, items: items.map((it) => ({ id: it.id, name: it.name, qty: it.qty, unit: it.unit })) } : null;
     }),
@@ -1062,12 +1235,13 @@ const materialsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaMaterialRequestById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "依頼が見つかりません" });
+      assertLinkSiteId(ctx, existing.siteId);
       const now = new Date();
       const patch: { status: "pending" | "ordered" | "delivered"; orderedAt?: Date; deliveredAt?: Date } = { status: input.status };
       if (input.status === "ordered" && !existing.orderedAt) patch.orderedAt = now;
       if (input.status === "delivered" && !existing.deliveredAt) patch.deliveredAt = now;
       const request = await genbaDb.updateGenbaMaterialRequest(input.id, patch);
-      await safeGenbaAuditLog(ctx.user.id, "genba.materials.updateStatus", { entityId: input.id, note: `資材依頼を${input.status}に変更` });
+      await safeGenbaAuditLog(uid(ctx), "genba.materials.updateStatus", { entityId: input.id, note: `資材依頼を${input.status}に変更` });
       return request;
     }),
 
@@ -1077,12 +1251,14 @@ const materialsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaMaterialRequestById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "依頼が見つかりません" });
+      assertLinkSiteId(ctx, existing.siteId);
       const isField = ctx.genbaRole !== "worker";
-      if (!isField && !(existing.byUserId === ctx.user.id && existing.status === "pending")) {
+      const meId = uid(ctx);
+      if (!isField && !(meId != null && existing.byUserId === meId && existing.status === "pending")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "この依頼は取り消せません" });
       }
       await genbaDb.deleteGenbaMaterialRequestCascade(input.id);
-      await safeGenbaAuditLog(ctx.user.id, "genba.materials.cancelRequest", { entityId: input.id, note: "資材依頼を取り消し" });
+      await safeGenbaAuditLog(uid(ctx), "genba.materials.cancelRequest", { entityId: input.id, note: "資材依頼を取り消し" });
       return { success: true as const };
     }),
 
@@ -1111,13 +1287,17 @@ const materialsRouter = router({
       if (input.id) {
         const existing = await genbaDb.getGenbaMaterialPresetById(input.id);
         if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "プリセットが見つかりません" });
+        assertLinkSiteId(ctx, existing.siteId);
         const preset = await genbaDb.updateGenbaMaterialPreset(input.id, { workName: input.workName, parts: input.parts });
-        await safeGenbaAuditLog(ctx.user.id, "genba.materials.savePreset", { entityId: input.id, note: `プリセットを更新: ${input.workName}` });
+        await safeGenbaAuditLog(uid(ctx), "genba.materials.savePreset", { entityId: input.id, note: `プリセットを更新: ${input.workName}` });
         return preset;
+      }
+      if (ctx.genbaLink && (input.siteId ?? null) !== ctx.genbaLink.siteId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "この現場のリンクでは操作できません" });
       }
       const id = nanoid(21);
       const preset = await genbaDb.createGenbaMaterialPreset({ id, siteId: input.siteId ?? null, workName: input.workName, parts: input.parts });
-      await safeGenbaAuditLog(ctx.user.id, "genba.materials.savePreset", { entityId: id, note: `プリセットを作成: ${input.workName}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.materials.savePreset", { entityId: id, note: `プリセットを作成: ${input.workName}` });
       return preset;
     }),
 
@@ -1126,8 +1306,9 @@ const materialsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaMaterialPresetById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "プリセットが見つかりません" });
+      assertLinkSiteId(ctx, existing.siteId);
       await genbaDb.deleteGenbaMaterialPreset(input.id);
-      await safeGenbaAuditLog(ctx.user.id, "genba.materials.removePreset", { entityId: input.id, note: `プリセットを削除: ${existing.workName}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.materials.removePreset", { entityId: input.id, note: `プリセットを削除: ${existing.workName}` });
       return { success: true as const };
     }),
 });
@@ -1163,12 +1344,12 @@ const templatesRouter = router({
   }),
 
   /** テンプレートツリーを丸ごと保存 (置き換え) */
-  saveTree: genbaFieldProcedure
+  saveTree: genbaStaffFieldProcedure
     .input(z.object({ tree: z.array(templateNodeSchema) }))
     .mutation(async ({ ctx, input }) => {
       const rows = flattenTemplateTree(input.tree, null);
       await genbaDb.replaceGenbaTaskTemplates(rows);
-      await safeGenbaAuditLog(ctx.user.id, "genba.templates.saveTree", { note: `テンプレートを更新 (${rows.length}項目)` });
+      await safeGenbaAuditLog(uid(ctx), "genba.templates.saveTree", { note: `テンプレートを更新 (${rows.length}項目)` });
       return { success: true as const, count: rows.length };
     }),
 });
@@ -1177,12 +1358,12 @@ const shareScopesSchema = z.array(z.enum(SHARE_SCOPES)).min(1, "公開範囲を1
 
 const sharesRouter = router({
   /** 共有リンク一覧 (field)。token を含むので URL 生成に使える */
-  list: genbaFieldProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+  list: genbaStaffFieldProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
     return genbaDb.listGenbaSharesBySite(input.siteId);
   }),
 
   /** 共有リンク作成 (field)。token を生成し、scopes/expiresAt を保存 */
-  create: genbaFieldProcedure
+  create: genbaStaffFieldProcedure
     .input(z.object({
       siteId: genbaIdSchema,
       name: z.string().trim().min(1).max(120),
@@ -1199,18 +1380,18 @@ const sharesRouter = router({
         scopes: input.scopes,
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       });
-      await safeGenbaAuditLog(ctx.user.id, "genba.shares.create", { entityId: id, note: `共有リンクを作成: ${input.name} [${input.scopes.join(",")}]` });
+      await safeGenbaAuditLog(uid(ctx), "genba.shares.create", { entityId: id, note: `共有リンクを作成: ${input.name} [${input.scopes.join(",")}]` });
       return share;
     }),
 
   /** 共有リンクの失効 (field) */
-  revoke: genbaFieldProcedure
+  revoke: genbaStaffFieldProcedure
     .input(z.object({ id: genbaIdSchema }))
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaShareById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "共有リンクが見つかりません" });
       await genbaDb.deleteGenbaShare(input.id);
-      await safeGenbaAuditLog(ctx.user.id, "genba.shares.revoke", { entityId: input.id, note: `共有リンクを失効: ${existing.name}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.shares.revoke", { entityId: input.id, note: `共有リンクを失効: ${existing.name}` });
       return { success: true as const };
     }),
 
@@ -1297,7 +1478,7 @@ const budgetsRouter = router({
       // decimal 列は文字列で保存 (drizzle decimal)
       if (input.preManDays !== undefined) patch.preManDays = input.preManDays.toFixed(1);
       const budget = await genbaDb.upsertGenbaBudget(input.siteId, patch);
-      await safeGenbaAuditLog(ctx.user.id, "genba.budgets.save", { entityId: input.siteId, note: `予算設定を保存 (${site.name})` });
+      await safeGenbaAuditLog(uid(ctx), "genba.budgets.save", { entityId: input.siteId, note: `予算設定を保存 (${site.name})` });
       return budget;
     }),
 
@@ -1307,7 +1488,7 @@ const budgetsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const id = nanoid(21);
       const row = await genbaDb.addGenbaBudgetAttendance({ id, siteId: input.siteId, date: input.date, manDays: input.manDays.toFixed(1) });
-      await safeGenbaAuditLog(ctx.user.id, "genba.budgets.addManualAttendance", { entityId: id, note: `出面 ${input.date}: ${input.manDays}人工` });
+      await safeGenbaAuditLog(uid(ctx), "genba.budgets.addManualAttendance", { entityId: id, note: `出面 ${input.date}: ${input.manDays}人工` });
       return row ? { ...row, manDays: Number(row.manDays) } : null;
     }),
 
@@ -1317,7 +1498,7 @@ const budgetsRouter = router({
       const existing = await genbaDb.getGenbaBudgetAttendanceById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "出面記録が見つかりません" });
       await genbaDb.deleteGenbaBudgetAttendance(input.id);
-      await safeGenbaAuditLog(ctx.user.id, "genba.budgets.removeManualAttendance", { entityId: input.id, note: "出面記録を削除" });
+      await safeGenbaAuditLog(uid(ctx), "genba.budgets.removeManualAttendance", { entityId: input.id, note: "出面記録を削除" });
       return { success: true as const };
     }),
 
@@ -1432,10 +1613,10 @@ const dispatchesRouter = router({
       const uniqueIds = Array.from(new Set(input.userIds));
       const assignees = uniqueIds.map((userId) => ({ id: nanoid(21), dispatchId: id, userId }));
       const dispatch = await genbaDb.createGenbaDispatch(
-        { id, siteId: input.siteId, zoneId: input.zoneId, taskId: input.taskId, date, memo: input.memo?.trim() || null, byUserId: ctx.user.id, done: false },
+        { id, siteId: input.siteId, zoneId: input.zoneId, taskId: input.taskId, date, memo: input.memo?.trim() || null, byUserId: uid(ctx), done: false },
         assignees,
       );
-      await safeGenbaAuditLog(ctx.user.id, "genba.dispatches.create", { entityId: id, note: `急ぎ手配 ${date}: ${task.name} → ${uniqueIds.length}名` });
+      await safeGenbaAuditLog(uid(ctx), "genba.dispatches.create", { entityId: id, note: `急ぎ手配 ${date}: ${task.name} → ${uniqueIds.length}名` });
       return dispatch ? { ...dispatch, assigneeIds: uniqueIds } : null;
     }),
 
@@ -1445,14 +1626,15 @@ const dispatchesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaDispatchById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "手配が見つかりません" });
+      assertLinkSiteId(ctx, existing.siteId);
       if (ctx.genbaRole === "worker") {
         const assignees = await genbaDb.listGenbaDispatchAssignees([input.id]);
-        if (!assignees.some((a) => a.userId === ctx.user.id)) {
+        if (!assignees.some((a) => a.userId === uid(ctx))) {
           throw new TRPCError({ code: "FORBIDDEN", message: "自分の手配のみ更新できます" });
         }
       }
       const dispatch = await genbaDb.updateGenbaDispatch(input.id, { done: input.done });
-      await safeGenbaAuditLog(ctx.user.id, "genba.dispatches.setDone", { entityId: input.id, note: input.done ? "対応済み" : "未対応へ戻す" });
+      await safeGenbaAuditLog(uid(ctx), "genba.dispatches.setDone", { entityId: input.id, note: input.done ? "対応済み" : "未対応へ戻す" });
       return dispatch;
     }),
 
@@ -1462,8 +1644,9 @@ const dispatchesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaDispatchById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "手配が見つかりません" });
+      assertLinkSiteId(ctx, existing.siteId);
       await genbaDb.deleteGenbaDispatchCascade(input.id);
-      await safeGenbaAuditLog(ctx.user.id, "genba.dispatches.remove", { entityId: input.id, note: "急ぎ手配を削除" });
+      await safeGenbaAuditLog(uid(ctx), "genba.dispatches.remove", { entityId: input.id, note: "急ぎ手配を削除" });
       return { success: true as const };
     }),
 });
@@ -1520,7 +1703,7 @@ async function loadSiteTaskContext(siteId: string) {
 /** 管理: リンクの発行/一覧/失効/有効化/再発行/削除 (field=リーダー以上) */
 const workerLinksRouter = router({
   /** 現場のリンク一覧 (名簿情報つき)。token も返す (管理画面のコピー用) */
-  list: genbaFieldProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+  list: genbaStaffFieldProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
     const links = await genbaDb.listGenbaWorkerLinksBySite(input.siteId);
     const workers = await genbaDb.listGenbaSiteWorkersByIds(links.map((l) => l.siteWorkerId));
     const byId = new Map(workers.map((w) => [w.id, w]));
@@ -1535,64 +1718,81 @@ const workerLinksRouter = router({
   }),
 
   /** 発行/再発行: 名簿行に1本。既存があれば token を差し替えて有効化 (旧URLは即無効) */
-  issue: genbaFieldProcedure
+  issue: genbaStaffFieldProcedure
     .input(z.object({
       siteWorkerId: genbaIdSchema,
-      role: z.enum(["worker", "leader"]).default("worker"),
+      role: z.enum(["worker", "leader"]).optional(),
       /** 有効期限 (日数)。null/省略で無期限 */
       expiresDays: z.number().int().min(1).max(365).nullish(),
     }))
     .mutation(async ({ ctx, input }) => {
       const worker = await genbaDb.getGenbaSiteWorkerById(input.siteWorkerId);
       if (!worker) throw new TRPCError({ code: "NOT_FOUND", message: "作業員が名簿に見つかりません" });
+      const existing = await genbaDb.getGenbaWorkerLinkBySiteWorker(input.siteWorkerId);
+      // 権限の変更は admin のみ。それ以外は既存リンク or 名簿の役割を引き継ぐ (再発行で権限が変わらない)
+      const fallback = (existing?.role === "leader" || (worker as any).role === "leader") ? "leader" as const : "worker" as const;
+      const role = ctx.genbaRole === "admin" && input.role ? input.role : fallback;
       const token = nanoid(32);
       const expiresAt = input.expiresDays ? new Date(Date.now() + input.expiresDays * 86400000) : null;
-      const existing = await genbaDb.getGenbaWorkerLinkBySiteWorker(input.siteWorkerId);
       let link;
       if (existing) {
-        link = await genbaDb.updateGenbaWorkerLink(existing.id, { token, role: input.role, active: true, expiresAt });
+        link = await genbaDb.updateGenbaWorkerLink(existing.id, { token, role, active: true, expiresAt });
       } else {
         link = await genbaDb.createGenbaWorkerLink({
           id: nanoid(21), siteId: worker.siteId, siteWorkerId: worker.id,
-          token, role: input.role, active: true, expiresAt, createdByUserId: ctx.user.id,
+          token, role, active: true, expiresAt, createdByUserId: uid(ctx),
         });
       }
-      await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.issue", { entityId: link?.id, note: `作業員リンクを${existing ? "再発行" : "発行"}: ${worker.displayName} (${input.role})` });
+      await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.issue", { entityId: link?.id, note: `作業員リンクを${existing ? "再発行" : "発行"}: ${worker.displayName} (${role})` });
       return link;
     }),
 
+  /** 名簿の役割変更 (admin専用): ゲスト等の現場内役割。既存リンクの権限も同期する */
+  setWorkerRole: genbaAdminProcedure
+    .input(z.object({ siteWorkerId: genbaIdSchema, role: z.enum(["worker", "leader"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const worker = await genbaDb.getGenbaSiteWorkerById(input.siteWorkerId);
+      if (!worker) throw new TRPCError({ code: "NOT_FOUND", message: "作業員が名簿に見つかりません" });
+      await genbaDb.updateGenbaSiteWorkerRole(input.siteWorkerId, input.role);
+      const link = await genbaDb.getGenbaWorkerLinkBySiteWorker(input.siteWorkerId);
+      if (link) await genbaDb.updateGenbaWorkerLink(link.id, { role: input.role });
+      await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.setWorkerRole", { entityId: input.siteWorkerId, note: `現場内役割を変更: ${worker.displayName} → ${input.role}` });
+      return { success: true as const };
+    }),
+
   /** 無効化 / 有効化 (ソフト。トークンはそのまま) */
-  setActive: genbaFieldProcedure
+  setActive: genbaStaffFieldProcedure
     .input(z.object({ id: genbaIdSchema, active: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaWorkerLinkById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "リンクが見つかりません" });
       const link = await genbaDb.updateGenbaWorkerLink(input.id, { active: input.active });
       const worker = await genbaDb.getGenbaSiteWorkerById(existing.siteWorkerId);
-      await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.setActive", { entityId: input.id, note: `作業員リンクを${input.active ? "有効化" : "無効化"}: ${worker?.displayName ?? existing.siteWorkerId}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.setActive", { entityId: input.id, note: `作業員リンクを${input.active ? "有効化" : "無効化"}: ${worker?.displayName ?? existing.siteWorkerId}` });
       return link;
     }),
 
-  /** リンク権限の変更 (worker/leader) */
-  setRole: genbaFieldProcedure
+  /** リンク権限の変更 (worker/leader, admin専用)。名簿の役割も同期して再発行時に維持する */
+  setRole: genbaAdminProcedure
     .input(z.object({ id: genbaIdSchema, role: z.enum(["worker", "leader"]) }))
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaWorkerLinkById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "リンクが見つかりません" });
       const link = await genbaDb.updateGenbaWorkerLink(input.id, { role: input.role });
-      await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.setRole", { entityId: input.id, note: `作業員リンクの権限を${input.role}へ変更` });
+      await genbaDb.updateGenbaSiteWorkerRole(existing.siteWorkerId, input.role);
+      await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.setRole", { entityId: input.id, note: `作業員リンクの権限を${input.role}へ変更` });
       return link;
     }),
 
   /** リストから完全消去 (物理削除) */
-  remove: genbaFieldProcedure
+  remove: genbaStaffFieldProcedure
     .input(z.object({ id: genbaIdSchema }))
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaWorkerLinkById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "リンクが見つかりません" });
       const worker = await genbaDb.getGenbaSiteWorkerById(existing.siteWorkerId);
       await genbaDb.deleteGenbaWorkerLink(input.id);
-      await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.remove", { entityId: input.id, note: `作業員リンクを削除: ${worker?.displayName ?? existing.siteWorkerId}` });
+      await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.remove", { entityId: input.id, note: `作業員リンクを削除: ${worker?.displayName ?? existing.siteWorkerId}` });
       return { success: true as const };
     }),
 });
@@ -1739,20 +1939,32 @@ const workerLinkRouter = router({
 export const genbaRouter = router({
   /** ログインユーザーの genba 上のプロフィール + 個人設定 */
   me: genbaProcedure.query(async ({ ctx }) => {
-    let settings = await genbaDb.getGenbaUserSettings(ctx.user.id);
+    if (ctx.genbaLink) {
+      const meId = uid(ctx);
+      const settings = meId != null ? await genbaDb.getGenbaUserSettings(meId) : null;
+      return {
+        userId: meId,
+        name: ctx.genbaLink.displayName,
+        genbaRole: ctx.genbaRole,
+        settings: settings ?? { userId: meId ?? 0, ...genbaDb.GENBA_DEFAULT_USER_SETTINGS },
+        link: { siteId: ctx.genbaLink.siteId, kind: meId != null ? "registered" as const : "guest" as const },
+      };
+    }
+    let settings = await genbaDb.getGenbaUserSettings(uid(ctx) as number);
     if (!settings) {
       // 無ければデフォルト生成 (DB未接続時はデフォルト値のみ返す)
       try {
-        settings = await genbaDb.upsertGenbaUserSettings(ctx.user.id, {});
+        settings = await genbaDb.upsertGenbaUserSettings(uid(ctx) as number, {});
       } catch {
         settings = null;
       }
     }
     return {
-      userId: ctx.user.id,
-      name: ctx.user.name ?? null,
+      userId: uid(ctx),
+      name: ctx.user?.name ?? null,
       genbaRole: ctx.genbaRole,
-      settings: settings ?? { userId: ctx.user.id, ...genbaDb.GENBA_DEFAULT_USER_SETTINGS },
+      settings: settings ?? { userId: uid(ctx) ?? 0, ...genbaDb.GENBA_DEFAULT_USER_SETTINGS },
+      link: null,
     };
   }),
 

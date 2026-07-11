@@ -5,6 +5,7 @@ import { Map as MapIcon, ClipboardList, Megaphone, LayoutGrid, BarChart3, Wallet
 import { resolveGenbaTheme, genbaThemeTokens } from "@shared/genba/themes";
 import type { GenbaLang } from "@shared/genba/i18n";
 import { useGenbaOutbox } from "@/lib/useGenbaOutbox";
+import { getGenbaLinkPrefs, setGenbaLinkPrefs, type GenbaLinkPrefs } from "@/lib/genbaLinkToken";
 import FloorWorkspace from "./FloorWorkspace";
 import TasksTab from "./TasksTab";
 import DashTab from "./DashTab";
@@ -21,6 +22,8 @@ type Me = {
   name: string | null;
   genbaRole: "admin" | "leader" | "worker";
   settings: { theme: string | null; lang: string | null; color: string | null; guideSeen: boolean };
+  /** 作業員リンクセッション時のみ (genba.me): リンクの現場と種別 */
+  link?: { siteId: string; kind: "registered" | "guest" } | null;
 };
 type Site = { id: string; name: string; driveUrl: string | null; projectId: number | null };
 
@@ -34,16 +37,25 @@ const ROLE_ICON: Record<string, string> = { admin: "🛠", leader: "⭐", worker
  * ヘッダ(現場切替+ユーザー+言語) + タブ内容 + 下部タブバー。テーマトークンで統一感を出す。
  */
 export default function GenbaShell({
-  me, sites, onCreateSite, onSitesChanged,
+  me, sites, onCreateSite, onSitesChanged, linkMode,
 }: {
   me: Me;
   sites: Site[];
   onCreateSite: () => void;
   onSitesChanged: () => void;
+  /** 作業員リンクセッション (ログイン無し・現場固定)。現場作成/共有/リンク管理などを隠す */
+  linkMode?: boolean;
 }) {
   const utils = trpc.useUtils();
-  const theme = resolveGenbaTheme(me.settings.theme);
-  const lang = (me.settings.lang === "pt" ? "pt" : "ja") as GenbaLang;
+  // ゲスト (アカウント無しリンク) はサーバーに設定を保存できないため端末保存 (localStorage)
+  const isGuest = !!linkMode && me.userId == null;
+  const [guestPrefs, setGuestPrefs] = useState<GenbaLinkPrefs>(() => (isGuest ? getGenbaLinkPrefs() : {}));
+  const updateGuestPrefs = (patch: GenbaLinkPrefs) => { setGenbaLinkPrefs(patch); setGuestPrefs(getGenbaLinkPrefs()); };
+  const effSettings = isGuest
+    ? { ...me.settings, theme: guestPrefs.theme ?? me.settings.theme, lang: guestPrefs.lang ?? me.settings.lang }
+    : me.settings;
+  const theme = resolveGenbaTheme(effSettings.theme);
+  const lang = (effSettings.lang === "pt" ? "pt" : "ja") as GenbaLang;
   const isAdmin = me.genbaRole === "admin";
   const canEdit = me.genbaRole !== "worker";
 
@@ -68,9 +80,13 @@ export default function GenbaShell({
   );
   const settingsMut = trpc.genba.settings.update.useMutation({ onSuccess: () => utils.genba.me.invalidate() });
 
-  // 初回ガイド
+  // 初回ガイド (ゲストは端末保存の既読フラグ)
   useEffect(() => {
-    if (!me.settings.guideSeen) { setShowGuide(true); settingsMut.mutate({ guideSeen: true }); }
+    if (isGuest) {
+      if (!getGenbaLinkPrefs().guideSeen) { setShowGuide(true); updateGuestPrefs({ guideSeen: true }); }
+    } else if (!me.settings.guideSeen) {
+      setShowGuide(true); settingsMut.mutate({ guideSeen: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me.userId]);
 
@@ -96,7 +112,7 @@ export default function GenbaShell({
   return (
     <div
       className="flex flex-col rounded-2xl overflow-hidden border shadow-sm -m-1"
-      style={{ ...genbaThemeTokens(me.settings.theme), background: theme.appBg, borderColor: "rgba(0,0,0,0.08)", minHeight: "calc(100dvh - 6.5rem)" } as CSSProperties}
+      style={{ ...genbaThemeTokens(effSettings.theme), background: theme.appBg, borderColor: "rgba(0,0,0,0.08)", minHeight: linkMode ? "calc(100dvh - 0.5rem)" : "calc(100dvh - 6.5rem)" } as CSSProperties}
     >
       {/* ヘッダ */}
       <header
@@ -123,7 +139,7 @@ export default function GenbaShell({
           </select>
           <ChevronDown className="h-4 w-4 absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none opacity-70" />
         </div>
-        {canEdit && (
+        {canEdit && !linkMode && (
           <button
             onClick={onCreateSite}
             className="shrink-0 inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-semibold"
@@ -133,7 +149,11 @@ export default function GenbaShell({
           </button>
         )}
         <button
-          onClick={() => settingsMut.mutate({ lang: lang === "ja" ? "pt" : "ja" })}
+          onClick={() => {
+            const next = lang === "ja" ? "pt" : "ja";
+            if (isGuest) updateGuestPrefs({ lang: next });
+            else settingsMut.mutate({ lang: next });
+          }}
           className="shrink-0 rounded-lg px-2 py-1.5 text-sm"
           style={{ background: "rgba(255,255,255,0.14)" }}
           title="日本語 / Português"
@@ -150,6 +170,9 @@ export default function GenbaShell({
         <span className="inline-flex items-center gap-1.5 font-semibold text-foreground">
           <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: me.settings.color || theme.accent }} />
           {me.name || "ユーザー"} <span className="opacity-70">{ROLE_ICON[me.genbaRole]} {ROLE_LABEL[me.genbaRole]}</span>
+          {me.link?.kind === "guest" && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "rgba(246,170,0,0.18)", color: "#8a6d00" }}>ゲスト</span>
+          )}
         </span>
         <span className="ml-auto flex items-center gap-2">
           {!outbox.online && (
@@ -202,10 +225,13 @@ export default function GenbaShell({
         {tab === "settings" && (
           <GenbaSettingsPanel
             embedded
-            settings={me.settings}
+            settings={effSettings}
             site={site}
             isAdmin={isAdmin}
             canEdit={canEdit}
+            linkMode={linkMode}
+            isGuest={isGuest}
+            onGuestPrefsChange={updateGuestPrefs}
             onOpenGuide={() => setShowGuide(true)}
             onSitesChanged={onSitesChanged}
           />

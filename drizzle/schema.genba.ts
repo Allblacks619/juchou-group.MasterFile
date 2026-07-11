@@ -430,6 +430,8 @@ export const genbaSiteWorkers = mysqlTable("genba_site_workers", {
   guestName: varchar("guestName", { length: 128 }),
   /** registered=登録作業員 / guest=ゲスト */
   kind: mysqlEnum("genbaSiteWorkerKind", ["registered", "guest"]).default("registered").notNull(),
+  /** この現場での役割 (worker/leader)。専用リンクの権限の既定値になる (G-full) */
+  role: varchar("role", { length: 16 }).default("worker").notNull(),
   /** 表示名 (出面/ユーザー名のスナップショット) */
   displayName: varchar("displayName", { length: 128 }).notNull(),
   active: boolean("active").default(true).notNull(),

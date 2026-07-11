@@ -16,7 +16,7 @@ type SettingsSite = { id: string; name: string; driveUrl: string | null; project
 
 /** 設定タブ (プロトタイプ SettingsTab 相当): 現場管理・現場ツール・言語・テーマ・表示色・ガイド */
 export default function GenbaSettingsPanel({
-  settings, open, onOpenChange, onOpenGuide, embedded, site, isAdmin, canEdit, onSitesChanged,
+  settings, open, onOpenChange, onOpenGuide, embedded, site, isAdmin, canEdit, onSitesChanged, linkMode, isGuest, onGuestPrefsChange,
 }: {
   settings: { theme: string | null; lang: string | null; color: string | null; guideSeen: boolean };
   open?: boolean;
@@ -27,12 +27,24 @@ export default function GenbaSettingsPanel({
   isAdmin?: boolean;
   canEdit?: boolean;
   onSitesChanged?: () => void;
+  /** 作業員リンクセッション: 現場管理・共有・リンク管理・テンプレ・学習を隠す (班は残す) */
+  linkMode?: boolean;
+  /** アカウント無しゲスト: テーマ/言語は端末保存、表示色は非表示 */
+  isGuest?: boolean;
+  onGuestPrefsChange?: (patch: { theme?: string | null; lang?: string | null }) => void;
 }) {
   const utils = trpc.useUtils();
-  const update = trpc.genba.settings.update.useMutation({
+  const updateMut = trpc.genba.settings.update.useMutation({
     onSuccess: () => { utils.genba.me.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
+  // ゲストはサーバー保存できないため端末保存 (theme/lang のみ)
+  const update = {
+    mutate: (patch: { theme?: string; lang?: string; color?: string }) => {
+      if (isGuest) onGuestPrefsChange?.(patch);
+      else updateMut.mutate(patch);
+    },
+  };
   const lang = (settings.lang === "pt" ? "pt" : "ja") as GenbaLang;
   const t = (ja: string, pt: string) => (lang === "pt" ? pt : ja);
 
@@ -47,32 +59,38 @@ export default function GenbaSettingsPanel({
   const setDrive = trpc.genba.sites.setDriveUrl.useMutation({ onSuccess: () => { utils.genba.sites.list.invalidate(); onSitesChanged?.(); toast.success(t("Driveリンクを更新しました", "Link atualizado")); }, onError: (e) => toast.error(e.message) });
   const archive = trpc.genba.sites.archive.useMutation({ onSuccess: () => { utils.genba.sites.list.invalidate(); onSitesChanged?.(); toast.success(t("現場を削除しました", "Obra removida")); }, onError: (e) => toast.error(e.message) });
   const setProject = trpc.genba.sites.setProject.useMutation({ onSuccess: () => { utils.genba.sites.list.invalidate(); utils.genba.budgets.invalidate?.(); onSitesChanged?.(); toast.success(t("案件連携を更新しました", "Vínculo atualizado")); }, onError: (e) => toast.error(e.message) });
-  const { data: projects } = trpc.genba.sites.listProjects.useQuery(undefined, { enabled: !!canEdit && !!site, retry: false, staleTime: 60 * 1000 });
+  const { data: projects } = trpc.genba.sites.listProjects.useQuery(undefined, { enabled: !!canEdit && !!site && !linkMode, retry: false, staleTime: 60 * 1000 });
   const projectList = (projects || []) as { id: number; name: string; status: string }[];
 
   const inner = (
     <>
       {!embedded && <DialogHeader><DialogTitle>⚙ {t("設定", "Config.")}</DialogTitle></DialogHeader>}
 
-      {/* 現場ツール (field) */}
+      {/* 現場ツール (field)。リンクセッションは班のみ (共有/リンク管理/テンプレ/学習はログイン必須) */}
       {canEdit && (
         <div className="rounded-xl border border-border p-3 space-y-2">
           <div className="text-sm font-bold text-foreground">🏗 {t("現場ツール", "Ferramentas da obra")}</div>
           <div className="grid grid-cols-2 gap-2">
             <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowTeams(true)}><Users className="h-4 w-4 mr-1.5" />{t("班・メンバー", "Turmas")}</Button>
-            <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowTemplate(true)}><ListChecks className="h-4 w-4 mr-1.5" />{t("作業テンプレート", "Modelo de tarefas")}</Button>
-            <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowShares(true)}><Share2 className="h-4 w-4 mr-1.5" />{t("外部共有リンク", "Compartilhar")}</Button>
-            <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowWorkerLinks(true)}><Share2 className="h-4 w-4 mr-1.5" />{t("作業員リンク", "Links de trabalhador")}</Button>
-            <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowInsights(true)}><TrendingUp className="h-4 w-4 mr-1.5" />{t("学習と改善", "Aprendizado")}</Button>
+            {!linkMode && (
+              <>
+                <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowTemplate(true)}><ListChecks className="h-4 w-4 mr-1.5" />{t("作業テンプレート", "Modelo de tarefas")}</Button>
+                <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowShares(true)}><Share2 className="h-4 w-4 mr-1.5" />{t("外部共有リンク", "Compartilhar")}</Button>
+                <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowWorkerLinks(true)}><Share2 className="h-4 w-4 mr-1.5" />{t("作業員リンク", "Links de trabalhador")}</Button>
+                <Button variant="outline" size="sm" className="justify-start" onClick={() => setShowInsights(true)}><TrendingUp className="h-4 w-4 mr-1.5" />{t("学習と改善", "Aprendizado")}</Button>
+              </>
+            )}
           </div>
-          <p className="text-[11px] text-muted-foreground pt-1">
-            {t("工事案件の連携は下の「この現場」から設定できます。作業員ごとの専用リンクは「作業員リンク」から発行できます。", "O vínculo com a obra fica em “Esta obra”. Links por trabalhador em “Links de trabalhador”.")}
-          </p>
+          {!linkMode && (
+            <p className="text-[11px] text-muted-foreground pt-1">
+              {t("工事案件の連携は下の「この現場」から設定できます。作業員ごとの専用リンクは「作業員リンク」から発行できます。", "O vínculo com a obra fica em “Esta obra”. Links por trabalhador em “Links de trabalhador”.")}
+            </p>
+          )}
         </div>
       )}
 
-      {/* 現場の編集・削除 */}
-      {canEdit && site && (
+      {/* 現場の編集・削除 (リンクセッションでは非表示) */}
+      {canEdit && site && !linkMode && (
         <div className="rounded-xl border border-border p-3 space-y-3">
           <div className="text-sm font-bold text-foreground">📍 {t("この現場", "Esta obra")}</div>
           <div className="space-y-1.5">
@@ -149,7 +167,8 @@ export default function GenbaSettingsPanel({
         </div>
       </div>
 
-      {/* 表示色 */}
+      {/* 表示色 (ゲストはアカウントが無いため非表示) */}
+      {!isGuest && (
       <div className="rounded-xl border border-border p-3">
         <div className="text-sm font-bold mb-2 text-foreground">🎯 {t("表示色（配置ボード等）", "Sua cor (alocação)")}</div>
         <div className="flex items-center gap-2">
@@ -157,6 +176,7 @@ export default function GenbaSettingsPanel({
           <span className="text-xs text-muted-foreground">{settings.color || t("未設定（自動）", "Automático")}</span>
         </div>
       </div>
+      )}
 
       {/* ガイド */}
       <div className="rounded-xl border border-border p-3 flex items-center gap-2">
