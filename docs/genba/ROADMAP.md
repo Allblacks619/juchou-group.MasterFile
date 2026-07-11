@@ -54,3 +54,26 @@
 - 画像はR2キーのみDB保存。base64禁止
 - UI/挙動の正はdocs/genba/prototype/GenbaAppV18.jsx。CUD配色はテーマ不変
 ```
+
+---
+
+## 実装状況 (2026-07-11 時点・自動追記)
+
+M1〜M5 は全て main へマージ済み。さらにオーナー要望「配置された作業員の入口」を Gシリーズとして追加実装済み。
+
+| フェーズ | 状態 | 主なPR |
+|---|---|---|
+| M1 基盤 (20テーブル/権限/監査/GENBA_ENABLED) | ✅ | #68 |
+| M2 コア (図面/エリア/作業/進捗) | ✅ | #75 #80 |
+| M3 協働 (班/指示/引き継ぎ/配置ボード) | ✅ | #84 #86 #87 |
+| M4 材料/予算/共有/学習/i18n/テーマ/ガイド | ✅ | #88 ほか (budget.ts/insights.ts/share.ts/i18n.ts/themes.ts) |
+| M5 PWA/アウトボックス/仕上げ | ✅ | manifest+sw.js / genbaOutbox / swStrategy |
+| G1 現場名簿 (出面連動候補+ゲスト配置) | ✅ | #122 (migration 0033) |
+| G2 作業員専用リンク+リンク管理画面 | ✅ | #123 #125 (migration 0034) |
+| G3 自分の作業/ダッシュボード導線/genba内権限上書き | ✅ | #124 (migration 0035) |
+
+補足:
+- 旧 #113(UX修正)・#116(旧M4-C) は main の刷新により superseded で close (内容は #121/#123/#124 で置換)。
+- genba ルーターに未実装スタブは残っていない (materials/shares/budgets/logs/dispatches/workerLinks 全て実装済み)。
+- genba マイグレーションは 0029/0031〜0035。ゲストの安定IDは genba_site_workers、作業員リンクは genba_worker_links、役割上書きは genba_user_roles。
+- 作業員リンクの権限: worker=自分の担当のみ更新 / leader=現場全葉タスク。公開ペイロードはホワイトリスト払い出し (share.ts / workerLink.view)。
