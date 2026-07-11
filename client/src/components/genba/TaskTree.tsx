@@ -10,6 +10,7 @@ import StatusModal, { type SetStatusPayload } from "./StatusModal";
 import TaskDetailModal from "./TaskDetailModal";
 import AssignPicker from "./AssignPicker";
 import { enqueueStatus, isNetworkError } from "@/lib/genbaOutbox";
+import { dispName } from "@/lib/genbaRomaji";
 
 /** ゾーン配下の作業ツリー (プロトタイプ TaskTree/TaskRow 移植)。進捗登録・詳細・追加・担当割当。 */
 export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged }: { zoneId: string; siteId: string; meUserId: number | null; canEdit: boolean; onChanged: () => void }) {
@@ -105,7 +106,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
           )}
           <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setDetailTask(task)}>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className={`text-sm ${isLeaf ? "" : "font-bold"}`}>{task.name}</span>
+              <span className={`text-sm ${isLeaf ? "" : "font-bold"}`}>{dispName(task.name, task.romaji)}</span>
               {!isLeaf && <span className="text-xs text-muted-foreground tabular-nums">{Math.round(prog)}%</span>}
               {task.dueDate && <span className={`text-[11px] px-1.5 py-0.5 rounded ${overdue ? "bg-destructive/10 text-destructive font-bold" : "bg-muted text-muted-foreground"}`}>📅 {fmtDate(task.dueDate)}{overdue ? " 期限超過" : ""}</span>}
               {task.memo && task.memoVisible && <span title="メモあり">📝</span>}

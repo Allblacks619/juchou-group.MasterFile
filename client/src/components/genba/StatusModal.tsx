@@ -6,6 +6,7 @@ import { Loader2, Camera, X } from "lucide-react";
 import { STATUS } from "@/lib/genbaMap";
 import { fileToResizedImage } from "@/lib/genbaUpload";
 import type { GenbaTaskDto } from "@/lib/genbaTask";
+import { dispName } from "@/lib/genbaRomaji";
 
 export type SetStatusPayload = {
   status: "todo" | "progress" | "done" | "issue";
@@ -57,7 +58,7 @@ export default function StatusModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>進捗を登録: {task.name}</DialogTitle>
+          <DialogTitle>進捗を登録: {dispName(task.name, (task as any).romaji)}</DialogTitle>
         </DialogHeader>
 
         {progressOpen ? (

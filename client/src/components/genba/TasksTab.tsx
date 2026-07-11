@@ -5,6 +5,7 @@ import { PRIORITY, STATUS } from "@/lib/genbaMap";
 import type { ZoneWithAgg } from "./ZoneSheet";
 import TaskTree from "./TaskTree";
 import StatusModal, { type SetStatusPayload } from "./StatusModal";
+import { dispName } from "@/lib/genbaRomaji";
 
 type MineTask = { id: string; zoneId: string; zoneName: string; name: string; romaji: string | null; status: "todo" | "progress" | "done" | "issue"; percent: number | null; dueDate: string | null; issueText: string | null };
 
@@ -76,7 +77,7 @@ export default function TasksTab({ siteId, meUserId, canEdit }: { siteId: string
         return (
           <div key={z.id} className="rounded-xl border border-border bg-card/60 overflow-hidden" style={{ borderLeft: `5px solid ${pr ? pr.color : "#cbd5e1"}` }}>
             <div className="flex items-center gap-2 px-3 py-2 bg-muted/40">
-              <strong className="text-sm">{z.workStatus === "paused" ? "⏸ " : ""}{z.name}</strong>
+              <strong className="text-sm">{z.workStatus === "paused" ? "⏸ " : ""}{dispName(z.name)}</strong>
               {pr && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: pr.color, color: pr.text }}>{pr.label}</span>}
               <span className="ml-auto text-xs text-muted-foreground tabular-nums">{Math.round(z.progress)}%{z.issues > 0 ? ` · ⚠${z.issues}` : ""}</span>
             </div>
@@ -112,7 +113,7 @@ function MyTasksList({ siteId }: { siteId: string }) {
     <div className="space-y-2">
       {Array.from(grouped.entries()).map(([zoneName, ts]) => (
         <div key={zoneName} className="rounded-xl border border-border overflow-hidden">
-          <div className="px-3 py-1.5 bg-muted/40 text-xs font-bold">📍 {zoneName}</div>
+          <div className="px-3 py-1.5 bg-muted/40 text-xs font-bold">📍 {dispName(zoneName)}</div>
           <div className="divide-y divide-border/60">
             {ts.map((t) => {
               const st = STATUS[t.status];
@@ -123,7 +124,7 @@ function MyTasksList({ siteId }: { siteId: string }) {
                     {st.icon} {t.status === "progress" ? `${t.percent ?? 50}%` : st.label}
                   </button>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm truncate">{t.name}</div>
+                    <div className="text-sm truncate">{dispName(t.name, t.romaji)}</div>
                     {t.dueDate && <div className="text-[11px] text-muted-foreground">📅 {t.dueDate}</div>}
                     {t.status === "issue" && t.issueText && <div className="text-[11px] text-[#b91c1c]">⚠ {t.issueText}</div>}
                   </div>

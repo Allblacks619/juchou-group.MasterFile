@@ -2,6 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { dispName } from "@/lib/genbaRomaji";
 
 /** 学習と改善提案 (プロトタイプ InsightsCard 移植・field): 利用ログから自動生成 */
 export default function InsightsPanel({
@@ -48,7 +49,7 @@ export default function InsightsPanel({
           <div key={p.name} className="rounded-lg border border-border p-2 flex items-center gap-2">
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold">📦 手入力の材料をプリセット化</div>
-              <div className="text-xs text-muted-foreground truncate">{p.name}（{p.count}回入力）</div>
+              <div className="text-xs text-muted-foreground truncate">{dispName(p.name)}（{p.count}回入力）</div>
             </div>
             <Button size="sm" onClick={() => addPreset(p.name)} disabled={promote.isPending}>プリセットに追加</Button>
           </div>
@@ -78,7 +79,7 @@ export default function InsightsPanel({
             {d!.topMaterials.map((m, i) => (
               <div key={m.name} className="flex items-center gap-2 py-1 border-b border-border/40 text-sm">
                 <span className="text-muted-foreground w-5">{i + 1}.</span>
-                <span className="flex-1 truncate">{m.name}</span>
+                <span className="flex-1 truncate">{dispName(m.name)}</span>
                 <strong className="tabular-nums">{m.qty}</strong>
               </div>
             ))}
@@ -90,7 +91,7 @@ export default function InsightsPanel({
             <div className="text-xs font-bold text-muted-foreground mb-1">問題が多いエリア</div>
             {d!.topIssueZones.map((z) => (
               <div key={z.zoneId} className="flex items-center gap-2 py-1 border-b border-border/40 text-sm">
-                <span className="flex-1">{z.name}</span>
+                <span className="flex-1">{dispName(z.name)}</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: "#FF4B00" }}>⚠ {z.count}</span>
               </div>
             ))}

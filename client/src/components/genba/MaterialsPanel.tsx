@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { MATERIAL_MASTER, MASTER_FLAT, UNITS, MREQ_STATUS } from "@shared/genba/catalog";
+import { dispName } from "@/lib/genbaRomaji";
 
 type ReqItem = { id: string; name: string; qty: number; unit: string | null };
 type MatRequest = {
@@ -144,7 +145,7 @@ export default function MaterialsPanel({
             {aggRows.length === 0 && <p className="text-sm text-muted-foreground py-2">該当する依頼はありません。</p>}
             {aggRows.map((row, i) => (
               <div key={i} className="flex items-center gap-2 py-1.5 border-b border-border/50">
-                <span className="text-sm flex-1">{row.name}</span>
+                <span className="text-sm flex-1">{dispName(row.name)}</span>
                 <span className="text-[11px] text-muted-foreground">{row.count}件</span>
                 <strong className="text-base tabular-nums">{row.qty}</strong>
                 <span className="text-xs text-muted-foreground min-w-[20px]">{row.unit}</span>
@@ -160,11 +161,11 @@ export default function MaterialsPanel({
               <div className="flex gap-2 flex-wrap">
                 <select value={groupSel} onChange={(e) => { setGroupSel(e.target.value); setPresetPart(""); }} className="flex-1 min-w-[130px] rounded-md border border-border bg-background p-2 text-sm">
                   <option value="">分類を選択</option>
-                  {groups.map((g) => <option key={g.key} value={g.key}>{g.name}</option>)}
+                  {groups.map((g) => <option key={g.key} value={g.key}>{dispName(g.name)}</option>)}
                 </select>
                 <select value={presetPart} onChange={(e) => pickPresetPart(e.target.value)} disabled={!group} className="flex-[1.4] min-w-[150px] rounded-md border border-border bg-background p-2 text-sm disabled:opacity-50">
                   <option value="">材料を選択</option>
-                  {group?.parts.map((pt, i) => <option key={i} value={pt.label}>{pt.label}</option>)}
+                  {group?.parts.map((pt, i) => <option key={i} value={pt.label}>{dispName(pt.label)}</option>)}
                 </select>
               </div>
 
@@ -177,7 +178,7 @@ export default function MaterialsPanel({
                     {suggestions.map((sug, i) => (
                       <button key={i} className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-muted text-left"
                         onClick={() => { setFreeName(sug.label); setUnit(sug.unit); }}>
-                        <span className="flex-1">{sug.label}</span>
+                        <span className="flex-1">{dispName(sug.label)}</span>
                         <span className="text-[10px] text-muted-foreground">{sug.g}</span>
                       </button>
                     ))}
@@ -200,7 +201,7 @@ export default function MaterialsPanel({
                 <div className="rounded-md border border-border p-2 space-y-1">
                   {cart.map((item, i) => (
                     <div key={i} className="flex items-center gap-2 py-1 border-b border-border/40 last:border-0">
-                      <span className="text-sm flex-1">{item.name}</span>
+                      <span className="text-sm flex-1">{dispName(item.name)}</span>
                       <strong className="tabular-nums text-sm">× {item.qty}{item.unit}</strong>
                       <button className="text-[#FF4B00] text-sm" onClick={() => setCart((c) => c.filter((_, j) => j !== i))}>✕</button>
                     </div>
@@ -226,7 +227,7 @@ export default function MaterialsPanel({
                   </div>
                   {r.items.map((item) => (
                     <div key={item.id} className="flex items-center justify-between text-sm py-0.5 border-b border-border/30">
-                      <span>{item.name}</span>
+                      <span>{dispName(item.name)}</span>
                       <strong className="tabular-nums">× {item.qty}{item.unit || "個"}</strong>
                     </div>
                   ))}
