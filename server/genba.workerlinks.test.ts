@@ -150,7 +150,10 @@ describe("genba 作業員専用リンク (G2)", () => {
       if (!res.ok) throw new Error("expected ok");
       expect(res.me).toEqual({ displayName: "応援太郎", kind: "guest", role: "worker" });
       expect(res.myTasks.map((t) => t.id)).toEqual(["t1"]); // t2(未割当), t3(他ゾーン) は出ない
-      expect(res.zones.map((z) => z.id)).toEqual([ZONE.id]); // 自分の担当があるゾーンのみ
+      // 図面はアプリ内と同様に全体が見える。自分の担当エリアは mine=true で示す
+      expect(res.zones).toHaveLength(2);
+      expect(res.zones.find((z) => z.id === ZONE.id)?.mine).toBe(true);
+      expect(res.zones.find((z) => z.id === "Genba_Beta_Z2")?.mine).toBe(false);
       expect(res.instructions.map((i) => i.id)).toEqual(["i1"]); // 全員宛てのみ (個人宛user99は出ない)
       expect(mockGenbaDb.touchGenbaWorkerLinkAccess).toHaveBeenCalledWith(LINK().id);
       const raw = JSON.stringify(res);
@@ -159,13 +162,27 @@ describe("genba 作業員専用リンク (G2)", () => {
       expect(raw).not.toContain("drive.example"); // driveUrl 非公開
     });
 
-    it("leaderリンク: 現場の全葉タスクと全ゾーンが見える", async () => {
+    it("leaderリンク: 現場の全葉タスクが更新対象・全ゾーンが mine", async () => {
       mockPublicHappyPath();
       mockGenbaDb.getGenbaWorkerLinkByToken.mockResolvedValue(LINK({ role: "leader" }));
       const res = await anon().genba.workerLink.view({ token: LINK().token });
       if (!res.ok) throw new Error("expected ok");
       expect(res.myTasks.map((t) => t.id).sort()).toEqual(["t1", "t2", "t3"]);
-      expect(res.zones).toHaveLength(2);
+      expect(res.zones.every((z) => z.mine)).toBe(true);
+    });
+
+    it("作業員向けメモ (memoVisible) は公開・非公開メモは返さない", async () => {
+      mockPublicHappyPath();
+      mockGenbaDb.listGenbaTasksByZoneIds.mockResolvedValue([
+        T("t1", { memo: "作業員向けの手順メモ", memoVisible: true }),
+        T("t2"),
+        T("t3", { zoneId: "Genba_Beta_Z2" }),
+      ]);
+      const res = await anon().genba.workerLink.view({ token: LINK().token });
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.myTasks[0].memo).toBe("作業員向けの手順メモ");
+      const raw = JSON.stringify(res);
+      expect(raw).not.toContain("社内メモ"); // memoVisible=false のメモ (t2/t3) は出ない
     });
   });
 

@@ -9,7 +9,7 @@ import StatusModal, { type SetStatusPayload } from "@/components/genba/StatusMod
 type MyTask = {
   id: string; zoneId: string; zoneName: string; name: string; romaji: string | null;
   status: "todo" | "progress" | "done" | "issue"; percent: number | null;
-  dueDate: string | null; issueText: string | null;
+  dueDate: string | null; issueText: string | null; memo?: string | null;
 };
 
 /**
@@ -26,8 +26,14 @@ export default function AppGenbaWorker() {
     onSuccess: () => { utils.genba.workerLink.view.invalidate({ token }); toast.success("更新しました"); },
     onError: (e) => toast.error(e.message),
   });
+  const reply = trpc.genba.workerLink.reply.useMutation({
+    onSuccess: () => { toast.success("コメントを送信しました"); setCommentFor(null); setCommentText(""); },
+    onError: (e) => toast.error(e.message),
+  });
   const [statusTask, setStatusTask] = useState<MyTask | null>(null);
   const [activeFloorId, setActiveFloorId] = useState<string | null>(null);
+  const [commentFor, setCommentFor] = useState<string | null>(null);
+  const [commentText, setCommentText] = useState("");
 
   const tasks = ((data && data.ok ? data.myTasks : []) || []) as MyTask[];
   const grouped = useMemo(() => {
@@ -81,8 +87,8 @@ export default function AppGenbaWorker() {
         {(data.instructions || []).length > 0 && (
           <section className="rounded-xl border border-border overflow-hidden">
             <div className="px-3 py-2 bg-muted/50 text-sm font-bold flex items-center gap-1.5"><Megaphone className="h-4 w-4" /> 指示</div>
-            <div className="divide-y divide-border/60">
-              {data.instructions.slice(0, 5).map((i) => (
+            <div className="divide-y divide-border/60 max-h-64 overflow-y-auto">
+              {data.instructions.map((i) => (
                 <div key={i.id} className="px-3 py-2 text-sm whitespace-pre-wrap">{i.text}</div>
               ))}
             </div>
@@ -115,8 +121,23 @@ export default function AppGenbaWorker() {
                       <div className="min-w-0 flex-1">
                         <div className="text-sm truncate">{t.name}</div>
                         {t.dueDate && <div className="text-[11px] text-muted-foreground">📅 {t.dueDate}</div>}
+                        {t.memo && <div className="text-[11px] text-muted-foreground whitespace-pre-wrap">📝 {t.memo}</div>}
                         {t.status === "issue" && t.issueText && <div className="text-[11px] text-[#b91c1c]">⚠ {t.issueText}</div>}
+                        {commentFor === t.id && (
+                          <div className="mt-1.5 flex gap-1.5">
+                            <input value={commentText} onChange={(e) => setCommentText(e.target.value)}
+                              placeholder="コメント (例: 資材が足りません)"
+                              className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+                            <button
+                              onClick={() => { const v = commentText.trim(); if (v) reply.mutate({ token, taskId: t.id, text: v }); }}
+                              disabled={reply.isPending || !commentText.trim()}
+                              className="text-xs font-bold rounded px-2.5 py-1.5 bg-[#005AFF] text-white disabled:opacity-50">送信</button>
+                          </div>
+                        )}
                       </div>
+                      <button
+                        onClick={() => { setCommentFor(commentFor === t.id ? null : t.id); setCommentText(""); }}
+                        className="shrink-0 text-lg leading-none p-1 rounded hover:bg-muted" title="コメントを送る">💬</button>
                     </div>
                   );
                 })}
@@ -140,19 +161,24 @@ export default function AppGenbaWorker() {
             <div className="rounded-xl border border-border overflow-hidden">
               <svg viewBox={`0 0 ${activeFloor.w || 1280} ${activeFloor.h || 906}`} className="w-full h-auto block">
                 <image href={activeFloor.imageUrl} width={activeFloor.w || 1280} height={activeFloor.h || 906} />
-                {floorZones.map((z) => {
+                {floorZones.map((z: any) => {
                   const poly = z.polygon as { x: number; y: number }[];
                   if (!Array.isArray(poly) || poly.length < 3) return null;
+                  const mine = !!z.mine;
                   return (
                     <g key={z.id}>
-                      <path d={polyPath(poly)} fill="rgba(0,90,255,0.18)" stroke="#005AFF" strokeWidth={5} />
-                      <text x={poly[0].x} y={poly[0].y - 8} fontSize={26} fontWeight={800} fill="#0f172a" stroke="#fff" strokeWidth={5} paintOrder="stroke">{z.name}</text>
+                      <path d={polyPath(poly)}
+                        fill={mine ? "rgba(0,90,255,0.18)" : "rgba(100,116,139,0.08)"}
+                        stroke={mine ? "#005AFF" : "#94a3b8"} strokeWidth={mine ? 5 : 3}
+                        strokeDasharray={mine ? "none" : "12 8"} />
+                      <text x={poly[0].x} y={poly[0].y - 8} fontSize={mine ? 26 : 20} fontWeight={800}
+                        fill={mine ? "#0f172a" : "#64748b"} stroke="#fff" strokeWidth={5} paintOrder="stroke">{z.name}</text>
                     </g>
                   );
                 })}
               </svg>
             </div>
-            <p className="text-[11px] text-muted-foreground">青枠があなたの担当エリアです。</p>
+            <p className="text-[11px] text-muted-foreground">青枠があなたの担当エリア、点線は他のエリアです。</p>
           </section>
         )}
       </div>
