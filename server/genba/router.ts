@@ -1619,10 +1619,12 @@ const workerLinkRouter = router({
         id: t.id, zoneId: t.zoneId, zoneName: zoneName(t.zoneId),
         name: t.name, romaji: t.romaji, status: t.status, percent: t.percent,
         dueDate: t.dueDate, issueText: t.issueText,
+        // 作業員向けメモ (memoVisible のときだけ公開。非公開メモは返さない)
+        memo: t.memoVisible ? t.memo : null,
       }))
       .sort((a, b) => a.zoneName.localeCompare(b.zoneName, "ja") || a.name.localeCompare(b.name, "ja"));
 
-    // 図面 (署名URL) と自分の担当があるゾーンのみのポリゴン (leaderリンクは全ゾーン)
+    // 図面 (署名URL)。ゾーンはアプリ内と同様に全体を返し、自分の担当エリアは mine で示す
     const floorsWithUrls = await withFloorImageUrls(floors);
     const myZoneIds = new Set(myTasks.map((t) => t.zoneId));
 
@@ -1640,8 +1642,11 @@ const workerLinkRouter = router({
       me: { displayName: worker.displayName, kind: worker.kind, role: link.role },
       floors: floorsWithUrls.map((f) => ({ id: f.id, name: f.name, imageUrl: f.imageUrl, w: f.w, h: f.h })),
       zones: zones
-        .filter((z) => link.role === "leader" || myZoneIds.has(z.id) || (z.parentZoneId && myZoneIds.has(z.parentZoneId)))
-        .map((z) => ({ id: z.id, floorId: z.floorId, parentZoneId: z.parentZoneId, name: z.name, polygon: z.polygon, priority: z.priority, color: (z as any).color ?? null, fillOpacity: (z as any).fillOpacity ?? null })),
+        .map((z) => ({
+          id: z.id, floorId: z.floorId, parentZoneId: z.parentZoneId, name: z.name, polygon: z.polygon,
+          priority: z.priority, color: (z as any).color ?? null, fillOpacity: (z as any).fillOpacity ?? null,
+          mine: link.role === "leader" || myZoneIds.has(z.id) || (!!z.parentZoneId && myZoneIds.has(z.parentZoneId)),
+        })),
       myTasks,
       instructions: myInst,
     };
