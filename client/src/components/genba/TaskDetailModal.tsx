@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Trash2, Plus, ExternalLink, Share2 } from "lucide-react";
-import { romanize } from "@/lib/genbaRomaji";
+import { romanize, dispName } from "@/lib/genbaRomaji";
 import { todayStr, fmtDate, type GenbaTaskDto } from "@/lib/genbaTask";
 
 /** 作業詳細 (プロトタイプ TaskDetailModal 移植): 名前/ローマ字/期限/リンク/メモ/問題写真/引き継ぎ/削除/サブ作業 */
@@ -55,7 +55,7 @@ export default function TaskDetailModal({
               <Input value={name} onChange={(e) => setName(e.target.value)}
                 onBlur={() => name.trim() && name !== task.name && update.mutate({ id: task.id, name: name.trim() })}
                 className="font-bold" />
-            ) : task.name}
+            ) : dispName(task.name, task.romaji)}
           </DialogTitle>
         </DialogHeader>
 

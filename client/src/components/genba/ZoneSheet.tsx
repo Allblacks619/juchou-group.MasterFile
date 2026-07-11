@@ -3,6 +3,7 @@ import { PRIORITY, ZONE_COLORS, zoneFillStyle } from "@/lib/genbaMap";
 import { Button } from "@/components/ui/button";
 import { X, Pencil, Trash2, Plus, ChevronLeft, ZoomIn } from "lucide-react";
 import TaskTree from "./TaskTree";
+import { dispName } from "@/lib/genbaRomaji";
 
 export type ZoneWithAgg = {
   id: string;
@@ -55,10 +56,10 @@ export default function ZoneSheet({
       <div className="flex items-center gap-2">
         {parent && (
           <Button variant="ghost" size="sm" className="px-1" onClick={() => onSelectZone(parent.id)}>
-            <ChevronLeft className="h-4 w-4" /> {parent.name}
+            <ChevronLeft className="h-4 w-4" /> {dispName(parent.name)}
           </Button>
         )}
-        <strong className="text-base truncate">{zone.workStatus === "paused" ? "⏸ " : ""}{zone.name}</strong>
+        <strong className="text-base truncate">{zone.workStatus === "paused" ? "⏸ " : ""}{dispName(zone.name)}</strong>
         {canEdit && (
           <Button variant="ghost" size="sm" className="px-1" title="名前を変更" onClick={onRename}>
             <Pencil className="h-3.5 w-3.5" />
@@ -167,7 +168,7 @@ export default function ZoneSheet({
               onClick={() => onSelectZone(c.id)}
               className="text-xs px-2 py-1 rounded-lg border border-border hover:bg-muted/50"
             >
-              {c.name} <span className="tabular-nums text-muted-foreground">{Math.round(c.progress)}%</span>
+              {dispName(c.name)} <span className="tabular-nums text-muted-foreground">{Math.round(c.progress)}%</span>
             </button>
           ))}
         </div>

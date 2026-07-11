@@ -86,3 +86,17 @@ export function romanize(text: string): string {
   }
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
+
+/**
+ * 表示言語 (GenbaShell がレンダー時に設定)。プロトタイプのグローバル LANG 相当。
+ * ポルトガル語表示のときだけ dispName が「日本語 — Romaji」を返す。
+ */
+let displayLang: "ja" | "pt" = "ja";
+export function setRomajiLang(lang: "ja" | "pt"): void { displayLang = lang; }
+
+/** 日本語正式名を保ち、PT時のみ「名前 — Romaji」。romaji 未設定は自動変換でフォールバック */
+export function dispName(name: string, romaji?: string | null): string {
+  if (displayLang !== "pt") return name;
+  const r = (romaji && romaji.trim()) || romanize(name);
+  return r && r !== name ? `${name} — ${r}` : name;
+}

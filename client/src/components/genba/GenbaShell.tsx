@@ -16,6 +16,7 @@ import BoardPanel from "./BoardPanel";
 import BudgetPanel from "./BudgetPanel";
 import GenbaSettingsPanel from "./GenbaSettingsPanel";
 import GuideModal from "./GuideModal";
+import { setRomajiLang } from "@/lib/genbaRomaji";
 
 type Me = {
   userId: number | null;
@@ -56,6 +57,7 @@ export default function GenbaShell({
     : me.settings;
   const theme = resolveGenbaTheme(effSettings.theme);
   const lang = (effSettings.lang === "pt" ? "pt" : "ja") as GenbaLang;
+  setRomajiLang(lang); // PT時は作業名/電材名を「日本語 — Romaji」で表示 (dispName)
   const isAdmin = me.genbaRole === "admin";
   const canEdit = me.genbaRole !== "worker";
 

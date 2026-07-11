@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { STATUS, PRIORITY } from "@/lib/genbaMap";
 import { colorForKey } from "@/lib/genbaTeamColor";
+import { dispName } from "@/lib/genbaRomaji";
 
 /** 配置ボード (プロトタイプ BoardTab 移植): 現在の割当から人別/エリア別を自動生成 (毎日の入力不要) */
 export default function BoardPanel({
@@ -57,10 +58,10 @@ export default function BoardPanel({
                   ) : (
                     Array.from(groups.entries()).map(([zoneId, ts]) => (
                       <div key={zoneId} className="mt-2">
-                        <div className="text-xs font-bold text-muted-foreground">📍 {ts[0].zoneName}</div>
+                        <div className="text-xs font-bold text-muted-foreground">📍 {dispName(ts[0].zoneName)}</div>
                         {ts.map((t) => (
                           <div key={t.id} className="flex items-center gap-2 py-1 border-b border-border/50">
-                            <span className="text-sm flex-1">{t.name}</span>
+                            <span className="text-sm flex-1">{dispName(t.name)}</span>
                             {t.status === "progress" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#e0f2fe] text-[#0369a1]">↻ 継続中</span>}
                             <StatusChip s={t.status} />
                           </div>
@@ -84,10 +85,10 @@ export default function BoardPanel({
                   </div>
                   {Array.from(groups.entries()).map(([zoneId, ts]) => (
                     <div key={zoneId} className="mt-2">
-                      <div className="text-xs font-bold text-muted-foreground">📍 {ts[0].zoneName}</div>
+                      <div className="text-xs font-bold text-muted-foreground">📍 {dispName(ts[0].zoneName)}</div>
                       {ts.map((t: any) => (
                         <div key={t.id} className="flex items-center gap-2 py-1 border-b border-border/50">
-                          <span className="text-sm flex-1">{t.name}</span>
+                          <span className="text-sm flex-1">{dispName(t.name)}</span>
                           {t.status === "progress" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#e0f2fe] text-[#0369a1]">↻ 継続中</span>}
                           <StatusChip s={t.status} />
                         </div>

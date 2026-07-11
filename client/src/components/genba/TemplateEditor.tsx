@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2, Pencil } from "lucide-react";
+import { dispName } from "@/lib/genbaRomaji";
 
 type EditNode = { key: string; name: string; children: EditNode[] };
 
@@ -53,7 +54,7 @@ export default function TemplateEditor({ open, onOpenChange }: { open: boolean; 
   const renderNode = (n: EditNode, depth: number): React.ReactNode => (
     <div key={n.key} style={{ paddingLeft: depth * 16 }}>
       <div className="flex items-center gap-1 py-1">
-        <span className="text-sm flex-1 truncate">{n.name}</span>
+        <span className="text-sm flex-1 truncate">{dispName(n.name)}</span>
         <Button variant="ghost" size="sm" className="px-1 h-7" title="名前変更" onClick={() => { const v = window.prompt("名前を変更", n.name); if (v && v.trim()) rename(n.key, v.trim()); }}>
           <Pencil className="h-3.5 w-3.5" />
         </Button>

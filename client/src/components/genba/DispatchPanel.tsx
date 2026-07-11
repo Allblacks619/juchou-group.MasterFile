@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Trash2, Check } from "lucide-react";
 import { colorForKey } from "@/lib/genbaTeamColor";
 import { todayStr } from "@/lib/genbaTask";
+import { dispName } from "@/lib/genbaRomaji";
 
 type Zone = { id: string; floorName: string; name: string };
 type Task = { id: string; name: string; parentTaskId: string | null };
@@ -87,7 +88,7 @@ export default function DispatchPanel({
               </select>
               <select value={taskId} onChange={(e) => setTaskId(e.target.value)} disabled={!zoneId} className="rounded-md border border-border bg-background p-2 text-sm disabled:opacity-50">
                 <option value="">作業を選択</option>
-                {taskList.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {taskList.map((t) => <option key={t.id} value={t.id}>{dispName(t.name, (t as any).romaji)}</option>)}
               </select>
             </div>
 
@@ -133,8 +134,8 @@ export default function DispatchPanel({
                 style={{ borderLeft: "4px solid #FF4B00", outline: mine ? "2px solid #005AFF" : undefined, outlineOffset: -2 }}>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[11px] px-1.5 py-0.5 rounded bg-[#FF4B00] text-white font-bold">⚡ 急ぎ</span>
-                  <strong className="text-sm">📍 {d.zoneName}</strong>
-                  <span className="text-sm">/ {d.taskName}</span>
+                  <strong className="text-sm">📍 {dispName(d.zoneName)}</strong>
+                  <span className="text-sm">/ {dispName(d.taskName)}</span>
                   {scope === "all" && <span className="text-[11px] text-muted-foreground">{d.date}</span>}
                   {d.done && <span className="text-[11px] px-1.5 py-0.5 rounded bg-[#03AF7A] text-white">対応済</span>}
                 </div>
