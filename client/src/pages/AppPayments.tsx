@@ -235,6 +235,7 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
             <thead>
               <tr className="border-b border-border bg-muted/20 text-muted-foreground">
                 <th className="text-left font-medium px-2 py-1.5">現場</th>
+                <th className="text-right font-medium px-2 py-1.5">出勤</th>
                 <th className="text-right font-medium px-2 py-1.5">基本給</th>
                 <th className="text-right font-medium px-2 py-1.5">交通費</th>
                 <th className="text-right font-medium px-2 py-1.5">経費</th>
@@ -247,6 +248,7 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
               {worker.projects.map((p: any) => (
                 <tr key={p.paymentId} className="border-b border-border/50 last:border-0">
                   <td className="px-2 py-1.5">{p.projectName}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{(Number(p.baseDaysTimes10 || 0) / 10).toFixed(1)}日</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{yen(p.baseAmount)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{p.transportAmount ? yen(p.transportAmount) : "—"}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{p.expenseAmount ? yen(p.expenseAmount) : "—"}</td>
@@ -261,6 +263,7 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
                 <td className="px-2 py-1.5 text-right tabular-nums text-gold">{yen(worker.totalAmount)}</td>
                 <td></td>
               </tr>
+              {/* 検算メモ: 基本給＝出勤日数×日単価（日単価は現場×勤務区分の設定を使用） */}
             </tbody>
           </table>
         </div>

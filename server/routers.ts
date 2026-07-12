@@ -4588,6 +4588,7 @@ export const appRouter = router({
             projectId: closing.projectId,
             projectName: project?.name || `案件${closing.projectId}`,
             paymentId: payment.id,
+            baseDaysTimes10: Number(payment.baseDaysTimes10 || 0),
             baseAmount: Number(payment.baseAmount || 0),
             transportAmount: Number(payment.transportAmount || 0),
             expenseAmount: Number(payment.expenseAmount || 0),
