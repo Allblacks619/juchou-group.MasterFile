@@ -32,6 +32,7 @@ import {
   InsertWorkerBaseRate,
   workerAdvances,
   InsertWorkerAdvance,
+  companies, InsertCompany,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -504,6 +505,11 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.employeeId = user.employeeId;
     }
 
+    if (user.companyId !== undefined) {
+      values.companyId = user.companyId;
+      updateSet.companyId = user.companyId;
+    }
+
     if (!values.lastSignedIn) {
       values.lastSignedIn = new Date();
     }
@@ -552,10 +558,33 @@ export async function updateUserPassword(userId: number, passwordHash: string) {
   }).where(eq(users.id, userId));
 }
 
-export async function getAllUsers() {
+export async function getAllUsers(companyId?: number) {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) return db.select().from(users).where(eq(users.companyId, companyId));
   return db.select().from(users);
+}
+
+// ── Companies (テナント台帳 / マルチテナント化 Phase 1a) ──
+
+export async function getAllCompanies() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(companies);
+}
+
+export async function getCompanyById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(companies).where(eq(companies.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function createCompany(data: InsertCompany) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(companies).values(data);
+  return { id: result[0].insertId, ...data };
 }
 
 // ── Invitations ──
@@ -593,10 +622,12 @@ export async function getInvitationsByCreator(createdBy: number) {
   return results.map(({ tempPassword, ...rest }) => rest);
 }
 
-export async function getAllInvitations() {
+export async function getAllInvitations(companyId?: number) {
   const db = await getDb();
   if (!db) return [];
-  const results = await db.select().from(invitations);
+  const results = companyId != null
+    ? await db.select().from(invitations).where(eq(invitations.companyId, companyId))
+    : await db.select().from(invitations);
   // Strip tempPassword from list results for security
   return results.map(({ tempPassword, ...rest }) => rest);
 }
@@ -669,9 +700,10 @@ export async function getEmployeeByUserId(userId: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getAllEmployees() {
+export async function getAllEmployees(companyId?: number) {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) return db.select().from(employees).where(eq(employees.companyId, companyId));
   return db.select().from(employees);
 }
 
@@ -772,9 +804,10 @@ export async function getClientById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getAllClients() {
+export async function getAllClients(companyId?: number) {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) return db.select().from(clients).where(eq(clients.companyId, companyId));
   return db.select().from(clients);
 }
 
@@ -807,9 +840,10 @@ export async function getProjectById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getAllProjects() {
+export async function getAllProjects(companyId?: number) {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) return db.select().from(projects).where(eq(projects.companyId, companyId));
   return db.select().from(projects);
 }
 
