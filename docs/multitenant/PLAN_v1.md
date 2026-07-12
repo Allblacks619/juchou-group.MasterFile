@@ -213,7 +213,7 @@ ccusNumber          -- CCUS番号による会社横断の名寄せキー
 
 | Phase | 内容 | 本番影響 | 完了条件 |
 |---|---|---|---|
-| **0** | 本プラン承認 + シミュレーション基盤: 架空3社シード（甲野電設=元請役 / 自社役 / 丙田工業=三次役、実取引を模す）+ テストフィクスチャ | なし（テストコードのみ） | シードで3社の出面・締め・請求データが再現できる |
+| **0** | 本プラン承認 + シミュレーション基盤: 架空3社シード（甲野電設=元請役 / 乙島電業=自社役 / 丙田工業=三次役、実取引を模す）+ テストフィクスチャ | なし（テストコードのみ） | シードで3社の出面・締め・請求データが再現できる。**✅ 実装済み**: `server/mtSimFixture.ts`（MTSIM 接頭辞・対象月2025-02）+ `mtSimFixture.test.ts`（P1/P2/P3 の請求金額を確定値で検証）+ `mtSim.genbaRoster.test.ts`（元請職人ゲストの名簿連動） |
 | **1a** | テナント基盤(認証・マスタ): companies 新設、users/employees/clients/projects/invitations に companyId 加算+バックフィル、ctx注入 | **なし**（フラグoff時は companyId=1 固定で完全互換） | 対象テーブルの漏洩テスト + 既存 `pnpm test` 全グリーン |
 | **1b** | テナント基盤(業務): attendance/invoices/closings系(V1+V2)/payments/workerInvoices/rates/監査 に companyId 加算、クエリガード | なし（同上） | 漏洩テスト拡張 + 全グリーン |
 | **1c** | テナント基盤(genba): genba 26テーブルに companyId 加算、公開トークンのスコープ検査 | なし（同上） | 漏洩テスト全域 + 全グリーン |
