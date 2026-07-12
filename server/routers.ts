@@ -2508,7 +2508,7 @@ export const appRouter = router({
   }),
 
   workerBaseRate: router({
-    listAll: leaderOrAdminProcedure.query(async () => db.getAllWorkerBaseRates()),
+    listAll: leaderOrAdminProcedure.query(async ({ ctx }) => db.getAllWorkerBaseRates(ctx.companyId)),
     listByEmployee: leaderOrAdminProcedure
       .input(z.object({ employeeId: z.number() }))
       .query(async ({ input }) => db.getWorkerBaseRatesByEmployee(input.employeeId)),
@@ -5274,8 +5274,8 @@ export const appRouter = router({
   }),
   invoice: router({
     /** List all invoices */
-    list: leaderOrAdminProcedure.query(async () => {
-      return db.getAllInvoices();
+    list: leaderOrAdminProcedure.query(async ({ ctx }) => {
+      return db.getAllInvoices(ctx.companyId);
     }),
 
     /** Get single invoice with items */
@@ -6286,11 +6286,11 @@ export const appRouter = router({
     }),
     listForReview: protectedProcedure.query(async ({ ctx }) => {
       if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
-      return db.listWorkerInvoicesForReview();
+      return db.listWorkerInvoicesForReview(ctx.companyId);
     }),
     getForReview: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
       if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
-      const all = await db.listWorkerInvoicesForReview();
+      const all = await db.listWorkerInvoicesForReview(ctx.companyId);
       return all.find((v: any) => v.id === input.invoiceId) || null;
     }),
     approve: protectedProcedure.input(z.object({ invoiceId: z.number() })).mutation(async ({ ctx, input }) => {

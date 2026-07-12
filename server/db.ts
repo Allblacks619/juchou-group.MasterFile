@@ -55,16 +55,20 @@ export async function getDb() {
 
 // ── Monthly Closing V2 ──
 
-export async function getMonthlyClosingV2WorkerSubmissionsByMonth(targetMonth: string) {
+export async function getMonthlyClosingV2WorkerSubmissionsByMonth(targetMonth: string, companyId?: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(monthlyClosingV2WorkerSubmissions).where(eq(monthlyClosingV2WorkerSubmissions.targetMonth, targetMonth));
+  const conds = [eq(monthlyClosingV2WorkerSubmissions.targetMonth, targetMonth)];
+  if (companyId != null) conds.push(eq(monthlyClosingV2WorkerSubmissions.companyId, companyId));
+  return db.select().from(monthlyClosingV2WorkerSubmissions).where(and(...conds));
 }
 
-export async function getMonthlyClosingV2ProjectReviewsByMonth(targetMonth: string) {
+export async function getMonthlyClosingV2ProjectReviewsByMonth(targetMonth: string, companyId?: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(monthlyClosingV2ProjectReviews).where(eq(monthlyClosingV2ProjectReviews.targetMonth, targetMonth));
+  const conds = [eq(monthlyClosingV2ProjectReviews.targetMonth, targetMonth)];
+  if (companyId != null) conds.push(eq(monthlyClosingV2ProjectReviews.companyId, companyId));
+  return db.select().from(monthlyClosingV2ProjectReviews).where(and(...conds));
 }
 
 export async function upsertMonthlyClosingV2ProjectReview(data: {
@@ -85,10 +89,12 @@ export async function upsertMonthlyClosingV2ProjectReview(data: {
   return result[0];
 }
 
-export async function getMonthlyClosingV2ParticipantReviewsByMonth(targetMonth: string) {
+export async function getMonthlyClosingV2ParticipantReviewsByMonth(targetMonth: string, companyId?: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(monthlyClosingV2ParticipantReviews).where(eq(monthlyClosingV2ParticipantReviews.targetMonth, targetMonth));
+  const conds = [eq(monthlyClosingV2ParticipantReviews.targetMonth, targetMonth)];
+  if (companyId != null) conds.push(eq(monthlyClosingV2ParticipantReviews.companyId, companyId));
+  return db.select().from(monthlyClosingV2ParticipantReviews).where(and(...conds));
 }
 
 export async function getMonthlyClosingV2ParticipantReview(targetMonth: string, projectId: number, participantKey: string) {
@@ -224,16 +230,16 @@ export async function getMonthlyClosingV2ExpenseLinesByProjectMonth(
  * 月内すべての交通費行（全現場・全作業員）。月締めV2ダッシュボードで
  * 「交通費が入力済みか（0円=交通費なし も入力済み扱い）」を判定するのに使う。
  */
-export async function getMonthlyClosingV2TransportationLinesByMonth(targetMonth: string) {
+export async function getMonthlyClosingV2TransportationLinesByMonth(targetMonth: string, companyId?: number) {
   const db = await getDb();
   if (!db) return [];
   try {
-    return await db.select().from(monthlyClosingV2ExpenseLines).where(
-      and(
-        eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
-        eq(monthlyClosingV2ExpenseLines.expenseType, "transportation"),
-      )
-    );
+    const conds = [
+      eq(monthlyClosingV2ExpenseLines.targetMonth, targetMonth),
+      eq(monthlyClosingV2ExpenseLines.expenseType, "transportation"),
+    ];
+    if (companyId != null) conds.push(eq(monthlyClosingV2ExpenseLines.companyId, companyId));
+    return await db.select().from(monthlyClosingV2ExpenseLines).where(and(...conds));
   } catch (error) {
     console.error("[db] getMonthlyClosingV2TransportationLinesByMonth failed (table not migrated?)", error);
     return [];
@@ -414,9 +420,10 @@ export async function getWorkerBaseRatesByEmployee(employeeId: number) {
   return db.select().from(workerBaseRates).where(eq(workerBaseRates.employeeId, employeeId));
 }
 
-export async function getAllWorkerBaseRates() {
+export async function getAllWorkerBaseRates(companyId?: number) {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) return db.select().from(workerBaseRates).where(eq(workerBaseRates.companyId, companyId));
   return db.select().from(workerBaseRates);
 }
 
@@ -900,9 +907,10 @@ export async function getRatesByClient(clientId: number) {
   ));
 }
 
-export async function getAllEmployeeRates() {
+export async function getAllEmployeeRates(companyId?: number) {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) return db.select().from(employeeRates).where(eq(employeeRates.companyId, companyId));
   return db.select().from(employeeRates);
 }
 
@@ -935,7 +943,7 @@ export async function getAttendanceById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getAttendanceByDateRange(startDate: Date, endDate: Date, projectId?: number) {
+export async function getAttendanceByDateRange(startDate: Date, endDate: Date, projectId?: number, companyId?: number) {
   const db = await getDb();
   if (!db) return [];
   const conditions = [
@@ -943,6 +951,7 @@ export async function getAttendanceByDateRange(startDate: Date, endDate: Date, p
     lte(attendance.workDate, endDate),
   ];
   if (projectId) conditions.push(eq(attendance.projectId, projectId));
+  if (companyId != null) conditions.push(eq(attendance.companyId, companyId));
   return db.select().from(attendance).where(and(...conditions));
 }
 
@@ -1067,9 +1076,10 @@ export async function getInvoiceById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getAllInvoices() {
+export async function getAllInvoices(companyId?: number) {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) return db.select().from(invoices).where(eq(invoices.companyId, companyId));
   return db.select().from(invoices);
 }
 
@@ -1225,10 +1235,12 @@ export async function getProjectClosingById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getProjectClosingsByMonth(closingMonth: string) {
+export async function getProjectClosingsByMonth(closingMonth: string, companyId?: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(projectClosings).where(eq(projectClosings.closingMonth, closingMonth));
+  const conds = [eq(projectClosings.closingMonth, closingMonth)];
+  if (companyId != null) conds.push(eq(projectClosings.companyId, companyId));
+  return db.select().from(projectClosings).where(and(...conds));
 }
 
 export async function createProjectClosing(data: InsertProjectClosing) {
@@ -1398,9 +1410,10 @@ export async function getWorkerAdvancesByEmployee(employeeId: number) {
   return db.select().from(workerAdvances).where(eq(workerAdvances.employeeId, employeeId));
 }
 
-export async function getAllWorkerAdvances() {
+export async function getAllWorkerAdvances(companyId?: number) {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) return db.select().from(workerAdvances).where(eq(workerAdvances.companyId, companyId));
   return db.select().from(workerAdvances);
 }
 
@@ -1461,13 +1474,15 @@ export async function createAuditLog(data: InsertAuditLog) {
   return { id: result[0].insertId, ...data };
 }
 
-export async function getAuditLogsByMonth(monthKey: string) {
+export async function getAuditLogsByMonth(monthKey: string, companyId?: number) {
   const db = await getDb();
   if (!db) return [];
   const [year, month] = monthKey.split("-").map(Number);
   const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
   const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
-  return db.select().from(auditLogs).where(and(gte(auditLogs.performedAt, start), lte(auditLogs.performedAt, end)));
+  const conds = [gte(auditLogs.performedAt, start), lte(auditLogs.performedAt, end)];
+  if (companyId != null) conds.push(eq(auditLogs.companyId, companyId));
+  return db.select().from(auditLogs).where(and(...conds));
 }
 
 export async function upsertWorkerInvoice(data: InsertWorkerInvoice) {
@@ -1505,9 +1520,10 @@ export async function getWorkerInvoicesByEmployee(employeeId: number) {
   return db.select().from(workerInvoices).where(eq(workerInvoices.employeeId, employeeId));
 }
 
-export async function listWorkerInvoicesForReview() {
+export async function listWorkerInvoicesForReview(companyId?: number) {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) return db.select().from(workerInvoices).where(eq(workerInvoices.companyId, companyId));
   return db.select().from(workerInvoices);
 }
 
