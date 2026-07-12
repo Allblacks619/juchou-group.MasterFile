@@ -55,6 +55,36 @@ export async function storagePut(
   return { key, url };
 }
 
+/**
+ * 保存済みの署名URL（company_profile の sealUrl/logoUrl や invoice.pdfUrl 等）は TTL で失効する。
+ * URLからS3キーを取り出す。path-style（endpoint/bucket/key）と virtual-host 両対応。抽出不能なら null。
+ */
+export function keyFromStoredUrl(storedUrl: string | null | undefined): string | null {
+  if (!storedUrl) return null;
+  try {
+    const { bucket } = getS3Config();
+    const u = new URL(storedUrl);
+    let p = decodeURIComponent(u.pathname).replace(/^\/+/, "");
+    if (p.startsWith(bucket + "/")) p = p.slice(bucket.length + 1);
+    return p || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 保存済み署名URLを新しい署名URLに貼り直す（失効対策）。抽出/署名に失敗したら元のURLを返す。 */
+export async function resignStoredUrl(storedUrl: string | null | undefined): Promise<string | null> {
+  if (!storedUrl) return null;
+  const key = keyFromStoredUrl(storedUrl);
+  if (!key) return storedUrl;
+  try {
+    const { url } = await storageGet(key);
+    return url;
+  } catch {
+    return storedUrl;
+  }
+}
+
 export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
   const { bucket } = getS3Config();
   const key = normalizeKey(relKey);

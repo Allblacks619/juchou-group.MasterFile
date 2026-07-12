@@ -12,6 +12,7 @@
  */
 import PDFDocument from "pdfkit";
 import { Invoice, InvoiceItem, CompanyProfile } from "../drizzle/schema";
+import { resignStoredUrl } from "./storage";
 import https from "https";
 import http from "http";
 import fs from "fs";
@@ -115,7 +116,16 @@ interface InvoicePdfData {
 export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
   const font = await ensureFont();
   const boldFont = await ensureBoldFont();
-  const { invoice, items, company, clientName, clientAddress, clientPostalCode, clientDepartment, clientContactPerson } = data;
+  const { invoice, items, clientName, clientAddress, clientPostalCode, clientDepartment, clientContactPerson } = data;
+  // 会社ロゴ/社印/透かしの保存URLは失効するため、描画前に署名を貼り直す（社印が透かしに見える不具合の修正）。
+  const company = data.company
+    ? {
+        ...data.company,
+        logoUrl: await resignStoredUrl((data.company as any).logoUrl),
+        sealUrl: await resignStoredUrl((data.company as any).sealUrl),
+        watermarkUrl: await resignStoredUrl((data.company as any).watermarkUrl),
+      }
+    : data.company;
   const showSeal = data.showSeal !== false;
   const showLogo = data.showLogo !== false;
 

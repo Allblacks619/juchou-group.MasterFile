@@ -126,10 +126,15 @@ export async function generateAttendancePdf(options: AttendancePdfOptions): Prom
   const guestNames = options.includeGuests === false ? [] : options.guestNames;
   const fillAbsent = options.fillAbsentWeekdays === true;
 
-  // Fetch images
+  // 保存URLは失効するため署名を貼り直してから取得する。
+  const { resignStoredUrl } = await import("./storage");
+  const [resignedLogo, resignedWatermark] = await Promise.all([
+    resignStoredUrl(logoUrl),
+    resignStoredUrl(watermarkUrl),
+  ]);
   const [logoBuffer, watermarkBuffer] = await Promise.all([
-    logoUrl ? fetchImageBuffer(logoUrl) : null,
-    watermarkUrl ? fetchImageBuffer(watermarkUrl) : null,
+    resignedLogo ? fetchImageBuffer(resignedLogo) : null,
+    resignedWatermark ? fetchImageBuffer(resignedWatermark) : null,
   ]);
 
   const monthDate = new Date(year, month - 1, 1);

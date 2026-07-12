@@ -182,6 +182,7 @@ function InvoiceDetailDialog({
   const [selectedDocKeys, setSelectedDocKeys] = useState<Set<string>>(new Set());
   const [subjectDraft, setSubjectDraft] = useState<string | null>(null);
   const [issueDateDraft, setIssueDateDraft] = useState<string | null>(null);
+  const [dueDateDraft, setDueDateDraft] = useState<string | null>(null);
   // 社印・ロゴのレイアウト調整（会社設定として保存。PDFとプレビューの両方に反映）
   const [layoutDraft, setLayoutDraft] = useState<{
     seal: { x: number; y: number; scale: number; opacity: number };
@@ -210,6 +211,7 @@ function InvoiceDetailDialog({
       toast.success("保存しました");
       setSubjectDraft(null);
       setIssueDateDraft(null);
+      setDueDateDraft(null);
       detailQuery.refetch();
     },
     onError: (e: any) => toast.error(`保存エラー: ${e.message}`),
@@ -231,28 +233,19 @@ function InvoiceDetailDialog({
         workReportIncludeTransport: reportIncludeTransport,
       });
       for (const w of res.warnings || []) toast.warning(w, { duration: 8000 });
-      let ok = 0;
-      for (const f of res.files) {
-        try {
-          const r = await fetch(f.url);
-          if (!r.ok) throw new Error(String(r.status));
-          const blob = await r.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = f.fileName;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-          ok += 1;
-          // 連続ダウンロードのブラウザブロックを避けるための間隔
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        } catch {
-          toast.error(`${f.fileName} のダウンロードに失敗しました`);
-        }
-      }
-      toast.success(`${ok}/${res.files.length} 件をダウンロードしました`);
+      // 全ファイルは1つのZIPにまとまっている（モバイルの多重DL制限を回避）→ 1回だけ保存。
+      const r = await fetch(res.zipUrl);
+      if (!r.ok) throw new Error(`ダウンロードに失敗しました（${r.status}）`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.zipFileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`${res.fileCount}件をまとめてダウンロードしました（${res.zipFileName}）`);
       detailQuery.refetch();
     } catch (e: any) {
       toast.error(`一括ダウンロードエラー: ${e?.message || "不明なエラー"}`);
@@ -560,6 +553,27 @@ function InvoiceDetailDialog({
             >
               {updateInvoiceMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               発行日を保存
+            </Button>
+          )}
+          {/* 支払期限（入金期日）: 空欄も可。設定すると請求書に表示される。 */}
+          <div>
+            <Label className="text-xs text-muted-foreground">支払期限（入金期日）</Label>
+            <Input
+              type="date"
+              className="h-9 w-[170px] mt-1"
+              value={dueDateDraft ?? ((invoice as any).dueDate ? format(new Date((invoice as any).dueDate), "yyyy-MM-dd") : "")}
+              onChange={(e) => setDueDateDraft(e.target.value)}
+            />
+          </div>
+          {dueDateDraft !== null && dueDateDraft !== ((invoice as any).dueDate ? format(new Date((invoice as any).dueDate), "yyyy-MM-dd") : "") && (
+            <Button
+              size="sm"
+              className="h-9 gap-1 shrink-0"
+              disabled={updateInvoiceMutation.isPending}
+              onClick={() => updateInvoiceMutation.mutate({ id: invoice.id, dueDate: dueDateDraft || undefined })}
+            >
+              {updateInvoiceMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              支払期限を保存
             </Button>
           )}
           <div className="pb-2 text-xs text-muted-foreground">
@@ -2111,24 +2125,14 @@ export default function AppInvoices() {
                               size="sm"
                               onClick={() => generatePdfMutation.mutate({ id: inv.id })}
                               disabled={generatePdfMutation.isPending}
-                              title="PDF生成"
+                              title="PDF表示・生成（最新の内容で再生成）"
                             >
                               {generatePdfMutation.isPending ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               ) : (
-                                <Download className="h-3.5 w-3.5" />
+                                <FileText className="h-3.5 w-3.5" />
                               )}
                             </Button>
-                            {inv.pdfUrl && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => pdfViewer.open(inv.pdfUrl!, "請求書.pdf", "取引先請求書")}
-                                title="PDF表示"
-                              >
-                                <FileText className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
                             <Button
                               variant="outline"
                               size="sm"

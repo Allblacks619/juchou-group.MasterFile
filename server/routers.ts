@@ -1647,7 +1647,15 @@ export const appRouter = router({
   company: router({
     get: protectedProcedure.query(async () => {
       const profile = await db.getCompanyProfile();
-      return profile ?? null;
+      if (!profile) return null;
+      // ロゴ/社印/透かしの保存URLは失効するため、返す前に署名を貼り直す（プレビューで画像が壊れる不具合の修正）。
+      const { resignStoredUrl } = await import("./storage");
+      const [logoUrl, sealUrl, watermarkUrl] = await Promise.all([
+        resignStoredUrl((profile as any).logoUrl),
+        resignStoredUrl((profile as any).sealUrl),
+        resignStoredUrl((profile as any).watermarkUrl),
+      ]);
+      return { ...profile, logoUrl, sealUrl, watermarkUrl };
     }),
 
     upsert: adminProcedure
@@ -5302,11 +5310,28 @@ export const appRouter = router({
         const client = invoice.clientId ? await db.getClientById(invoice.clientId) : null;
         const clientName = client?.name || "取引先";
         const baseName = invoicePackageBaseName(invoice, clientName);
+        const { storageGetBytes } = await import("./storage");
 
-        const files: Array<{ fileName: string; url: string; kind: "invoice" | "attendance" | "document"; mimeType: string }> = [];
+        // 全ファイルを個別のまま1つのZIPにまとめる（モバイルの多重ダウンロード制限を回避）。
+        const entries: Array<{ fileName: string; buffer: Buffer }> = [];
         const warnings: string[] = [];
+        const usedNames = new Set<string>();
+        const addEntry = (fileName: string, buffer: Buffer) => {
+          // ZIP内でのファイル名衝突を避ける。
+          let name = fileName;
+          if (usedNames.has(name)) {
+            const dot = name.lastIndexOf(".");
+            const stem = dot > 0 ? name.slice(0, dot) : name;
+            const ext = dot > 0 ? name.slice(dot) : "";
+            let i = 2;
+            while (usedNames.has(`${stem} (${i})${ext}`)) i++;
+            name = `${stem} (${i})${ext}`;
+          }
+          usedNames.add(name);
+          entries.push({ fileName: name, buffer });
+        };
 
-        // 1) 請求書PDF
+        // 1) 請求書PDF（毎回最新の会社設定・発行日・社印で再生成）
         const pdfBuffer = await generateInvoicePdf({
           invoice, items, company, clientName,
           clientAddress: client?.address || "",
@@ -5315,28 +5340,21 @@ export const appRouter = router({
           showSeal: invoice.showSeal,
           showLogo: invoice.showLogo,
         });
-        const invoiceKey = `invoices/invoice_${invoice.invoiceNumber}_${Date.now()}.pdf`;
-        const { url: invoiceUrl } = await storagePut(invoiceKey, pdfBuffer, "application/pdf");
+        // プレビュー用に最新PDFのURLも保存しておく（失効しても再生成で復旧できる）。
+        const { url: invoiceUrl } = await storagePut(`invoices/invoice_${invoice.invoiceNumber}_${Date.now()}.pdf`, pdfBuffer, "application/pdf");
         await db.updateInvoice(input.id, { pdfUrl: invoiceUrl });
-        files.push({ fileName: `${baseName}.pdf`, url: invoiceUrl, kind: "invoice", mimeType: "application/pdf" });
+        addEntry(`${baseName}.pdf`, pdfBuffer);
 
         // 2) 出面表（現場別）
         if (input.includeAttendanceSheets) {
           try {
             const built = await buildInvoiceAttendanceSheetBuffers(invoice, { includeGuests: input.includeGuests });
-            const { storagePut: put } = await import("./storage");
             for (const sheet of built.sheets) {
               if (!sheet.hasData) {
                 warnings.push(`${sheet.projectName}: 出面データが無いため出面表を除外しました`);
                 continue;
               }
-              const { url } = await put(`attendance/${sheet.fileName}`, sheet.buffer, "application/pdf");
-              files.push({
-                fileName: `${baseName} 出面表（${sheet.projectName}）.pdf`,
-                url,
-                kind: "attendance",
-                mimeType: "application/pdf",
-              });
+              addEntry(`${baseName} 出面表（${sheet.projectName}）.pdf`, sheet.buffer);
             }
           } catch (e: any) {
             warnings.push(`出面表の生成に失敗したため除外しました（${e?.message || "不明なエラー"}）`);
@@ -5356,12 +5374,12 @@ export const appRouter = router({
             }
             receiptIndex += 1;
             const ext = extFromMime(doc.mimeType, doc.fileName);
-            files.push({
-              fileName: `${baseName} 領収書${receiptIndex}.${ext}`,
-              url: doc.url,
-              kind: "document",
-              mimeType: doc.mimeType,
-            });
+            try {
+              const bytes = await storageGetBytes(doc.key);
+              addEntry(`${baseName} 領収書${receiptIndex}.${ext}`, bytes);
+            } catch {
+              warnings.push(`${doc.fileName}: 取得に失敗したため除外しました`);
+            }
           }
         }
 
@@ -5382,22 +5400,23 @@ export const appRouter = router({
                 sealUrl: company?.sealUrl || null,
                 includeTransport: input.workReportIncludeTransport,
               });
-              const key = `work-reports/invoice-${invoice.id}-emp-${employeeId}-${Date.now()}.pdf`;
-              const { url } = await storagePut(key, buffer, "application/pdf");
-              files.push({
-                fileName: `${baseName} 作業日報（${report.name.replace(/[\\/:*?"<>|]/g, "")}）.pdf`,
-                url,
-                kind: "document",
-                mimeType: "application/pdf",
-              });
+              addEntry(`${baseName} 作業日報（${report.name.replace(/[\\/:*?"<>|]/g, "")}）.pdf`, buffer);
             } catch (e: any) {
               warnings.push(`作業日報の生成に失敗しました（従業員ID ${employeeId}: ${e?.message || "不明なエラー"}）`);
             }
           }
         }
 
-        await safeAuditLog(ctx.user.id, "invoice.downloadPackage", "invoice", { entityId: input.id, invoiceId: input.id, note: `一括ダウンロード ${files.length}件` });
-        return { baseName, files, warnings };
+        // ZIP化して1ファイルとして返す（ダウンロードは1回だけ）。
+        const JSZip = (await import("jszip")).default;
+        const zip = new JSZip();
+        for (const entry of entries) zip.file(entry.fileName, entry.buffer);
+        const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+        const zipFileName = `${baseName} 一式.zip`;
+        const { url: zipUrl } = await storagePut(`invoice-packages/invoice-${invoice.id}-${Date.now()}.zip`, zipBuffer, "application/zip");
+
+        await safeAuditLog(ctx.user.id, "invoice.downloadPackage", "invoice", { entityId: input.id, invoiceId: input.id, note: `一括ダウンロード(zip) ${entries.length}件` });
+        return { baseName, zipUrl, zipFileName, fileCount: entries.length, fileNames: entries.map((e) => e.fileName), warnings };
       }),
 
     /** Create invoice from attendance data */
