@@ -4835,6 +4835,40 @@ export const appRouter = router({
 
   // 個別作業日報（月×作業員）。作業員は自分の分のみ、管理者系ロールは全員分を参照できる。
   workReport: router({
+    // 管理者向け: 対象月に出面がある全作業員（社員のみ・ゲスト除外）の日報サマリー一覧。
+    // 一覧表示（年月選択→全員を行で表示）＋各行から検算(展開/PDF)へ。
+    monthList: leaderOrAdminProcedure
+      .input(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        const { start, end } = getMonthDateRange(input.month);
+        const [records, employees] = await Promise.all([
+          db.getAttendanceByDateRange(start, end),
+          db.getAllEmployees(),
+        ]);
+        const empMap = new Map<number, any>((employees as any[]).map((e) => [Number(e.id), e]));
+        const workerIds = Array.from(new Set(
+          (records as any[])
+            .filter((r) => r.employeeId && isWorkedType(r.workType) && Number(r.hoursWorked || 0) > 0)
+            .map((r) => Number(r.employeeId))
+        ));
+        const rows = await Promise.all(workerIds.map(async (employeeId) => {
+          const report = await buildWorkerWorkReport(employeeId, input.month);
+          const emp = empMap.get(employeeId);
+          const transportTotal = (report?.transportByProject || []).reduce((s: number, p: any) => s + Number(p.total || 0), 0);
+          return {
+            employeeId,
+            name: emp?.nameKanji || emp?.nameRomaji || `従業員${employeeId}`,
+            dayShiftDays: report?.summary.dayShiftDays || 0,
+            nightShiftDays: report?.summary.nightShiftDays || 0,
+            overtimeHoursTimes10: report?.summary.overtimeHoursTimes10 || 0,
+            transportTotal,
+            projectCount: (report?.transportByProject || []).length,
+          };
+        }));
+        rows.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+        return { month: input.month, rows };
+      }),
+
     // 日報データ（画面表示用）。employeeId 未指定なら自分。
     data: protectedProcedure
       .input(z.object({
