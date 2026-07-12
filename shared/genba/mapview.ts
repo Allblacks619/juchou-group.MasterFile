@@ -65,3 +65,40 @@ export function fitViewBox(poly: Pt[], fw: number, fh: number, pad = 0.08): View
   const cy = (b.minY + b.maxY) / 2;
   return clampViewBox({ x: cx - w / 2, y: cy - h / 2, w, h }, fw, fh);
 }
+
+/**
+ * 隣接スナップの吸着しきい値 (画像px)。オーバーレイ(頂点・枠線)は
+ * scale = max(view.w, view.h)/1200 で「画面上一定サイズ」に保たれるため、吸着距離も同じ思想に合わせる。
+ * 高倍率ほど view.w が小さく scale も小さくなり、画像px単位のしきい値が縮む=画面上の吸着半径が一定になる。
+ * これがないと、高倍率(例719%)で吸着半径が画面のほぼ全域を覆い、境界付近の頂点がドラッグ中ずっと
+ * 隣接境界へ引き戻され「動かせない」ように見える。低倍率での過剰吸着と高倍率での実質移動不能の
+ * 両方を避けるため画像px単位で [4, 30] にクランプする。
+ */
+export function snapThreshold(view: ViewBox, baseScreenPx = 18): number {
+  const scale = Math.max(view.w, view.h) / 1200;
+  return Math.max(4, Math.min(30, baseScreenPx * scale));
+}
+
+/** 線分 ab 上で点 p に最も近い点 */
+function closestPointOnSegment(p: Pt, a: Pt, b: Pt): Pt {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const l2 = dx * dx + dy * dy;
+  if (l2 === 0) return a;
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return { x: a.x + t * dx, y: a.y + t * dy };
+}
+
+/** 隣接ポリゴン群の辺のうち threshold(画像px) 内で最も近い点へ吸着 (無ければ p をそのまま返す) */
+export function snapPointToPolys(p: Pt, polys: Pt[][], threshold: number): Pt {
+  let best: Pt | null = null;
+  let bestD = threshold;
+  for (const poly of polys) {
+    for (let i = 0; i < poly.length; i++) {
+      const c = closestPointOnSegment(p, poly[i], poly[(i + 1) % poly.length]);
+      const d = Math.hypot(c.x - p.x, c.y - p.y);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+  }
+  return best ? { x: Math.round(best.x), y: Math.round(best.y) } : p;
+}

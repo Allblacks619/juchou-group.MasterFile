@@ -1,22 +1,28 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { UserPlus } from "lucide-react";
 import { STATUS, PRIORITY } from "@/lib/genbaMap";
 import { colorForKey } from "@/lib/genbaTeamColor";
 import { dispName } from "@/lib/genbaRomaji";
+import BulkAssignPanel from "./BulkAssignPanel";
 
 /** 配置ボード (プロトタイプ BoardTab 移植): 現在の割当から人別/エリア別を自動生成 (毎日の入力不要) */
 export default function BoardPanel({
-  siteId, meUserId, open, onOpenChange, embedded,
+  siteId, meUserId, open, onOpenChange, embedded, canEdit,
 }: {
   siteId: string;
   meUserId: number | null;
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
   embedded?: boolean;
+  /** admin/leader は「まとめて配置」で複数エリアへ一括割当できる */
+  canEdit?: boolean;
 }) {
   const active = embedded || !!open;
   const [view, setView] = useState<"people" | "zone">("people");
+  const [showBulk, setShowBulk] = useState(false);
   const { data: board } = trpc.genba.board.get.useQuery({ siteId }, { enabled: active, retry: false });
   const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { enabled: active, retry: false });
   const { data: users } = trpc.genba.users.listAssignable.useQuery(undefined, { enabled: active, retry: false });
@@ -34,10 +40,16 @@ export default function BoardPanel({
   const inner = (
       <>
         {!embedded && <DialogHeader><DialogTitle>🗂 配置ボード</DialogTitle></DialogHeader>}
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <button onClick={() => setView("people")} className={`px-3 py-1.5 rounded-lg text-sm border ${view === "people" ? "bg-gold/10 text-gold border-gold/40" : "border-border text-muted-foreground"}`}>👷 人別</button>
           <button onClick={() => setView("zone")} className={`px-3 py-1.5 rounded-lg text-sm border ${view === "zone" ? "bg-gold/10 text-gold border-gold/40" : "border-border text-muted-foreground"}`}>🗺 エリア別</button>
+          {canEdit && (
+            <Button size="sm" className="ml-auto" onClick={() => setShowBulk(true)}>
+              <UserPlus className="h-4 w-4 mr-1" /> まとめて配置
+            </Button>
+          )}
         </div>
+        {canEdit && showBulk && <BulkAssignPanel siteId={siteId} open={showBulk} onOpenChange={setShowBulk} />}
         <p className="text-xs text-muted-foreground">現在の割り当てから自動生成されます（毎日の入力は不要）。完了・親作業は除外。</p>
 
         {view === "people" ? (

@@ -221,7 +221,7 @@ export default function GenbaShell({
             />
           </div>
         )}
-        {tab === "board" && <BoardPanel embedded siteId={site.id} meUserId={me.userId ?? null} />}
+        {tab === "board" && <BoardPanel embedded siteId={site.id} meUserId={me.userId ?? null} canEdit={canEdit} />}
         {tab === "dash" && <DashTab siteId={site.id} />}
         {tab === "budget" && isAdmin && <BudgetPanel embedded siteId={site.id} siteName={site.name} />}
         {tab === "settings" && (

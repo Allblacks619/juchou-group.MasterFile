@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Loader2, Upload, Trash2, ImageOff, ZoomIn, ZoomOut, Maximize, Sparkles } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, zoneFillStyle, type Pt } from "@/lib/genbaMap";
-import { fullViewBox, clampViewBox, zoomAt, fitViewBox, type ViewBox } from "@shared/genba/mapview";
+import { fullViewBox, clampViewBox, zoomAt, fitViewBox, snapThreshold, snapPointToPolys, type ViewBox } from "@shared/genba/mapview";
 import ProgressBadge from "./ProgressBadge";
 import ZoneSheet, { type ZoneWithAgg } from "./ZoneSheet";
 
@@ -154,30 +154,16 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
   function cancelDraft() { setDraftPoly([]); setMode("view"); setDraftParentZoneId(null); }
 
   // ── 隣接エリアの境界へのスナップ (綺麗に境目を合わせる/埋める) ──
-  const SNAP_T = 18; // 画像px単位の吸着しきい値
   const neighborPolys = useMemo(
     () => zoneList.filter((z) => z.id !== editZoneId).map((z) => (z.polygon as Pt[]) || []).filter((p) => p.length >= 2),
     [zoneList, editZoneId],
   );
-  function closestOnSeg(p: Pt, a: Pt, b: Pt): Pt {
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const l2 = dx * dx + dy * dy;
-    if (l2 === 0) return a;
-    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
-    t = Math.max(0, Math.min(1, t));
-    return { x: a.x + t * dx, y: a.y + t * dy };
-  }
-  /** 隣接エリアの頂点/辺のうち最も近い点へ吸着 (しきい値内のみ)。境目の隙間や重なりを補正 */
+  /**
+   * 隣接エリアの辺のうち最も近い点へ吸着 (しきい値内のみ)。境目の隙間や重なりを補正。
+   * しきい値は現在のズーム(view)に応じて画像px換算するため、高倍率でも「動かせない」ほど吸着しない。
+   */
   function snapForce(p: Pt): Pt {
-    let best: Pt | null = null, bestD = SNAP_T;
-    for (const poly of neighborPolys) {
-      for (let i = 0; i < poly.length; i++) {
-        const c = closestOnSeg(p, poly[i], poly[(i + 1) % poly.length]);
-        const d = Math.hypot(c.x - p.x, c.y - p.y);
-        if (d < bestD) { bestD = d; best = c; }
-      }
-    }
-    return best ? { x: Math.round(best.x), y: Math.round(best.y) } : p;
+    return snapPointToPolys(p, neighborPolys, snapThreshold(view));
   }
   const snapVtx = (p: Pt): Pt => (snapOn ? snapForce(p) : p);
 
