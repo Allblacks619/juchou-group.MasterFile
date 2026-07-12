@@ -5,6 +5,7 @@ import type { User } from "../drizzle/schema";
 
 const mockGenbaDb = vi.hoisted(() => ({
   getGenbaZoneById: vi.fn(),
+  getGenbaFloorById: vi.fn(),
   listGenbaTasksByZone: vi.fn(),
   getGenbaTaskById: vi.fn(),
   createGenbaTask: vi.fn(),
@@ -14,6 +15,14 @@ const mockGenbaDb = vi.hoisted(() => ({
   listGenbaTaskEvents: vi.fn(),
   listGenbaTaskTemplates: vi.fn(),
   replaceGenbaTaskTemplates: vi.fn(),
+  addTaskAssignee: vi.fn(),
+  removeTaskAssignee: vi.fn(),
+  addTaskTeam: vi.fn(),
+  removeTaskTeam: vi.fn(),
+  addGuestAssignee: vi.fn(),
+  removeGuestAssignee: vi.fn(),
+  getGenbaSiteWorkerById: vi.fn(),
+  getGenbaTeamById: vi.fn(),
 }));
 const mockStorage = vi.hoisted(() => ({ storagePut: vi.fn(), storageGet: vi.fn() }));
 const mockDb = vi.hoisted(() => ({ createAuditLog: vi.fn() }));
@@ -138,6 +147,63 @@ describe("genba.tasks", () => {
 
     it("saveTree は worker 403", async () => {
       await expect(worker().genba.templates.saveTree({ tree: [{ name: "x" }] })).rejects.toThrow("現場編集権限がありません");
+    });
+  });
+
+  describe("bulkAssign (まとめて配置)", () => {
+    const ZONE2 = { ...ZONE, id: "Genba_Beta_Zone_02", name: "2工区" };
+    const T1 = { ...TASK, id: "Genba_Beta_Task_A", zoneId: ZONE.id, name: "配線" };
+    const T2 = { ...TASK, id: "Genba_Beta_Task_B", zoneId: ZONE2.id, name: "配線" };
+    const FLOOR = { id: "f", siteId: "Genba_Beta_Site_01", name: "1F", imageKey: null, w: 100, h: 100, sortOrder: 0, createdAt: new Date(), updatedAt: new Date() };
+
+    beforeEach(() => {
+      mockGenbaDb.getGenbaTaskById.mockImplementation(async (id: string) => (id === T1.id ? T1 : id === T2.id ? T2 : null));
+      mockGenbaDb.getGenbaZoneById.mockImplementation(async (id: string) => (id === ZONE.id ? ZONE : id === ZONE2.id ? ZONE2 : null));
+      mockGenbaDb.getGenbaFloorById.mockResolvedValue(FLOOR);
+    });
+
+    it("複数エリアの作業へ userId を一括割当 (集約監査ログ1件)", async () => {
+      const res = await leader().genba.tasks.bulkAssign({ taskIds: [T1.id, T2.id], userId: 7, on: true });
+      expect(res).toMatchObject({ success: true, count: 2 });
+      expect(mockGenbaDb.addTaskAssignee).toHaveBeenCalledTimes(2);
+      expect(mockGenbaDb.addTaskAssignee).toHaveBeenCalledWith(expect.objectContaining({ taskId: T1.id, userId: 7 }));
+      expect(mockGenbaDb.addTaskAssignee).toHaveBeenCalledWith(expect.objectContaining({ taskId: T2.id, userId: 7 }));
+      expect(mockDb.createAuditLog).toHaveBeenCalledTimes(1);
+      expect(mockDb.createAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "genba.tasks.bulkAssign" }));
+    });
+
+    it("on:false で一括解除", async () => {
+      await leader().genba.tasks.bulkAssign({ taskIds: [T1.id, T2.id], userId: 7, on: false });
+      expect(mockGenbaDb.removeTaskAssignee).toHaveBeenCalledTimes(2);
+      expect(mockGenbaDb.addTaskAssignee).not.toHaveBeenCalled();
+    });
+
+    it("ゲスト(siteWorkerId)一括割当は名簿の現場一致を検証", async () => {
+      mockGenbaDb.getGenbaSiteWorkerById.mockResolvedValue({ id: "sw1", siteId: FLOOR.siteId, displayName: "応援太郎" });
+      const res = await leader().genba.tasks.bulkAssign({ taskIds: [T1.id, T2.id], siteWorkerId: "sw1", on: true });
+      expect(res.count).toBe(2);
+      expect(mockGenbaDb.addGuestAssignee).toHaveBeenCalledTimes(2);
+    });
+
+    it("他現場の名簿ゲストは BAD_REQUEST", async () => {
+      mockGenbaDb.getGenbaSiteWorkerById.mockResolvedValue({ id: "sw9", siteId: "OtherSite", displayName: "他現場" });
+      await expect(leader().genba.tasks.bulkAssign({ taskIds: [T1.id], siteWorkerId: "sw9", on: true }))
+        .rejects.toThrow("この現場の名簿に載っていない作業員です");
+      expect(mockGenbaDb.addGuestAssignee).not.toHaveBeenCalled();
+    });
+
+    it("複数現場の作業が混在すると BAD_REQUEST", async () => {
+      mockGenbaDb.getGenbaFloorById.mockImplementation(async (id: string) => ({ ...FLOOR, siteId: id === ZONE.floorId ? "SiteA" : "SiteB" }));
+      // ZONE と ZONE2 は同じ floorId="f" なので、floorIdを分けるため T2 のゾーンを別フロアに
+      mockGenbaDb.getGenbaZoneById.mockImplementation(async (id: string) => (id === ZONE.id ? ZONE : { ...ZONE2, floorId: "f2" }));
+      mockGenbaDb.getGenbaFloorById.mockImplementation(async (id: string) => (id === "f" ? { ...FLOOR, siteId: "SiteA" } : { ...FLOOR, id: "f2", siteId: "SiteB" }));
+      await expect(leader().genba.tasks.bulkAssign({ taskIds: [T1.id, T2.id], userId: 7, on: true }))
+        .rejects.toThrow("複数の現場の作業は一括で配置できません");
+    });
+
+    it("worker は 403 / userIdとteamId両方指定は 400", async () => {
+      await expect(worker().genba.tasks.bulkAssign({ taskIds: [T1.id], userId: 7, on: true })).rejects.toThrow("現場編集権限がありません");
+      await expect(leader().genba.tasks.bulkAssign({ taskIds: [T1.id], userId: 7, teamId: "tm", on: true } as any)).rejects.toThrow();
     });
   });
 

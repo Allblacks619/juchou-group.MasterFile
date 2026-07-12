@@ -605,6 +605,27 @@ const tasksRouter = router({
   }),
 
   /**
+   * 現場の全リーフ作業 (まとめて配置UI用): エリア/フロア名つき。親作業は除外し末端のみ返す。
+   * クライアントはこれを使って「エリア一覧」「作業名一覧」を作り、選択に応じた taskId を bulkAssign へ渡す。
+   */
+  listBySite: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ ctx, input }) => {
+    assertLinkSiteId(ctx, input.siteId);
+    const { floors, tasks, zoneById } = await loadSiteTaskContext(input.siteId);
+    const floorName = new Map(floors.map((f) => [f.id, f.name]));
+    const hasChild = new Set(tasks.map((t) => t.parentTaskId).filter((x): x is string => !!x));
+    return tasks
+      .filter((t) => !hasChild.has(t.id))
+      .map((t) => {
+        const z = zoneById.get(t.zoneId);
+        return {
+          id: t.id, name: t.name, romaji: t.romaji,
+          zoneId: t.zoneId, zoneName: z?.name ?? "?",
+          floorId: z?.floorId ?? null, floorName: z ? (floorName.get(z.floorId) ?? null) : null,
+        };
+      });
+  }),
+
+  /**
    * 自分の担当作業 (G3): 現場内で自分に割り当てられた葉タスク (直接 + 班経由)。
    * 「自分の作業」フィルタとダッシュボード導線に使う。
    */
@@ -834,6 +855,77 @@ const tasksRouter = router({
       else await genbaDb.removeTaskTeam(input.taskId, input.teamId);
       await safeGenbaAuditLog(uid(ctx), "genba.tasks.assignTeam", { entityId: input.taskId, note: `班 ${input.on ? "追加" : "解除"}: ${input.teamId}` });
       return { success: true as const };
+    }),
+
+  /**
+   * 複数作業への一括割当 (まとめて配置)。userId / teamId / siteWorkerId のいずれか1つを、
+   * taskIds 全件へ on/off する。全作業が同一現場に属することを検証し、リンクセッションは自現場のみ。
+   * 「複数エリアへまとめて配置」も「特定作業を複数エリアへ配置」も、クライアントが対象 taskId を
+   * 列挙してここへ渡すことで実現する。監査ログは集約1件。add* は重複挿入しないので二重割当にならない。
+   */
+  bulkAssign: genbaFieldProcedure
+    .input(z.object({
+      taskIds: z.array(genbaIdSchema).min(1).max(500),
+      userId: z.number().int().positive().optional(),
+      teamId: genbaIdSchema.optional(),
+      siteWorkerId: genbaIdSchema.optional(),
+      on: z.boolean(),
+    }).refine(
+      (v) => [v.userId, v.teamId, v.siteWorkerId].filter((x) => x != null).length === 1,
+      { message: "userId / teamId / siteWorkerId のいずれか1つを指定してください" },
+    ))
+    .mutation(async ({ ctx, input }) => {
+      const kind = input.userId != null ? "user" : input.teamId != null ? "team" : "guest";
+      // 全作業の存在確認 + 同一現場チェック (重複IDは除外)
+      const uniqueIds = Array.from(new Set(input.taskIds));
+      const tasks: { id: string; zoneId: string; name: string }[] = [];
+      let siteId: string | null = null;
+      for (const taskId of uniqueIds) {
+        const task = await genbaDb.getGenbaTaskById(taskId);
+        if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "対象の作業が見つかりません" });
+        const zone = await genbaDb.getGenbaZoneById(task.zoneId);
+        const floor = zone ? await genbaDb.getGenbaFloorById(zone.floorId) : null;
+        if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "作業のエリアが見つかりません" });
+        if (siteId == null) siteId = floor.siteId;
+        else if (siteId !== floor.siteId) throw new TRPCError({ code: "BAD_REQUEST", message: "複数の現場の作業は一括で配置できません" });
+        tasks.push(task);
+      }
+      // リンクセッションは自現場のみ
+      assertLinkSiteId(ctx, siteId);
+
+      // 割当対象の妥当性 (現場一致) を検証しつつ、監査ログ用ラベルを作る
+      let label: string;
+      if (kind === "guest") {
+        const worker = await genbaDb.getGenbaSiteWorkerById(input.siteWorkerId!);
+        if (!worker) throw new TRPCError({ code: "NOT_FOUND", message: "作業員が名簿に見つかりません" });
+        if (worker.siteId !== siteId) throw new TRPCError({ code: "BAD_REQUEST", message: "この現場の名簿に載っていない作業員です" });
+        label = `ゲスト ${worker.displayName}`;
+      } else if (kind === "team") {
+        const team = await genbaDb.getGenbaTeamById(input.teamId!);
+        if (!team || team.siteId !== siteId) throw new TRPCError({ code: "BAD_REQUEST", message: "この現場の班ではありません" });
+        label = `班 ${team.name}`;
+      } else {
+        label = `user#${input.userId}`;
+      }
+
+      // 適用 (add* は既存を検出して二重挿入しない)
+      for (const task of tasks) {
+        if (kind === "user") {
+          if (input.on) await genbaDb.addTaskAssignee({ id: nanoid(21), taskId: task.id, userId: input.userId! });
+          else await genbaDb.removeTaskAssignee(task.id, input.userId!);
+        } else if (kind === "team") {
+          if (input.on) await genbaDb.addTaskTeam({ id: nanoid(21), taskId: task.id, teamId: input.teamId! });
+          else await genbaDb.removeTaskTeam(task.id, input.teamId!);
+        } else {
+          if (input.on) await genbaDb.addGuestAssignee({ id: nanoid(21), taskId: task.id, siteWorkerId: input.siteWorkerId! });
+          else await genbaDb.removeGuestAssignee(task.id, input.siteWorkerId!);
+        }
+      }
+      await safeGenbaAuditLog(uid(ctx), "genba.tasks.bulkAssign", {
+        note: `${tasks.length}件の作業へ${input.on ? "一括割当" : "一括解除"}: ${label}`,
+        payload: { taskIds: uniqueIds, on: input.on },
+      });
+      return { success: true as const, count: tasks.length };
     }),
 
   /**
