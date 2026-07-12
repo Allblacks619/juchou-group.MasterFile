@@ -135,6 +135,8 @@ export function registerCustomAuthRoutes(app: Express) {
         appRole: invitation.assignedRole,
         role: invitation.assignedRole === "admin" ? "admin" : "user",
         mustChangePassword: true,
+        // 招待を発行した会社にユーザーを所属させる（マルチテナント化 Phase 1a）
+        companyId: (invitation as any).companyId ?? 1,
         lastSignedIn: new Date(),
       });
 
@@ -150,6 +152,7 @@ export function registerCustomAuthRoutes(app: Express) {
         nameRomaji: invitation.loginId,
         userId: newUser.id,
         email: invitation.recipientEmail ?? undefined,
+        companyId: (invitation as any).companyId ?? 1,
       });
 
       // Link employee to user

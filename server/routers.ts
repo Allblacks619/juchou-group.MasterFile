@@ -1324,8 +1324,8 @@ export const appRouter = router({
         });
     }),
 
-    listUsersForPasswordReset: superAdminProcedure.query(async () => {
-      const [users, employees] = await Promise.all([db.getAllUsers(), db.getAllEmployees()]);
+    listUsersForPasswordReset: superAdminProcedure.query(async ({ ctx }) => {
+      const [users, employees] = await Promise.all([db.getAllUsers(ctx.companyId), db.getAllEmployees(ctx.companyId)]);
       const employeeMap = new Map((employees as any[]).map((employee) => [employee.userId, employee]));
       return (users as any[])
         .filter((user) => user.loginId)
@@ -1591,6 +1591,7 @@ export const appRouter = router({
           status: "pending",
           emailSent: false,
           createdBy: ctx.user.id,
+          companyId: ctx.companyId,
           expiresAt,
         });
 
@@ -1605,7 +1606,7 @@ export const appRouter = router({
 
     list: leaderOrAdminProcedure.query(async ({ ctx }) => {
       if (ctx.user.appRole === "admin") {
-        return db.getAllInvitations();
+        return db.getAllInvitations(ctx.companyId);
       }
       return db.getInvitationsByCreator(ctx.user.id);
     }),
@@ -1704,8 +1705,8 @@ export const appRouter = router({
 
   // ── Employee Management ──
   employee: router({
-    list: leaderOrAdminProcedure.query(async () => {
-      return db.getAllEmployees();
+    list: leaderOrAdminProcedure.query(async ({ ctx }) => {
+      return db.getAllEmployees(ctx.companyId);
     }),
 
     get: protectedProcedure
@@ -2199,8 +2200,8 @@ export const appRouter = router({
 
   // ── Clients (取引先) ──
   clientInfo: router({
-    list: leaderOrAdminProcedure.query(async () => {
-      return db.getAllClients();
+    list: leaderOrAdminProcedure.query(async ({ ctx }) => {
+      return db.getAllClients(ctx.companyId);
     }),
 
     get: leaderOrAdminProcedure
@@ -2251,10 +2252,10 @@ export const appRouter = router({
 
   // ── Projects (現場) ──
   project: router({
-    list: leaderOrAdminProcedure.query(async () => {
+    list: leaderOrAdminProcedure.query(async ({ ctx }) => {
       const [projectList, clientList] = await Promise.all([
-        db.getAllProjects(),
-        db.getAllClients(),
+        db.getAllProjects(ctx.companyId),
+        db.getAllClients(ctx.companyId),
       ]);
       const clientMap = new Map(clientList.map(c => [c.id, c]));
       return projectList.map(p => ({

@@ -260,6 +260,13 @@
       "when": 1785000000000,
       "tag": "0036_genba_site_worker_role",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1785100000000,
+      "tag": "0037_multitenant_foundation",
+      "breakpoints": true
     }
   ]
 }

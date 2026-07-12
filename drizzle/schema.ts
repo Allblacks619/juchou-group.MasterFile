@@ -1,4 +1,24 @@
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, json, uniqueIndex, index, date } from "drizzle-orm/mysql-core";
+
+/**
+ * Companies (テナント台帳) — マルチテナント化 Phase 1a (docs/multitenant/PLAN_v1.md)
+ * 既定会社 id=1 が現行の自社。MULTI_TENANT フラグ(既定off)の間は全データが id=1 に属し、
+ * 現行のシングルテナント動作と完全互換。companyProfile(自社設定シングルトン)は従来どおり維持し、
+ * 本テーブルはテナントの台帳のみを担う。
+ */
+export const companies = mysqlTable("companies", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 191 }).notNull(),
+  /** 適格請求書発行事業者 登録番号（T+13桁）。未登録は null */
+  invoiceIssuerNumber: varchar("invoiceIssuerNumber", { length: 14 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Company = typeof companies.$inferSelect;
+export type InsertCompany = typeof companies.$inferInsert;
+
 /**
  * Core user table backing auth flow.
  * Extended with role hierarchy: admin (統合管理者), leader (責任者), worker (作業員)
@@ -20,10 +40,14 @@ export const users = mysqlTable("users", {
   mustChangePassword: boolean("mustChangePassword").default(false).notNull(),
   /** Linked employee profile ID */
   employeeId: int("employeeId"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1a — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, (table) => ([
+  index("users_company_idx").on(table.companyId),
+]));
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -55,8 +79,12 @@ export const invitations = mysqlTable("invitations", {
   usedAt: timestamp("usedAt"),
   /** Used by user ID */
   usedBy: int("usedBy"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1a — 招待は会社単位で発行される */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ([
+  index("invitations_company_idx").on(table.companyId),
+]));
 
 export type Invitation = typeof invitations.$inferSelect;
 export type InsertInvitation = typeof invitations.$inferInsert;
@@ -223,9 +251,13 @@ export const employees = mysqlTable("employees", {
   height: int("height"),
   weight: int("weight"),
 
+  /** テナント(会社)ID。マルチテナント化 Phase 1a — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ([
+  index("employees_company_idx").on(table.companyId),
+]));
 
 export type Employee = typeof employees.$inferSelect;
 export type InsertEmployee = typeof employees.$inferInsert;
@@ -328,9 +360,13 @@ export const clients = mysqlTable("clients", {
   contactPerson: varchar("contactPerson", { length: 128 }),
   /** Notes */
   notes: text("notes"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1a — 取引先マスタは会社ごとに持つ */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ([
+  index("clients_company_idx").on(table.companyId),
+]));
 
 export type Client = typeof clients.$inferSelect;
 export type InsertClient = typeof clients.$inferInsert;
@@ -354,9 +390,13 @@ export const projects = mysqlTable("projects", {
   endDate: timestamp("endDate"),
   /** Notes */
   notes: text("notes"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1a — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ([
+  index("projects_company_idx").on(table.companyId),
+]));
 
 export type Project = typeof projects.$inferSelect;
 export type InsertProject = typeof projects.$inferInsert;
