@@ -62,7 +62,9 @@ export async function generateWorkReportPdf(options: WorkReportPdfOptions): Prom
   const { data } = options;
   const includeTransport = options.includeTransport !== false;
   const fontPath = await downloadFont(FONT_URL, "NotoSansJP-Regular.ttf");
-  const sealBuffer = await fetchImageBuffer(options.sealUrl);
+  // 社印の保存URLは失効するため署名を貼り直す。
+  const { resignStoredUrl } = await import("./storage");
+  const sealBuffer = await fetchImageBuffer(await resignStoredUrl(options.sealUrl));
 
   const doc = new PDFDocument({
     size: "A4",
