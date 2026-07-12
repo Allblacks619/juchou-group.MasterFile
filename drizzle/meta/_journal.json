@@ -267,6 +267,13 @@
       "when": 1785100000000,
       "tag": "0037_multitenant_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1785200000000,
+      "tag": "0038_multitenant_business_tables",
+      "breakpoints": true
     }
   ]
 }

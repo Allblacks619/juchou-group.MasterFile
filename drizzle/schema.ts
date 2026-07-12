@@ -450,6 +450,8 @@ export const employeeRates = mysqlTable("employee_rates", {
   effectiveUntil: timestamp("effectiveUntil"),
   /** Notes */
   notes: text("notes"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -475,6 +477,8 @@ export const workerBaseRates = mysqlTable("worker_base_rates", {
   effectiveUntil: timestamp("effectiveUntil"),
   /** Notes */
   notes: text("notes"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -510,6 +514,8 @@ export const attendance = mysqlTable("attendance", {
   notes: text("notes"),
   /** Entered by user ID */
   enteredBy: int("enteredBy"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -519,6 +525,7 @@ export const attendance = mysqlTable("attendance", {
   // dashboard, worker invoice, and closings — previously a full table scan on workDate.
   index("attendance_workdate_idx").on(table.workDate),
   index("attendance_proj_workdate_idx").on(table.projectId, table.workDate),
+  index("attendance_company_idx").on(table.companyId),
 ]));
 
 export type Attendance = typeof attendance.$inferSelect;
@@ -586,10 +593,13 @@ export const invoices = mysqlTable("invoices", {
   withholding: boolean("withholding").default(false).notNull(),
   /** Withholding tax amount */
   withholdingAmount: int("withholdingAmount").default(0).notNull(),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
   uniqueIndex("invoice_number_unique").on(table.invoiceNumber),
+  index("invoices_company_idx").on(table.companyId),
 ]));
 
 export type Invoice = typeof invoices.$inferSelect;
@@ -647,6 +657,8 @@ export const projectClosings = mysqlTable("project_closings", {
   closedAt: timestamp("closedAt"),
   /** Closed by user ID */
   closedBy: int("closedBy"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -692,6 +704,8 @@ export const closingSubmissions = mysqlTable("closing_submissions", {
   reviewedBy: int("reviewedBy"),
   /** Notes */
   notes: text("notes"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -758,6 +772,8 @@ export const employeePayments = mysqlTable("employee_payments", {
   paidBy: int("paidBy"),
   /** Notes */
   notes: text("notes"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -788,6 +804,8 @@ export const workerInvoices = mysqlTable("worker_invoices", {
   returnedAt: timestamp("returnedAt"),
   returnedBy: int("returnedBy"),
   returnReason: text("returnReason"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
@@ -884,6 +902,8 @@ export const monthlyClosingV2WorkerSubmissions = mysqlTable("monthly_closing_v2_
   submittedAt: timestamp("submittedAt"),
   acceptedAt: timestamp("acceptedAt"),
   acceptedBy: int("acceptedBy"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -903,6 +923,8 @@ export const monthlyClosingV2ProjectReviews = mysqlTable("monthly_closing_v2_pro
   projectId: int("projectId").notNull(),
   status: mysqlEnum("status", ["未着手", "確認中", "情報不足", "差し戻しあり", "締め完了"]).default("未着手").notNull(),
   updatedBy: int("updatedBy"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -933,6 +955,8 @@ export const monthlyClosingV2ParticipantReviews = mysqlTable("monthly_closing_v2
   aggregationOverrideBy: int("aggregationOverrideBy"),
   aggregationOverrideAt: timestamp("aggregationOverrideAt"),
   updatedBy: int("updatedBy"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -961,6 +985,8 @@ export const monthlyClosingV2ExpenseLines = mysqlTable("monthly_closing_v2_expen
   isClientBillable: boolean("isClientBillable").default(true).notNull(),
   memo: text("memo"),
   status: mysqlEnum("status", ["draft", "submitted", "accepted", "sent_back", "locked"]).default("draft").notNull(),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -1082,8 +1108,12 @@ export const auditLogs = mysqlTable("audit_logs", {
   note: text("note"),
   /** JSON payload string */
   payload: text("payload"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   performedAt: timestamp("performedAt").defaultNow().notNull(),
-});
+}, (table) => ([
+  index("audit_logs_company_idx").on(table.companyId),
+]));
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
@@ -1111,6 +1141,8 @@ export const workerAdvances = mysqlTable("worker_advances", {
   closingMonth: varchar("closingMonth", { length: 7 }),
   /** 登録したユーザーID */
   createdBy: int("createdBy"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1b — 既存データは既定会社=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   employeeIdx: index("worker_advance_employee_idx").on(table.employeeId),
