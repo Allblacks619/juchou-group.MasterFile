@@ -596,12 +596,22 @@ const tasksRouter = router({
     for (const t of taskTeams) { const arr = byTaskTeams.get(t.taskId) || []; arr.push(t.teamId); byTaskTeams.set(t.taskId, arr); }
     const byTaskGuests = new Map<string, string[]>();
     for (const g of guestAssignees) { const arr = byTaskGuests.get(g.taskId) || []; arr.push(g.siteWorkerId); byTaskGuests.set(g.taskId, arr); }
-    return tasks.map((t) => ({
-      ...t,
-      assigneeIds: byTaskUsers.get(t.id) || [],
-      teamIds: byTaskTeams.get(t.id) || [],
-      guestAssigneeIds: byTaskGuests.get(t.id) || [],
-    }));
+    // 担当者名をサーバで解決 (名簿を持たないゲスト閲覧でも user#ID にならないように)
+    const userNameById = await genbaDb.listUserNamesByIds(Array.from(new Set(assignees.map((a) => a.userId))));
+    const guestWorkers = await genbaDb.listGenbaSiteWorkersByIds(Array.from(new Set(guestAssignees.map((g) => g.siteWorkerId))));
+    const guestNameById = new Map(guestWorkers.map((w) => [w.id, w.displayName]));
+    return tasks.map((t) => {
+      const uids = byTaskUsers.get(t.id) || [];
+      const gids = byTaskGuests.get(t.id) || [];
+      return {
+        ...t,
+        assigneeIds: uids,
+        teamIds: byTaskTeams.get(t.id) || [],
+        guestAssigneeIds: gids,
+        assigneeNames: Object.fromEntries(uids.map((id) => [id, userNameById.get(id) ?? null])),
+        guestNames: Object.fromEntries(gids.map((id) => [id, guestNameById.get(id) ?? null])),
+      };
+    });
   }),
 
   /**

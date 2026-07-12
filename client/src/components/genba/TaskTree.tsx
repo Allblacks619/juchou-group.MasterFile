@@ -122,13 +122,13 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
               })}
               {assigneeIds.map((id) => (
                 <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }}>
-                  {userName(id)}
+                  {task.assigneeNames?.[id] || userName(id)}
                   {canEdit && <button title="担当を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignUser.mutate({ taskId: task.id, userId: id, on: false }); }}>✕</button>}
                 </span>
               ))}
               {tGuestIds.map((id) => (
                 <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }} title="ゲスト作業員">
-                  {guestName(id)}
+                  {task.guestNames?.[id] || guestName(id)}
                   <span className="text-[8px] px-0.5 rounded bg-white/25 leading-tight">G</span>
                   {canEdit && <button title="担当を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignGuest.mutate({ taskId: task.id, siteWorkerId: id, on: false }); }}>✕</button>}
                 </span>

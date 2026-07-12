@@ -20,6 +20,10 @@ export type GenbaTaskDto = {
   teamIds?: string[];
   /** ゲスト(現場名簿 genba_site_workers.id)の担当 (G1) */
   guestAssigneeIds?: string[];
+  /** 担当者の表示名 (サーバ解決)。名簿を持たないゲスト閲覧でも user#ID にならないように */
+  assigneeNames?: Record<string, string | null>;
+  /** ゲスト担当の表示名 (siteWorkerId → 名前) */
+  guestNames?: Record<string, string | null>;
 };
 
 export function leafProgress(t: Pick<GenbaTaskDto, "status" | "percent">): number {

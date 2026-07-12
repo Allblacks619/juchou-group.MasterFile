@@ -319,6 +319,14 @@ export async function listAssignableUsers(siteId?: string): Promise<AssignableUs
   return rows as AssignableUser[];
 }
 
+/** 指定IDのユーザー表示名 (担当者チップの名前解決用。出面フィルタに関係なく全ユーザーから引く) */
+export async function listUserNamesByIds(ids: number[]): Promise<Map<number, string | null>> {
+  const db = await getDb();
+  if (!db || ids.length === 0) return new Map();
+  const rows = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, ids));
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
 /** 現場に連携できる工事案件(projects)の一覧 (案件ピッカー用)。active を先頭に新しい順 */
 export async function listLinkableProjects(): Promise<{ id: number; name: string; status: string; startDate: Date | null; endDate: Date | null }[]> {
   const db = await getDb();

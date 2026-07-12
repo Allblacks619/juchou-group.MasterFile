@@ -23,6 +23,11 @@ const mockGenbaDb = vi.hoisted(() => ({
   removeGuestAssignee: vi.fn(),
   getGenbaSiteWorkerById: vi.fn(),
   getGenbaTeamById: vi.fn(),
+  listTaskAssigneesByTaskIds: vi.fn(),
+  listTaskTeamsByTaskIds: vi.fn(),
+  listGuestAssigneesByTaskIds: vi.fn(),
+  listUserNamesByIds: vi.fn(),
+  listGenbaSiteWorkersByIds: vi.fn(),
 }));
 const mockStorage = vi.hoisted(() => ({ storagePut: vi.fn(), storageGet: vi.fn() }));
 const mockDb = vi.hoisted(() => ({ createAuditLog: vi.fn() }));
@@ -49,6 +54,12 @@ describe("genba.tasks", () => {
     vi.clearAllMocks();
     mockStorage.storagePut.mockResolvedValue({ key: "k", url: "https://r2/put" });
     mockStorage.storageGet.mockResolvedValue({ key: "k", url: "https://r2/get" });
+    // listByZone が使う一覧系はデフォルト空 (個別テストで上書き)
+    mockGenbaDb.listTaskAssigneesByTaskIds.mockResolvedValue([]);
+    mockGenbaDb.listTaskTeamsByTaskIds.mockResolvedValue([]);
+    mockGenbaDb.listGuestAssigneesByTaskIds.mockResolvedValue([]);
+    mockGenbaDb.listUserNamesByIds.mockResolvedValue(new Map());
+    mockGenbaDb.listGenbaSiteWorkersByIds.mockResolvedValue([]);
   });
   afterEach(() => { delete process.env.GENBA_ENABLED; });
 
@@ -56,6 +67,18 @@ describe("genba.tasks", () => {
     mockGenbaDb.listGenbaTasksByZone.mockResolvedValue([TASK]);
     const res = await worker().genba.tasks.listByZone({ zoneId: ZONE.id });
     expect(res[0]).toMatchObject({ id: TASK.id, assigneeIds: [], teamIds: [] });
+  });
+
+  it("listByZone は担当者/ゲスト名をサーバ解決して返す (ゲスト閲覧で user#ID にならない)", async () => {
+    mockGenbaDb.listGenbaTasksByZone.mockResolvedValue([TASK]);
+    mockGenbaDb.listTaskAssigneesByTaskIds.mockResolvedValue([{ taskId: TASK.id, userId: 810043 }]);
+    mockGenbaDb.listTaskTeamsByTaskIds.mockResolvedValue([]);
+    mockGenbaDb.listGuestAssigneesByTaskIds.mockResolvedValue([{ taskId: TASK.id, siteWorkerId: "sw1" }]);
+    mockGenbaDb.listUserNamesByIds.mockResolvedValue(new Map([[810043, "野村ジェネソン"]]));
+    mockGenbaDb.listGenbaSiteWorkersByIds.mockResolvedValue([{ id: "sw1", displayName: "応援太郎" }]);
+    const res = await worker().genba.tasks.listByZone({ zoneId: ZONE.id });
+    expect(res[0].assigneeNames).toEqual({ "810043": "野村ジェネソン" });
+    expect(res[0].guestNames).toEqual({ sw1: "応援太郎" });
   });
 
   it("create は leader 可 / worker 403", async () => {
