@@ -5,7 +5,7 @@ import { genbaRoleOf } from "../../shared/genba/roles";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import * as db from "../db";
 import * as genbaDb from "./db";
-import { storageGet, storagePut } from "../storage";
+import { storageGet, storagePut, storageGetBytes } from "../storage";
 import { validateFile } from "../../shared/uploadValidation";
 import { computeZoneAggregates } from "./aggregate";
 import { computeBoard } from "./board";
@@ -998,6 +998,23 @@ const tasksRouter = router({
           mimeType: f.mimeType, sizeBytes: f.sizeBytes, url, createdAt: f.createdAt,
         };
       }));
+    }),
+
+    /**
+     * アップロードファイルの実体を同一オリジンで取得 (オフライン保存用)。
+     * R2署名URLはクロスオリジン+失効するため、端末にキャッシュするにはここを経由する。
+     * 閲覧権限と同じ (誰でも・リンクは自現場のみ)。kind=link は対象外 (外部URLのため)。
+     */
+    getBytes: genbaProcedure.input(z.object({ id: genbaIdSchema })).query(async ({ ctx, input }) => {
+      const file = await genbaDb.getGenbaTaskFileById(input.id);
+      if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "ファイルが見つかりません" });
+      const task = await genbaDb.getGenbaTaskById(file.taskId);
+      if (task) await assertLinkTaskScope(ctx, task);
+      if (file.kind !== "upload" || !file.storageKey) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "このファイルは端末保存できません（外部リンク）" });
+      }
+      const bytes = await storageGetBytes(file.storageKey);
+      return { base64: bytes.toString("base64"), mimeType: file.mimeType || "application/octet-stream", fileName: file.fileName || "file" };
     }),
 
     addLink: genbaFieldProcedure
