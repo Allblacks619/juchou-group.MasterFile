@@ -600,6 +600,7 @@ const tasksRouter = router({
     const userNameById = await genbaDb.listUserNamesByIds(Array.from(new Set(assignees.map((a) => a.userId))));
     const guestWorkers = await genbaDb.listGenbaSiteWorkersByIds(Array.from(new Set(guestAssignees.map((g) => g.siteWorkerId))));
     const guestNameById = new Map(guestWorkers.map((w) => [w.id, w.displayName]));
+    const fileCounts = await genbaDb.countGenbaTaskFilesByTaskIds(ids);
     return tasks.map((t) => {
       const uids = byTaskUsers.get(t.id) || [];
       const gids = byTaskGuests.get(t.id) || [];
@@ -610,6 +611,7 @@ const tasksRouter = router({
         guestAssigneeIds: gids,
         assigneeNames: Object.fromEntries(uids.map((id) => [id, userNameById.get(id) ?? null])),
         guestNames: Object.fromEntries(gids.map((id) => [id, guestNameById.get(id) ?? null])),
+        fileCount: fileCounts.get(t.id) ?? 0,
       };
     });
   }),
@@ -975,6 +977,82 @@ const tasksRouter = router({
       await safeGenbaAuditLog(uid(ctx), "genba.tasks.handover", { entityId: input.taskId, note: `${task.name} を user#${input.toUserId} へ引き継ぎ` });
       return { success: true as const };
     }),
+
+  /**
+   * 作業ファイル (図面・資料)。閲覧は全員 (リンクセッション=自現場のみ)、追加/削除は field(leader+)。
+   * kind=link は外部URL、kind=upload は R2 に保存しキーのみDB。表示時に署名URLを都度発行する。
+   */
+  files: router({
+    list: genbaProcedure.input(z.object({ taskId: genbaIdSchema })).query(async ({ ctx, input }) => {
+      const task = await genbaDb.getGenbaTaskById(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      await assertLinkTaskScope(ctx, task);
+      const files = await genbaDb.listGenbaTaskFiles(input.taskId);
+      return Promise.all(files.map(async (f) => {
+        let url = f.url;
+        if (f.kind === "upload" && f.storageKey) {
+          try { url = (await storageGet(f.storageKey)).url; } catch { url = null; }
+        }
+        return {
+          id: f.id, kind: f.kind, title: f.title, fileName: f.fileName,
+          mimeType: f.mimeType, sizeBytes: f.sizeBytes, url, createdAt: f.createdAt,
+        };
+      }));
+    }),
+
+    addLink: genbaFieldProcedure
+      .input(z.object({ taskId: genbaIdSchema, url: z.string().trim().url().max(1000), title: z.string().trim().max(200).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!/^https?:\/\//i.test(input.url)) throw new TRPCError({ code: "BAD_REQUEST", message: "URLは https:// から入力してください" });
+        const task = await genbaDb.getGenbaTaskById(input.taskId);
+        if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+        await assertLinkTaskScope(ctx, task);
+        const file = await genbaDb.createGenbaTaskFile({
+          id: nanoid(21), taskId: input.taskId, kind: "link",
+          title: input.title || null, url: input.url, createdByUserId: uid(ctx),
+        } as any);
+        await safeGenbaAuditLog(uid(ctx), "genba.tasks.files.addLink", { entityId: input.taskId, note: `ファイルリンク追加: ${input.title || input.url}` });
+        return file;
+      }),
+
+    upload: genbaFieldProcedure
+      .input(z.object({
+        taskId: genbaIdSchema,
+        base64: z.string().min(1),
+        mimeType: z.string(),
+        fileName: z.string().min(1).max(200),
+        title: z.string().trim().max(200).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const task = await genbaDb.getGenbaTaskById(input.taskId);
+        if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+        await assertLinkTaskScope(ctx, task);
+        const buffer = Buffer.from(input.base64, "base64");
+        const err = validateFile(input.fileName, input.mimeType, buffer.length);
+        if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
+        const storageKey = `genba/task-${input.taskId}/file-${nanoid(8)}-${safeKeyPart(input.fileName)}`;
+        await storagePut(storageKey, buffer, input.mimeType);
+        const file = await genbaDb.createGenbaTaskFile({
+          id: nanoid(21), taskId: input.taskId, kind: "upload",
+          title: input.title || null, fileName: input.fileName, storageKey,
+          mimeType: input.mimeType, sizeBytes: buffer.length, createdByUserId: uid(ctx),
+        } as any);
+        await safeGenbaAuditLog(uid(ctx), "genba.tasks.files.upload", { entityId: input.taskId, note: `ファイルアップロード: ${input.fileName}` });
+        return file;
+      }),
+
+    remove: genbaFieldProcedure
+      .input(z.object({ id: genbaIdSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const file = await genbaDb.getGenbaTaskFileById(input.id);
+        if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "ファイルが見つかりません" });
+        const task = await genbaDb.getGenbaTaskById(file.taskId);
+        if (task) await assertLinkTaskScope(ctx, task);
+        await genbaDb.deleteGenbaTaskFile(input.id);
+        await safeGenbaAuditLog(uid(ctx), "genba.tasks.files.remove", { entityId: file.taskId, note: `ファイル削除: ${file.title || file.fileName || file.url}` });
+        return { success: true as const };
+      }),
+  }),
 });
 
 // ── teams (M3-A) ──
@@ -1859,6 +1937,18 @@ const workerLinksRouter = router({
       const link = await genbaDb.getGenbaWorkerLinkBySiteWorker(input.siteWorkerId);
       if (link) await genbaDb.updateGenbaWorkerLink(link.id, { role: input.role });
       await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.setWorkerRole", { entityId: input.siteWorkerId, note: `現場内役割を変更: ${worker.displayName} → ${input.role}` });
+      return { success: true as const };
+    }),
+
+  /** ゲスト(現場名簿)の表示名を修正 (打ち間違い訂正用, field=leader+)。ゲストのみ対象 */
+  renameWorker: genbaStaffFieldProcedure
+    .input(z.object({ siteWorkerId: genbaIdSchema, displayName: z.string().trim().min(1).max(128) }))
+    .mutation(async ({ ctx, input }) => {
+      const worker = await genbaDb.getGenbaSiteWorkerById(input.siteWorkerId);
+      if (!worker) throw new TRPCError({ code: "NOT_FOUND", message: "作業員が名簿に見つかりません" });
+      if (worker.kind !== "guest") throw new TRPCError({ code: "BAD_REQUEST", message: "登録アカウントの氏名はここでは変更できません（ゲストのみ）" });
+      await genbaDb.updateGenbaSiteWorkerName(input.siteWorkerId, input.displayName);
+      await safeGenbaAuditLog(ctx.user.id, "genba.workerLinks.renameWorker", { entityId: input.siteWorkerId, note: `ゲスト名を修正: ${worker.displayName} → ${input.displayName}` });
       return { success: true as const };
     }),
 

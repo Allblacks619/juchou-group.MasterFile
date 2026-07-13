@@ -5,6 +5,7 @@ import {
   genbaZones, GenbaZone, InsertGenbaZone,
   genbaTasks, GenbaTask, InsertGenbaTask,
   genbaTaskEvents, GenbaTaskEvent, InsertGenbaTaskEvent,
+  genbaTaskFiles, GenbaTaskFile, InsertGenbaTaskFile,
   genbaTaskTemplates, GenbaTaskTemplate, InsertGenbaTaskTemplate,
   genbaTeams, GenbaTeam, InsertGenbaTeam,
   genbaTeamMembers, GenbaTeamMember, InsertGenbaTeamMember,
@@ -287,6 +288,49 @@ export async function listGenbaTaskEvents(taskId: string): Promise<GenbaTaskEven
   if (!db) return [];
   const rows = await db.select().from(genbaTaskEvents).where(eq(genbaTaskEvents.taskId, taskId)).orderBy(asc(genbaTaskEvents.createdAt));
   return rows.map(normalizeTaskEvent);
+}
+
+// ── 作業ファイル (図面・資料。リンク/アップロード) ──
+export async function listGenbaTaskFiles(taskId: string): Promise<GenbaTaskFile[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaTaskFiles).where(eq(genbaTaskFiles.taskId, taskId)).orderBy(asc(genbaTaskFiles.sortOrder), asc(genbaTaskFiles.createdAt));
+}
+
+export async function countGenbaTaskFilesByTaskIds(taskIds: string[]): Promise<Map<string, number>> {
+  const db = await getDb();
+  if (!db || taskIds.length === 0) return new Map();
+  const rows = await db.select({ taskId: genbaTaskFiles.taskId, n: sql<number>`count(*)` }).from(genbaTaskFiles)
+    .where(inArray(genbaTaskFiles.taskId, taskIds)).groupBy(genbaTaskFiles.taskId);
+  return new Map(rows.map((r) => [r.taskId, Number(r.n)]));
+}
+
+export async function createGenbaTaskFile(data: InsertGenbaTaskFile): Promise<GenbaTaskFile | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaTaskFiles).values(data);
+  const rows = await db.select().from(genbaTaskFiles).where(eq(genbaTaskFiles.id, data.id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getGenbaTaskFileById(id: string): Promise<GenbaTaskFile | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaTaskFiles).where(eq(genbaTaskFiles.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function deleteGenbaTaskFile(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaTaskFiles).where(eq(genbaTaskFiles.id, id));
+}
+
+/** ゲスト(現場名簿)の表示名を修正する。登録アカウントの氏名は変更しない (これは名簿の表示名のみ) */
+export async function updateGenbaSiteWorkerName(id: string, displayName: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaSiteWorkers).set({ displayName, guestName: displayName }).where(eq(genbaSiteWorkers.id, id));
 }
 
 // ── 割り当て可能ユーザー (既存 users テーブルを読み取り専用で参照) ──

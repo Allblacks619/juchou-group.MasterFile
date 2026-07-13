@@ -215,6 +215,32 @@ export const genbaTaskEvents = mysqlTable("genba_task_events", {
 export type GenbaTaskEvent = typeof genbaTaskEvents.$inferSelect;
 export type InsertGenbaTaskEvent = typeof genbaTaskEvents.$inferInsert;
 
+/** 作業ごとの参考ファイル (図面・資料)。kind=link は外部URL、kind=upload はR2アップロード */
+export const genbaTaskFiles = mysqlTable("genba_task_files", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  taskId: varchar("taskId", { length: 24 }).notNull(),
+  kind: mysqlEnum("genbaTaskFileKind", ["link", "upload"]).notNull(),
+  /** 表示名 (任意。例: 強電作業 図面) */
+  title: varchar("title", { length: 200 }),
+  /** アップロード時の元ファイル名 */
+  fileName: varchar("fileName", { length: 200 }),
+  /** kind=upload のR2キー */
+  storageKey: varchar("storageKey", { length: 500 }),
+  /** kind=link の外部URL */
+  url: varchar("url", { length: 1000 }),
+  mimeType: varchar("mimeType", { length: 100 }),
+  sizeBytes: int("sizeBytes"),
+  createdByUserId: int("createdByUserId"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  index("genba_task_files_task_idx").on(table.taskId, table.sortOrder),
+]));
+
+export type GenbaTaskFile = typeof genbaTaskFiles.$inferSelect;
+export type InsertGenbaTaskFile = typeof genbaTaskFiles.$inferInsert;
+
 /** 資材プリセット (工事名 → 部材名リスト) */
 export const genbaMaterialPresets = mysqlTable("genba_material_presets", {
   id: varchar("id", { length: 24 }).primaryKey(),

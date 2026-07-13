@@ -24,6 +24,8 @@ export type GenbaTaskDto = {
   assigneeNames?: Record<string, string | null>;
   /** ゲスト担当の表示名 (siteWorkerId → 名前) */
   guestNames?: Record<string, string | null>;
+  /** 添付ファイル数 (📎バッジ用) */
+  fileCount?: number;
 };
 
 export function leafProgress(t: Pick<GenbaTaskDto, "status" | "percent">): number {
