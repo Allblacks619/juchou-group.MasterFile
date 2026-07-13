@@ -8,7 +8,7 @@ import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
 import * as db from "./db";
 import { parseDateString, parseDateRange } from "./dateHelpers";
-import { isWorkedType } from "@shared/attendanceStatus";
+import { isWorkedType, extractDateKey } from "@shared/attendanceStatus";
 import { storageGet, storagePut } from "./storage";
 import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "../shared/uploadValidation";
 import * as schema from "../drizzle/schema";
@@ -4560,14 +4560,28 @@ export const appRouter = router({
       .query(async ({ input }) => {
         // 出面がある全現場の支払行を先に生成・再計算してから集計（取りこぼし防止）。
         await ensureMonthPaymentRows(input.closingMonth);
-        const [monthRows, projects, employees, allAdvances] = await Promise.all([
+        const { start, end } = getMonthDateRange(input.closingMonth);
+        const [monthRows, projects, employees, allAdvances, attendance] = await Promise.all([
           collectMonthPaymentRows(input.closingMonth),
           db.getAllProjects(),
           db.getAllEmployees(),
           db.getAllWorkerAdvances(),
+          db.getAttendanceByDateRange(start, end),
         ]);
         const projectMap = new Map<number, any>(projects.map((p: any) => [p.id, p]));
         const empMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
+
+        // 出面日数(実働の重複なし日数)を (作業員, 現場) 別に集計。出面表・作業日報と同じ数え方。
+        // 支払の算定日数(baseDaysTimes10=Σ稼働時間/8)と突き合わせて検算に使う。
+        const attendanceDaysByKey = new Map<string, Set<string>>();
+        for (const rec of excludeRemovedGuestMarkers(attendance as any[])) {
+          if (!rec.employeeId) continue;
+          if (!isWorkedType(rec.workType) || Number(rec.hoursWorked || 0) <= 0) continue;
+          const key = `${rec.employeeId}:${rec.projectId}`;
+          const set = attendanceDaysByKey.get(key) || new Set<string>();
+          set.add(extractDateKey(rec.workDate));
+          attendanceDaysByKey.set(key, set);
+        }
 
         const advByEmp = new Map<number, any[]>();
         const advByPay = new Map<number, any[]>();
@@ -4588,6 +4602,7 @@ export const appRouter = router({
             projectId: closing.projectId,
             projectName: project?.name || `案件${closing.projectId}`,
             paymentId: payment.id,
+            attendanceDays: attendanceDaysByKey.get(`${payment.employeeId}:${closing.projectId}`)?.size || 0,
             baseDaysTimes10: Number(payment.baseDaysTimes10 || 0),
             baseAmount: Number(payment.baseAmount || 0),
             transportAmount: Number(payment.transportAmount || 0),
@@ -4613,6 +4628,11 @@ export const appRouter = router({
               if (!r.paidAt) return latest;
               return !latest || new Date(r.paidAt) > new Date(latest) ? r.paidAt : latest;
             }, null);
+            // 検算: 出面日数(実働の重複なし日数)と算定日数(baseDaysTimes10/10)が食い違う現場を検出。
+            // 食い違い = 同日重複記録 / 8h以外の稼働時間入力 の可能性 → 出面表と再突合せずに気づける。
+            const attendanceDaysTotal = projectRows.reduce((sum, r) => sum + r.attendanceDays, 0);
+            const payDaysTotal = projectRows.reduce((sum, r) => sum + r.baseDaysTimes10, 0) / 10;
+            const hasDayMismatch = projectRows.some((r) => r.baseDaysTimes10 !== r.attendanceDays * 10);
             return {
               employeeId,
               name: emp?.nameKanji || emp?.nameRomaji || `従業員${employeeId}`,
@@ -4624,6 +4644,9 @@ export const appRouter = router({
               netPayable: Math.max(totalAmount - appliedOffset, 0),
               paidStatus,
               lastPaidAt,
+              attendanceDaysTotal,
+              payDaysTotal,
+              hasDayMismatch,
             };
           })
           .sort((a, b) => a.name.localeCompare(b.name, "ja"));
@@ -4636,6 +4659,7 @@ export const appRouter = router({
             netPayableTotal: workers.reduce((sum, w) => sum + w.netPayable, 0),
             paidCount: workers.filter((w) => w.paidStatus === "paid").length,
             unpaidCount: workers.filter((w) => w.paidStatus !== "paid").length,
+            dayMismatchCount: workers.filter((w) => w.hasDayMismatch).length,
           },
         };
       }),

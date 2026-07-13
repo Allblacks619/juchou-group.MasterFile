@@ -36,6 +36,7 @@ import {
   ChevronRight,
   PiggyBank,
   Search,
+  AlertTriangle,
 } from "lucide-react";
 
 const PAID_STATUS: Record<string, { label: string; className: string }> = {
@@ -98,6 +99,17 @@ export default function AppPayments() {
         <MiniStat label="支払済" value={`${summary?.paidCount ?? 0} / ${summary?.workerCount ?? 0}名`} />
       </div>
 
+      {/* 検算アラート: 出面日数と算定日数が食い違う作業員 */}
+      {(summary?.dayMismatchCount ?? 0) > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+          <div className="text-amber-200">
+            <span className="font-semibold">{summary?.dayMismatchCount}名</span> の作業員で、出面日数と支払の算定日数が一致していません。
+            <span className="text-amber-200/80">行の <AlertTriangle className="inline h-3 w-3 mb-0.5" /> をタップして内訳を確認してください（同日の重複記録や8時間以外の入力が原因のことが多いです）。</span>
+          </div>
+        </div>
+      )}
+
       {/* 一覧テーブル */}
       <Card>
         <CardContent className="p-0">
@@ -137,8 +149,20 @@ export default function AppPayments() {
                             {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           </td>
                           <td className="px-2 py-3">
-                            <div className="font-medium">{w.name}</div>
-                            <div className="text-xs text-muted-foreground">{w.projects.length}現場</div>
+                            <div className="flex items-center gap-1.5 font-medium">
+                              {w.name}
+                              {w.hasDayMismatch && (
+                                <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/40 bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-400" title="出面日数と算定日数が一致しません">
+                                  <AlertTriangle className="h-3 w-3" />検算
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {w.projects.length}現場
+                              {w.hasDayMismatch && (
+                                <span className="text-amber-400/90"> ・ 出面{w.attendanceDaysTotal}日 / 算定{Number(w.payDaysTotal || 0).toFixed(1)}日</span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-2 py-3 text-right tabular-nums">{yen(w.totalAmount)}</td>
                           <td className={`px-2 py-3 text-right tabular-nums ${w.advanceBalance > 0 ? "text-amber-400" : "text-muted-foreground"}`}>{yen(w.advanceBalance)}</td>
@@ -231,11 +255,12 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
       <div>
         <div className="text-xs font-semibold text-muted-foreground mb-1.5">現場別内訳（この金額の根拠）</div>
         <div className="overflow-x-auto rounded-md border border-border">
-          <table className="w-full min-w-[520px] text-xs">
+          <table className="w-full min-w-[600px] text-xs">
             <thead>
               <tr className="border-b border-border bg-muted/20 text-muted-foreground">
                 <th className="text-left font-medium px-2 py-1.5">現場</th>
-                <th className="text-right font-medium px-2 py-1.5">出勤</th>
+                <th className="text-right font-medium px-2 py-1.5">出面</th>
+                <th className="text-right font-medium px-2 py-1.5">算定</th>
                 <th className="text-right font-medium px-2 py-1.5">基本給</th>
                 <th className="text-right font-medium px-2 py-1.5">交通費</th>
                 <th className="text-right font-medium px-2 py-1.5">経費</th>
@@ -245,28 +270,45 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
               </tr>
             </thead>
             <tbody>
-              {worker.projects.map((p: any) => (
-                <tr key={p.paymentId} className="border-b border-border/50 last:border-0">
-                  <td className="px-2 py-1.5">{p.projectName}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{(Number(p.baseDaysTimes10 || 0) / 10).toFixed(1)}日</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{yen(p.baseAmount)}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{p.transportAmount ? yen(p.transportAmount) : "—"}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{p.expenseAmount ? yen(p.expenseAmount) : "—"}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{p.adjustmentAmount ? yen(p.adjustmentAmount) : "—"}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums font-medium">{yen(p.totalAmount)}</td>
-                  <td className="px-2 py-1.5 text-center">{p.status === "paid" ? "支払済" : "未払い"}</td>
-                </tr>
-              ))}
+              {worker.projects.map((p: any) => {
+                const payDays = Number(p.baseDaysTimes10 || 0) / 10;
+                const attDays = Number(p.attendanceDays || 0);
+                const mismatch = Number(p.baseDaysTimes10 || 0) !== attDays * 10;
+                return (
+                  <tr key={p.paymentId} className="border-b border-border/50 last:border-0">
+                    <td className="px-2 py-1.5">{p.projectName}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{attDays}日</td>
+                    <td className={`px-2 py-1.5 text-right tabular-nums ${mismatch ? "text-amber-400 font-semibold" : ""}`}>
+                      {mismatch && <AlertTriangle className="inline h-3 w-3 mr-0.5 mb-0.5" />}{payDays.toFixed(1)}日
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{yen(p.baseAmount)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{p.transportAmount ? yen(p.transportAmount) : "—"}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{p.expenseAmount ? yen(p.expenseAmount) : "—"}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{p.adjustmentAmount ? yen(p.adjustmentAmount) : "—"}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums font-medium">{yen(p.totalAmount)}</td>
+                    <td className="px-2 py-1.5 text-center">{p.status === "paid" ? "支払済" : "未払い"}</td>
+                  </tr>
+                );
+              })}
               <tr className="bg-muted/20 font-semibold">
                 <td className="px-2 py-1.5">合計</td>
-                <td colSpan={4}></td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{worker.attendanceDaysTotal}日</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{Number(worker.payDaysTotal || 0).toFixed(1)}日</td>
+                <td colSpan={3}></td>
                 <td className="px-2 py-1.5 text-right tabular-nums text-gold">{yen(worker.totalAmount)}</td>
                 <td></td>
               </tr>
-              {/* 検算メモ: 基本給＝出勤日数×日単価（日単価は現場×勤務区分の設定を使用） */}
             </tbody>
           </table>
         </div>
+        {worker.hasDayMismatch && (
+          <p className="mt-1.5 flex items-start gap-1.5 text-[11px] text-amber-400/90">
+            <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+            <span>
+              出面日数（実働の重複なし日数）と算定日数（Σ稼働時間÷8）が一致しません。作業日報・出面表で該当日を確認し、同日の重複記録や8時間以外の入力を修正すると一致します。金額の例外対応が必要な場合は「調整」で補正できます。
+            </span>
+          </p>
+        )}
       </div>
 
       {/* 前借り／相殺 */}
