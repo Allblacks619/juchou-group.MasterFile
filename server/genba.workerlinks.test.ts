@@ -13,6 +13,7 @@ const mockGenbaDb = vi.hoisted(() => ({
   updateGenbaWorkerLink: vi.fn(),
   deleteGenbaWorkerLink: vi.fn(),
   getGenbaSiteWorkerById: vi.fn(),
+  updateGenbaSiteWorkerName: vi.fn(),
   // public
   getGenbaWorkerLinkByToken: vi.fn(),
   getGenbaSiteById: vi.fn(),
@@ -118,6 +119,22 @@ describe("genba 作業員専用リンク (G2)", () => {
       mockGenbaDb.listGenbaSiteWorkersByIds.mockResolvedValue([SW_GUEST]);
       const res = await leader().genba.workerLinks.list({ siteId: SITE.id });
       expect(res[0]).toMatchObject({ displayName: "応援太郎", kind: "guest", token: LINK().token });
+    });
+
+    it("renameWorker: ゲスト名を修正できる (leader可)。登録アカウントは拒否", async () => {
+      mockGenbaDb.getGenbaSiteWorkerById.mockResolvedValue(SW_GUEST);
+      await expect(leader().genba.workerLinks.renameWorker({ siteWorkerId: SW_GUEST.id, displayName: "応援次郎" }))
+        .resolves.toMatchObject({ success: true });
+      expect(mockGenbaDb.updateGenbaSiteWorkerName).toHaveBeenCalledWith(SW_GUEST.id, "応援次郎");
+
+      mockGenbaDb.getGenbaSiteWorkerById.mockResolvedValue({ ...SW_GUEST, kind: "registered" });
+      await expect(leader().genba.workerLinks.renameWorker({ siteWorkerId: SW_GUEST.id, displayName: "x" }))
+        .rejects.toThrow("ゲストのみ");
+    });
+
+    it("renameWorker: worker は 403", async () => {
+      await expect(worker().genba.workerLinks.renameWorker({ siteWorkerId: SW_GUEST.id, displayName: "x" }))
+        .rejects.toMatchObject({ code: "FORBIDDEN" });
     });
   });
 

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Trash2, Plus, ExternalLink, Share2 } from "lucide-react";
 import { romanize, dispName } from "@/lib/genbaRomaji";
 import { todayStr, fmtDate, type GenbaTaskDto } from "@/lib/genbaTask";
+import TaskFilesSection from "./TaskFilesSection";
 
 /** 作業詳細 (プロトタイプ TaskDetailModal 移植): 名前/ローマ字/期限/リンク/メモ/問題写真/引き継ぎ/削除/サブ作業 */
 export default function TaskDetailModal({
@@ -86,23 +87,29 @@ export default function TaskDetailModal({
             </div>
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">📐 図面リンク（Google Drive等）</Label>
-            {canEdit && (
-              <Input defaultValue={task.linkUrl || ""} placeholder="https://drive.google.com/..."
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (v && !/^https?:\/\//i.test(v)) { toast.error("URLは https:// から入力してください"); return; }
-                  if (v !== (task.linkUrl || "")) update.mutate({ id: task.id, linkUrl: v || null });
-                }} />
-            )}
-            {task.linkUrl && (
-              <a href={task.linkUrl} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1 text-sm text-gold hover:underline mt-1">
-                <ExternalLink className="h-3.5 w-3.5" /> 図面を開く（最新版）
-              </a>
-            )}
-          </div>
+          {/* 作業ファイル (図面・資料)。複数のリンク/アップロードに対応 (サブ作業も同じ) */}
+          <TaskFilesSection taskId={task.id} canEdit={canEdit} />
+
+          {/* 旧: 単一の図面リンク (後方互換。設定済みのみ表示) */}
+          {(canEdit || task.linkUrl) && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">📐 図面リンク（旧・単一）</Label>
+              {canEdit && (
+                <Input defaultValue={task.linkUrl || ""} placeholder="https://drive.google.com/..."
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v && !/^https?:\/\//i.test(v)) { toast.error("URLは https:// から入力してください"); return; }
+                    if (v !== (task.linkUrl || "")) update.mutate({ id: task.id, linkUrl: v || null });
+                  }} />
+              )}
+              {task.linkUrl && (
+                <a href={task.linkUrl} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-sm text-gold hover:underline mt-1">
+                  <ExternalLink className="h-3.5 w-3.5" /> 図面を開く（最新版）
+                </a>
+              )}
+            </div>
+          )}
 
           {canEdit && (
             <div className="space-y-1">

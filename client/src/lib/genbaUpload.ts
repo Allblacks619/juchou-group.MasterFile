@@ -17,6 +17,27 @@ export type GenbaUploadImage = {
 
 const MAX_PDF_PAGES = 12;
 
+/** 作業ファイル添付用ペイロード (画像は縮小、PDFは原本のまま) */
+export type GenbaUploadFile = { base64: string; mimeType: string; fileName: string; sizeBytes: number };
+
+/** 画像=縮小してJPEG化 / PDF=原本のままbase64化。DBにはbase64を入れずR2キーのみ保存する用途 */
+export async function fileToTaskUpload(file: File): Promise<GenbaUploadFile> {
+  if (file.type === "application/pdf") {
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(stripDataUrl(String(r.result)));
+      r.onerror = () => reject(r.error);
+      r.readAsDataURL(file);
+    });
+    return { base64, mimeType: "application/pdf", fileName: file.name, sizeBytes: Math.floor((base64.length * 3) / 4) };
+  }
+  if (file.type.startsWith("image/")) {
+    const img = await fileToResizedImage(file);
+    return { base64: img.base64, mimeType: img.mimeType, fileName: img.fileName, sizeBytes: Math.floor((img.base64.length * 3) / 4) };
+  }
+  throw new Error("画像(PNG/JPG)またはPDFを選択してください");
+}
+
 function stripDataUrl(dataUrl: string): string {
   const i = dataUrl.indexOf(",");
   return i >= 0 ? dataUrl.slice(i + 1) : dataUrl;

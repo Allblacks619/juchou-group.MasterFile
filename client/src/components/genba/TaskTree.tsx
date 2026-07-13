@@ -111,6 +111,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
               {task.dueDate && <span className={`text-[11px] px-1.5 py-0.5 rounded ${overdue ? "bg-destructive/10 text-destructive font-bold" : "bg-muted text-muted-foreground"}`}>📅 {fmtDate(task.dueDate)}{overdue ? " 期限超過" : ""}</span>}
               {task.memo && task.memoVisible && <span title="メモあり">📝</span>}
               {task.linkUrl && <span title="図面リンク">📐</span>}
+              {!!task.fileCount && <span title="作業ファイルあり" className="text-[10px] text-muted-foreground">📎{task.fileCount}</span>}
               {tTeamIds.map((id) => {
                 const g = teamList.find((t) => t.id === id);
                 return g ? (

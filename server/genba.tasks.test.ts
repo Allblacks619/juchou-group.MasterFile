@@ -28,6 +28,11 @@ const mockGenbaDb = vi.hoisted(() => ({
   listGuestAssigneesByTaskIds: vi.fn(),
   listUserNamesByIds: vi.fn(),
   listGenbaSiteWorkersByIds: vi.fn(),
+  countGenbaTaskFilesByTaskIds: vi.fn(),
+  listGenbaTaskFiles: vi.fn(),
+  createGenbaTaskFile: vi.fn(),
+  getGenbaTaskFileById: vi.fn(),
+  deleteGenbaTaskFile: vi.fn(),
 }));
 const mockStorage = vi.hoisted(() => ({ storagePut: vi.fn(), storageGet: vi.fn() }));
 const mockDb = vi.hoisted(() => ({ createAuditLog: vi.fn() }));
@@ -60,6 +65,8 @@ describe("genba.tasks", () => {
     mockGenbaDb.listGuestAssigneesByTaskIds.mockResolvedValue([]);
     mockGenbaDb.listUserNamesByIds.mockResolvedValue(new Map());
     mockGenbaDb.listGenbaSiteWorkersByIds.mockResolvedValue([]);
+    mockGenbaDb.countGenbaTaskFilesByTaskIds.mockResolvedValue(new Map());
+    mockGenbaDb.listGenbaTaskFiles.mockResolvedValue([]);
   });
   afterEach(() => { delete process.env.GENBA_ENABLED; });
 
@@ -227,6 +234,48 @@ describe("genba.tasks", () => {
     it("worker は 403 / userIdとteamId両方指定は 400", async () => {
       await expect(worker().genba.tasks.bulkAssign({ taskIds: [T1.id], userId: 7, on: true })).rejects.toThrow("現場編集権限がありません");
       await expect(leader().genba.tasks.bulkAssign({ taskIds: [T1.id], userId: 7, teamId: "tm", on: true } as any)).rejects.toThrow();
+    });
+  });
+
+  describe("files (作業ファイル)", () => {
+    beforeEach(() => {
+      mockGenbaDb.getGenbaTaskById.mockResolvedValue(TASK);
+      mockStorage.storageGet.mockResolvedValue({ key: "k", url: "https://r2/signed" });
+    });
+
+    it("list: upload は署名URLを都度発行、link は保存URLをそのまま返す (worker も閲覧可)", async () => {
+      mockGenbaDb.listGenbaTaskFiles.mockResolvedValue([
+        { id: "F1", taskId: TASK.id, kind: "upload", title: "強電図面", fileName: "d.pdf", storageKey: "genba/task/d.pdf", url: null, mimeType: "application/pdf", sizeBytes: 1234, sortOrder: 0, createdAt: new Date() },
+        { id: "F2", taskId: TASK.id, kind: "link", title: null, fileName: null, storageKey: null, url: "https://drive.example/x", mimeType: null, sizeBytes: null, sortOrder: 1, createdAt: new Date() },
+      ]);
+      const res = await worker().genba.tasks.files.list({ taskId: TASK.id });
+      expect(res[0]).toMatchObject({ id: "F1", kind: "upload", title: "強電図面", url: "https://r2/signed" });
+      expect(res[1]).toMatchObject({ id: "F2", kind: "link", url: "https://drive.example/x" });
+    });
+
+    it("addLink: leader 可 / worker 403 / http以外は 400", async () => {
+      mockGenbaDb.createGenbaTaskFile.mockImplementation(async (d: any) => ({ ...d }));
+      await expect(leader().genba.tasks.files.addLink({ taskId: TASK.id, url: "https://drive.example/x", title: "図面" })).resolves.toMatchObject({ kind: "link" });
+      await expect(worker().genba.tasks.files.addLink({ taskId: TASK.id, url: "https://drive.example/x" })).rejects.toThrow("現場編集権限がありません");
+      await expect(leader().genba.tasks.files.addLink({ taskId: TASK.id, url: "ftp://x/y" as any })).rejects.toThrow();
+    });
+
+    it("upload: base64→R2、DBにはキーのみ。不正MIMEは 400", async () => {
+      mockStorage.storagePut.mockResolvedValue({ key: "k", url: "https://r2/put" });
+      mockGenbaDb.createGenbaTaskFile.mockImplementation(async (d: any) => ({ ...d }));
+      await leader().genba.tasks.files.upload({ taskId: TASK.id, base64: PNG, mimeType: "image/png", fileName: "zu.png" });
+      expect(mockStorage.storagePut).toHaveBeenCalledTimes(1);
+      const saved = mockGenbaDb.createGenbaTaskFile.mock.calls[0][0];
+      expect(saved.kind).toBe("upload");
+      expect(saved.storageKey).toContain("genba/task-");
+      await expect(leader().genba.tasks.files.upload({ taskId: TASK.id, base64: PNG, mimeType: "text/plain", fileName: "x.txt" })).rejects.toThrow();
+    });
+
+    it("remove: leader 可 / worker 403", async () => {
+      mockGenbaDb.getGenbaTaskFileById.mockResolvedValue({ id: "F1", taskId: TASK.id, kind: "link", url: "https://x", title: "t", fileName: null });
+      await expect(leader().genba.tasks.files.remove({ id: "F1" })).resolves.toMatchObject({ success: true });
+      expect(mockGenbaDb.deleteGenbaTaskFile).toHaveBeenCalledWith("F1");
+      await expect(worker().genba.tasks.files.remove({ id: "F1" })).rejects.toThrow("現場編集権限がありません");
     });
   });
 

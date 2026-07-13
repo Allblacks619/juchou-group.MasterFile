@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Copy, RefreshCw, Ban, CircleCheck, Trash2, Link as LinkIcon } from "lucide-react";
+import { Copy, RefreshCw, Ban, CircleCheck, Trash2, Link as LinkIcon, Pencil } from "lucide-react";
 import { rosterKindLabel, type RosterEntry } from "./AssignPicker";
 
 type LinkRow = {
@@ -55,6 +55,14 @@ export default function WorkerLinksPanel({
     onSuccess: () => { utils.genba.users.siteRoster.invalidate({ siteId }); invalidate(); toast.success("権限を変更しました"); },
     onError: (e) => toast.error(e.message),
   });
+  const renameWorker = trpc.genba.workerLinks.renameWorker.useMutation({
+    onSuccess: () => { utils.genba.users.siteRoster.invalidate({ siteId }); invalidate(); toast.success("名前を修正しました"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const promptRename = (siteWorkerId: string, current: string) => {
+    const v = window.prompt("ゲストの表示名を修正", current);
+    if (v && v.trim() && v.trim() !== current) renameWorker.mutate({ siteWorkerId, displayName: v.trim() });
+  };
 
   const roster = (rosterData?.roster || []) as RosterEntry[];
   const linked = rosterData?.linked ?? false;
@@ -100,6 +108,11 @@ export default function WorkerLinksPanel({
               <div key={l.id} className="p-2 space-y-1.5">
                 <div className="flex items-center gap-2 flex-wrap">
                   <strong className="text-sm">{l.displayName}</strong>
+                  {l.kind === "guest" && (
+                    <button title="ゲスト名を修正" className="text-muted-foreground hover:text-foreground" onClick={() => promptRename(l.siteWorkerId, l.displayName)}>
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
                   <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${kind.cls}`}>{kind.label}</span>
                   <select value={l.role} disabled={!isAdmin || setRole.isPending}
                     title={isAdmin ? "このリンクの権限" : "権限を変更できるのは管理者のみです"}
@@ -156,6 +169,11 @@ export default function WorkerLinksPanel({
             return (
               <div key={r.siteWorkerId} className="p-2 flex items-center gap-2 flex-wrap">
                 <strong className="text-sm">{r.displayName}</strong>
+                {r.kind === "guest" && r.siteWorkerId && (
+                  <button title="ゲスト名を修正" className="text-muted-foreground hover:text-foreground" onClick={() => promptRename(r.siteWorkerId as string, r.displayName)}>
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
                 <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${kind.cls}`}>{kind.label}</span>
                 {/* 権限セレクト: 全員に表示。オーナー(super_admin)は固定、変更操作は管理者のみ */}
                 {isOwner ? (
