@@ -34,7 +34,7 @@ const mockGenbaDb = vi.hoisted(() => ({
   getGenbaTaskFileById: vi.fn(),
   deleteGenbaTaskFile: vi.fn(),
 }));
-const mockStorage = vi.hoisted(() => ({ storagePut: vi.fn(), storageGet: vi.fn() }));
+const mockStorage = vi.hoisted(() => ({ storagePut: vi.fn(), storageGet: vi.fn(), storageGetBytes: vi.fn() }));
 const mockDb = vi.hoisted(() => ({ createAuditLog: vi.fn() }));
 
 vi.mock("./genba/db", async () => ({ ...(await vi.importActual<any>("./genba/db")), ...mockGenbaDb }));
@@ -276,6 +276,17 @@ describe("genba.tasks", () => {
       await expect(leader().genba.tasks.files.remove({ id: "F1" })).resolves.toMatchObject({ success: true });
       expect(mockGenbaDb.deleteGenbaTaskFile).toHaveBeenCalledWith("F1");
       await expect(worker().genba.tasks.files.remove({ id: "F1" })).rejects.toThrow("現場編集権限がありません");
+    });
+
+    it("getBytes: upload の実体をbase64で返す (worker/ゲストも可=オフライン保存用)。link は 400", async () => {
+      mockGenbaDb.getGenbaTaskFileById.mockResolvedValue({ id: "F1", taskId: TASK.id, kind: "upload", storageKey: "genba/task/d.pdf", mimeType: "application/pdf", fileName: "d.pdf" });
+      mockStorage.storageGetBytes.mockResolvedValue(Buffer.from("PDFDATA"));
+      const res = await worker().genba.tasks.files.getBytes({ id: "F1" });
+      expect(res).toMatchObject({ mimeType: "application/pdf", fileName: "d.pdf" });
+      expect(Buffer.from(res.base64, "base64").toString()).toBe("PDFDATA");
+
+      mockGenbaDb.getGenbaTaskFileById.mockResolvedValue({ id: "F2", taskId: TASK.id, kind: "link", url: "https://x", storageKey: null });
+      await expect(worker().genba.tasks.files.getBytes({ id: "F2" })).rejects.toThrow("外部リンク");
     });
   });
 
