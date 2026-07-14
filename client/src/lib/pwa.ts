@@ -87,10 +87,12 @@ export function registerPwa() {
       })
       .catch((err) => console.warn("[pwa] SW registration failed:", err));
 
-    // SKIP_WAITING → controllerchange で1回だけリロード
+    // 新SW(skipWaiting)が制御を奪ったら1回だけリロードして最新へ。
+    // 初回インストール(それまで誰も制御していない)時の claim ではリロードしない(不要な再読込を避ける)。
+    const hadController = !!navigator.serviceWorker.controller;
     let reloaded = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (reloaded) return;
+      if (reloaded || !hadController) return;
       reloaded = true;
       window.location.reload();
     });

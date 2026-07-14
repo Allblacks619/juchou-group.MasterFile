@@ -8,8 +8,9 @@
  *  - ハッシュ付き静的アセット・画像は stale-while-revalidate。
  *  - クロスオリジン(フォント等)は素通し。
  *  - CACHE_VERSION を上げると旧キャッシュを一掃する。skipWaiting + clients.claim で即時反映。
+ *  - 新SWは install で skipWaiting し、次回起動時に自動で最新へ切り替わる (ゲストが「更新」を押さなくても古いまま固まらない)。
  */
-const CACHE_VERSION = "genba-v1";
+const CACHE_VERSION = "genba-v2";
 const CACHE = `app-cache-${CACHE_VERSION}`;
 const APP_SHELL = "/app";
 const ASSET_EXT = /\.(?:js|mjs|css|woff2?|ttf|otf|eot|png|jpe?g|gif|svg|webp|avif|ico)$/i;
@@ -23,7 +24,9 @@ function routeStrategy(pathname) {
 }
 
 self.addEventListener("install", (event) => {
-  // 新SWは即待機解除。実際の反映はページ側の更新トーストからメッセージで行う
+  // 新SWは待機せず即座に有効化候補にする (待機のまま古いSWが居座り、古い画面/白画面で固まるのを防ぐ)。
+  // 実際の切り替えは activate の clients.claim + ページ側 controllerchange で1回リロードして行う。
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE).then((cache) => cache.add(new Request(APP_SHELL, { credentials: "same-origin" })).catch(() => {})),
   );
