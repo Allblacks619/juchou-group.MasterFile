@@ -197,7 +197,8 @@ export async function buildClientInvoiceDraftFromV2(args: {
     // 残業は日単位で band 分け（時間外/深夜帯）してから積み上げる（作業員請求書と同ルール）:
     //  - 夜勤の残業は全て深夜帯。昼勤は5hまで時間外・6時間目以降(5時間超)深夜帯。
     const records = await db.getAttendanceByDateRange(start, end, projectId);
-    type Agg = { daysTimes10: number; overtimeRegularTimes10: number; overtimeLateNightTimes10: number; sampleWorkDate: Date };
+    // 日数は出面（実働の重複なし日数）で数える。hoursWorked は将来の労基記録用で、日数換算には使わない。
+    type Agg = { dateKeys: Set<string>; overtimeRegularTimes10: number; overtimeLateNightTimes10: number; sampleWorkDate: Date };
     const aggByWorkerShift = new Map<string, Agg>();
     for (const record of records as any[]) {
       const employeeId = Number(record.employeeId);
@@ -206,12 +207,11 @@ export async function buildClientInvoiceDraftFromV2(args: {
       const hoursWorked = Number(record.hoursWorked || 0);
       if (hoursWorked <= 0) continue;
       const shiftType = record.shiftType || "day";
-      const daysTimes10 = Math.round(hoursWorked / 8);
-      if (daysTimes10 <= 0) continue;
-      const workDate = new Date(`${extractDateKey(record.workDate)}T00:00:00.000Z`);
+      const workDateKey = extractDateKey(record.workDate);
+      const workDate = new Date(`${workDateKey}T00:00:00.000Z`);
       const key = `${employeeId}:${shiftType}`;
-      const agg = aggByWorkerShift.get(key) || { daysTimes10: 0, overtimeRegularTimes10: 0, overtimeLateNightTimes10: 0, sampleWorkDate: workDate };
-      agg.daysTimes10 += daysTimes10;
+      const agg = aggByWorkerShift.get(key) || { dateKeys: new Set<string>(), overtimeRegularTimes10: 0, overtimeLateNightTimes10: 0, sampleWorkDate: workDate };
+      agg.dateKeys.add(workDateKey);
       const recOt = Math.max(0, Number(record.overtimeHours || 0));
       if (recOt > 0) {
         if (shiftType === "night") {
@@ -249,7 +249,7 @@ export async function buildClientInvoiceDraftFromV2(args: {
         workerId,
         workerName: employeeName(workerId),
         shiftType,
-        daysTimes10: agg.daysTimes10,
+        daysTimes10: agg.dateKeys.size * 10,
         overtimeHoursTimes10: agg.overtimeRegularTimes10 + agg.overtimeLateNightTimes10,
         overtimeRegularTimes10: agg.overtimeRegularTimes10,
         overtimeLateNightTimes10: agg.overtimeLateNightTimes10,

@@ -105,7 +105,7 @@ export default function AppPayments() {
           <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
           <div className="text-amber-200">
             <span className="font-semibold">{summary?.dayMismatchCount}名</span> の作業員で、出面日数と支払の算定日数が一致していません。
-            <span className="text-amber-200/80">行の <AlertTriangle className="inline h-3 w-3 mb-0.5" /> をタップして内訳を確認してください（同日の重複記録や8時間以外の入力が原因のことが多いです）。</span>
+            <span className="text-amber-200/80">行の <AlertTriangle className="inline h-3 w-3 mb-0.5" /> をタップして内訳を確認してください（同日に昼勤と夜勤の両方がある、または重複記録が原因のことが多いです）。</span>
           </div>
         </div>
       )}
@@ -305,7 +305,7 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
           <p className="mt-1.5 flex items-start gap-1.5 text-[11px] text-amber-400/90">
             <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
             <span>
-              出面日数（実働の重複なし日数）と算定日数（Σ稼働時間÷8）が一致しません。作業日報・出面表で該当日を確認し、同日の重複記録や8時間以外の入力を修正すると一致します。金額の例外対応が必要な場合は「調整」で補正できます。
+              出面日数（実働の重複なし日数）と算定日数が一致しません。日数は出面日数で算定するため通常は一致します。作業日報・出面表で該当日を確認し、同日に昼勤と夜勤の両方や重複記録があれば修正すると一致します。金額の例外対応が必要な場合は「調整」で補正できます。
             </span>
           </p>
         )}

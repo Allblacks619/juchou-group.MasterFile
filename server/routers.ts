@@ -331,22 +331,26 @@ async function ensurePaymentRowsForProjectMonth(projectId: number, closingMonth:
   const targetSubmissions = submissions.filter((s: any) => s.status !== "not_required");
   for (const submission of targetSubmissions) {
     const empRecords = attendanceRecords.filter((rec: any) => rec.employeeId === submission.employeeId);
-    const byShift = new Map<string, number>();
+    // 日数は出面（実働の重複なし日数）で数える。hoursWorked は将来の労基記録用で、日数換算には使わない。
+    const daysByShift = new Map<string, Set<string>>();
     for (const rec of empRecords) {
       if (!rec.employeeId) continue;
+      if (!isWorkedType(rec.workType) || Number(rec.hoursWorked || 0) <= 0) continue;
       const shift = rec.shiftType || "day";
-      byShift.set(shift, (byShift.get(shift) || 0) + (rec.hoursWorked || 0));
+      const set = daysByShift.get(shift) || new Set<string>();
+      set.add(extractDateKey(rec.workDate));
+      daysByShift.set(shift, set);
     }
 
     let baseDaysTimes10 = 0;
     let baseAmount = 0;
-    for (const [shiftType, totalHoursTimes10] of Array.from(byShift.entries())) {
-      const daysTimes10 = Math.round(totalHoursTimes10 / 8);
+    for (const [shiftType, dateSet] of Array.from(daysByShift.entries())) {
+      const daysTimes10 = dateSet.size * 10;
       if (daysTimes10 <= 0) continue;
 
       baseDaysTimes10 += daysTimes10;
 
-      const sampleRecord = empRecords.find((rec: any) => (rec.shiftType || "day") === shiftType);
+      const sampleRecord = empRecords.find((rec: any) => (rec.shiftType || "day") === shiftType && isWorkedType(rec.workType) && Number(rec.hoursWorked || 0) > 0);
       const workDate = sampleRecord?.workDate
         ? (sampleRecord.workDate instanceof Date ? sampleRecord.workDate : new Date(sampleRecord.workDate))
         : start;
@@ -4572,7 +4576,8 @@ export const appRouter = router({
         const empMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
 
         // 出面日数(実働の重複なし日数)を (作業員, 現場) 別に集計。出面表・作業日報と同じ数え方。
-        // 支払の算定日数(baseDaysTimes10=Σ稼働時間/8)と突き合わせて検算に使う。
+        // 支払の算定日数(baseDaysTimes10)も出面日数で算定するので通常は一致する。
+        // 万一ズレたら(例: 同日に昼勤と夜勤の両方、重複記録)検算バッジで気づける。
         const attendanceDaysByKey = new Map<string, Set<string>>();
         for (const rec of excludeRemovedGuestMarkers(attendance as any[])) {
           if (!rec.employeeId) continue;
@@ -4629,7 +4634,7 @@ export const appRouter = router({
               return !latest || new Date(r.paidAt) > new Date(latest) ? r.paidAt : latest;
             }, null);
             // 検算: 出面日数(実働の重複なし日数)と算定日数(baseDaysTimes10/10)が食い違う現場を検出。
-            // 食い違い = 同日重複記録 / 8h以外の稼働時間入力 の可能性 → 出面表と再突合せずに気づける。
+            // 両者とも出面日数で算定するので通常一致。ズレる場合は同日に昼勤+夜勤/重複記録の可能性 → 出面表と再突合せずに気づける。
             const attendanceDaysTotal = projectRows.reduce((sum, r) => sum + r.attendanceDays, 0);
             const payDaysTotal = projectRows.reduce((sum, r) => sum + r.baseDaysTimes10, 0) / 10;
             const hasDayMismatch = projectRows.some((r) => r.baseDaysTimes10 !== r.attendanceDays * 10);

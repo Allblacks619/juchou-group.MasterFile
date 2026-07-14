@@ -207,7 +207,7 @@ export async function computeWorkerInvoiceDraft(input: {
   type LaborBucket = {
     projectId: number;
     shiftType: string;
-    daysTimes10: number;
+    dateKeys: Set<string>;
     sampleWorkDate: Date;
   };
   const laborBuckets = new Map<string, LaborBucket>();
@@ -220,6 +220,7 @@ export async function computeWorkerInvoiceDraft(input: {
   const lateNightOtTimes10ByProject = new Map<number, number>();
   const projectSampleDate = new Map<number, Date>();
 
+  const seenLaborDayKeys = new Set<string>();
   for (const record of input.attendanceRecords) {
     if (Number(record.employeeId) !== Number(workerId)) continue;
     if (!isWorkedType(record.workType)) continue;
@@ -228,15 +229,14 @@ export async function computeWorkerInvoiceDraft(input: {
 
     const projectId = Number(record.projectId);
     const shiftType = record.shiftType || "day";
-    const daysTimes10 = Math.round(hoursWorked / 8);
-    if (daysTimes10 <= 0) continue;
 
     const workDateKey = extractDateKey(record.workDate);
     const workDate = new Date(`${workDateKey}T00:00:00.000Z`);
 
     const key = `${projectId}:${shiftType}`;
-    const bucket = laborBuckets.get(key) || { projectId, shiftType, daysTimes10: 0, sampleWorkDate: workDate };
-    bucket.daysTimes10 += daysTimes10;
+    // 日数は出面（実働の重複なし日数）で数える。hoursWorked は将来の労基記録用で、日数換算には使わない。
+    const bucket = laborBuckets.get(key) || { projectId, shiftType, dateKeys: new Set<string>(), sampleWorkDate: workDate };
+    bucket.dateKeys.add(workDateKey);
     laborBuckets.set(key, bucket);
 
     // 残業時間(×10)を band 分けして現場ごとに累積（判定は日単位＝レコード単位）。
@@ -255,16 +255,21 @@ export async function computeWorkerInvoiceDraft(input: {
     }
     if (!projectSampleDate.has(projectId)) projectSampleDate.set(projectId, workDate);
 
-    attendanceBreakdown.push({
-      workDate: workDateKey,
-      projectId,
-      projectName: null,
-      shiftType,
-      workType: String(record.workType),
-      days: daysTimes10 / 10,
-      overtimeHours: Number(record.overtimeHours || 0) / 10,
-      transport: 0, // filled by 日割り (daily proration) below
-    });
+    // 出面明細は (現場×勤務区分×日) の重複を除いて 1日=1行 で積む（交通費の日割りもこの出面日数で行う）。
+    const dayKey = `${projectId}:${shiftType}:${workDateKey}`;
+    if (!seenLaborDayKeys.has(dayKey)) {
+      seenLaborDayKeys.add(dayKey);
+      attendanceBreakdown.push({
+        workDate: workDateKey,
+        projectId,
+        projectName: null,
+        shiftType,
+        workType: String(record.workType),
+        days: 1,
+        overtimeHours: Number(record.overtimeHours || 0) / 10,
+        transport: 0, // filled by 日割り (daily proration) below
+      });
+    }
   }
 
   // 日報 transport: the worker submits one transport total per project; allocate it by
@@ -302,7 +307,7 @@ export async function computeWorkerInvoiceDraft(input: {
   for (const key of sortedLaborKeys) {
     const bucket = laborBuckets.get(key)!;
     const name = await projectName(bucket.projectId);
-    const days = bucket.daysTimes10 / 10;
+    const days = bucket.dateKeys.size;
     const shiftLabel = bucket.shiftType === "night" ? "夜勤" : "日勤";
 
     const resolved = await input.resolveRate({
@@ -317,7 +322,7 @@ export async function computeWorkerInvoiceDraft(input: {
       unitPrice = Number(resolved) || 0;
     }
 
-    const amount = Math.round((bucket.daysTimes10 / 10) * unitPrice);
+    const amount = Math.round(days * unitPrice);
     laborAmount += amount;
     items.push({
       category: "labor",

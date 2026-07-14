@@ -85,6 +85,24 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
     expect(draft.laborAmount).toBe(48000);
   });
 
+  it("日数は出面（重複なし日数）で数え、時間からは換算しない（同日重複・長時間入力対策）", async () => {
+    // 大木早苗の再現: 同一日の重複記録や16h入力があっても、日数は出面日数で数える。
+    // 旧実装(Σ稼働時間/8)なら 10+10+20=40=4.0日 だが、出面日数は2日。
+    state.attendance = [
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-01", hoursWorked: 80, workType: "normal" },
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-01", hoursWorked: 80, workType: "normal" }, // 同日重複
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-02", hoursWorked: 160, workType: "normal" }, // 16h入力
+    ];
+    state.expenseLines = [];
+    const draft = await build();
+    const day = draft.items.find((i) => i.category === "labor" && i.projectId === 1 && i.shiftType === "day")!;
+    expect(day.quantity).toBe(2); // 出面2日（4.0日ではない）
+    expect(day.amount).toBe(30000); // 2日 × 15000
+    // 出面明細も (現場×勤務区分×日) の重複を除いて2行・各1日。
+    expect(draft.attendanceBreakdown).toHaveLength(2);
+    expect(draft.attendanceBreakdown.every((d) => d.days === 1)).toBe(true);
+  });
+
   it("他作業員の出面と休日（day_off）は集計しない", async () => {
     const draft = await build();
     expect(draft.attendanceBreakdown).toHaveLength(4);
