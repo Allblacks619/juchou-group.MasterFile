@@ -263,6 +263,28 @@ export const genbaZoneFiles = mysqlTable("genba_zone_files", {
 export type GenbaZoneFile = typeof genbaZoneFiles.$inferSelect;
 export type InsertGenbaZoneFile = typeof genbaZoneFiles.$inferInsert;
 
+/** フロア(図面)ごとの共通ファイル。1度貼れば図面上の全エリア・全作業から参照できる(全エリア共通) */
+export const genbaFloorFiles = mysqlTable("genba_floor_files", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  floorId: varchar("floorId", { length: 24 }).notNull(),
+  kind: mysqlEnum("genbaFloorFileKind", ["link", "upload"]).notNull(),
+  title: varchar("title", { length: 200 }),
+  fileName: varchar("fileName", { length: 200 }),
+  storageKey: varchar("storageKey", { length: 500 }),
+  url: varchar("url", { length: 1000 }),
+  mimeType: varchar("mimeType", { length: 100 }),
+  sizeBytes: int("sizeBytes"),
+  createdByUserId: int("createdByUserId"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  index("genba_floor_files_floor_idx").on(table.floorId, table.sortOrder),
+]));
+
+export type GenbaFloorFile = typeof genbaFloorFiles.$inferSelect;
+export type InsertGenbaFloorFile = typeof genbaFloorFiles.$inferInsert;
+
 /** 資材プリセット (工事名 → 部材名リスト) */
 export const genbaMaterialPresets = mysqlTable("genba_material_presets", {
   id: varchar("id", { length: 24 }).primaryKey(),
