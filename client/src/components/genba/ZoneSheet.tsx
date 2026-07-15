@@ -3,6 +3,7 @@ import { PRIORITY, ZONE_COLORS, zoneFillStyle } from "@/lib/genbaMap";
 import { Button } from "@/components/ui/button";
 import { X, Pencil, Trash2, Plus, ChevronLeft, ZoomIn } from "lucide-react";
 import TaskTree from "./TaskTree";
+import TaskFilesSection from "./TaskFilesSection";
 import { dispName } from "@/lib/genbaRomaji";
 
 export type ZoneWithAgg = {
@@ -179,6 +180,11 @@ export default function ZoneSheet({
           <Plus className="h-4 w-4 mr-1" /> サブエリアを追加
         </Button>
       )}
+
+      {/* エリアの図面 (工区に貼れば配下の全作業に共通表示・作業員ワンタッチ) */}
+      <div className="border-t border-border pt-2">
+        <TaskFilesSection zoneId={zone.id} canEdit={canEdit} label="📐 このエリアの図面（全作業共通）" />
+      </div>
 
       {/* 作業ツリー (M2-C) + 担当割当 (M3-A) */}
       <div className="border-t border-border pt-2">

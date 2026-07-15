@@ -6,6 +6,7 @@ import {
   genbaTasks, GenbaTask, InsertGenbaTask,
   genbaTaskEvents, GenbaTaskEvent, InsertGenbaTaskEvent,
   genbaTaskFiles, GenbaTaskFile, InsertGenbaTaskFile,
+  genbaZoneFiles, GenbaZoneFile, InsertGenbaZoneFile,
   genbaTaskTemplates, GenbaTaskTemplate, InsertGenbaTaskTemplate,
   genbaTeams, GenbaTeam, InsertGenbaTeam,
   genbaTeamMembers, GenbaTeamMember, InsertGenbaTeamMember,
@@ -324,6 +325,42 @@ export async function deleteGenbaTaskFile(id: string): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(genbaTaskFiles).where(eq(genbaTaskFiles.id, id));
+}
+
+// ── エリア(工区)ごとの図面・資料 (genba_zone_files) ──
+export async function listGenbaZoneFiles(zoneId: string): Promise<GenbaZoneFile[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaZoneFiles).where(eq(genbaZoneFiles.zoneId, zoneId)).orderBy(asc(genbaZoneFiles.sortOrder), asc(genbaZoneFiles.createdAt));
+}
+
+export async function countGenbaZoneFilesByZoneIds(zoneIds: string[]): Promise<Map<string, number>> {
+  const db = await getDb();
+  if (!db || zoneIds.length === 0) return new Map();
+  const rows = await db.select({ zoneId: genbaZoneFiles.zoneId, n: sql<number>`count(*)` }).from(genbaZoneFiles)
+    .where(inArray(genbaZoneFiles.zoneId, zoneIds)).groupBy(genbaZoneFiles.zoneId);
+  return new Map(rows.map((r) => [r.zoneId, Number(r.n)]));
+}
+
+export async function createGenbaZoneFile(data: InsertGenbaZoneFile): Promise<GenbaZoneFile | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaZoneFiles).values(data);
+  const rows = await db.select().from(genbaZoneFiles).where(eq(genbaZoneFiles.id, data.id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getGenbaZoneFileById(id: string): Promise<GenbaZoneFile | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaZoneFiles).where(eq(genbaZoneFiles.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function deleteGenbaZoneFile(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaZoneFiles).where(eq(genbaZoneFiles.id, id));
 }
 
 /** ゲスト(現場名簿)の表示名を修正する。登録アカウントの氏名は変更しない (これは名簿の表示名のみ) */

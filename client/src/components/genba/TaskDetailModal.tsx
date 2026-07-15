@@ -89,6 +89,8 @@ export default function TaskDetailModal({
 
           {/* 作業ファイル (図面・資料)。複数のリンク/アップロードに対応 (サブ作業も同じ) */}
           <TaskFilesSection taskId={task.id} canEdit={canEdit} />
+          {/* エリア(工区)に貼られた図面。配下の全作業に共通で出る (作業員はワンタッチで開ける)。管理はエリア詳細で */}
+          <TaskFilesSection zoneId={zoneId} canEdit={canEdit} readOnly label="📐 このエリアの図面（全作業共通）" />
 
           {/* 旧: 単一の図面リンク (後方互換。設定済みのみ表示) */}
           {(canEdit || task.linkUrl) && (

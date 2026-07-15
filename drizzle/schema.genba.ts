@@ -241,6 +241,28 @@ export const genbaTaskFiles = mysqlTable("genba_task_files", {
 export type GenbaTaskFile = typeof genbaTaskFiles.$inferSelect;
 export type InsertGenbaTaskFile = typeof genbaTaskFiles.$inferInsert;
 
+/** エリア(工区)ごとの図面・資料。エリアに1度貼れば配下の全作業から参照できる(作業員はワンタッチ) */
+export const genbaZoneFiles = mysqlTable("genba_zone_files", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  zoneId: varchar("zoneId", { length: 24 }).notNull(),
+  kind: mysqlEnum("genbaZoneFileKind", ["link", "upload"]).notNull(),
+  title: varchar("title", { length: 200 }),
+  fileName: varchar("fileName", { length: 200 }),
+  storageKey: varchar("storageKey", { length: 500 }),
+  url: varchar("url", { length: 1000 }),
+  mimeType: varchar("mimeType", { length: 100 }),
+  sizeBytes: int("sizeBytes"),
+  createdByUserId: int("createdByUserId"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  index("genba_zone_files_zone_idx").on(table.zoneId, table.sortOrder),
+]));
+
+export type GenbaZoneFile = typeof genbaZoneFiles.$inferSelect;
+export type InsertGenbaZoneFile = typeof genbaZoneFiles.$inferInsert;
+
 /** 資材プリセット (工事名 → 部材名リスト) */
 export const genbaMaterialPresets = mysqlTable("genba_material_presets", {
   id: varchar("id", { length: 24 }).primaryKey(),
