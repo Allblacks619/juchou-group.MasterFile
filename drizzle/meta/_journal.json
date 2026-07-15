@@ -281,6 +281,13 @@
       "when": 1785300000000,
       "tag": "0039_genba_task_files",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "5",
+      "when": 1785400000000,
+      "tag": "0040_genba_zone_files",
+      "breakpoints": true
     }
   ]
 }
