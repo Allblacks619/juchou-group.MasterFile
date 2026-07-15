@@ -125,6 +125,17 @@ export async function offlineFileIds(taskId: string): Promise<Set<string>> {
   return new Set((await listOfflineFilesByTask(taskId)).map((m) => m.id));
 }
 
+/** 端末に保存済みの全ファイルidの集合 (スコープ横断の「保存済み」バッジ用) */
+export async function allOfflineFileIds(): Promise<Set<string>> {
+  if (!hasIdb()) return new Set();
+  try {
+    const keys = await reqToPromise<IDBValidKey[]>("readonly", (s) => s.getAllKeys());
+    return new Set(keys.map((k) => String(k)));
+  } catch {
+    return new Set();
+  }
+}
+
 export async function removeOfflineFile(id: string): Promise<void> {
   if (!hasIdb()) return;
   await reqToPromise("readwrite", (s) => s.delete(id));

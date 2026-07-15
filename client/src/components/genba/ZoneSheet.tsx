@@ -181,9 +181,9 @@ export default function ZoneSheet({
         </Button>
       )}
 
-      {/* エリアの図面 (工区に貼れば配下の全作業に共通表示・作業員ワンタッチ) */}
+      {/* エリアの図面。このエリア共通／全エリア共通 を選んで追加でき、配下の全作業にワンタッチで出る */}
       <div className="border-t border-border pt-2">
-        <TaskFilesSection zoneId={zone.id} canEdit={canEdit} label="📐 このエリアの図面（全作業共通）" />
+        <TaskFilesSection zoneId={zone.id} canEdit={canEdit} label="📐 図面・資料（エリア／全エリア共通）" />
       </div>
 
       {/* 作業ツリー (M2-C) + 担当割当 (M3-A) */}

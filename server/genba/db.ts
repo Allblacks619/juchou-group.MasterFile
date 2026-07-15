@@ -7,6 +7,7 @@ import {
   genbaTaskEvents, GenbaTaskEvent, InsertGenbaTaskEvent,
   genbaTaskFiles, GenbaTaskFile, InsertGenbaTaskFile,
   genbaZoneFiles, GenbaZoneFile, InsertGenbaZoneFile,
+  genbaFloorFiles, GenbaFloorFile, InsertGenbaFloorFile,
   genbaTaskTemplates, GenbaTaskTemplate, InsertGenbaTaskTemplate,
   genbaTeams, GenbaTeam, InsertGenbaTeam,
   genbaTeamMembers, GenbaTeamMember, InsertGenbaTeamMember,
@@ -361,6 +362,34 @@ export async function deleteGenbaZoneFile(id: string): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(genbaZoneFiles).where(eq(genbaZoneFiles.id, id));
+}
+
+// ── フロア(図面)ごとの共通ファイル (genba_floor_files) = 全エリア共通 ──
+export async function listGenbaFloorFiles(floorId: string): Promise<GenbaFloorFile[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaFloorFiles).where(eq(genbaFloorFiles.floorId, floorId)).orderBy(asc(genbaFloorFiles.sortOrder), asc(genbaFloorFiles.createdAt));
+}
+
+export async function createGenbaFloorFile(data: InsertGenbaFloorFile): Promise<GenbaFloorFile | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaFloorFiles).values(data);
+  const rows = await db.select().from(genbaFloorFiles).where(eq(genbaFloorFiles.id, data.id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getGenbaFloorFileById(id: string): Promise<GenbaFloorFile | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaFloorFiles).where(eq(genbaFloorFiles.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function deleteGenbaFloorFile(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaFloorFiles).where(eq(genbaFloorFiles.id, id));
 }
 
 /** ゲスト(現場名簿)の表示名を修正する。登録アカウントの氏名は変更しない (これは名簿の表示名のみ) */

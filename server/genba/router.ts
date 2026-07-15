@@ -460,6 +460,89 @@ const floorsRouter = router({
       await safeGenbaAuditLog(uid(ctx), "genba.floors.remove", { entityId: input.id, note: `図面を削除: ${existing.name}` });
       return { success: true as const };
     }),
+
+  /**
+   * フロア(図面)ごとの共通ファイル = 「全エリア共通」。図面に1度貼れば、その図面上の全エリア・全作業から参照できる。
+   * クライアントは常に zoneId を渡し、サーバーが所属フロアを解決する (作業/エリア詳細どちらからでも zoneId しか無いため)。
+   * 閲覧は全員 (リンクは自現場のみ)、追加/削除は field(leader+)。作業/エリアファイルと同方式 (R2はキーのみ保存)。
+   */
+  files: router({
+    list: genbaProcedure.input(z.object({ zoneId: genbaIdSchema })).query(async ({ ctx, input }) => {
+      const zone = await genbaDb.getGenbaZoneById(input.zoneId);
+      if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
+      const floor = await genbaDb.getGenbaFloorById(zone.floorId);
+      assertLinkSiteId(ctx, floor?.siteId ?? null);
+      const files = await genbaDb.listGenbaFloorFiles(zone.floorId);
+      return Promise.all(files.map(async (f) => {
+        let url = f.url;
+        if (f.kind === "upload" && f.storageKey) {
+          try { url = (await storageGet(f.storageKey)).url; } catch { url = null; }
+        }
+        return { id: f.id, kind: f.kind, title: f.title, fileName: f.fileName, mimeType: f.mimeType, sizeBytes: f.sizeBytes, url, createdAt: f.createdAt };
+      }));
+    }),
+
+    getBytes: genbaProcedure.input(z.object({ id: genbaIdSchema })).query(async ({ ctx, input }) => {
+      const file = await genbaDb.getGenbaFloorFileById(input.id);
+      if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "ファイルが見つかりません" });
+      const floor = await genbaDb.getGenbaFloorById(file.floorId);
+      assertLinkSiteId(ctx, floor?.siteId ?? null);
+      if (file.kind !== "upload" || !file.storageKey) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "このファイルは端末保存できません（外部リンク）" });
+      }
+      const bytes = await storageGetBytes(file.storageKey);
+      return { base64: bytes.toString("base64"), mimeType: file.mimeType || "application/octet-stream", fileName: file.fileName || "file" };
+    }),
+
+    addLink: genbaFieldProcedure
+      .input(z.object({ zoneId: genbaIdSchema, url: z.string().trim().url().max(1000), title: z.string().trim().max(200).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!/^https?:\/\//i.test(input.url)) throw new TRPCError({ code: "BAD_REQUEST", message: "URLは https:// から入力してください" });
+        const zone = await genbaDb.getGenbaZoneById(input.zoneId);
+        if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
+        const floor = await genbaDb.getGenbaFloorById(zone.floorId);
+        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        const file = await genbaDb.createGenbaFloorFile({
+          id: nanoid(21), floorId: zone.floorId, kind: "link",
+          title: input.title || null, url: input.url, createdByUserId: uid(ctx),
+        } as any);
+        await safeGenbaAuditLog(uid(ctx), "genba.floors.files.addLink", { entityId: zone.floorId, note: `全エリア共通リンク追加: ${input.title || input.url}` });
+        return file;
+      }),
+
+    upload: genbaFieldProcedure
+      .input(z.object({ zoneId: genbaIdSchema, base64: z.string().min(1), mimeType: z.string(), fileName: z.string().min(1).max(200), title: z.string().trim().max(200).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const zone = await genbaDb.getGenbaZoneById(input.zoneId);
+        if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
+        const floor = await genbaDb.getGenbaFloorById(zone.floorId);
+        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        const buffer = Buffer.from(input.base64, "base64");
+        const err = validateFile(input.fileName, input.mimeType, buffer.length);
+        if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
+        const storageKey = `genba/floor-${zone.floorId}/file-${nanoid(8)}-${safeKeyPart(input.fileName)}`;
+        await storagePut(storageKey, buffer, input.mimeType);
+        const file = await genbaDb.createGenbaFloorFile({
+          id: nanoid(21), floorId: zone.floorId, kind: "upload",
+          title: input.title || null, fileName: input.fileName, storageKey,
+          mimeType: input.mimeType, sizeBytes: buffer.length, createdByUserId: uid(ctx),
+        } as any);
+        await safeGenbaAuditLog(uid(ctx), "genba.floors.files.upload", { entityId: zone.floorId, note: `全エリア共通アップロード: ${input.fileName}` });
+        return file;
+      }),
+
+    remove: genbaFieldProcedure
+      .input(z.object({ id: genbaIdSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const file = await genbaDb.getGenbaFloorFileById(input.id);
+        if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "ファイルが見つかりません" });
+        const floor = await genbaDb.getGenbaFloorById(file.floorId);
+        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await genbaDb.deleteGenbaFloorFile(input.id);
+        await safeGenbaAuditLog(uid(ctx), "genba.floors.files.remove", { entityId: file.floorId, note: `全エリア共通削除: ${file.title || file.fileName || file.url}` });
+        return { success: true as const };
+      }),
+  }),
 });
 
 // ── zones (M2-B) ──
