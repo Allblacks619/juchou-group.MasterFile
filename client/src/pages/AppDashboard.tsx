@@ -562,6 +562,12 @@ function AttendanceCalendar() {
     onError: (e) => toast.error(`${lang === "pt" ? "Erro ao salvar" : "保存エラー"}: ${e.message}`),
   });
 
+  // クリア（削除）用。管理者系は現場の任意メンバー、作業員は自分の出面のみ削除できる。
+  const batchUpsertMutation = trpc.attendance.batchUpsert.useMutation({
+    onSuccess: refreshAttendanceQueries,
+    onError: (e) => toast.error(`${lang === "pt" ? "Erro ao salvar" : "保存エラー"}: ${e.message}`),
+  });
+
   const addMemberMutation = trpc.project.addMember.useMutation({
     onSuccess: () => {
       toast.success(lang === "pt" ? "Funcionário adicionado à obra" : "従業員を現場に追加しました");
@@ -698,6 +704,26 @@ function AttendanceCalendar() {
       });
     },
     [selectedProjectId, isLocked, isAdminOrLeader, myEmployeeId, lang, myBatchUpsertMutation, upsertMutation]
+  );
+
+  // クリア＝出面レコードを削除する（欠勤マーカーにはしない）。
+  const clearDay = useCallback(
+    (employeeId: number | null, guestName: string | null, workDate: string) => {
+      if (!selectedProjectId || isLocked) return;
+      if (!isAdminOrLeader) {
+        if (!myEmployeeId || employeeId !== myEmployeeId || guestName) {
+          toast.error(lang === "pt" ? "Você só pode editar sua própria presença." : "自分の出面のみ編集できます。");
+          return;
+        }
+        myBatchUpsertMutation.mutate({ records: [], deletes: [{ projectId: selectedProjectId, workDate }] });
+        return;
+      }
+      batchUpsertMutation.mutate({
+        records: [],
+        deletes: [{ employeeId, guestName: guestName || undefined, projectId: selectedProjectId, workDate }],
+      });
+    },
+    [selectedProjectId, isLocked, isAdminOrLeader, myEmployeeId, lang, myBatchUpsertMutation, batchUpsertMutation]
   );
 
   const quickToggle = useCallback(
@@ -960,6 +986,7 @@ function AttendanceCalendar() {
                   onSave={(dateStr, data) =>
                     autoSave({ employeeId: myEmployeeId, guestName: null, workDate: dateStr, ...data })
                   }
+                  onClear={(dateStr) => clearDay(myEmployeeId, null, dateStr)}
                 />
               ) : (
                 <p className="text-muted-foreground text-sm py-4 text-center">
@@ -1137,15 +1164,11 @@ function AttendanceCalendar() {
                                                 })
                                               }
                                               onClear={() =>
-                                                autoSave({
-                                                  employeeId: isGuest ? null : member.id,
-                                                  guestName: isGuest ? member.nameKanji : null,
-                                                  workDate: dateStr,
-                                                  hoursWorked: 0,
-                                                  overtimeHours: 0,
-                                                  workType: "absence",
-                                                  shiftType: "day",
-                                                })
+                                                clearDay(
+                                                  isGuest ? null : member.id,
+                                                  isGuest ? member.nameKanji : null,
+                                                  dateStr
+                                                )
                                               }
                                             />
                                           </PopoverContent>
@@ -1307,6 +1330,7 @@ function CalendarGrid({
   isLocked,
   onQuickToggle,
   onSave,
+  onClear,
 }: {
   days: Date[];
   memberId: number | null;
@@ -1317,6 +1341,7 @@ function CalendarGrid({
   isLocked: boolean;
   onQuickToggle: (dateStr: string) => void;
   onSave: (dateStr: string, data: { hoursWorked: number; overtimeHours: number; workType: WorkType; shiftType: ShiftType; notes?: string }) => void;
+  onClear: (dateStr: string) => void;
 }) {
   const keyPrefix = memberId ? `emp-${memberId}` : `guest-${memberName}`;
   const cellSize = compact ? "min-h-[40px]" : "min-h-[52px]";
@@ -1431,9 +1456,7 @@ function CalendarGrid({
                 existing={rec}
                 lang={lang}
                 onSave={onSave}
-                onClear={() =>
-                  onSave(dateStr, { hoursWorked: 0, overtimeHours: 0, workType: "absence", shiftType: "day" })
-                }
+                onClear={() => onClear(dateStr)}
               />
             </PopoverContent>
           </Popover>
