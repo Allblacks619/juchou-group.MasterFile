@@ -143,6 +143,41 @@ describe("genba.budgets (M4-B)", () => {
     });
   });
 
+  // 連携案件の工期を、予算側の工期が未入力のときのフォールバックに使う (「連携してるのに逆算できない」対策)
+  describe("summary: 連携案件の工期フォールバック", () => {
+    beforeEach(() => {
+      mockGenbaDb.getGenbaSiteById.mockResolvedValue(SITE({ projectId: 7 }));
+      mockGenbaDb.getProjectPeriod.mockResolvedValue({ id: 7, name: "P7", startDate: new Date("2026-04-01T00:00:00"), endDate: new Date("2026-12-31T00:00:00") });
+      mockGenbaDb.sumProjectAttendanceManDays.mockResolvedValue(10);
+    });
+
+    it("予算側の工期終了が空でも案件の工期で逆算でき、集計も実効工期で呼ぶ", async () => {
+      mockGenbaDb.getGenbaBudget.mockResolvedValue(BUDGET({ attendanceSource: "project", periodStart: "2026-05-01", periodEnd: null }));
+      const res = await admin().genba.budgets.summary({ siteId: "Genba_Beta_Site_01" });
+      expect(res.calc).not.toBeNull();
+      expect(res.effectivePeriodStart).toBe("2026-05-01");
+      expect(res.effectivePeriodEnd).toBe("2026-12-31");
+      expect(res.periodFromProject).toBe(true);
+      expect(mockGenbaDb.sumProjectAttendanceManDays).toHaveBeenCalledWith(7, "2026-05-01", "2026-12-31");
+    });
+
+    it("予算側に工期があれば案件工期は使わない (periodFromProject=false)", async () => {
+      mockGenbaDb.getGenbaBudget.mockResolvedValue(BUDGET({ attendanceSource: "project", periodStart: "2026-06-01", periodEnd: "2026-11-30" }));
+      const res = await admin().genba.budgets.summary({ siteId: "Genba_Beta_Site_01" });
+      expect(res.effectivePeriodEnd).toBe("2026-11-30");
+      expect(res.periodFromProject).toBe(false);
+      expect(mockGenbaDb.sumProjectAttendanceManDays).toHaveBeenCalledWith(7, "2026-06-01", "2026-11-30");
+    });
+
+    it("案件にも工期終了が無ければ calc=null (逆算不可)", async () => {
+      mockGenbaDb.getProjectPeriod.mockResolvedValue({ id: 7, name: "P7", startDate: new Date("2026-04-01T00:00:00"), endDate: null });
+      mockGenbaDb.getGenbaBudget.mockResolvedValue(BUDGET({ attendanceSource: "project", periodStart: "2026-05-01", periodEnd: null }));
+      const res = await admin().genba.budgets.summary({ siteId: "Genba_Beta_Site_01" });
+      expect(res.calc).toBeNull();
+      expect(res.effectivePeriodEnd).toBeNull();
+    });
+  });
+
   it("GENBA_ENABLED=false で遮断", async () => {
     process.env.GENBA_ENABLED = "false";
     await expect(admin().genba.budgets.summary({ siteId: "Genba_Beta_Site_01" })).rejects.toMatchObject({ code: "FORBIDDEN" });

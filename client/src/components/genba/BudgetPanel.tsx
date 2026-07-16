@@ -110,7 +110,7 @@ export default function BudgetPanel({
             {/* サマリー */}
             {calc && (
               <div className="rounded-lg border border-border p-3 space-y-3">
-                <div className="text-xs text-muted-foreground">{siteName} — 逆算サマリー（出面: {summary?.source === "project" ? "出面表連携" : "手入力"} / 使用人工 {round1(calc.usedManDays)}）</div>
+                <div className="text-xs text-muted-foreground">{siteName} — 逆算サマリー（出面: {summary?.source === "project" ? "出面表連携" : "手入力"} / 使用人工 {round1(calc.usedManDays)}）{summary?.periodFromProject && <span className="text-[#005AFF]">・工期は連携案件から自動取得</span>}</div>
                 <div className="flex gap-2 flex-wrap">
                   <div className="flex-1 min-w-[140px] rounded-lg border border-border p-2 text-center">
                     <div className="text-xl font-bold tabular-nums" style={{ color: calc.remainingBudget < 0 ? "#FF4B00" : "#03AF7A" }}>{fmtYen(calc.remainingBudget)}</div>
@@ -148,7 +148,23 @@ export default function BudgetPanel({
                 </div>
               </div>
             )}
-            {!calc && <p className="text-xs text-muted-foreground">契約金額を入力すると逆算サマリーが表示されます。</p>}
+            {!calc && (() => {
+              // calc が出ない理由を具体的に示す (連携案件の工期もフォールバックとして考慮)。
+              const effStart = form.periodStart || got?.project?.startDate || "";
+              const effEnd = form.periodEnd || got?.project?.endDate || "";
+              const linked = !!got?.projectId;
+              if (!form.contractAmount) return <p className="text-xs text-muted-foreground">契約金額を入力すると逆算サマリーが表示されます。</p>;
+              if (!effStart || !effEnd) {
+                const miss = !effStart && !effEnd ? "工期の開始日と終了日" : !effEnd ? "工期の終了日" : "工期の開始日";
+                return (
+                  <p className="text-xs text-[#b45309] leading-relaxed">
+                    逆算には工期（開始日〜終了日）が必要です。<strong>{miss}</strong>が未入力のため計算できません。上の工期欄に入力して「保存」してください。
+                    {linked && "（連携案件に工期が設定されていれば自動で使われます）"}
+                  </p>
+                );
+              }
+              return <p className="text-xs text-muted-foreground">設定を「保存」すると逆算サマリーが表示されます。</p>;
+            })()}
 
             {/* 設定 */}
             <div className="rounded-lg border border-border p-3">
