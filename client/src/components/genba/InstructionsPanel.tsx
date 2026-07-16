@@ -3,7 +3,9 @@ import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { MapPin, X } from "lucide-react";
 import { dispName } from "@/lib/genbaRomaji";
+import ZoneMapPicker from "./ZoneMapPicker";
 
 /** 指示パネル (プロトタイプ InstructionsTab 移植): 作成(field)・一覧・未読・既読状況 */
 export default function InstructionsPanel({
@@ -26,6 +28,7 @@ export default function InstructionsPanel({
   const [text, setText] = useState("");
   const [target, setTarget] = useState("all");
   const [zoneId, setZoneId] = useState("");
+  const [showZonePicker, setShowZonePicker] = useState(false);
 
   const teamList = (teams || []) as { id: string; name: string; memberIds: number[] }[];
   const userList = (users || []) as { id: number; name: string | null }[];
@@ -81,11 +84,20 @@ export default function InstructionsPanel({
                 {teamList.map((g) => <option key={g.id} value={`team:${g.id}`}>🏳 {g.name}（{g.memberIds.length}名）へ</option>)}
                 {userList.map((u) => <option key={u.id} value={`worker:${u.id}`}>👤 {u.name || `user#${u.id}`}へ</option>)}
               </select>
-              <select value={zoneId} onChange={(e) => setZoneId(e.target.value)} className="rounded-md border border-border bg-background p-2 text-sm"
-                title="この指示が対象とするエリア（工区）">
-                <option value="">📍 エリア指定なし</option>
-                {zoneList.map((z) => <option key={z.id} value={z.id}>📍 {z.floorName ? z.floorName + " / " : ""}{dispName(z.name)}</option>)}
-              </select>
+              {/* エリア(工区)の対象は図(マップ)からタップして選ぶ。エリアが多くてもプルダウンを探さずに済む */}
+              {zoneId ? (
+                <div className="flex items-center gap-1 rounded-md border border-[#005AFF]/40 bg-[#005AFF]/5 p-1 pl-2 text-sm">
+                  <span className="truncate flex-1 text-[#005AFF] font-semibold">📍 {dispName(zoneName(zoneId))}</span>
+                  <button type="button" onClick={() => setShowZonePicker(true)} className="text-[11px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground">変更</button>
+                  <button type="button" title="エリア指定を外す" onClick={() => setZoneId("")} className="text-muted-foreground hover:text-destructive px-1"><X className="h-3.5 w-3.5" /></button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setShowZonePicker(true)}
+                  className="flex items-center justify-center gap-1.5 rounded-md border border-border bg-background p-2 text-sm text-muted-foreground hover:border-[#005AFF] hover:text-[#005AFF]"
+                  title="この指示が対象とするエリア（工区）を図から選ぶ">
+                  <MapPin className="h-4 w-4" /> 図からエリアを選択
+                </button>
+              )}
             </div>
             <Button className="w-full" onClick={send} disabled={create.isPending}>送信</Button>
           </div>
@@ -113,10 +125,22 @@ export default function InstructionsPanel({
       </>
   );
 
-  if (embedded) return <div className="space-y-3">{inner}</div>;
+  const picker = showZonePicker && (
+    <ZoneMapPicker
+      siteId={siteId}
+      selectedZoneId={zoneId || null}
+      onPick={(id) => setZoneId(id || "")}
+      onClose={() => setShowZonePicker(false)}
+    />
+  );
+
+  if (embedded) return <div className="space-y-3">{inner}{picker}</div>;
   return (
-    <Dialog open={!!open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">{inner}</DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={!!open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">{inner}</DialogContent>
+      </Dialog>
+      {picker}
+    </>
   );
 }
