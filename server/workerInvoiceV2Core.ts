@@ -1,4 +1,4 @@
-import { isWorkedType, extractDateKey } from "@shared/attendanceStatus";
+import { isWorkedType, extractDateKey, workedDayValueTimes10 } from "@shared/attendanceStatus";
 
 /**
  * Worker Invoice draft — PURE computation core (no DB / no network).
@@ -207,7 +207,7 @@ export async function computeWorkerInvoiceDraft(input: {
   type LaborBucket = {
     projectId: number;
     shiftType: string;
-    dateKeys: Set<string>;
+    dayValueByDate: Map<string, number>;
     sampleWorkDate: Date;
   };
   const laborBuckets = new Map<string, LaborBucket>();
@@ -234,9 +234,9 @@ export async function computeWorkerInvoiceDraft(input: {
     const workDate = new Date(`${workDateKey}T00:00:00.000Z`);
 
     const key = `${projectId}:${shiftType}`;
-    // 日数は出面（実働の重複なし日数）で数える。hoursWorked は将来の労基記録用で、日数換算には使わない。
-    const bucket = laborBuckets.get(key) || { projectId, shiftType, dateKeys: new Set<string>(), sampleWorkDate: workDate };
-    bucket.dateKeys.add(workDateKey);
+    // 日数は出面（実働の重複なし日数）で数える。半日=0.5日、それ以外=1.0日（時間からは換算しない）。
+    const bucket = laborBuckets.get(key) || { projectId, shiftType, dayValueByDate: new Map<string, number>(), sampleWorkDate: workDate };
+    bucket.dayValueByDate.set(workDateKey, Math.max(bucket.dayValueByDate.get(workDateKey) || 0, workedDayValueTimes10(record.workType)));
     laborBuckets.set(key, bucket);
 
     // 残業時間(×10)を band 分けして現場ごとに累積（判定は日単位＝レコード単位）。
@@ -265,7 +265,7 @@ export async function computeWorkerInvoiceDraft(input: {
         projectName: null,
         shiftType,
         workType: String(record.workType),
-        days: 1,
+        days: workedDayValueTimes10(record.workType) / 10,
         overtimeHours: Number(record.overtimeHours || 0) / 10,
         transport: 0, // filled by 日割り (daily proration) below
       });
@@ -307,7 +307,7 @@ export async function computeWorkerInvoiceDraft(input: {
   for (const key of sortedLaborKeys) {
     const bucket = laborBuckets.get(key)!;
     const name = await projectName(bucket.projectId);
-    const days = bucket.dateKeys.size;
+    const days = Array.from(bucket.dayValueByDate.values()).reduce((sum, v) => sum + v, 0) / 10;
     const shiftLabel = bucket.shiftType === "night" ? "夜勤" : "日勤";
 
     const resolved = await input.resolveRate({
