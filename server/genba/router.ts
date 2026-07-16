@@ -1879,11 +1879,21 @@ const budgetsRouter = router({
     if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
     const budget = await genbaDb.getGenbaBudget(input.siteId);
     if (!budget || !budget.enabled) {
-      return { enabled: false as const, source: budget?.attendanceSource ?? "manual", attendanceManDays: 0, calc: null, budget };
+      return { enabled: false as const, source: budget?.attendanceSource ?? "manual", attendanceManDays: 0, calc: null, budget, effectivePeriodStart: null, effectivePeriodEnd: null, periodFromProject: false };
     }
+    // 連携案件の工期を工期のフォールバックに使う (予算側の工期が未入力でも「連携」で逆算できるように)。
+    // 出面(project集計)も同じ実効工期で集計する。
+    let projStart: string | null = null, projEnd: string | null = null;
+    if (site.projectId) {
+      const p = await genbaDb.getProjectPeriod(site.projectId);
+      if (p) { projStart = toYmd(p.startDate); projEnd = toYmd(p.endDate); }
+    }
+    const effStart = budget.periodStart || projStart;
+    const effEnd = budget.periodEnd || projEnd;
+    const periodFromProject = (!budget.periodStart && !!projStart) || (!budget.periodEnd && !!projEnd);
     const useProject = budget.attendanceSource === "project" && !!site.projectId;
     const attendanceManDays = useProject
-      ? await genbaDb.sumProjectAttendanceManDays(site.projectId!, budget.periodStart, budget.periodEnd)
+      ? await genbaDb.sumProjectAttendanceManDays(site.projectId!, effStart, effEnd)
       : await genbaDb.sumManualBudgetManDays(input.siteId);
     const calc = computeBudget({
       contractAmount: budget.contractAmount,
@@ -1891,13 +1901,13 @@ const budgetsRouter = router({
       targetValue: budget.targetValue,
       costPerManDay: budget.costPerManDay,
       monthlyExpense: budget.monthlyExpense,
-      periodStart: budget.periodStart,
-      periodEnd: budget.periodEnd,
+      periodStart: effStart,
+      periodEnd: effEnd,
       preManDays: budget.preManDays,
       attendanceManDays,
       now: new Date(),
     });
-    return { enabled: true as const, source: useProject ? "project" as const : "manual" as const, attendanceManDays, calc, budget };
+    return { enabled: true as const, source: useProject ? "project" as const : "manual" as const, attendanceManDays, calc, budget, effectivePeriodStart: effStart, effectivePeriodEnd: effEnd, periodFromProject };
   }),
 });
 
