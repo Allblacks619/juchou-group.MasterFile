@@ -94,6 +94,15 @@ export function isWorkedType(workType: string): boolean {
 }
 
 /**
+ * 出面日数の「1日あたりの重み」(×10)。半日(half_day)=0.5日、それ以外の実働=1.0日。
+ * 稼働時間(hoursWorked)からは換算しない（時間記録は将来の労基用で日数算定には使わない）。
+ * 呼び出し側で isWorkedType かつ hoursWorked>0 の実働レコードにのみ適用すること。
+ */
+export function workedDayValueTimes10(workType: string): number {
+  return workType === "half_day" ? 5 : 10;
+}
+
+/**
  * Extract a "YYYY-MM-DD" date key from a DB record's workDate field.
  * Handles both Date objects and ISO string values safely.
  * This is the SINGLE function to use for building attendanceMap keys.

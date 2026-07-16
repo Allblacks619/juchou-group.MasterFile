@@ -8,7 +8,7 @@ import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
 import * as db from "./db";
 import { parseDateString, parseDateRange } from "./dateHelpers";
-import { isWorkedType, extractDateKey } from "@shared/attendanceStatus";
+import { isWorkedType, extractDateKey, workedDayValueTimes10 } from "@shared/attendanceStatus";
 import { storageGet, storagePut } from "./storage";
 import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "../shared/uploadValidation";
 import * as schema from "../drizzle/schema";
@@ -331,21 +331,22 @@ async function ensurePaymentRowsForProjectMonth(projectId: number, closingMonth:
   const targetSubmissions = submissions.filter((s: any) => s.status !== "not_required");
   for (const submission of targetSubmissions) {
     const empRecords = attendanceRecords.filter((rec: any) => rec.employeeId === submission.employeeId);
-    // 日数は出面（実働の重複なし日数）で数える。hoursWorked は将来の労基記録用で、日数換算には使わない。
-    const daysByShift = new Map<string, Set<string>>();
+    // 日数は出面（実働の重複なし日数）で数える。半日=0.5日、それ以外=1.0日（時間からは換算しない）。
+    const daysByShift = new Map<string, Map<string, number>>();
     for (const rec of empRecords) {
       if (!rec.employeeId) continue;
       if (!isWorkedType(rec.workType) || Number(rec.hoursWorked || 0) <= 0) continue;
       const shift = rec.shiftType || "day";
-      const set = daysByShift.get(shift) || new Set<string>();
-      set.add(extractDateKey(rec.workDate));
-      daysByShift.set(shift, set);
+      const dateKey = extractDateKey(rec.workDate);
+      const dayMap = daysByShift.get(shift) || new Map<string, number>();
+      dayMap.set(dateKey, Math.max(dayMap.get(dateKey) || 0, workedDayValueTimes10(rec.workType)));
+      daysByShift.set(shift, dayMap);
     }
 
     let baseDaysTimes10 = 0;
     let baseAmount = 0;
-    for (const [shiftType, dateSet] of Array.from(daysByShift.entries())) {
-      const daysTimes10 = dateSet.size * 10;
+    for (const [shiftType, dayMap] of Array.from(daysByShift.entries())) {
+      const daysTimes10 = Array.from(dayMap.values()).reduce((sum, v) => sum + v, 0);
       if (daysTimes10 <= 0) continue;
 
       baseDaysTimes10 += daysTimes10;
@@ -4575,17 +4576,18 @@ export const appRouter = router({
         const projectMap = new Map<number, any>(projects.map((p: any) => [p.id, p]));
         const empMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
 
-        // 出面日数(実働の重複なし日数)を (作業員, 現場) 別に集計。出面表・作業日報と同じ数え方。
+        // 出面日数(実働の重複なし日数・半日=0.5)を (作業員, 現場) 別に集計。出面表・作業日報と同じ数え方。
         // 支払の算定日数(baseDaysTimes10)も出面日数で算定するので通常は一致する。
         // 万一ズレたら(例: 同日に昼勤と夜勤の両方、重複記録)検算バッジで気づける。
-        const attendanceDaysByKey = new Map<string, Set<string>>();
+        const attendanceDaysByKey = new Map<string, Map<string, number>>();
         for (const rec of excludeRemovedGuestMarkers(attendance as any[])) {
           if (!rec.employeeId) continue;
           if (!isWorkedType(rec.workType) || Number(rec.hoursWorked || 0) <= 0) continue;
           const key = `${rec.employeeId}:${rec.projectId}`;
-          const set = attendanceDaysByKey.get(key) || new Set<string>();
-          set.add(extractDateKey(rec.workDate));
-          attendanceDaysByKey.set(key, set);
+          const dateKey = extractDateKey(rec.workDate);
+          const dayMap = attendanceDaysByKey.get(key) || new Map<string, number>();
+          dayMap.set(dateKey, Math.max(dayMap.get(dateKey) || 0, workedDayValueTimes10(rec.workType)));
+          attendanceDaysByKey.set(key, dayMap);
         }
 
         const advByEmp = new Map<number, any[]>();
@@ -4607,7 +4609,7 @@ export const appRouter = router({
             projectId: closing.projectId,
             projectName: project?.name || `案件${closing.projectId}`,
             paymentId: payment.id,
-            attendanceDays: attendanceDaysByKey.get(`${payment.employeeId}:${closing.projectId}`)?.size || 0,
+            attendanceDays: Array.from(attendanceDaysByKey.get(`${payment.employeeId}:${closing.projectId}`)?.values() || []).reduce((sum, v) => sum + v, 0) / 10,
             baseDaysTimes10: Number(payment.baseDaysTimes10 || 0),
             baseAmount: Number(payment.baseAmount || 0),
             transportAmount: Number(payment.transportAmount || 0),
@@ -4637,7 +4639,7 @@ export const appRouter = router({
             // 両者とも出面日数で算定するので通常一致。ズレる場合は同日に昼勤+夜勤/重複記録の可能性 → 出面表と再突合せずに気づける。
             const attendanceDaysTotal = projectRows.reduce((sum, r) => sum + r.attendanceDays, 0);
             const payDaysTotal = projectRows.reduce((sum, r) => sum + r.baseDaysTimes10, 0) / 10;
-            const hasDayMismatch = projectRows.some((r) => r.baseDaysTimes10 !== r.attendanceDays * 10);
+            const hasDayMismatch = projectRows.some((r) => Math.round(r.attendanceDays * 10) !== r.baseDaysTimes10);
             return {
               employeeId,
               name: emp?.nameKanji || emp?.nameRomaji || `従業員${employeeId}`,

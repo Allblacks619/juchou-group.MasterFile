@@ -103,6 +103,20 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
     expect(draft.attendanceBreakdown.every((d) => d.days === 1)).toBe(true);
   });
 
+  it("半日(half_day)は0.5日で算定する（時間からは換算しない）", async () => {
+    state.attendance = [
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-01", hoursWorked: 80, workType: "normal" },
+      { employeeId: 10, projectId: 1, shiftType: "day", workDate: "2026-04-02", hoursWorked: 40, workType: "half_day" },
+    ];
+    state.expenseLines = [];
+    const draft = await build();
+    const day = draft.items.find((i) => i.category === "labor" && i.projectId === 1 && i.shiftType === "day")!;
+    expect(day.quantity).toBe(1.5); // 1.0 + 0.5（半日）
+    expect(day.amount).toBe(22500); // 1.5日 × 15000
+    const halfRow = draft.attendanceBreakdown.find((d) => d.workDate === "2026-04-02")!;
+    expect(halfRow.days).toBe(0.5);
+  });
+
   it("他作業員の出面と休日（day_off）は集計しない", async () => {
     const draft = await build();
     expect(draft.attendanceBreakdown).toHaveLength(4);
