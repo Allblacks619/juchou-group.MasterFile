@@ -26,24 +26,21 @@ export default function BulkAssignPanel({
   const { data: teamsData } = trpc.genba.teams.listBySite.useQuery({ siteId }, { enabled: open, retry: false });
   const { data: siteTasks, isLoading } = trpc.genba.tasks.listBySite.useQuery({ siteId }, { enabled: open, retry: false });
 
-  const [assignee, setAssignee] = useState<Assignee | null>(null);
+  const [assignees, setAssignees] = useState<Assignee[]>([]);
+  const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<"all" | "specific">("all");
   const [selNames, setSelNames] = useState<Set<string>>(new Set());
   const [selZones, setSelZones] = useState<Set<string>>(new Set());
 
-  const bulk = trpc.genba.tasks.bulkAssign.useMutation({
-    onSuccess: (r) => {
-      utils.genba.board.get.invalidate({ siteId });
-      utils.genba.tasks.listByZone.invalidate();
-      utils.genba.tasks.listBySite.invalidate({ siteId });
-      toast.success(`${r.count}件の作業に配置しました`);
-      reset();
-      onOpenChange(false);
-    },
-    onError: (e) => toast.error(e.message),
-  });
+  const bulk = trpc.genba.tasks.bulkAssign.useMutation();
 
-  function reset() { setAssignee(null); setMode("all"); setSelNames(new Set()); setSelZones(new Set()); }
+  function reset() { setAssignees([]); setMode("all"); setSelNames(new Set()); setSelZones(new Set()); }
+
+  const isSel = (kind: Assignee["kind"], id: number | string) => assignees.some((a) => a.kind === kind && a.id === id);
+  const toggleAssignee = (a: Assignee) =>
+    setAssignees((prev) => (prev.some((x) => x.kind === a.kind && x.id === a.id)
+      ? prev.filter((x) => !(x.kind === a.kind && x.id === a.id))
+      : [...prev, a]));
 
   const roster = (rosterData?.roster || []) as RosterEntry[];
   const teams = (teamsData || []) as { id: string; name: string; memberIds: number[] }[];
@@ -89,13 +86,29 @@ export default function BulkAssignPanel({
   const allZoneIds = floorsWithZones.flatMap((f) => f.zones.map((z) => z.zoneId));
   const allZonesSelected = allZoneIds.length > 0 && allZoneIds.every((id) => selZones.has(id));
 
-  function apply() {
-    if (!assignee) { toast.error("配置する作業員または班を選んでください"); return; }
+  async function apply() {
+    if (assignees.length === 0) { toast.error("配置する作業員または班を選んでください"); return; }
     if (targetTaskIds.length === 0) { toast.error("対象の作業がありません。エリアや作業を選んでください"); return; }
-    const key = assignee.kind === "user" ? { userId: assignee.id as number }
-      : assignee.kind === "guest" ? { siteWorkerId: assignee.id as string }
-        : { teamId: assignee.id as string };
-    bulk.mutate({ taskIds: targetTaskIds, ...key, on: true });
+    setBusy(true);
+    try {
+      // 選んだ人／班をそれぞれ対象作業へ割当 (bulkAssign は1割当ずつ。add* は重複挿入しない)
+      for (const a of assignees) {
+        const key = a.kind === "user" ? { userId: a.id as number }
+          : a.kind === "guest" ? { siteWorkerId: a.id as string }
+            : { teamId: a.id as string };
+        await bulk.mutateAsync({ taskIds: targetTaskIds, ...key, on: true });
+      }
+      utils.genba.board.get.invalidate({ siteId });
+      utils.genba.tasks.listByZone.invalidate();
+      utils.genba.tasks.listBySite.invalidate({ siteId });
+      toast.success(`${assignees.length}名／班 を ${targetTaskIds.length}件の作業へ配置しました`);
+      reset();
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error(e?.message || "配置に失敗しました");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -112,31 +125,39 @@ export default function BulkAssignPanel({
           <div className="space-y-4">
             {/* ① 誰を */}
             <section className="space-y-1.5">
-              <div className="text-sm font-bold flex items-center gap-1.5"><Users className="h-4 w-4" /> ① 配置する人／班</div>
+              <div className="text-sm font-bold flex items-center gap-1.5">
+                <Users className="h-4 w-4" /> ① 配置する人／班
+                <span className="text-[11px] font-normal text-muted-foreground">（複数選べます{assignees.length > 0 ? ` ・ ${assignees.length}名／班` : ""}）</span>
+                {assignees.length > 0 && (
+                  <button type="button" className="ml-auto text-xs text-[#005AFF] font-semibold" onClick={() => setAssignees([])}>全解除</button>
+                )}
+              </div>
               <div className="max-h-40 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
                 {roster.map((r) => {
                   const isUser = r.userId != null;
                   const id = isUser ? r.userId! : r.siteWorkerId;
                   if (id == null) return null;
                   const kind = isUser ? "user" as const : "guest" as const;
-                  const selected = assignee?.kind === kind && assignee.id === id;
+                  const selected = isSel(kind, id);
                   const badge = rosterKindLabel(r);
                   return (
                     <button key={`${kind}-${id}`} type="button"
-                      onClick={() => setAssignee({ kind, id, label: r.displayName })}
+                      onClick={() => toggleAssignee({ kind, id, label: r.displayName })}
                       className={`w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm ${selected ? "bg-gold/15" : "hover:bg-muted/50"}`}>
-                      <span className="flex-1 truncate">{selected ? "✓ " : ""}{r.displayName}</span>
+                      <span className={`shrink-0 inline-flex h-4 w-4 items-center justify-center rounded border text-[10px] ${selected ? "bg-gold border-gold text-white" : "border-border text-transparent"}`}>✓</span>
+                      <span className="flex-1 truncate">{r.displayName}</span>
                       <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${badge.cls}`}>{badge.label}</span>
                     </button>
                   );
                 })}
                 {teams.map((t) => {
-                  const selected = assignee?.kind === "team" && assignee.id === t.id;
+                  const selected = isSel("team", t.id);
                   return (
                     <button key={`team-${t.id}`} type="button"
-                      onClick={() => setAssignee({ kind: "team", id: t.id, label: t.name })}
+                      onClick={() => toggleAssignee({ kind: "team", id: t.id, label: t.name })}
                       className={`w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm ${selected ? "bg-gold/15" : "hover:bg-muted/50"}`}>
-                      <span className="flex-1 truncate">{selected ? "✓ " : ""}{t.name}</span>
+                      <span className={`shrink-0 inline-flex h-4 w-4 items-center justify-center rounded border text-[10px] ${selected ? "bg-gold border-gold text-white" : "border-border text-transparent"}`}>✓</span>
+                      <span className="flex-1 truncate">{t.name}</span>
                       <span className="text-[9px] px-1 py-0.5 rounded border leading-none bg-[#005AFF]/10 text-[#005AFF] border-[#005AFF]/30">班</span>
                     </button>
                   );
@@ -209,11 +230,11 @@ export default function BulkAssignPanel({
             {/* 適用 */}
             <div className="sticky bottom-0 bg-background pt-2 border-t border-border/60 flex items-center gap-2">
               <span className="text-xs text-muted-foreground flex-1">
-                {assignee ? <strong className="text-foreground">{assignee.label}</strong> : "未選択"}
+                {assignees.length > 0 ? <strong className="text-foreground">{assignees.length === 1 ? assignees[0].label : `${assignees.length}名／班`}</strong> : "未選択"}
                 {" を "}<strong className="text-foreground">{targetTaskIds.length}</strong>{" 件の作業へ配置"}
               </span>
-              <Button onClick={apply} disabled={bulk.isPending || !assignee || targetTaskIds.length === 0}>
-                {bulk.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}配置する
+              <Button onClick={apply} disabled={busy || assignees.length === 0 || targetTaskIds.length === 0}>
+                {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}配置する
               </Button>
             </div>
           </div>
