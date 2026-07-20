@@ -176,9 +176,11 @@ function ActionRequiredPanel({ isManagerLike }: { isManagerLike: boolean }) {
     { targetMonth: currentMonth },
     { enabled: isManagerLike, retry: false, staleTime: 60_000 }
   );
+  // 入金（取引先請求）は「取引先請求」エリアの許可が必要（管理者以上のみ既定）
+  const dashPermQuery = trpc.permission.my.useQuery(undefined, { enabled: isManagerLike, staleTime: 60_000 });
   const receivableQuery = trpc.receivable.listByMonth.useQuery(
     { closingMonth: currentMonth },
-    { enabled: isManagerLike, retry: false, staleTime: 60_000 }
+    { enabled: isManagerLike && !!dashPermQuery.data?.areas?.billing, retry: false, staleTime: 60_000 }
   );
   const paymentQuery = trpc.payment.listByMonth.useQuery(
     { closingMonth: currentMonth },
