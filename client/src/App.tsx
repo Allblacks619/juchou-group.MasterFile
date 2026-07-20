@@ -102,7 +102,7 @@ function AppRoutes() {
             <RoleGuard area="attendance"><AppAttendance /></RoleGuard>
           </Route>
           <Route path="/app/invoices">
-            <RoleGuard area="finance"><AppInvoices /></RoleGuard>
+            <RoleGuard area="billing"><AppInvoices /></RoleGuard>
           </Route>
           <Route path="/app/monthly-close-v2">
             <RoleGuard area="closing"><AppMonthlyCloseV2 /></RoleGuard>
@@ -114,10 +114,10 @@ function AppRoutes() {
             <RoleGuard area="closing"><AppClosings /></RoleGuard>
           </Route>
           <Route path="/app/payments">
-            <RoleGuard area="finance"><AppPayments /></RoleGuard>
+            <RoleGuard area="payments"><AppPayments /></RoleGuard>
           </Route>
           <Route path="/app/receivables">
-            <RoleGuard area="finance"><AppReceivables /></RoleGuard>
+            <RoleGuard area="billing"><AppReceivables /></RoleGuard>
           </Route>
           <Route path="/app/audit">
             <RoleGuard allowed={ADMIN_LEADER}><AppAuditLogs /></RoleGuard>

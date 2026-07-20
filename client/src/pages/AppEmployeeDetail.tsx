@@ -927,7 +927,7 @@ export default function AppEmployeeDetail() {
                               {rate.shiftType === 'night' ? '夜勤' : '昼勤'}
                             </span>
                           </TableCell>
-                          <TableCell>¥{Number(rate.clientRate).toLocaleString()}</TableCell>
+                          <TableCell>{rate.clientRate != null ? `¥${Number(rate.clientRate).toLocaleString()}` : "—"}</TableCell>
                           <TableCell>¥{Number(rate.payRate).toLocaleString()}</TableCell>
                           <TableCell className="text-muted-foreground text-xs">{rate.notes || "-"}</TableCell>
                         </TableRow>

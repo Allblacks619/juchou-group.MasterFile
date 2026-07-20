@@ -17,17 +17,23 @@ describe("permissionAreas: 個人別 表示/ブロック設定の解決", () => 
     }
   });
 
-  it("manager は既定で全エリア可、deny で個別にブロックできる", () => {
-    const user = { appRole: "manager", permissionOverrides: '{"finance":"deny"}' };
-    expect(resolveAreaPermission(user, "finance")).toBe(false);
+  it("manager は取引先請求(billing)以外は既定可、deny で個別にブロックできる", () => {
+    const user = { appRole: "manager", permissionOverrides: '{"payments":"deny"}' };
+    expect(resolveAreaPermission(user, "payments")).toBe(false);
     expect(resolveAreaPermission(user, "rates")).toBe(true);
     expect(resolveAreaPermission(user, "closing")).toBe(true);
+  });
+
+  it("取引先請求(billing)は manager でも既定ブロック、allow で個別に見せられる", () => {
+    expect(resolveAreaPermission({ appRole: "manager", permissionOverrides: null }, "billing")).toBe(false);
+    expect(resolveAreaPermission({ appRole: "manager", permissionOverrides: '{"billing":"allow"}' }, "billing")).toBe(true);
+    expect(resolveAreaPermission({ appRole: "admin", permissionOverrides: null }, "billing")).toBe(true);
   });
 
   it("worker / guest は既定で全エリア不可、allow で個別に見せられる", () => {
     const worker = { appRole: "worker", permissionOverrides: '{"attendance":"allow"}' };
     expect(resolveAreaPermission(worker, "attendance")).toBe(true);
-    expect(resolveAreaPermission(worker, "finance")).toBe(false);
+    expect(resolveAreaPermission(worker, "billing")).toBe(false);
     const guest = { appRole: "guest", permissionOverrides: null };
     for (const area of PERMISSION_AREA_KEYS) {
       expect(resolveAreaPermission(guest, area)).toBe(false);
@@ -42,7 +48,7 @@ describe("permissionAreas: 個人別 表示/ブロック設定の解決", () => 
   it("parsePermissionOverrides は不正JSON・未知キー・不正値を安全に無視する", () => {
     expect(parsePermissionOverrides(null)).toEqual({});
     expect(parsePermissionOverrides("not-json")).toEqual({});
-    expect(parsePermissionOverrides('{"finance":"deny","unknown":"allow","rates":"maybe"}')).toEqual({ finance: "deny" });
+    expect(parsePermissionOverrides('{"billing":"deny","unknown":"allow","rates":"maybe"}')).toEqual({ billing: "deny" });
     expect(parsePermissionOverrides('["finance"]')).toEqual({});
   });
 
@@ -50,11 +56,11 @@ describe("permissionAreas: 個人別 表示/ブロック設定の解決", () => 
     const areas = resolveAllAreaPermissions({ appRole: "worker", permissionOverrides: '{"projects":"allow"}' });
     expect(Object.keys(areas).sort()).toEqual([...PERMISSION_AREA_KEYS].sort());
     expect(areas.projects).toBe(true);
-    expect(areas.finance).toBe(false);
+    expect(areas.billing).toBe(false);
   });
 
   it("未ログイン（user なし）は全エリア不可", () => {
-    expect(resolveAreaPermission(null, "finance")).toBe(false);
+    expect(resolveAreaPermission(null, "billing")).toBe(false);
     expect(resolveAreaPermission(undefined, "attendance")).toBe(false);
   });
 });

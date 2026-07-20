@@ -219,8 +219,10 @@ export default function AppMonthlyCloseV2() {
   const utils = trpc.useUtils();
 
   const dashboardQuery = trpc.monthlyClosingV2.dashboard.useQuery(queryInput);
-  // 既存請求書（対象月×取引先の生成済みドラフトへの導線に使う）
-  const invoicesQuery = trpc.invoice.list.useQuery();
+  // 既存請求書（対象月×取引先の生成済みドラフトへの導線に使う）。
+  // 請求書の閲覧は「取引先請求」エリアの許可が必要（管理者以上のみ既定）なので無い場合は取得しない
+  const permQuery = trpc.permission.my.useQuery();
+  const invoicesQuery = trpc.invoice.list.useQuery(undefined, { enabled: !!permQuery.data?.areas?.billing, retry: false });
   const [generatingClient, setGeneratingClient] = useState<string | null>(null);
   const generateInvoiceMutation = trpc.closing.generateForClosing.useMutation();
   const projectStatusMutation = trpc.monthlyClosingV2.updateProjectStatus.useMutation({

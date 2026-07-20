@@ -15,33 +15,46 @@
  */
 
 export const PERMISSION_AREAS = {
-  finance: {
-    label: "財務",
-    description: "請求書管理・入金管理・支払管理・前借り台帳",
+  billing: {
+    label: "取引先請求",
+    description: "請求書管理・入金管理・取引先請求単価の金額",
+    // オーナー指示: 取引先に請求する単価・金額は管理者(admin)以上のみ。責任者は既定ブロック（表示設定で個別許可可）
+    managerDefault: false,
+  },
+  payments: {
+    label: "作業員支払",
+    description: "支払管理・前借り台帳（作業員への支払額）",
+    managerDefault: true,
   },
   rates: {
     label: "単価管理",
-    description: "取引先請求単価・作業員支払単価の閲覧と設定",
+    description: "作業員支払単価の閲覧と設定（取引先請求単価は「取引先請求」の許可が必要）",
+    managerDefault: true,
   },
   employees: {
     label: "従業員管理",
     description: "全従業員の個人情報（口座・在留カード等）・名簿PDF",
+    managerDefault: true,
   },
   projects: {
     label: "現場・取引先",
     description: "現場管理・取引先管理・現場メンバー",
+    managerDefault: true,
   },
   attendance: {
     label: "出面表管理",
     description: "全員の出面表の閲覧・編集・PDF/Excel、全員の作業日報",
+    managerDefault: true,
   },
   closing: {
     label: "月締め管理",
     description: "月締めV2・締め管理・作業員請求書の承認/差戻し・月締め代行",
+    managerDefault: true,
   },
   company: {
     label: "会社設定・招待",
     description: "会社情報（銀行口座等）の閲覧、招待の発行",
+    managerDefault: true,
   },
 } as const;
 
@@ -89,7 +102,8 @@ export function resolveAreaPermission(
   const override = overrides[area];
   if (override === "allow") return true;
   if (override === "deny") return false;
-  return role === "manager";
+  // ロール既定: manager はエリアごとの既定（取引先請求のみ既定ブロック）、worker/guest は全て不可
+  return role === "manager" && PERMISSION_AREAS[area].managerDefault;
 }
 
 /** 全エリアの実効権限をまとめて返す（ナビ表示・設定ダイアログ用） */

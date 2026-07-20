@@ -320,7 +320,14 @@
     {
       "idx": 45,
       "version": "5",
-      "when": 1785400000000,
+      "when": 1785800000000,
+      "tag": "0044_genba_floor_annotations",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "5",
+      "when": 1785900000000,
       "tag": "0040_connect_foundation",
       "breakpoints": true
     }

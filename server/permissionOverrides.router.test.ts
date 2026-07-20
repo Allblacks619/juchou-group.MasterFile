@@ -42,33 +42,40 @@ describe("個人別 表示/ブロック設定のルーター実効", () => {
     vi.clearAllMocks();
   });
 
-  it("manager は既定で財務エリアを呼べる", async () => {
+  it("取引先請求(billing)は manager でも既定 FORBIDDEN（管理者以上のみ）", async () => {
     const caller = appRouter.createCaller(createCtx(createUser({ appRole: "manager" } as any)));
-    await expect(caller.invoice.list()).resolves.toEqual([]);
-  });
-
-  it("finance を deny された manager は財務エリアで FORBIDDEN", async () => {
-    const caller = appRouter.createCaller(
-      createCtx(createUser({ appRole: "manager", permissionOverrides: '{"finance":"deny"}' } as any)),
-    );
     await expect(caller.invoice.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("worker は既定で財務エリア不可、allow を付ければ呼べる", async () => {
+  it("billing を allow された manager は請求書を呼べる", async () => {
+    const caller = appRouter.createCaller(
+      createCtx(createUser({ appRole: "manager", permissionOverrides: '{"billing":"allow"}' } as any)),
+    );
+    await expect(caller.invoice.list()).resolves.toEqual([]);
+  });
+
+  it("worker は既定で請求書不可、billing allow を付ければ呼べる", async () => {
     const denied = appRouter.createCaller(createCtx(createUser({ appRole: "worker" } as any)));
     await expect(denied.invoice.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     const allowed = appRouter.createCaller(
-      createCtx(createUser({ appRole: "worker", permissionOverrides: '{"finance":"allow"}' } as any)),
+      createCtx(createUser({ appRole: "worker", permissionOverrides: '{"billing":"allow"}' } as any)),
     );
     await expect(allowed.invoice.list()).resolves.toEqual([]);
   });
 
   it("admin は deny があっても常に呼べる（設定する側のため）", async () => {
     const caller = appRouter.createCaller(
-      createCtx(createUser({ appRole: "admin", permissionOverrides: '{"finance":"deny"}' } as any)),
+      createCtx(createUser({ appRole: "admin", permissionOverrides: '{"billing":"deny"}' } as any)),
     );
     await expect(caller.invoice.list()).resolves.toEqual([]);
+  });
+
+  it("permission.my: manager の既定は billing=false / payments=true", async () => {
+    const caller = appRouter.createCaller(createCtx(createUser({ appRole: "manager" } as any)));
+    const result = await caller.permission.my();
+    expect(result.areas.billing).toBe(false);
+    expect(result.areas.payments).toBe(true);
   });
 
   it("permission.my は実効エリアを返す", async () => {
@@ -78,7 +85,7 @@ describe("個人別 表示/ブロック設定のルーター実効", () => {
     const result = await caller.permission.my();
     expect(result.role).toBe("worker");
     expect(result.areas.attendance).toBe(true);
-    expect(result.areas.finance).toBe(false);
+    expect(result.areas.billing).toBe(false);
   });
 
   it("permission.setOverrides: admin が worker に設定でき、default キーは保存されない", async () => {
@@ -86,16 +93,16 @@ describe("個人別 表示/ブロック設定のルーター実効", () => {
     const caller = appRouter.createCaller(createCtx(createUser({ appRole: "admin" } as any)));
     const result = await caller.permission.setOverrides({
       userId: 5,
-      overrides: { finance: "allow", rates: "default", closing: "deny" } as any,
+      overrides: { billing: "allow", rates: "default", closing: "deny" } as any,
     });
     expect(result.success).toBe(true);
-    expect(db.updateUserPermissionOverrides).toHaveBeenCalledWith(5, JSON.stringify({ finance: "allow", closing: "deny" }));
+    expect(db.updateUserPermissionOverrides).toHaveBeenCalledWith(5, JSON.stringify({ billing: "allow", closing: "deny" }));
   });
 
   it("permission.setOverrides: 全て default なら null で保存（ロール通りに戻す）", async () => {
     vi.mocked(db.getUserById).mockResolvedValue({ id: 5, appRole: "manager" } as any);
     const caller = appRouter.createCaller(createCtx(createUser({ appRole: "admin" } as any)));
-    await caller.permission.setOverrides({ userId: 5, overrides: { finance: "default" } as any });
+    await caller.permission.setOverrides({ userId: 5, overrides: { billing: "default" } as any });
     expect(db.updateUserPermissionOverrides).toHaveBeenCalledWith(5, null);
   });
 
@@ -103,7 +110,7 @@ describe("個人別 表示/ブロック設定のルーター実効", () => {
     vi.mocked(db.getUserById).mockResolvedValue({ id: 9, appRole: "admin" } as any);
     const caller = appRouter.createCaller(createCtx(createUser({ appRole: "super_admin" } as any)));
     await expect(
-      caller.permission.setOverrides({ userId: 9, overrides: { finance: "deny" } as any }),
+      caller.permission.setOverrides({ userId: 9, overrides: { billing: "deny" } as any }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(db.updateUserPermissionOverrides).not.toHaveBeenCalled();
   });
@@ -111,7 +118,7 @@ describe("個人別 表示/ブロック設定のルーター実効", () => {
   it("permission.setOverrides: worker には権限がない", async () => {
     const caller = appRouter.createCaller(createCtx(createUser({ appRole: "worker" } as any)));
     await expect(
-      caller.permission.setOverrides({ userId: 5, overrides: { finance: "deny" } as any }),
+      caller.permission.setOverrides({ userId: 5, overrides: { billing: "deny" } as any }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
