@@ -40,17 +40,21 @@ import { getDb } from "../db";
 
 // ── genba_sites ──
 
-export async function listGenbaSites(): Promise<GenbaSite[]> {
+export async function listGenbaSites(companyId?: number): Promise<GenbaSite[]> {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(genbaSites).where(eq(genbaSites.archived, false)).orderBy(asc(genbaSites.createdAt));
+  const conds = [eq(genbaSites.archived, false)];
+  if (companyId != null) conds.push(eq(genbaSites.companyId, companyId));
+  return db.select().from(genbaSites).where(and(...conds)).orderBy(asc(genbaSites.createdAt));
 }
 
 /** アーカイブ済み(削除された)現場の一覧。復元UI用。データは消えていない (archived=true) */
-export async function listGenbaSitesArchived(): Promise<GenbaSite[]> {
+export async function listGenbaSitesArchived(companyId?: number): Promise<GenbaSite[]> {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(genbaSites).where(eq(genbaSites.archived, true)).orderBy(desc(genbaSites.updatedAt));
+  const conds = [eq(genbaSites.archived, true)];
+  if (companyId != null) conds.push(eq(genbaSites.companyId, companyId));
+  return db.select().from(genbaSites).where(and(...conds)).orderBy(desc(genbaSites.updatedAt));
 }
 
 export async function getGenbaSiteById(id: string): Promise<GenbaSite | null> {
@@ -597,9 +601,12 @@ export async function addGenbaInstructionRead(data: InsertGenbaInstructionRead):
 
 // ── genba_task_templates ──
 
-export async function listGenbaTaskTemplates(): Promise<GenbaTaskTemplate[]> {
+export async function listGenbaTaskTemplates(companyId?: number): Promise<GenbaTaskTemplate[]> {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) {
+    return db.select().from(genbaTaskTemplates).where(eq(genbaTaskTemplates.companyId, companyId)).orderBy(asc(genbaTaskTemplates.sortOrder));
+  }
   return db.select().from(genbaTaskTemplates).orderBy(asc(genbaTaskTemplates.sortOrder));
 }
 
@@ -654,14 +661,18 @@ export function normalizeMaterialPreset(row: GenbaMaterialPreset): GenbaMaterial
 }
 
 /** プリセット一覧。siteId 指定時は「全現場共通(null) + その現場」を返す */
-export async function listGenbaMaterialPresets(siteId?: string | null): Promise<(GenbaMaterialPreset & { parts: string[] })[]> {
+export async function listGenbaMaterialPresets(siteId?: string | null, companyId?: number): Promise<(GenbaMaterialPreset & { parts: string[] })[]> {
   const db = await getDb();
   if (!db) return [];
-  const rows = siteId
-    ? await db.select().from(genbaMaterialPresets)
-        .where(or(isNull(genbaMaterialPresets.siteId), eq(genbaMaterialPresets.siteId, siteId)))
-        .orderBy(asc(genbaMaterialPresets.createdAt))
-    : await db.select().from(genbaMaterialPresets).orderBy(asc(genbaMaterialPresets.createdAt));
+  const siteCond = siteId
+    ? or(isNull(genbaMaterialPresets.siteId), eq(genbaMaterialPresets.siteId, siteId))
+    : undefined;
+  const companyCond = companyId != null ? eq(genbaMaterialPresets.companyId, companyId) : undefined;
+  const where = and(...[siteCond, companyCond].filter(Boolean) as any[]);
+  const q = db.select().from(genbaMaterialPresets);
+  const rows = where
+    ? await q.where(where).orderBy(asc(genbaMaterialPresets.createdAt))
+    : await q.orderBy(asc(genbaMaterialPresets.createdAt));
   return rows.map(normalizeMaterialPreset);
 }
 
@@ -953,12 +964,16 @@ export async function addGenbaActivityLog(type: string, byUserId: number | null,
 }
 
 /** payload を parse した利用ログを新しい順に取得 (直近 limit 件) */
-export async function listGenbaActivityLogs(type: string | undefined, limit: number): Promise<{ id: number; type: string; byUserId: number | null; payload: any; createdAt: Date }[]> {
+export async function listGenbaActivityLogs(type: string | undefined, limit: number, companyId?: number): Promise<{ id: number; type: string; byUserId: number | null; payload: any; createdAt: Date }[]> {
   const db = await getDb();
   if (!db) return [];
+  const conds = [
+    type ? eq(genbaActivityLogs.type, type) : undefined,
+    companyId != null ? eq(genbaActivityLogs.companyId, companyId) : undefined,
+  ].filter(Boolean) as any[];
   const base = db.select().from(genbaActivityLogs);
-  const rows = type
-    ? await base.where(eq(genbaActivityLogs.type, type)).orderBy(desc(genbaActivityLogs.createdAt)).limit(limit)
+  const rows = conds.length
+    ? await base.where(and(...conds)).orderBy(desc(genbaActivityLogs.createdAt)).limit(limit)
     : await base.orderBy(desc(genbaActivityLogs.createdAt)).limit(limit);
   return rows.map((r) => {
     let payload: any = r.payload;

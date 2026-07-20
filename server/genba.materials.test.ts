@@ -157,7 +157,7 @@ describe("genba.materials (M4-A)", () => {
       ]);
       const res = await worker().genba.materials.listPresets({ siteId: SITE.id });
       expect(res[0].parts).toEqual(["ビニテ 黒"]);
-      expect(mockGenbaDb.listGenbaMaterialPresets).toHaveBeenCalledWith(SITE.id);
+      expect(mockGenbaDb.listGenbaMaterialPresets).toHaveBeenCalledWith(SITE.id, undefined);
     });
 
     it("savePreset 新規作成 (field)", async () => {
