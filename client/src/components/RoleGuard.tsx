@@ -2,7 +2,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { ReactNode, useEffect } from "react";
 
-type AllowedRole = "super_admin" | "admin" | "leader" | "worker";
+// appRole の実値に合わせる（"leader" はサーバー側で worker 扱いになる旧名のため許可リストに使わない）
+type AllowedRole = "super_admin" | "admin" | "manager" | "worker";
 
 interface RoleGuardProps {
   /** Roles allowed to access this route */

@@ -59,8 +59,8 @@ function AppFallback() {
   );
 }
 
-/** Admin/Leader only pages */
-const ADMIN_LEADER: ("super_admin" | "admin" | "leader")[] = ["super_admin", "admin", "leader"];
+/** 管理者系（manager以上）のみのページ。サーバー側 isManagerLike と同じ集合にすること */
+const ADMIN_LEADER: ("super_admin" | "admin" | "manager")[] = ["super_admin", "admin", "manager"];
 const SUPER_ADMIN: ("super_admin")[] = ["super_admin"];
 
 /** Protected app routes wrapped in AppLayout with role guards */

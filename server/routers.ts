@@ -105,6 +105,17 @@ const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
   return next({ ctx });
 });
 
+/**
+ * 従業員データへのアクセスを「本人（employee.userId が自分）」か「管理者系（manager以上）」に限定する。
+ * 旧実装の「appRole === "worker" だけ弾く」判定では guest / leader ロールがすり抜けて
+ * 他人の銀行口座・在留カード等を閲覧・更新できたため、許可条件を明示する方式に統一。
+ */
+function assertEmployeeSelfOrManager(ctx: { user: { id: number; appRole?: string | null } }, employee: { userId?: number | null }) {
+  if (isManagerLike((ctx.user as any).appRole)) return;
+  if (employee.userId != null && Number(employee.userId) === Number(ctx.user.id)) return;
+  throw new TRPCError({ code: "FORBIDDEN", message: "アクセス権限がありません" });
+}
+
 /** Recalculate invoice totals from items */
 async function recalcInvoiceTotals(invoiceId: number) {
   const items = await db.getInvoiceItemsByInvoice(invoiceId);
@@ -1672,7 +1683,8 @@ export const appRouter = router({
 
   // ── Company Profile ──
   company: router({
-    get: protectedProcedure.query(async () => {
+    // 会社の銀行口座番号等を含むため管理者系のみ（呼び出し元は会社設定画面のみ）
+    get: leaderOrAdminProcedure.query(async () => {
       const profile = await db.getCompanyProfile();
       if (!profile) return null;
       // ロゴ/社印/透かしの保存URLは失効するため、返す前に署名を貼り直す（プレビューで画像が壊れる不具合の修正）。
@@ -1751,10 +1763,8 @@ export const appRouter = router({
         if (!employee) {
           throw new TRPCError({ code: "NOT_FOUND", message: "従業員が見つかりません" });
         }
-        // Workers can only see their own profile
-        if (ctx.user.appRole === "worker" && employee.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "アクセス権限がありません" });
-        }
+        // 本人か管理者系のみ（guest/leader も他人は閲覧不可）
+        assertEmployeeSelfOrManager(ctx, employee);
         return employee;
       }),
 
@@ -2008,10 +2018,8 @@ export const appRouter = router({
         if (!employee) {
           throw new TRPCError({ code: "NOT_FOUND", message: "従業員が見つかりません" });
         }
-        // Workers can only update their own profile
-        if (ctx.user.appRole === "worker" && employee.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "アクセス権限がありません" });
-        }
+        // 本人か管理者系のみ更新可（guest/leader も他人は不可）
+        assertEmployeeSelfOrManager(ctx, employee);
         const data: any = { ...updateData };
         if (updateData.dateOfBirth) data.dateOfBirth = parseDateString(updateData.dateOfBirth);
         if (updateData.residenceCardExpiry) data.residenceCardExpiry = parseDateString(updateData.residenceCardExpiry);
@@ -2053,9 +2061,7 @@ export const appRouter = router({
         if (!employee) {
           throw new TRPCError({ code: "NOT_FOUND", message: "従業員が見つかりません" });
         }
-        if (ctx.user.appRole === "worker" && employee.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "アクセス権限がありません" });
-        }
+        assertEmployeeSelfOrManager(ctx, employee);
 
         // Validate file type, extension, and size
         const buffer = Buffer.from(input.base64, "base64");
@@ -2114,9 +2120,7 @@ export const appRouter = router({
         if (!employee) {
           throw new TRPCError({ code: "NOT_FOUND" });
         }
-        if (ctx.user.appRole === "worker" && employee.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        assertEmployeeSelfOrManager(ctx, employee);
         return db.getQualificationsByEmployee(input.employeeId);
       }),
 
@@ -2135,9 +2139,7 @@ export const appRouter = router({
         if (!employee) {
           throw new TRPCError({ code: "NOT_FOUND" });
         }
-        if (ctx.user.appRole === "worker" && employee.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        assertEmployeeSelfOrManager(ctx, employee);
         let certificateFileUrl: string | undefined;
         let certificateFileKey: string | undefined;
         if (input.certificateBase64 && input.certificateFileName) {
@@ -2172,6 +2174,12 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const { id, certificateBase64, certificateMimeType, certificateFileName, ...data } = input;
+        // 他人の資格レコードをID指定で書き換えられないよう、所有者を確認する
+        const qualification = await db.getQualificationById(id);
+        if (!qualification) throw new TRPCError({ code: "NOT_FOUND" });
+        const owner = await db.getEmployeeById(qualification.employeeId);
+        if (!owner) throw new TRPCError({ code: "NOT_FOUND" });
+        assertEmployeeSelfOrManager(ctx, owner);
         const updateData: any = { ...data };
         if (data.obtainedDate) updateData.obtainedDate = parseDateString(data.obtainedDate);
         if (certificateBase64 && certificateFileName) {
@@ -2189,7 +2197,13 @@ export const appRouter = router({
 
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        // 他人の資格レコードをID指定で削除できないよう、所有者を確認する
+        const qualification = await db.getQualificationById(input.id);
+        if (!qualification) throw new TRPCError({ code: "NOT_FOUND" });
+        const owner = await db.getEmployeeById(qualification.employeeId);
+        if (!owner) throw new TRPCError({ code: "NOT_FOUND" });
+        assertEmployeeSelfOrManager(ctx, owner);
         await db.deleteQualification(input.id);
         return { success: true };
       }),
@@ -2204,9 +2218,7 @@ export const appRouter = router({
         if (!employee) {
           throw new TRPCError({ code: "NOT_FOUND" });
         }
-        if (ctx.user.appRole === "worker" && employee.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        assertEmployeeSelfOrManager(ctx, employee);
         return db.getDocumentsByEmployee(input.employeeId);
       }),
 
@@ -2671,7 +2683,11 @@ export const appRouter = router({
         startDate: z.string().optional(),
         endDate: z.string().optional(),
       }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        // 他人の出面履歴を誰でも引けないよう、本人か管理者系のみに限定する
+        const employee = await db.getEmployeeById(input.employeeId);
+        if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員が見つかりません" });
+        assertEmployeeSelfOrManager(ctx, employee);
         return db.getAttendanceByEmployee(
           input.employeeId,
           input.startDate ? parseDateRange(input.startDate).start : undefined,
@@ -6345,8 +6361,7 @@ export const appRouter = router({
     getPreviewData: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
       const invoice = await db.getWorkerInvoiceById(input.invoiceId);
       if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
-      const me = await db.getEmployeeByUserId(ctx.user.id);
-      if (me && invoice.employeeId !== me.id && !isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      await ensureWorkerInvoiceAccess(ctx, invoice);
       const items = await db.getWorkerInvoiceItems(invoice.id);
       const employee = await db.getEmployeeById(invoice.employeeId);
       const project = await db.getProjectById(invoice.projectId);
@@ -6401,8 +6416,7 @@ export const appRouter = router({
     getSupportingDocs: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
       const invoice = await db.getWorkerInvoiceById(input.invoiceId);
       if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
-      const me = await db.getEmployeeByUserId(ctx.user.id);
-      if (me && invoice.employeeId !== me.id && !isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      await ensureWorkerInvoiceAccess(ctx, invoice);
       const submission = await db.getClosingSubmissionByClosingEmployee(invoice.closingId, invoice.employeeId);
       if (!submission) return [];
       return db.getSupportingDocumentsBySubmission(submission.id!);
@@ -6411,8 +6425,7 @@ export const appRouter = router({
       const invoice = await db.getWorkerInvoiceById(input.invoiceId);
       if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
       if (invoice.status === "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "下書き状態ではPDFを生成できません" });
-      const me = await db.getEmployeeByUserId(ctx.user.id);
-      if (me && invoice.employeeId !== me.id && !isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      await ensureWorkerInvoiceAccess(ctx, invoice);
       const snapshots = await db.getWorkerInvoiceSnapshots(invoice.id);
       if (snapshots.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "スナップショットがありません" });
       const latestSnapshot = snapshots.sort((a: any, b: any) => b.snapshotVersion - a.snapshotVersion)[0];
