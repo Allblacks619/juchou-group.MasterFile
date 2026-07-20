@@ -5,6 +5,8 @@ import {
   partnerLinkClientMaps, InsertPartnerLinkClientMap, PartnerLinkClientMap,
   partnerRosterSubmissions, PartnerRosterSubmission, InsertPartnerRosterSubmission,
   partnerRosterWorkers, PartnerRosterWorker, InsertPartnerRosterWorker,
+  partnerInvoiceSubmissions, PartnerInvoiceSubmission, InsertPartnerInvoiceSubmission,
+  partnerPayables, PartnerPayable, InsertPartnerPayable,
 } from "../../drizzle/schema.connect";
 
 /**
@@ -145,4 +147,80 @@ export async function updateRosterWorker(id: number, data: Partial<InsertPartner
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(partnerRosterWorkers).set(data).where(eq(partnerRosterWorkers.id, id));
+}
+
+// ── partner_invoice_submissions (Phase 3) ──
+
+export async function createInvoiceSubmission(data: InsertPartnerInvoiceSubmission): Promise<PartnerInvoiceSubmission | undefined> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(partnerInvoiceSubmissions).values(data);
+  return getInvoiceSubmissionById(Number(result[0].insertId));
+}
+
+export async function getInvoiceSubmissionById(id: number): Promise<PartnerInvoiceSubmission | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(partnerInvoiceSubmissions).where(eq(partnerInvoiceSubmissions.id, id)).limit(1);
+  return rows[0];
+}
+
+export async function updateInvoiceSubmission(id: number, data: Partial<InsertPartnerInvoiceSubmission>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(partnerInvoiceSubmissions).set(data).where(eq(partnerInvoiceSubmissions.id, id));
+}
+
+export async function listInvoiceInbox(toCompanyId: number): Promise<PartnerInvoiceSubmission[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(partnerInvoiceSubmissions)
+    .where(eq(partnerInvoiceSubmissions.toCompanyId, toCompanyId))
+    .orderBy(desc(partnerInvoiceSubmissions.createdAt));
+}
+
+export async function listInvoiceOutbox(fromCompanyId: number): Promise<PartnerInvoiceSubmission[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(partnerInvoiceSubmissions)
+    .where(eq(partnerInvoiceSubmissions.fromCompanyId, fromCompanyId))
+    .orderBy(desc(partnerInvoiceSubmissions.createdAt));
+}
+
+/** 承認済み受領請求（多段チェーンの原価参照 §2.4-4） */
+export async function listApprovedInvoiceSubmissions(toCompanyId: number): Promise<PartnerInvoiceSubmission[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(partnerInvoiceSubmissions)
+    .where(and(eq(partnerInvoiceSubmissions.toCompanyId, toCompanyId), eq(partnerInvoiceSubmissions.status, "approved")))
+    .orderBy(desc(partnerInvoiceSubmissions.createdAt));
+}
+
+// ── partner_payables (Phase 3) ──
+
+export async function createPartnerPayable(data: InsertPartnerPayable): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(partnerPayables).values(data);
+}
+
+export async function getPartnerPayableBySubmission(submissionId: number): Promise<PartnerPayable | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(partnerPayables).where(eq(partnerPayables.submissionId, submissionId)).limit(1);
+  return rows[0];
+}
+
+export async function listPartnerPayables(companyId: number): Promise<PartnerPayable[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(partnerPayables)
+    .where(eq(partnerPayables.companyId, companyId))
+    .orderBy(desc(partnerPayables.createdAt));
+}
+
+export async function updatePartnerPayable(id: number, data: Partial<InsertPartnerPayable>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(partnerPayables).set(data).where(eq(partnerPayables.id, id));
 }

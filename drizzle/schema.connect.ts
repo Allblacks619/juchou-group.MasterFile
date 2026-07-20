@@ -129,3 +129,76 @@ export const partnerRosterWorkers = mysqlTable("partner_roster_workers", {
 
 export type PartnerRosterWorker = typeof partnerRosterWorkers.$inferSelect;
 export type InsertPartnerRosterWorker = typeof partnerRosterWorkers.$inferInsert;
+
+/**
+ * 会社間 請求書提出（§2.4 第1弾-a / Phase 3）。
+ * - snapshotJson はホワイトリストDTO（内部メモ・単価メモを構造的に含めない）の凍結コピー。
+ * - 再提出はイミュータブル新行 + supersedesId（審議#4）。approved は supersede 不可。
+ * - 査定・減額承認（審議#3）: approvedAmount + adjustmentsJson（控除明細）。
+ * - billingPeriod を明示（審議#7: 締め日ズレ対応。突合は期間の部分重複前提）。
+ */
+export const partnerInvoiceSubmissions = mysqlTable("partner_invoice_submissions", {
+  id: int("id").autoincrement().primaryKey(),
+  partnerLinkId: int("partnerLinkId").notNull(),
+  fromCompanyId: int("fromCompanyId").notNull(),
+  toCompanyId: int("toCompanyId").notNull(),
+  /** 提出元テナントの invoices.id（写し） */
+  invoiceRef: int("invoiceRef").notNull(),
+  version: int("version").default(1).notNull(),
+  supersedesId: int("supersedesId"),
+  /** 請求対象期間 YYYY-MM-DD */
+  billingPeriodFrom: varchar("billingPeriodFrom", { length: 10 }),
+  billingPeriodTo: varchar("billingPeriodTo", { length: 10 }),
+  status: mysqlEnum("invoiceSubmissionStatus", ["submitted", "received", "under_review", "approved", "returned", "superseded"]).default("submitted").notNull(),
+  /** ホワイトリストDTO凍結コピー（請求書ヘッダ+明細+出面明細） */
+  snapshotJson: json("snapshotJson").notNull(),
+  /** 申告額（提出時の請求総額） */
+  submittedAmount: int("submittedAmount").notNull(),
+  /** 承認額（査定後。承認まで null）。買掛はこの額で起票する */
+  approvedAmount: int("approvedAmount"),
+  /** 控除明細 [{label, amount}]（協力会費・安全協力費など。申告額-Σ控除=承認額） */
+  adjustmentsJson: json("adjustmentsJson"),
+  /** 名簿PDF等の R2 キー配列 */
+  pdfKeysJson: json("pdfKeysJson"),
+  returnReason: text("returnReason"),
+  submittedBy: int("submittedBy"),
+  reviewedBy: int("reviewedBy"),
+  reviewedAt: timestamp("reviewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  index("partner_invoice_submissions_link_idx").on(table.partnerLinkId),
+  index("partner_invoice_submissions_from_idx").on(table.fromCompanyId, table.status),
+  index("partner_invoice_submissions_to_idx").on(table.toCompanyId, table.status),
+]));
+
+export type PartnerInvoiceSubmission = typeof partnerInvoiceSubmissions.$inferSelect;
+export type InsertPartnerInvoiceSubmission = typeof partnerInvoiceSubmissions.$inferInsert;
+
+/**
+ * 受領側の買掛（支払予定）— 審議#8。承認と同時に承認額で自動起票され、
+ * 「A社の入金 = B社の支払」の対称性をコネクト層で表現する（片方の操作は相手に表示のみ・強制同期しない）。
+ */
+export const partnerPayables = mysqlTable("partner_payables", {
+  id: int("id").autoincrement().primaryKey(),
+  /** 対応する請求提出（1:1） */
+  submissionId: int("submissionId").notNull(),
+  /** 買掛を負う会社（=受領側） */
+  companyId: int("companyId").notNull(),
+  counterpartyCompanyId: int("counterpartyCompanyId").notNull(),
+  /** 承認額 */
+  amount: int("amount").notNull(),
+  status: mysqlEnum("partnerPayableStatus", ["unpaid", "scheduled", "paid"]).default("unpaid").notNull(),
+  scheduledDate: varchar("scheduledDate", { length: 10 }),
+  paidAt: timestamp("paidAt"),
+  paidBy: int("paidBy"),
+  memo: text("memo"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  uniqueIndex("partner_payables_submission_unique").on(table.submissionId),
+  index("partner_payables_company_idx").on(table.companyId, table.status),
+]));
+
+export type PartnerPayable = typeof partnerPayables.$inferSelect;
+export type InsertPartnerPayable = typeof partnerPayables.$inferInsert;
