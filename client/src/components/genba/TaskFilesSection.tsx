@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Paperclip, Upload, Link2, Trash2, ExternalLink, FileText, ImageIcon, Loader2, Download, CheckCircle2, CloudOff } from "lucide-react";
 import { fileToTaskUpload } from "@/lib/genbaUpload";
-import { saveFileOffline, getOfflineFile, allOfflineFileIds, listOfflineFilesByTask, removeOfflineFile } from "@/lib/genbaFileCache";
+import { saveFileOffline, getOfflineFile, allOfflineFileIds, listOfflineFilesByTask, removeOfflineFile, base64ToBlob } from "@/lib/genbaFileCache";
+import FigureViewer, { type ViewerFile } from "./FigureViewer";
 
 /** ファイルの適用範囲。作業=この作業だけ / エリア=このエリア全作業共通 / フロア=図面上の全エリア共通 */
 type Scope = "task" | "zone" | "floor";
@@ -23,15 +24,6 @@ const SCOPE_META: Record<Scope, { label: string; short: string; color: string }>
 };
 
 const fmtSize = (n: number | null) => (n == null ? "" : n < 1024 * 1024 ? `${Math.round(n / 1024)}KB` : `${(n / 1024 / 1024).toFixed(1)}MB`);
-
-/** Blob を新規タブで開く (画像/PDFの閲覧)。URLは少し後に解放する */
-function openBlob(blob: Blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
 
 /**
  * 参考ファイル (図面・資料) のセクション。1つの一覧に「この作業／このエリア／全エリア共通」を統合表示し、
@@ -67,6 +59,8 @@ export default function TaskFilesSection({
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [offlineList, setOfflineList] = useState<FileRow[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [viewer, setViewer] = useState<ViewerFile | null>(null);
 
   // 3範囲を常に呼ぶ (rules-of-hooks)。使わない範囲は enabled:false で無効化
   const taskQ = trpc.genba.tasks.files.list.useQuery({ taskId: taskId ?? "" }, { enabled: hasTask, retry: false });
@@ -160,12 +154,35 @@ export default function TaskFilesSection({
   }
 
   async function openFile(f: FileRow) {
-    if (savedIds.has(f.id)) {
-      const rec = await getOfflineFile(f.id);
-      if (rec) { openBlob(rec.blob); return; }
+    // 外部共有リンク(Drive等・埋め込み不可)は従来どおり外部で開く
+    if (f.kind === "link") {
+      if (f.url) window.open(f.url, "_blank", "noopener,noreferrer");
+      else toast.error("リンクが見つかりません");
+      return;
     }
-    if (f.url) { window.open(f.url, "_blank", "noopener,noreferrer"); return; }
-    toast.error(online ? "このファイルは表示できません" : "オフラインでは端末に保存したファイルのみ開けます");
+    // アップロード実体: オフライン保存があればそれ、無ければサーバー経由で取得(CORS回避)してアプリ内で表示
+    setOpeningId(f.id);
+    try {
+      let blob: Blob | null = null;
+      let mimeType = f.mimeType;
+      if (savedIds.has(f.id)) {
+        const rec = await getOfflineFile(f.id);
+        if (rec) { blob = rec.blob; mimeType = rec.mimeType || mimeType; }
+      }
+      if (!blob) {
+        if (!online) { toast.error("オフラインでは端末に保存したファイルのみ開けます"); return; }
+        const fetcher = f.scope === "task" ? utils.genba.tasks.files.getBytes
+          : f.scope === "floor" ? utils.genba.floors.files.getBytes
+          : utils.genba.zones.files.getBytes;
+        const b = await fetcher.fetch({ id: f.id });
+        blob = base64ToBlob(b.base64, b.mimeType); mimeType = b.mimeType;
+      }
+      setViewer({ blob, mimeType, title: f.title || f.fileName || "図面" });
+    } catch (e: any) {
+      toast.error(e?.message || "図面を開けませんでした");
+    } finally {
+      setOpeningId(null);
+    }
   }
 
   const list: FileRow[] = serverList.length > 0 || online ? serverList : offlineList;
@@ -267,8 +284,10 @@ export default function TaskFilesSection({
                   )
                 )}
                 <button onClick={() => openFile(f)}
-                  className="shrink-0 text-xs font-semibold text-[#005AFF] px-2 py-1 rounded hover:bg-muted disabled:opacity-40"
-                  disabled={!saved && !f.url}>開く</button>
+                  className="shrink-0 text-xs font-semibold text-[#005AFF] px-2 py-1 rounded hover:bg-muted disabled:opacity-40 inline-flex items-center gap-1"
+                  disabled={(!saved && !f.url) || openingId === f.id}>
+                  {openingId === f.id && <Loader2 className="h-3 w-3 animate-spin" />}開く
+                </button>
                 {canEdit && online && f.scope && (
                   <button title="削除" className="shrink-0 text-muted-foreground hover:text-destructive p-1"
                     onClick={() => { if (window.confirm(`「${rowLabel}」を削除しますか？`)) doRemove(f); }}>
@@ -280,6 +299,8 @@ export default function TaskFilesSection({
           })}
         </div>
       )}
+
+      {viewer && <FigureViewer file={viewer} onClose={() => setViewer(null)} />}
     </div>
   );
 }
