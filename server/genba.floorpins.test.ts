@@ -87,4 +87,15 @@ describe("genba.floors.pins (図面上の位置ピン問題報告)", () => {
     await leader().genba.floors.pins.remove({ id: "p1" });
     expect(mockGenbaDb.deleteGenbaFloorPin).toHaveBeenCalledWith("p1");
   });
+
+  it("getImageBytes: 図面画像をbase64で返す(圏外保存用) / 画像なしは BAD_REQUEST", async () => {
+    mockStorage.storageGetBytes.mockResolvedValue(Buffer.from("hello"));
+    mockGenbaDb.getGenbaFloorById.mockResolvedValue({ ...FLOOR, imageKey: "genba/s1/floor-x.jpg" });
+    const res = await worker().genba.floors.getImageBytes({ floorId: FLOOR.id });
+    expect(res.base64).toBe(Buffer.from("hello").toString("base64"));
+    expect(res.mimeType).toBe("image/jpeg");
+
+    mockGenbaDb.getGenbaFloorById.mockResolvedValue({ ...FLOOR, imageKey: null });
+    await expect(worker().genba.floors.getImageBytes({ floorId: FLOOR.id })).rejects.toThrow("画像がありません");
+  });
 });

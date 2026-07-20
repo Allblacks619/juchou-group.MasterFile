@@ -2,8 +2,9 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, Upload, Trash2, ImageOff, ZoomIn, ZoomOut, Maximize, Sparkles, Moon, AlertTriangle, Pencil } from "lucide-react";
+import { Loader2, Upload, Trash2, ImageOff, ZoomIn, ZoomOut, Maximize, Sparkles, Moon, AlertTriangle, Pencil, CloudDownload, CheckCircle2 } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
+import { saveFileOffline, getOfflineFile, allOfflineFileIds, removeOfflineFile } from "@/lib/genbaFileCache";
 import { PRIORITY, polyPath, centroid, zoneFillStyle, type Pt } from "@/lib/genbaMap";
 import { fullViewBox, clampViewBox, zoomAt, fitViewBox, snapThreshold, snapPointToPolys, type ViewBox } from "@shared/genba/mapview";
 import ProgressBadge from "./ProgressBadge";
@@ -124,6 +125,45 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
     const need = markTool === "polygon" ? 3 : 2;
     if (markPts.length < need) { toast.error(`点を${need}つ以上タップしてください`); return; }
     saveAnnotation(markTool, markPts); setMarkPts([]);
+  }
+
+  // ── 図面メイン画像のオフライン保存 (圏外でも地図を表示) ──
+  const [savedTick, setSavedTick] = useState(0);
+  const [floorSaved, setFloorSaved] = useState(false);
+  const [savingFloor, setSavingFloor] = useState(false);
+  const [floorImgSrc, setFloorImgSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false; let objUrl: string | null = null;
+    (async () => {
+      if (!activeFloor) { setFloorImgSrc(null); setFloorSaved(false); return; }
+      const ids = await allOfflineFileIds().catch(() => new Set<string>());
+      const key = `floor:${activeFloor.id}`;
+      if (!cancelled) setFloorSaved(ids.has(key));
+      if (ids.has(key)) {
+        const rec = await getOfflineFile(key).catch(() => null);
+        if (rec && !cancelled) { objUrl = URL.createObjectURL(rec.blob); setFloorImgSrc(objUrl); return; }
+      }
+      if (!cancelled) setFloorImgSrc(activeFloor.imageUrl ?? null);
+    })();
+    return () => { cancelled = true; if (objUrl) URL.revokeObjectURL(objUrl); };
+  }, [activeFloor?.id, activeFloor?.imageUrl, savedTick]);
+
+  async function saveFloorOffline() {
+    if (!activeFloor) return;
+    setSavingFloor(true);
+    try {
+      const b = await utils.genba.floors.getImageBytes.fetch({ floorId: activeFloor.id });
+      await saveFileOffline({ id: `floor:${activeFloor.id}`, taskId: activeFloor.id, title: activeFloor.name, fileName: b.fileName }, b);
+      setSavedTick((t) => t + 1);
+      toast.success("図面を端末に保存しました（圏外でも表示）");
+    } catch (e: any) { toast.error(e?.message || "保存に失敗しました"); }
+    finally { setSavingFloor(false); }
+  }
+  async function removeFloorOffline() {
+    if (!activeFloor) return;
+    await removeOfflineFile(`floor:${activeFloor.id}`).catch(() => {});
+    setSavedTick((t) => t + 1);
+    toast.success("端末保存を解除しました");
   }
 
   // フロア切替時に描画/選択/ズーム状態をリセット
@@ -566,6 +606,11 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                   <Pencil className="h-4.5 w-4.5" />
                 </button>
               )}
+              <button title={floorSaved ? "端末保存を解除" : "この図面を端末に保存（圏外でも見る）"}
+                onClick={() => (floorSaved ? removeFloorOffline() : saveFloorOffline())} disabled={savingFloor}
+                className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${floorSaved ? "bg-[#03AF7A]/20 border-[#03AF7A]/60 text-[#03AF7A]" : "border-border bg-background/90 hover:bg-muted"}`}>
+                {savingFloor ? <Loader2 className="h-4.5 w-4.5 animate-spin" /> : floorSaved ? <CheckCircle2 className="h-4.5 w-4.5" /> : <CloudDownload className="h-4.5 w-4.5" />}
+              </button>
               {zoomLevel > 1.01 && (
                 <span className="text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded bg-background/90 border border-border shadow">
                   {Math.round(zoomLevel * 100)}%
@@ -615,17 +660,17 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                 )}
               </defs>
 
-              {activeFloor.imageUrl && (
+              {floorImgSrc && (
                 focusPoly ? (
                   <>
                     {/* フォーカス: 外側は薄く残して位置関係だけ分かるように、内側は原寸表示 */}
-                    <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh} opacity={0.12} style={{ filter: imgFilter }} />
-                    <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh}
+                    <image href={floorImgSrc} x="0" y="0" width={fw} height={fh} opacity={0.12} style={{ filter: imgFilter }} />
+                    <image href={floorImgSrc} x="0" y="0" width={fw} height={fh}
                       clipPath="url(#genba-focus-clip)" style={{ filter: imgFilter }} />
                     <path d={polyPath(focusPoly)} fill="none" stroke={dark ? "#e2e8f0" : "#0f172a"} strokeWidth={2.5 * scale} strokeDasharray={`${9 * scale} ${6 * scale}`} />
                   </>
                 ) : (
-                  <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh}
+                  <image href={floorImgSrc} x="0" y="0" width={fw} height={fh}
                     style={{ filter: imgFilter }} />
                 )
               )}

@@ -437,6 +437,16 @@ const floorsRouter = router({
     return withFloorImageUrls(floors);
   }),
 
+  /** 図面メイン画像のバイト列 (圏外用に端末保存する用途。R2から取得しサーバー経由で返す=CORS回避) */
+  getImageBytes: genbaProcedure.input(z.object({ floorId: genbaIdSchema })).query(async ({ ctx, input }) => {
+    const floor = await genbaDb.getGenbaFloorById(input.floorId);
+    if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "図面が見つかりません" });
+    assertLinkSiteId(ctx, floor.siteId);
+    if (!floor.imageKey) throw new TRPCError({ code: "BAD_REQUEST", message: "この図面には画像がありません" });
+    const bytes = await storageGetBytes(floor.imageKey);
+    return { base64: bytes.toString("base64"), mimeType: "image/jpeg", fileName: `${floor.name || "floor"}.jpg` };
+  }),
+
   /** 図面画像のアップロード: base64 → validateFile → storagePut(R2) → floor作成。DBにはimageKeyのみ保存 */
   create: genbaFieldProcedure
     .input(z.object({
