@@ -28,6 +28,7 @@ import { useAppLang } from "@/contexts/AppLanguageContext";
 import { isManagerLikeAppRole } from "@/lib/appRoles";
 import { trpc } from "@/lib/trpc";
 import type { TranslationKey } from "@/lib/appTranslations";
+import type { PermissionArea } from "@shared/permissionAreas";
 
 type NavAudience = "super_admin" | "manager" | "worker";
 type NavItem = { path: string; labelKey: TranslationKey; icon: any; roles: NavAudience[] };
@@ -61,6 +62,39 @@ const navItems: NavItem[] = [
   { path: "/app/password-resets", labelKey: "nav_passwordResets", icon: KeyRound, roles: ["super_admin"] },
   { path: "/app/support", labelKey: "nav_support", icon: HelpCircle, roles: ["manager", "worker"] },
 ];
+
+// ナビ項目 → 権限エリア の対応表（個人別 表示/ブロック設定）。
+// ここに無い管理項目（監査ログ等）はエリア非対応として従来どおり isManagerLikeAppRole で判定する。
+const NAV_AREA_BY_LABEL: Partial<Record<TranslationKey, PermissionArea>> = {
+  nav_employees: "employees",
+  nav_projects: "projects",
+  nav_rates: "rates",
+  nav_company: "company",
+  nav_invitations: "company",
+  nav_attendance: "attendance",
+  nav_invoices: "finance",
+  nav_receivables: "finance",
+  nav_payments: "finance",
+  nav_monthlyCloseV2: "closing",
+  nav_workerInvoiceV2: "closing",
+  nav_closings: "closing",
+};
+
+/**
+ * グループ内メニュー項目の表示可否。
+ * - エリア対応あり: permission.my の該当エリアが true なら表示（未ロード時は従来の manager 判定にフォールバック）。
+ * - エリア対応なし（作業日報等）: 従来どおり manager 系のみ（作業員は上部の基本メニューで表示するため重複させない）。
+ */
+function isGroupItemVisible(
+  item: NavItem,
+  appRole: string,
+  areaPerms: Record<PermissionArea, boolean> | null,
+) {
+  const area = NAV_AREA_BY_LABEL[item.labelKey];
+  if (!area) return isManagerLikeAppRole(appRole);
+  if (areaPerms) return !!areaPerms[area];
+  return isManagerLikeAppRole(appRole);
+}
 
 // Group menu items by category
 function getNavGroups(): NavGroup[] {
@@ -104,6 +138,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     staleTime: 5 * 60 * 1000,
   });
   const genbaAvailable = !!genbaMe.data;
+  // 個人別 表示/ブロック設定の実効権限。未ログイン・未ロード時は null（従来の manager 判定にフォールバック）
+  const permMy = trpc.permission.my.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const areaPerms = permMy.data?.areas ?? null;
 
   // Check if user must change password
   useEffect(() => {
@@ -149,6 +190,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   };
 
   const navGroups = getNavGroups();
+  // エリア別 表示/ブロック設定で項目単位に出し分け。表示項目が1つも無いグループは省く。
+  const groupSections = navGroups
+    .map((group) => ({
+      group,
+      visibleItems: group.items.filter((item) => isGroupItemVisible(item, appRole, areaPerms)),
+    }))
+    .filter((section) => section.visibleItems.length > 0);
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -205,15 +253,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               })}
 
             {/* Separator */}
-            {isManagerLikeAppRole(appRole) && (
+            {groupSections.length > 0 && (
               <div className="my-2 border-t border-border" />
             )}
 
-            {/* Grouped menu items */}
-            {isManagerLikeAppRole(appRole) && navGroups.map((group) => {
-              const visibleItems = group.items.filter((item) => isNavItemVisible(item, appRole));
-              if (visibleItems.length === 0) return null;
-
+            {/* Grouped menu items（エリア別 表示/ブロック設定で出し分け） */}
+            {groupSections.map(({ group, visibleItems }) => {
               const isExpanded = expandedGroups.has(group.groupKey);
 
               return (

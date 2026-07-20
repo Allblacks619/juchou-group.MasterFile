@@ -77,47 +77,47 @@ function AppRoutes() {
           <Route path="/app/support" component={AppSupport} />
           <Route path="/app/genba" component={AppGenba} />
 
-          {/* Admin/Leader only */}
+          {/* エリア別 表示/ブロック設定で判定（個人オーバーライド対応）。監査ログのみ従来ロール判定 */}
           <Route path="/app/invitations">
-            <RoleGuard allowed={ADMIN_LEADER}><AppInvitations /></RoleGuard>
+            <RoleGuard area="company"><AppInvitations /></RoleGuard>
           </Route>
           <Route path="/app/company">
-            <RoleGuard allowed={ADMIN_LEADER}><AppCompany /></RoleGuard>
+            <RoleGuard area="company"><AppCompany /></RoleGuard>
           </Route>
           <Route path="/app/employees">
-            <RoleGuard allowed={ADMIN_LEADER}><AppEmployees /></RoleGuard>
+            <RoleGuard area="employees"><AppEmployees /></RoleGuard>
           </Route>
           <Route path="/app/employees/:id">
             {(params) => (
-              <RoleGuard allowed={ADMIN_LEADER}><AppEmployeeDetail /></RoleGuard>
+              <RoleGuard area="employees"><AppEmployeeDetail /></RoleGuard>
             )}
           </Route>
           <Route path="/app/projects">
-            <RoleGuard allowed={ADMIN_LEADER}><AppProjects /></RoleGuard>
+            <RoleGuard area="projects"><AppProjects /></RoleGuard>
           </Route>
           <Route path="/app/rates">
-            <RoleGuard allowed={ADMIN_LEADER}><AppRates /></RoleGuard>
+            <RoleGuard area="rates"><AppRates /></RoleGuard>
           </Route>
           <Route path="/app/attendance">
-            <RoleGuard allowed={ADMIN_LEADER}><AppAttendance /></RoleGuard>
+            <RoleGuard area="attendance"><AppAttendance /></RoleGuard>
           </Route>
           <Route path="/app/invoices">
-            <RoleGuard allowed={ADMIN_LEADER}><AppInvoices /></RoleGuard>
+            <RoleGuard area="finance"><AppInvoices /></RoleGuard>
           </Route>
           <Route path="/app/monthly-close-v2">
-            <RoleGuard allowed={ADMIN_LEADER}><AppMonthlyCloseV2 /></RoleGuard>
+            <RoleGuard area="closing"><AppMonthlyCloseV2 /></RoleGuard>
           </Route>
           <Route path="/app/worker-invoice-v2">
-            <RoleGuard allowed={ADMIN_LEADER}><AppWorkerInvoiceV2 /></RoleGuard>
+            <RoleGuard area="closing"><AppWorkerInvoiceV2 /></RoleGuard>
           </Route>
           <Route path="/app/closings">
-            <RoleGuard allowed={ADMIN_LEADER}><AppClosings /></RoleGuard>
+            <RoleGuard area="closing"><AppClosings /></RoleGuard>
           </Route>
           <Route path="/app/payments">
-            <RoleGuard allowed={ADMIN_LEADER}><AppPayments /></RoleGuard>
+            <RoleGuard area="finance"><AppPayments /></RoleGuard>
           </Route>
           <Route path="/app/receivables">
-            <RoleGuard allowed={ADMIN_LEADER}><AppReceivables /></RoleGuard>
+            <RoleGuard area="finance"><AppReceivables /></RoleGuard>
           </Route>
           <Route path="/app/audit">
             <RoleGuard allowed={ADMIN_LEADER}><AppAuditLogs /></RoleGuard>
