@@ -160,4 +160,25 @@ describe("genba G3: 役割上書き / 自分の作業 / サマリ", () => {
       expect(res).toEqual([]);
     });
   });
+
+  describe("tasks.listBySite (まとめて配置用): サブエリアの親情報つき葉タスク", () => {
+    const SUBZONE = { ...ZONE, id: "Genba_Beta_Z1_sub", parentZoneId: ZONE.id, name: "1-1工区" };
+    it("葉タスクに parentZoneId を付けて返す (親エリア選択で配下を対象にできる)", async () => {
+      mockGenbaDb.listGenbaFloorsBySite.mockResolvedValue([FLOOR]);
+      mockGenbaDb.listGenbaZonesByFloorIds.mockResolvedValue([ZONE, SUBZONE]);
+      mockGenbaDb.listGenbaTasksByZoneIds.mockResolvedValue([
+        { ...T("root1"), zoneId: ZONE.id },
+        { ...T("subLeaf"), zoneId: SUBZONE.id },
+        { ...T("subParent"), zoneId: SUBZONE.id },
+        { ...T("subChild", { parentTaskId: "subParent" }), zoneId: SUBZONE.id },
+      ]);
+      const res = await as({ id: 1, appRole: "manager" as any }).genba.tasks.listBySite({ siteId: "Genba_Beta_S1" });
+      const byId = new Map(res.map((t: any) => [t.id, t]));
+      // 親作業(subParent)は除外され、葉のみ。サブエリアの葉は parentZoneId=親エリア
+      expect(byId.has("subParent")).toBe(false);
+      expect((byId.get("subLeaf") as any).parentZoneId).toBe(ZONE.id);
+      expect((byId.get("subChild") as any).parentZoneId).toBe(ZONE.id);
+      expect((byId.get("root1") as any).parentZoneId).toBeNull();
+    });
+  });
 });
