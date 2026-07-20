@@ -17,6 +17,11 @@ export type GenbaUploadImage = {
 
 const MAX_PDF_PAGES = 12;
 
+/** アプリ内ビューア用: PDFバイト列から pdfjs ドキュメントを開く (workerは自己ホスト済み) */
+export async function loadPdfDocument(data: ArrayBuffer): Promise<any> {
+  return pdfjsLib.getDocument({ data }).promise;
+}
+
 /** 作業ファイル添付用ペイロード (画像は縮小、PDFは原本のまま) */
 export type GenbaUploadFile = { base64: string; mimeType: string; fileName: string; sizeBytes: number };
 
