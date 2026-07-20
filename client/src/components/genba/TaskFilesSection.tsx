@@ -106,6 +106,20 @@ export default function TaskFilesSection({
   const zoneRm = trpc.genba.zones.files.remove.useMutation({ onSuccess: (_r, v) => onRemove("zone", v), onError: onErr });
   const floorRm = trpc.genba.floors.files.remove.useMutation({ onSuccess: (_r, v) => onRemove("floor", v), onError: onErr });
 
+  // 外部リンクをアプリに取り込む (サーバーがDL→R2保存→アプリ内表示・圏外保存が可能に)
+  const [importingId, setImportingId] = useState<string | null>(null);
+  const onImportSuccess = (scope: Scope) => { invalidate(scope); setImportingId(null); toast.success("アプリに取り込みました（アプリ内で開けます）"); };
+  const onImportErr = (e: any) => { setImportingId(null); toast.error(e.message); };
+  const taskImport = trpc.genba.tasks.files.importLink.useMutation({ onSuccess: () => onImportSuccess("task"), onError: onImportErr });
+  const zoneImport = trpc.genba.zones.files.importLink.useMutation({ onSuccess: () => onImportSuccess("zone"), onError: onImportErr });
+  const floorImport = trpc.genba.floors.files.importLink.useMutation({ onSuccess: () => onImportSuccess("floor"), onError: onImportErr });
+  function doImport(f: FileRow) {
+    setImportingId(f.id);
+    if (f.scope === "task") taskImport.mutate({ id: f.id });
+    else if (f.scope === "zone") zoneImport.mutate({ id: f.id });
+    else floorImport.mutate({ id: f.id });
+  }
+
   const addPending = taskAdd.isPending || zoneAdd.isPending || floorAdd.isPending;
   function doAddLink() {
     const url = linkUrl.trim(); if (!url) return;
@@ -282,6 +296,13 @@ export default function TaskFilesSection({
                       {savingId === f.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                     </button>
                   )
+                )}
+                {canEdit && online && f.kind === "link" && f.scope && (
+                  <button title="アプリに取り込む（アプリ内表示・圏外保存が可能に）" disabled={importingId === f.id}
+                    onClick={() => doImport(f)}
+                    className="shrink-0 text-xs font-semibold text-[#03AF7A] px-2 py-1 rounded hover:bg-muted inline-flex items-center gap-1 disabled:opacity-40">
+                    {importingId === f.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}取り込む
+                  </button>
                 )}
                 <button onClick={() => openFile(f)}
                   className="shrink-0 text-xs font-semibold text-[#005AFF] px-2 py-1 rounded hover:bg-muted disabled:opacity-40 inline-flex items-center gap-1"
