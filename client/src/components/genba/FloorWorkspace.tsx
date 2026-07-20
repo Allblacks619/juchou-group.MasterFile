@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, Upload, Trash2, ImageOff, ZoomIn, ZoomOut, Maximize, Sparkles } from "lucide-react";
+import { Loader2, Upload, Trash2, ImageOff, ZoomIn, ZoomOut, Maximize, Sparkles, Moon } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, zoneFillStyle, type Pt } from "@/lib/genbaMap";
 import { fullViewBox, clampViewBox, zoomAt, fitViewBox, snapThreshold, snapPointToPolys, type ViewBox } from "@shared/genba/mapview";
@@ -48,6 +48,15 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
   const [vb, setVb] = useState<ViewBox | null>(null);
   const [focusZoneId, setFocusZoneId] = useState<string | null>(null);
   const [sharpen, setSharpen] = useState(false);
+  // 図面を暗く(反転)表示: 白背景→暗い背景・線は明るく。端末に記憶する
+  const [dark, setDark] = useState(() => {
+    try { return localStorage.getItem("genba.map.dark") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("genba.map.dark", dark ? "1" : "0"); } catch { /* ignore */ }
+  }, [dark]);
+  // 画像に適用するフィルタ (反転 + シャープ化を合成。CSS filter は関数と url() を混在できる)
+  const imgFilter = [dark ? "invert(1) hue-rotate(180deg)" : "", sharpen ? "url(#genba-sharpen)" : ""].filter(Boolean).join(" ") || undefined;
   const panRef = useRef<{ cx: number; cy: number; vb: ViewBox } | null>(null);
   const pinchRef = useRef<{ dist: number; cx: number; cy: number } | null>(null);
   const didPanRef = useRef(false);
@@ -445,6 +454,10 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                 className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${sharpen ? "bg-gold/20 border-gold/60 text-gold" : "border-border bg-background/90 hover:bg-muted"}`}>
                 <Sparkles className="h-4.5 w-4.5" />
               </button>
+              <button title="図面を暗く表示 (白い背景を暗く・線は明るく)" onClick={() => setDark((d) => !d)}
+                className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${dark ? "bg-gold/20 border-gold/60 text-gold" : "border-border bg-background/90 hover:bg-muted"}`}>
+                <Moon className="h-4.5 w-4.5" />
+              </button>
               {zoomLevel > 1.01 && (
                 <span className="text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded bg-background/90 border border-border shadow">
                   {Math.round(zoomLevel * 100)}%
@@ -491,14 +504,14 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                 focusPoly ? (
                   <>
                     {/* フォーカス: 外側は薄く残して位置関係だけ分かるように、内側は原寸表示 */}
-                    <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh} opacity={0.12} />
+                    <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh} opacity={0.12} style={{ filter: imgFilter }} />
                     <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh}
-                      clipPath="url(#genba-focus-clip)" filter={sharpen ? "url(#genba-sharpen)" : undefined} />
-                    <path d={polyPath(focusPoly)} fill="none" stroke="#0f172a" strokeWidth={2.5 * scale} strokeDasharray={`${9 * scale} ${6 * scale}`} />
+                      clipPath="url(#genba-focus-clip)" style={{ filter: imgFilter }} />
+                    <path d={polyPath(focusPoly)} fill="none" stroke={dark ? "#e2e8f0" : "#0f172a"} strokeWidth={2.5 * scale} strokeDasharray={`${9 * scale} ${6 * scale}`} />
                   </>
                 ) : (
                   <image href={activeFloor.imageUrl} x="0" y="0" width={fw} height={fh}
-                    filter={sharpen ? "url(#genba-sharpen)" : undefined} />
+                    style={{ filter: imgFilter }} />
                 )
               )}
 
