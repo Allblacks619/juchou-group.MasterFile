@@ -40,6 +40,7 @@ const AppSupport = lazy(() => import("./pages/AppSupport"));
 const AppPasswordResets = lazy(() => import("./pages/AppPasswordResets"));
 const AppResetPassword = lazy(() => import("./pages/AppResetPassword"));
 const AppGenba = lazy(() => import("./pages/AppGenba"));
+const AppConnect = lazy(() => import("./pages/AppConnect"));
 const AppGenbaShare = lazy(() => import("./pages/AppGenbaShare"));
 const AppGenbaWorker = lazy(() => import("./pages/AppGenbaWorker"));
 
@@ -76,6 +77,7 @@ function AppRoutes() {
           <Route path="/app/work-reports" component={AppWorkReports} />
           <Route path="/app/support" component={AppSupport} />
           <Route path="/app/genba" component={AppGenba} />
+          <Route path="/app/connect" component={AppConnect} />
 
           {/* エリア別 表示/ブロック設定で判定（個人オーバーライド対応）。監査ログのみ従来ロール判定 */}
           <Route path="/app/invitations">

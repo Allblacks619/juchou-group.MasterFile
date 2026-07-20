@@ -338,6 +338,8 @@ const rosterRouter = router({
 });
 
 export const connectRouter = router({
+  /** 会社間連携が有効か（UIのメニュー表示制御用。off でも FORBIDDEN を投げない） */
+  status: protectedProcedure.query(() => ({ enabled: isMultiTenantEnabled() })),
   partner: partnerRouter,
   roster: rosterRouter,
 });

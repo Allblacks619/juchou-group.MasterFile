@@ -38,6 +38,7 @@ const dict = {
   // ── Navigation / Sidebar ──
   nav_dashboard: { ja: "ダッシュボード", pt: "Painel" },
   nav_genba: { ja: "現場ビジョン", pt: "Visão do Canteiro" },
+  nav_connect: { ja: "会社間連携", pt: "Conexão entre Empresas" },
   nav_myProfile: { ja: "マイプロフィール", pt: "Meu Perfil" },
   nav_invitations: { ja: "招待管理", pt: "Convites" },
   nav_company: { ja: "会社設定", pt: "Config. Empresa" },

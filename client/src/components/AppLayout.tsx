@@ -20,6 +20,7 @@ import {
   ClipboardList,
   ChevronDown,
   HardHat,
+  Handshake,
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -44,6 +45,7 @@ const navItems: NavItem[] = [
   { path: "/app/my-profile", labelKey: "nav_myProfile", icon: UserCircle, roles: ["manager", "worker"] },
   { path: "/app/my-closing", labelKey: "nav_myClosing", icon: FileCheck2, roles: ["worker"] },
   { path: "/app/genba", labelKey: "nav_genba", icon: HardHat, roles: ["manager", "worker"] },
+  { path: "/app/connect", labelKey: "nav_connect", icon: Handshake, roles: ["manager"] },
   { path: "/app/invitations", labelKey: "nav_invitations", icon: UserPlus, roles: ["manager"] },
   { path: "/app/company", labelKey: "nav_company", icon: Building2, roles: ["manager"] },
   { path: "/app/employees", labelKey: "nav_employees", icon: Users, roles: ["manager"] },
@@ -138,6 +140,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     staleTime: 5 * 60 * 1000,
   });
   const genbaAvailable = !!genbaMe.data;
+  // 会社間連携 (Phase 2): MULTI_TENANT フラグ on の環境でのみメニュー表示
+  const connectStatus = trpc.connect.status.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const connectAvailable = !!connectStatus.data?.enabled;
   // 個人別 表示/ブロック設定の実効権限。未ログイン・未ロード時は null（従来の manager 判定にフォールバック）
   const permMy = trpc.permission.my.useQuery(undefined, {
     enabled: isAuthenticated,
@@ -232,7 +241,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
             {/* Dashboard and Profile - Always visible at top */}
             {navItems
-              .filter((item) => ["nav_dashboard", "nav_myProfile", "nav_myClosing", ...(isManagerLikeAppRole(appRole) ? [] : ["nav_workReports"]), ...(genbaAvailable ? ["nav_genba"] : [])].includes(item.labelKey) && isNavItemVisible(item, appRole))
+              .filter((item) => ["nav_dashboard", "nav_myProfile", "nav_myClosing", ...(isManagerLikeAppRole(appRole) ? [] : ["nav_workReports"]), ...(genbaAvailable ? ["nav_genba"] : []), ...(connectAvailable ? ["nav_connect"] : [])].includes(item.labelKey) && isNavItemVisible(item, appRole))
               .map((item) => {
                 const isActive = location === item.path || (item.path !== "/app" && location.startsWith(item.path));
                 return (
