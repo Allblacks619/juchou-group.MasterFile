@@ -7,6 +7,7 @@ import * as genbaDb from "../genba/db";
 import * as connectDb from "./db";
 import { isMultiTenantEnabled } from "../tenancy";
 import { buildRosterWorkerDto, matchRosterWorker, RosterWorkerDto } from "./roster";
+import { buildInvoiceSnapshotDto, compareAttendance, computeApprovedAmount, AttendanceRowDto, InvoiceSnapshotDto } from "./invoice";
 
 /**
  * コネクト層 (会社間連携) ルーター — Phase 2 (PLAN_v1.md §2.3-§2.6)。
@@ -337,9 +338,247 @@ const rosterRouter = router({
     }),
 });
 
+/** 出面行に作業員名を付けて DTO 行へ変換（自社の従業員名簿で解決。ゲストは guestName） */
+async function buildAttendanceRows(
+  companyId: number,
+  projectId: number | null,
+  periodFrom: string,
+  periodTo: string,
+): Promise<AttendanceRowDto[]> {
+  if (projectId == null) return [];
+  const start = new Date(`${periodFrom}T00:00:00.000Z`);
+  const end = new Date(`${periodTo}T23:59:59.999Z`);
+  const rows = await db.getAttendanceByDateRange(start, end, projectId, companyId);
+  const employees = await db.getAllEmployees(companyId);
+  const nameById = new Map<number, string>((employees as any[]).map((e) => [Number(e.id), String(e.nameKanji ?? "")]));
+  return (rows as any[])
+    .filter((a) => a.workType !== "absence" && a.workType !== "day_off")
+    .map((a) => ({
+      workerName: a.employeeId != null ? (nameById.get(Number(a.employeeId)) ?? `従業員#${a.employeeId}`) : String(a.guestName ?? "ゲスト"),
+      workDate: new Date(a.workDate).toISOString().slice(0, 10),
+      shiftType: String(a.shiftType ?? "day"),
+      hoursWorkedTimes10: Number(a.hoursWorked ?? 0),
+      overtimeHoursTimes10: Number(a.overtimeHours ?? 0),
+    }));
+}
+
+const invoiceSubmissionRouter = router({
+  /** 取引先請求書を連携先へ提出（スナップショット凍結）。差戻し後の再提出は supersedesId 指定 */
+  submit: connectManagerProcedure
+    .input(z.object({
+      partnerLinkId: z.number().int().positive(),
+      invoiceId: z.number().int().positive(),
+      periodFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      periodTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      pdfKeys: z.array(z.string().max(512)).max(50).optional(),
+      supersedesId: z.number().int().positive().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const link = await connectDb.getPartnerLinkById(input.partnerLinkId);
+      if (!link || link.status !== "accepted") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "承諾済みの連携ではありません" });
+      }
+      const toCompanyId = otherPartyOf(link, ctx.companyId);
+
+      const invoice = await db.getInvoiceById(input.invoiceId);
+      if (!invoice || ((invoice as any).companyId != null && (invoice as any).companyId !== ctx.companyId)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+      }
+      const items = await db.getInvoiceItemsByInvoice(input.invoiceId);
+
+      const periodFrom = input.periodFrom ?? new Date((invoice as any).periodStart).toISOString().slice(0, 10);
+      const periodTo = input.periodTo ?? new Date((invoice as any).periodEnd).toISOString().slice(0, 10);
+      const attendanceRows = await buildAttendanceRows(ctx.companyId, (invoice as any).projectId ?? null, periodFrom, periodTo);
+
+      // ホワイトリストDTOで凍結（内部メモ・単価メモは構造的に含まれない）
+      const snapshot = buildInvoiceSnapshotDto(invoice as any, items as any[], attendanceRows);
+
+      let version = 1;
+      if (input.supersedesId != null) {
+        const prev = await connectDb.getInvoiceSubmissionById(input.supersedesId);
+        if (!prev || prev.fromCompanyId !== ctx.companyId || prev.partnerLinkId !== link.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "再提出元が見つかりません" });
+        }
+        if (prev.status === "approved" || prev.status === "superseded") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "承認済み/旧版の提出は差し替えできません" });
+        }
+        version = prev.version + 1;
+        await connectDb.updateInvoiceSubmission(prev.id, { status: "superseded" } as any);
+      }
+
+      const submission = await connectDb.createInvoiceSubmission({
+        partnerLinkId: link.id,
+        fromCompanyId: ctx.companyId,
+        toCompanyId,
+        invoiceRef: input.invoiceId,
+        version,
+        supersedesId: input.supersedesId ?? null,
+        billingPeriodFrom: periodFrom,
+        billingPeriodTo: periodTo,
+        status: "submitted",
+        snapshotJson: snapshot,
+        submittedAmount: Number((invoice as any).totalAmount ?? 0),
+        pdfKeysJson: input.pdfKeys ?? null,
+        submittedBy: ctx.user.id,
+      } as any);
+      if (!submission) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "提出に失敗しました" });
+      await safeConnectAuditLog(ctx.user.id, "connect.invoice.submit",
+        `請求書を提出: ${snapshot.invoiceNumber}（¥${snapshot.totalAmount.toLocaleString()}）→ company#${toCompanyId}`,
+        { submissionId: submission.id });
+      return { submissionId: submission.id, version, submittedAmount: submission.submittedAmount };
+    }),
+
+  inbox: connectManagerProcedure.query(async ({ ctx }) => {
+    return connectDb.listInvoiceInbox(ctx.companyId);
+  }),
+
+  outbox: connectManagerProcedure.query(async ({ ctx }) => {
+    const subs = await connectDb.listInvoiceOutbox(ctx.companyId);
+    // 相手側の支払状況（買掛）を提出側にも表示（対称性・強制同期はしない）
+    return Promise.all(subs.map(async (s) => ({
+      ...s,
+      payableStatus: (await connectDb.getPartnerPayableBySubmission(s.id))?.status ?? null,
+    })));
+  }),
+
+  markReceived: connectManagerProcedure
+    .input(z.object({ submissionId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const sub = await connectDb.getInvoiceSubmissionById(input.submissionId);
+      if (!sub || sub.toCompanyId !== ctx.companyId) throw new TRPCError({ code: "NOT_FOUND", message: "提出が見つかりません" });
+      if (sub.status === "submitted") {
+        await connectDb.updateInvoiceSubmission(sub.id, { status: "received", reviewedBy: ctx.user.id, reviewedAt: new Date() } as any);
+      }
+      return { success: true as const };
+    }),
+
+  /** 出面突合: 提出スナップショットの出面 vs 受領側の自社出面（氏名×日付・不一致は明示） */
+  attendanceComparison: connectManagerProcedure
+    .input(z.object({
+      submissionId: z.number().int().positive(),
+      projectId: z.number().int().positive(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const sub = await connectDb.getInvoiceSubmissionById(input.submissionId);
+      if (!sub || sub.toCompanyId !== ctx.companyId) throw new TRPCError({ code: "NOT_FOUND", message: "提出が見つかりません" });
+      const project = await db.getProjectById(input.projectId);
+      if (!project || ((project as any).companyId != null && (project as any).companyId !== ctx.companyId)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      }
+      const snapshot = sub.snapshotJson as unknown as InvoiceSnapshotDto;
+      const receiverRows = await buildAttendanceRows(
+        ctx.companyId, input.projectId,
+        sub.billingPeriodFrom ?? snapshot.periodStart ?? "1970-01-01",
+        sub.billingPeriodTo ?? snapshot.periodEnd ?? "2999-12-31",
+      );
+      return compareAttendance(snapshot.attendance ?? [], receiverRows);
+    }),
+
+  /** 査定・減額つき承認（審議#3）。承認額 = 申告額 - Σ控除。買掛を承認額で自動起票 */
+  approve: connectManagerProcedure
+    .input(z.object({
+      submissionId: z.number().int().positive(),
+      adjustments: z.array(z.object({ label: z.string().min(1).max(100), amount: z.number().int() })).max(20).optional(),
+      memo: z.string().max(1000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sub = await connectDb.getInvoiceSubmissionById(input.submissionId);
+      if (!sub || sub.toCompanyId !== ctx.companyId) throw new TRPCError({ code: "NOT_FOUND", message: "提出が見つかりません" });
+      if (!["submitted", "received", "under_review"].includes(sub.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `この状態では承認できません（${sub.status}）` });
+      }
+      const adjustments = input.adjustments ?? [];
+      const approvedAmount = computeApprovedAmount(sub.submittedAmount, adjustments);
+      if (approvedAmount < 0) throw new TRPCError({ code: "BAD_REQUEST", message: "控除額が申告額を超えています" });
+
+      await connectDb.updateInvoiceSubmission(sub.id, {
+        status: "approved", approvedAmount, adjustmentsJson: adjustments,
+        reviewedBy: ctx.user.id, reviewedAt: new Date(),
+      } as any);
+      await connectDb.createPartnerPayable({
+        submissionId: sub.id,
+        companyId: ctx.companyId,
+        counterpartyCompanyId: sub.fromCompanyId,
+        amount: approvedAmount,
+        status: "unpaid",
+        memo: input.memo ?? null,
+      } as any);
+      await safeConnectAuditLog(ctx.user.id, "connect.invoice.approve",
+        `請求を承認: submission#${sub.id} 申告¥${sub.submittedAmount.toLocaleString()} → 承認¥${approvedAmount.toLocaleString()}`,
+        { adjustments });
+      return { success: true as const, approvedAmount };
+    }),
+
+  /** 差戻し（理由必須） */
+  returnSubmission: connectManagerProcedure
+    .input(z.object({ submissionId: z.number().int().positive(), reason: z.string().min(1).max(1000) }))
+    .mutation(async ({ ctx, input }) => {
+      const sub = await connectDb.getInvoiceSubmissionById(input.submissionId);
+      if (!sub || sub.toCompanyId !== ctx.companyId) throw new TRPCError({ code: "NOT_FOUND", message: "提出が見つかりません" });
+      if (!["submitted", "received", "under_review"].includes(sub.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `この状態では差戻しできません（${sub.status}）` });
+      }
+      await connectDb.updateInvoiceSubmission(sub.id, {
+        status: "returned", returnReason: input.reason, reviewedBy: ctx.user.id, reviewedAt: new Date(),
+      } as any);
+      await safeConnectAuditLog(ctx.user.id, "connect.invoice.return", `請求を差戻し: submission#${sub.id}`, { reason: input.reason });
+      return { success: true as const };
+    }),
+
+  /**
+   * 多段チェーンの原価参照（§2.4-4）: 承認済み受領請求の一覧。
+   * 上位への請求に取り込む際は承認額をそのまま参照し、税の再計算はしない（1円ズレ防止）。
+   */
+  costReferences: connectManagerProcedure.query(async ({ ctx }) => {
+    const subs = await connectDb.listApprovedInvoiceSubmissions(ctx.companyId);
+    return subs.map((s) => {
+      const snap = s.snapshotJson as unknown as InvoiceSnapshotDto;
+      return {
+        submissionId: s.id,
+        fromCompanyId: s.fromCompanyId,
+        invoiceNumber: snap?.invoiceNumber ?? "",
+        billingPeriodFrom: s.billingPeriodFrom,
+        billingPeriodTo: s.billingPeriodTo,
+        /** 原価参照額 = 承認額（税再計算なし） */
+        costAmount: s.approvedAmount ?? s.submittedAmount,
+      };
+    });
+  }),
+});
+
+const payableRouter = router({
+  /** 自社の買掛（承認済み受領請求の支払予定）一覧 */
+  list: connectManagerProcedure.query(async ({ ctx }) => {
+    return connectDb.listPartnerPayables(ctx.companyId);
+  }),
+
+  /** 支払状況の更新（unpaid/scheduled/paid）。相手側の提出箱に表示される */
+  setStatus: connectManagerProcedure
+    .input(z.object({
+      payableId: z.number().int().positive(),
+      status: z.enum(["unpaid", "scheduled", "paid"]),
+      scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const payables = await connectDb.listPartnerPayables(ctx.companyId);
+      const payable = payables.find((p) => p.id === input.payableId);
+      if (!payable) throw new TRPCError({ code: "NOT_FOUND", message: "買掛が見つかりません" });
+      await connectDb.updatePartnerPayable(payable.id, {
+        status: input.status,
+        scheduledDate: input.scheduledDate ?? payable.scheduledDate,
+        paidAt: input.status === "paid" ? new Date() : null,
+        paidBy: input.status === "paid" ? ctx.user.id : null,
+      } as any);
+      await safeConnectAuditLog(ctx.user.id, "connect.payable.setStatus", `買掛#${payable.id} を ${input.status} に更新`);
+      return { success: true as const };
+    }),
+});
+
 export const connectRouter = router({
   /** 会社間連携が有効か（UIのメニュー表示制御用。off でも FORBIDDEN を投げない） */
   status: protectedProcedure.query(() => ({ enabled: isMultiTenantEnabled() })),
   partner: partnerRouter,
   roster: rosterRouter,
+  invoice: invoiceSubmissionRouter,
+  payable: payableRouter,
 });

@@ -330,6 +330,13 @@
       "when": 1785900000000,
       "tag": "0040_connect_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "5",
+      "when": 1786000000000,
+      "tag": "0045_connect_invoices",
+      "breakpoints": true
     }
   ]
 }
