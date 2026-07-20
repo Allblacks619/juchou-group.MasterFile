@@ -71,10 +71,11 @@ const ASSIGNABLE_ROLES: AppRoleValue[] = ["admin", "manager", "worker", "guest"]
 // このロールを付与すると財務など管理機能が閲覧可能になる（誤付与警告用）。
 const FINANCE_VISIBLE_ROLES: AppRoleValue[] = ["admin", "manager"];
 
-/** 保存されている appRole（旧 leader エイリアス含む）を表示用に正規化。未連携は null。 */
+/** 保存されている appRole を表示用に正規化。未連携は null。
+ * 旧 "leader" はサーバー側 normalizeAppRole で worker 扱いになるため、実効権限どおり作業員として表示する。 */
 function normalizeRole(role: string | null | undefined): AppRoleValue | null {
   if (!role) return null;
-  if (role === "leader") return "manager";
+  if (role === "leader") return "worker";
   if (role === "super_admin" || role === "admin" || role === "manager" || role === "worker" || role === "guest") return role;
   return "worker";
 }
