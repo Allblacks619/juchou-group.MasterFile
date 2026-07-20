@@ -804,6 +804,7 @@ const tasksRouter = router({
         return {
           id: t.id, name: t.name, romaji: t.romaji,
           zoneId: t.zoneId, zoneName: z?.name ?? "?",
+          parentZoneId: z?.parentZoneId ?? null,
           floorId: z?.floorId ?? null, floorName: z ? (floorName.get(z.floorId) ?? null) : null,
         };
       });
