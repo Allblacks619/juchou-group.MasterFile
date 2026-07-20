@@ -411,6 +411,55 @@ function safeKeyPart(name: string): string {
   return name.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80) || "file";
 }
 
+/** SSRF対策: プライベート/ローカルの宛先を弾く (ユーザー入力URLをサーバーが取得するため) */
+const PRIVATE_HOST_RE = /^(localhost|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?|\[?::ffff:|\[?f[cde])/i;
+
+/** Google Drive/Docs の共有URLを直接ダウンロード可能なURLへ変換 (可能な場合のみ) */
+function toDirectDownloadUrl(u: URL): string {
+  if (/(^|\.)drive\.google\.com$/i.test(u.hostname)) {
+    const m = u.pathname.match(/\/file\/d\/([^/]+)/);
+    const id = m?.[1] || u.searchParams.get("id");
+    if (id) return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`;
+  }
+  return u.toString();
+}
+
+/**
+ * 外部URLのファイルをサーバー側で取得し、画像/PDFとして検証してBufferで返す。
+ * Google Drive共有URLは直接DL用に変換。取得できない(HTMLビューア/権限)場合は分かりやすいエラー。
+ */
+async function fetchExternalFile(rawUrl: string): Promise<{ buffer: Buffer; mimeType: string; fileName: string }> {
+  let u: URL;
+  try { u = new URL(rawUrl); } catch { throw new TRPCError({ code: "BAD_REQUEST", message: "URLが不正です" }); }
+  if (!/^https?:$/.test(u.protocol)) throw new TRPCError({ code: "BAD_REQUEST", message: "http(s) のURLのみ取り込めます" });
+  if (PRIVATE_HOST_RE.test(u.hostname)) throw new TRPCError({ code: "BAD_REQUEST", message: "このURLは取り込めません" });
+
+  let res: Response;
+  try {
+    res = await fetch(toDirectDownloadUrl(u), { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; JuchouGenba/1.0)" } });
+  } catch { throw new TRPCError({ code: "BAD_REQUEST", message: "URLに接続できませんでした" }); }
+  if (!res.ok) throw new TRPCError({ code: "BAD_REQUEST", message: `取り込みに失敗しました (${res.status})` });
+
+  const ct = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (ct.startsWith("text/html") || ct.startsWith("text/")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "このリンクは直接取り込めません（Driveの制限など）。ファイルをダウンロードして『アップロード』してください" });
+  }
+  const ab = await res.arrayBuffer();
+  const buffer = Buffer.from(ab);
+
+  let fileName = decodeURIComponent((u.pathname.split("/").pop() || "").trim()) || "import";
+  const cd = res.headers.get("content-disposition");
+  const cdm = cd && /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(cd);
+  if (cdm) { try { fileName = decodeURIComponent(cdm[1].replace(/"/g, "")); } catch { fileName = cdm[1].replace(/"/g, ""); } }
+  const mimeType = ct || "application/octet-stream";
+  if (!/\.[A-Za-z0-9]+$/.test(fileName)) {
+    fileName += mimeType.includes("pdf") ? ".pdf" : mimeType.includes("png") ? ".png" : mimeType.includes("webp") ? ".webp" : mimeType.includes("gif") ? ".gif" : ".jpg";
+  }
+  const err = validateFile(fileName, mimeType, buffer.length);
+  if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
+  return { buffer, mimeType, fileName };
+}
+
 /** フロア群に署名付きGET URL (imageUrl) を都度付与して返す。TTL切れを避けるため保存済みURLは使わない */
 async function withFloorImageUrls<T extends { imageKey: string | null }>(floors: T[]): Promise<(T & { imageUrl: string | null })[]> {
   return Promise.all(
@@ -594,6 +643,26 @@ const floorsRouter = router({
         await genbaDb.deleteGenbaFloorFile(input.id);
         await safeGenbaAuditLog(uid(ctx), "genba.floors.files.remove", { entityId: file.floorId, note: `全エリア共通削除: ${file.title || file.fileName || file.url}` });
         return { success: true as const };
+      }),
+
+    /** 外部共有リンクをアプリに取り込む (サーバーがDL→R2保存→uploadに置換)。アプリ内表示・圏外保存が可能に */
+    importLink: genbaFieldProcedure
+      .input(z.object({ id: genbaIdSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const file = await genbaDb.getGenbaFloorFileById(input.id);
+        if (!file || file.kind !== "link" || !file.url) throw new TRPCError({ code: "BAD_REQUEST", message: "取り込めるリンクがありません" });
+        const floor = await genbaDb.getGenbaFloorById(file.floorId);
+        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        const { buffer, mimeType, fileName } = await fetchExternalFile(file.url);
+        const storageKey = `genba/floor-${file.floorId}/file-${nanoid(8)}-${safeKeyPart(fileName)}`;
+        await storagePut(storageKey, buffer, mimeType);
+        const up = await genbaDb.createGenbaFloorFile({
+          id: nanoid(21), floorId: file.floorId, kind: "upload",
+          title: file.title, fileName, storageKey, mimeType, sizeBytes: buffer.length, createdByUserId: uid(ctx),
+        } as any);
+        await genbaDb.deleteGenbaFloorFile(file.id);
+        await safeGenbaAuditLog(uid(ctx), "genba.floors.files.importLink", { entityId: file.floorId, note: `全エリア共通リンクを取り込み: ${fileName}` });
+        return up;
       }),
   }),
 
@@ -924,6 +993,26 @@ const zonesRouter = router({
         await genbaDb.deleteGenbaZoneFile(input.id);
         await safeGenbaAuditLog(uid(ctx), "genba.zones.files.remove", { entityId: file.zoneId, note: `エリア図面削除: ${file.title || file.fileName || file.url}` });
         return { success: true as const };
+      }),
+
+    importLink: genbaFieldProcedure
+      .input(z.object({ id: genbaIdSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const file = await genbaDb.getGenbaZoneFileById(input.id);
+        if (!file || file.kind !== "link" || !file.url) throw new TRPCError({ code: "BAD_REQUEST", message: "取り込めるリンクがありません" });
+        const zone = await genbaDb.getGenbaZoneById(file.zoneId);
+        const floor = zone ? await genbaDb.getGenbaFloorById(zone.floorId) : null;
+        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        const { buffer, mimeType, fileName } = await fetchExternalFile(file.url);
+        const storageKey = `genba/zone-${file.zoneId}/file-${nanoid(8)}-${safeKeyPart(fileName)}`;
+        await storagePut(storageKey, buffer, mimeType);
+        const up = await genbaDb.createGenbaZoneFile({
+          id: nanoid(21), zoneId: file.zoneId, kind: "upload",
+          title: file.title, fileName, storageKey, mimeType, sizeBytes: buffer.length, createdByUserId: uid(ctx),
+        } as any);
+        await genbaDb.deleteGenbaZoneFile(file.id);
+        await safeGenbaAuditLog(uid(ctx), "genba.zones.files.importLink", { entityId: file.zoneId, note: `エリア図面リンクを取り込み: ${fileName}` });
+        return up;
       }),
   }),
 });
@@ -1456,6 +1545,25 @@ const tasksRouter = router({
         await genbaDb.deleteGenbaTaskFile(input.id);
         await safeGenbaAuditLog(uid(ctx), "genba.tasks.files.remove", { entityId: file.taskId, note: `ファイル削除: ${file.title || file.fileName || file.url}` });
         return { success: true as const };
+      }),
+
+    importLink: genbaFieldProcedure
+      .input(z.object({ id: genbaIdSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const file = await genbaDb.getGenbaTaskFileById(input.id);
+        if (!file || file.kind !== "link" || !file.url) throw new TRPCError({ code: "BAD_REQUEST", message: "取り込めるリンクがありません" });
+        const task = await genbaDb.getGenbaTaskById(file.taskId);
+        if (task) await assertLinkTaskScope(ctx, task);
+        const { buffer, mimeType, fileName } = await fetchExternalFile(file.url);
+        const storageKey = `genba/task-${file.taskId}/file-${nanoid(8)}-${safeKeyPart(fileName)}`;
+        await storagePut(storageKey, buffer, mimeType);
+        const up = await genbaDb.createGenbaTaskFile({
+          id: nanoid(21), taskId: file.taskId, kind: "upload",
+          title: file.title, fileName, storageKey, mimeType, sizeBytes: buffer.length, createdByUserId: uid(ctx),
+        } as any);
+        await genbaDb.deleteGenbaTaskFile(file.id);
+        await safeGenbaAuditLog(uid(ctx), "genba.tasks.files.importLink", { entityId: file.taskId, note: `ファイルリンクを取り込み: ${fileName}` });
+        return up;
       }),
   }),
 });
