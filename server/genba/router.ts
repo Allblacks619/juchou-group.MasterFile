@@ -548,6 +548,86 @@ const floorsRouter = router({
         return { success: true as const };
       }),
   }),
+
+  /**
+   * 図面上の位置ピン問題報告 (段階3)。図面をタップした座標に写真+コメントで問題を報告し、
+   * 管理者はマップ上で確認・解決できる。作成は作業員も可 (現場入力)、解決/削除はリーダー以上。
+   */
+  pins: router({
+    list: genbaProcedure.input(z.object({ floorId: genbaIdSchema })).query(async ({ ctx, input }) => {
+      const floor = await genbaDb.getGenbaFloorById(input.floorId);
+      if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "図面が見つかりません" });
+      assertLinkSiteId(ctx, floor.siteId);
+      const pins = await genbaDb.listGenbaFloorPinsByFloor(input.floorId);
+      const names = await genbaDb.listUserNamesByIds(Array.from(new Set(pins.map((p) => p.byUserId).filter((x): x is number => x != null))));
+      return Promise.all(pins.map(async (p) => {
+        const keys = Array.isArray(p.photoKeys) ? (p.photoKeys as string[]) : [];
+        const photoUrls = (await Promise.all(keys.map(async (k) => { try { return (await storageGet(k)).url; } catch { return null; } }))).filter((u): u is string => !!u);
+        return {
+          id: p.id, floorId: p.floorId, zoneId: p.zoneId, x: p.x, y: p.y,
+          kind: p.kind, text: p.text, status: p.status,
+          byUserId: p.byUserId, byUserName: p.byUserId != null ? (names.get(p.byUserId) ?? null) : null,
+          photoUrls, createdAt: p.createdAt,
+        };
+      }));
+    }),
+
+    create: genbaProcedure
+      .input(z.object({
+        floorId: genbaIdSchema,
+        x: z.number().int(),
+        y: z.number().int(),
+        zoneId: genbaIdSchema.nullish(),
+        text: z.string().trim().max(2000).optional(),
+        photos: z.array(z.object({ base64: z.string().min(1), mimeType: z.string(), fileName: z.string().min(1).max(200) })).max(4).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const floor = await genbaDb.getGenbaFloorById(input.floorId);
+        if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "図面が見つかりません" });
+        assertLinkSiteId(ctx, floor.siteId);
+        const id = nanoid(21);
+        const photoKeys: string[] = [];
+        for (const p of input.photos ?? []) {
+          const buffer = Buffer.from(p.base64, "base64");
+          const err = validateFile(p.fileName, p.mimeType, buffer.length);
+          if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
+          const key = `genba/floor-${input.floorId}/pin-${nanoid(8)}-${safeKeyPart(p.fileName)}`;
+          await storagePut(key, buffer, p.mimeType);
+          photoKeys.push(key);
+        }
+        const pin = await genbaDb.createGenbaFloorPin({
+          id, floorId: input.floorId, zoneId: input.zoneId ?? null,
+          x: input.x, y: input.y, kind: "issue", text: input.text ?? null,
+          photoKeys: photoKeys.length ? photoKeys : null, status: "open", byUserId: uid(ctx),
+        } as any);
+        await safeGenbaAuditLog(uid(ctx), "genba.floors.pins.create", { entityId: input.floorId, note: `図面に問題報告: ${input.text?.slice(0, 40) || "(写真のみ)"}` });
+        return pin;
+      }),
+
+    resolve: genbaFieldProcedure
+      .input(z.object({ id: genbaIdSchema, resolved: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        const pin = await genbaDb.getGenbaFloorPinById(input.id);
+        if (!pin) throw new TRPCError({ code: "NOT_FOUND", message: "報告が見つかりません" });
+        const floor = await genbaDb.getGenbaFloorById(pin.floorId);
+        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        const updated = await genbaDb.updateGenbaFloorPin(input.id, { status: input.resolved ? "resolved" : "open", resolvedByUserId: input.resolved ? uid(ctx) : null });
+        await safeGenbaAuditLog(uid(ctx), "genba.floors.pins.resolve", { entityId: pin.floorId, note: input.resolved ? "問題を解決済みに" : "問題を未解決に戻す" });
+        return updated;
+      }),
+
+    remove: genbaFieldProcedure
+      .input(z.object({ id: genbaIdSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const pin = await genbaDb.getGenbaFloorPinById(input.id);
+        if (!pin) throw new TRPCError({ code: "NOT_FOUND", message: "報告が見つかりません" });
+        const floor = await genbaDb.getGenbaFloorById(pin.floorId);
+        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await genbaDb.deleteGenbaFloorPin(input.id);
+        await safeGenbaAuditLog(uid(ctx), "genba.floors.pins.remove", { entityId: pin.floorId, note: "問題報告を削除" });
+        return { success: true as const };
+      }),
+  }),
 });
 
 // ── zones (M2-B) ──

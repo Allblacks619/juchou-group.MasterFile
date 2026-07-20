@@ -2,12 +2,13 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, Upload, Trash2, ImageOff, ZoomIn, ZoomOut, Maximize, Sparkles, Moon } from "lucide-react";
+import { Loader2, Upload, Trash2, ImageOff, ZoomIn, ZoomOut, Maximize, Sparkles, Moon, AlertTriangle } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, zoneFillStyle, type Pt } from "@/lib/genbaMap";
 import { fullViewBox, clampViewBox, zoomAt, fitViewBox, snapThreshold, snapPointToPolys, type ViewBox } from "@shared/genba/mapview";
 import ProgressBadge from "./ProgressBadge";
 import ZoneSheet, { type ZoneWithAgg } from "./ZoneSheet";
+import MapReportSheet, { type MapPin } from "./MapReportSheet";
 
 type FloorWorkspaceProps = {
   siteId: string;
@@ -18,7 +19,7 @@ type FloorWorkspaceProps = {
   mapOnly?: boolean;
 };
 
-type Mode = "view" | "draw" | "edit";
+type Mode = "view" | "draw" | "edit" | "report";
 
 /**
  * 現場ビジョン: 図面(フロア)タブ。図面アップロード/表示 + エリア(ゾーン)のポリゴン描画・
@@ -72,11 +73,22 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
   );
   const zoneList = (zones || []) as ZoneWithAgg[];
 
+  // 図面上の位置ピン問題報告 (段階3)
+  const { data: pinsData } = trpc.genba.floors.pins.list.useQuery(
+    { floorId: activeFloor?.id ?? "" },
+    { retry: false, enabled: !!activeFloor },
+  );
+  const pins = (pinsData || []) as MapPin[];
+  const [reportAt, setReportAt] = useState<Pt | null>(null);
+  const [openPinId, setOpenPinId] = useState<string | null>(null);
+  const openPin = pins.find((p) => p.id === openPinId) || null;
+  const invalidatePins = () => activeFloor && utils.genba.floors.pins.list.invalidate({ floorId: activeFloor.id });
+
   // フロア切替時に描画/選択/ズーム状態をリセット
   useEffect(() => {
     setMode("view"); setSelectedZoneId(null); setDraftPoly([]); setDraftParentZoneId(null);
     setEditZoneId(null); setEditPoly([]); setSelVtx(null);
-    setVb(null); setFocusZoneId(null);
+    setVb(null); setFocusZoneId(null); setReportAt(null); setOpenPinId(null);
   }, [activeFloor?.id]);
 
   const createFloor = trpc.genba.floors.create.useMutation({ onError: (e) => toast.error(e.message) });
@@ -141,11 +153,17 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
     return { x: Math.round(p.x), y: Math.round(p.y) };
   }
 
-  // ── 描画 (新規エリア) ──
+  // ── 描画 (新規エリア) / 問題報告のピン打ち ──
   function onSvgClick(evt: React.MouseEvent) {
-    if (mode !== "draw") return;
-    const p = svgPoint(evt);
-    if (p) setDraftPoly((d) => [...d, p]);
+    if (mode === "draw") {
+      const p = svgPoint(evt);
+      if (p) setDraftPoly((d) => [...d, p]);
+      return;
+    }
+    if (mode === "report" && !didPanRef.current) {
+      const p = svgPoint(evt);
+      if (p) setReportAt(p);
+    }
   }
   function confirmDraft() {
     if (!activeFloor) return;
@@ -458,6 +476,13 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                 className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${dark ? "bg-gold/20 border-gold/60 text-gold" : "border-border bg-background/90 hover:bg-muted"}`}>
                 <Moon className="h-4.5 w-4.5" />
               </button>
+              {mode !== "draw" && mode !== "edit" && (
+                <button title="問題報告: 図面をタップして写真つきで報告"
+                  onClick={() => { setMode((m) => (m === "report" ? "view" : "report")); setReportAt(null); setSelectedZoneId(null); }}
+                  className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${mode === "report" ? "bg-[#FF4B00] border-[#FF4B00] text-white" : "border-border bg-background/90 hover:bg-muted text-[#FF4B00]"}`}>
+                  <AlertTriangle className="h-4.5 w-4.5" />
+                </button>
+              )}
               {zoomLevel > 1.01 && (
                 <span className="text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded bg-background/90 border border-border shadow">
                   {Math.round(zoomLevel * 100)}%
@@ -469,6 +494,13 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
               <div className="absolute top-2 left-2 z-10 flex items-center gap-2 px-2 py-1.5 rounded-lg border border-border bg-background/90 shadow text-xs">
                 <span>🔍 {focusZone.name} にフォーカス中</span>
                 <button className="font-bold text-gold hover:underline" onClick={resetView}>解除</button>
+              </div>
+            )}
+            {/* 問題報告モードのバナー */}
+            {mode === "report" && !focusZone && (
+              <div className="absolute top-2 left-2 z-10 flex items-center gap-2 px-2 py-1.5 rounded-lg border border-[#FF4B00]/50 bg-background/90 shadow text-xs">
+                <span className="text-[#FF4B00] font-semibold">⚠ 図面をタップして問題の位置を指定</span>
+                <button className="font-bold text-muted-foreground hover:underline" onClick={() => { setMode("view"); setReportAt(null); }}>やめる</button>
               </div>
             )}
             <svg
@@ -601,8 +633,33 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                   ))}
                 </g>
               )}
+
+              {/* 問題報告ピン (図面上の位置) */}
+              {pins.map((p) => (
+                <g key={p.id} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); setOpenPinId(p.id); }}>
+                  <circle cx={p.x} cy={p.y} r={13 * scale} fill={p.status === "resolved" ? "#03AF7A" : "#FF4B00"} stroke="#fff" strokeWidth={3 * scale} opacity={0.95} />
+                  <text x={p.x} y={p.y + 6 * scale} textAnchor="middle" fontSize={16 * scale} fontWeight="800" fill="#fff">{p.status === "resolved" ? "✓" : "!"}</text>
+                </g>
+              ))}
+              {reportAt && (
+                <g>
+                  <circle cx={reportAt.x} cy={reportAt.y} r={16 * scale} fill="none" stroke="#FF4B00" strokeWidth={3 * scale} strokeDasharray={`${6 * scale} ${4 * scale}`} />
+                  <circle cx={reportAt.x} cy={reportAt.y} r={6 * scale} fill="#FF4B00" />
+                </g>
+              )}
             </svg>
           </div>
+
+          {reportAt && activeFloor && (
+            <MapReportSheet kind="new" floorId={activeFloor.id} x={reportAt.x} y={reportAt.y} zoneId={null}
+              onClose={() => setReportAt(null)}
+              onSaved={() => { setReportAt(null); setMode("view"); invalidatePins(); }} />
+          )}
+          {openPin && (
+            <MapReportSheet kind="detail" pin={openPin} canEdit={canEdit}
+              onClose={() => setOpenPinId(null)}
+              onChanged={invalidatePins} />
+          )}
 
           {/* 凡例 */}
           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">

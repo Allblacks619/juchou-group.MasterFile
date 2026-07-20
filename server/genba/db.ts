@@ -8,6 +8,7 @@ import {
   genbaTaskFiles, GenbaTaskFile, InsertGenbaTaskFile,
   genbaZoneFiles, GenbaZoneFile, InsertGenbaZoneFile,
   genbaFloorFiles, GenbaFloorFile, InsertGenbaFloorFile,
+  genbaFloorPins, GenbaFloorPin, InsertGenbaFloorPin,
   genbaTaskTemplates, GenbaTaskTemplate, InsertGenbaTaskTemplate,
   genbaTeams, GenbaTeam, InsertGenbaTeam,
   genbaTeamMembers, GenbaTeamMember, InsertGenbaTeamMember,
@@ -401,6 +402,44 @@ export async function deleteGenbaFloorFile(id: string): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(genbaFloorFiles).where(eq(genbaFloorFiles.id, id));
+}
+
+// ── genba_floor_pins (図面上の位置ピン問題報告・M5段階3) ──
+export async function listGenbaFloorPinsByFloor(floorId: string): Promise<GenbaFloorPin[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaFloorPins).where(eq(genbaFloorPins.floorId, floorId)).orderBy(desc(genbaFloorPins.createdAt));
+}
+
+export async function createGenbaFloorPin(data: InsertGenbaFloorPin): Promise<GenbaFloorPin | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaFloorPins).values(data);
+  const rows = await db.select().from(genbaFloorPins).where(eq(genbaFloorPins.id, data.id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getGenbaFloorPinById(id: string): Promise<GenbaFloorPin | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaFloorPins).where(eq(genbaFloorPins.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateGenbaFloorPin(
+  id: string,
+  patch: Partial<Pick<InsertGenbaFloorPin, "text" | "status" | "resolvedByUserId">>,
+): Promise<GenbaFloorPin | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaFloorPins).set(patch).where(eq(genbaFloorPins.id, id));
+  return getGenbaFloorPinById(id);
+}
+
+export async function deleteGenbaFloorPin(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaFloorPins).where(eq(genbaFloorPins.id, id));
 }
 
 /** ゲスト(現場名簿)の表示名を修正する。登録アカウントの氏名は変更しない (これは名簿の表示名のみ) */
