@@ -295,6 +295,13 @@
       "when": 1785500000000,
       "tag": "0041_genba_floor_files",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "5",
+      "when": 1785600000000,
+      "tag": "0042_user_permission_overrides",
+      "breakpoints": true
     }
   ]
 }

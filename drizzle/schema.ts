@@ -40,6 +40,12 @@ export const users = mysqlTable("users", {
   mustChangePassword: boolean("mustChangePassword").default(false).notNull(),
   /** Linked employee profile ID */
   employeeId: int("employeeId"),
+  /**
+   * 個人別の表示/ブロック設定（エリア別権限オーバーライド）。
+   * JSON: {"finance":"allow"|"deny", ...}（キーは shared/permissionAreas.ts の PERMISSION_AREAS）。
+   * null/未設定キー=ロール既定。super_admin/admin には適用されない（設定する側のため）。
+   */
+  permissionOverrides: text("permissionOverrides"),
   /** テナント(会社)ID。マルチテナント化 Phase 1a — 既存データは既定会社=1 */
   companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

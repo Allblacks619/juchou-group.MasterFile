@@ -50,9 +50,36 @@ import {
   List,
   FileText,
   ChevronDown,
+  Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  PERMISSION_AREAS,
+  PERMISSION_AREA_KEYS,
+  resolveAreaPermission,
+  type PermissionArea,
+} from "@shared/permissionAreas";
+
+type OverrideChoice = "default" | "allow" | "deny";
+
+/** employee.list の permissionOverrides（object|null）を 7エリアの3択セレクションへ変換 */
+function overridesToSelections(
+  overrides: Record<string, "allow" | "deny"> | null | undefined,
+): Record<PermissionArea, OverrideChoice> {
+  const out = {} as Record<PermissionArea, OverrideChoice>;
+  for (const area of PERMISSION_AREA_KEYS) {
+    const value = overrides?.[area];
+    out[area] = value === "allow" || value === "deny" ? value : "default";
+  }
+  return out;
+}
+
+/** 個別の表示設定（allow/deny）が1件でもあるか */
+function hasPermissionOverrides(overrides: Record<string, "allow" | "deny"> | null | undefined) {
+  return !!overrides && Object.keys(overrides).length > 0;
+}
 
 type AppRoleValue = "super_admin" | "admin" | "manager" | "worker" | "guest";
 
@@ -101,11 +128,37 @@ export default function AppEmployees() {
 
   const employeesQuery = trpc.employee.list.useQuery();
   const meQuery = trpc.auth.me.useQuery();
+  const utils = trpc.useUtils();
   const isSuperAdmin = (meQuery.data as any)?.appRole === "super_admin";
+  // 表示設定（個人別 表示/ブロック）を操作できるのは admin / super_admin のみ
+  const canManagePermissions = ["super_admin", "admin"].includes((meQuery.data as any)?.appRole);
   const myUserId = (meQuery.data as any)?.id as number | undefined;
 
   type EmployeeRow = NonNullable<typeof employeesQuery.data>[number];
   const [pendingRoleChange, setPendingRoleChange] = useState<{ emp: EmployeeRow; newRole: AppRoleValue } | null>(null);
+
+  // 表示設定ダイアログ
+  const [permDialogEmp, setPermDialogEmp] = useState<EmployeeRow | null>(null);
+  const [permSelections, setPermSelections] = useState<Record<PermissionArea, OverrideChoice>>(() => overridesToSelections(null));
+
+  const setOverridesMutation = trpc.permission.setOverrides.useMutation({
+    onSuccess: () => {
+      toast.success("表示設定を保存しました");
+      utils.employee.list.invalidate();
+      setPermDialogEmp(null);
+    },
+    onError: (e) => toast.error(`表示設定エラー: ${e.message}`),
+  });
+
+  const openPermDialog = (emp: EmployeeRow) => {
+    setPermSelections(overridesToSelections(emp.permissionOverrides));
+    setPermDialogEmp(emp);
+  };
+
+  const handleSavePermissions = () => {
+    if (!permDialogEmp || typeof permDialogEmp.userId !== "number") return;
+    setOverridesMutation.mutate({ userId: permDialogEmp.userId, overrides: permSelections });
+  };
 
   const filtered = useMemo(() => {
     return (employeesQuery.data || []).filter((emp) => {
@@ -425,23 +478,47 @@ export default function AppEmployees() {
                       {emp.nameKanji}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      {isSuperAdmin && emp.userId != null && normalizeRole(emp.appRole) !== "super_admin" ? (
-                        <Select
-                          value={normalizeRole(emp.appRole) ?? "worker"}
-                          onValueChange={(v) => requestRoleChange(emp, v as AppRoleValue)}
-                        >
-                          <SelectTrigger className="h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus:ring-0 [&>svg]:opacity-60">
-                            <RoleBadge role={emp.appRole} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {ASSIGNABLE_ROLES.map((r) => (
-                              <SelectItem key={r} value={r}>{ROLE_META[r].label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <RoleBadge role={emp.appRole} />
-                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {isSuperAdmin && emp.userId != null && normalizeRole(emp.appRole) !== "super_admin" ? (
+                          <Select
+                            value={normalizeRole(emp.appRole) ?? "worker"}
+                            onValueChange={(v) => requestRoleChange(emp, v as AppRoleValue)}
+                          >
+                            <SelectTrigger className="h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus:ring-0 [&>svg]:opacity-60">
+                              <RoleBadge role={emp.appRole} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ASSIGNABLE_ROLES.map((r) => (
+                                <SelectItem key={r} value={r}>{ROLE_META[r].label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <RoleBadge role={emp.appRole} />
+                        )}
+                        {hasPermissionOverrides(emp.permissionOverrides) && (
+                          <span
+                            className="inline-flex items-center rounded-full border border-gold/40 bg-gold/10 px-1.5 py-0.5 text-[10px] font-medium text-gold"
+                            title="個別の表示設定があります"
+                          >
+                            設定あり
+                          </span>
+                        )}
+                        {canManagePermissions &&
+                          emp.userId != null &&
+                          normalizeRole(emp.appRole) !== "super_admin" &&
+                          normalizeRole(emp.appRole) !== "admin" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-1.5 text-muted-foreground hover:text-foreground"
+                              title="表示設定"
+                              onClick={() => openPermDialog(emp)}
+                            >
+                              <Settings2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                      </div>
                     </TableCell>
                     <TableCell
                       className="text-muted-foreground"
@@ -562,6 +639,89 @@ export default function AppEmployees() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 表示設定（個人別 表示/ブロック設定） */}
+      <Dialog open={!!permDialogEmp} onOpenChange={(open) => { if (!open) setPermDialogEmp(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              表示設定{permDialogEmp ? `: ${permDialogEmp.nameKanji || "（氏名未設定）"}` : ""}
+            </DialogTitle>
+            <DialogDescription>
+              ロール（{permDialogEmp ? (ROLE_META[normalizeRole(permDialogEmp.appRole) ?? "worker"].label) : ""}）を土台に、機能エリアごとに表示/ブロックを個別設定します。「ロール通り」はロールの既定に従います。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto py-1">
+            {PERMISSION_AREA_KEYS.map((area) => {
+              const effective = permDialogEmp
+                ? resolveAreaPermission(
+                    { appRole: permDialogEmp.appRole ?? null, permissionOverrides: JSON.stringify(permSelections) },
+                    area,
+                  )
+                : false;
+              return (
+                <div key={area} className="rounded-lg border border-border p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{PERMISSION_AREAS[area].label}</p>
+                      <p className="text-xs text-muted-foreground">{PERMISSION_AREAS[area].description}</p>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={
+                        effective
+                          ? "shrink-0 bg-green-500/15 text-green-400 border-green-500/30"
+                          : "shrink-0 bg-muted text-muted-foreground border-border"
+                      }
+                    >
+                      {effective ? "見える" : "見えない"}
+                    </Badge>
+                  </div>
+                  <ToggleGroup
+                    type="single"
+                    value={permSelections[area]}
+                    onValueChange={(v) => {
+                      if (v) setPermSelections((prev) => ({ ...prev, [area]: v as OverrideChoice }));
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                  >
+                    <ToggleGroupItem value="default" className="text-xs">ロール通り</ToggleGroupItem>
+                    <ToggleGroupItem
+                      value="allow"
+                      className="text-xs data-[state=on]:bg-green-500/20 data-[state=on]:text-green-400"
+                    >
+                      見せる
+                    </ToggleGroupItem>
+                    <ToggleGroupItem
+                      value="deny"
+                      className="text-xs data-[state=on]:bg-red-500/15 data-[state=on]:text-red-400"
+                    >
+                      ブロック
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+              );
+            })}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPermDialogEmp(null)}>
+              キャンセル
+            </Button>
+            <Button
+              className="bg-gold text-background hover:bg-gold-dim"
+              onClick={handleSavePermissions}
+              disabled={setOverridesMutation.isPending}
+            >
+              {setOverridesMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
