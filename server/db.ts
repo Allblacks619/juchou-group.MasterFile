@@ -572,6 +572,20 @@ export async function getAllUsers(companyId?: number) {
   return db.select().from(users);
 }
 
+export async function getUserById(userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/** 個人別 表示/ブロック設定（JSON文字列 or null）を保存する */
+export async function updateUserPermissionOverrides(userId: number, overridesJson: string | null) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(users).set({ permissionOverrides: overridesJson }).where(eq(users.id, userId));
+}
+
 // ── Companies (テナント台帳 / マルチテナント化 Phase 1a) ──
 
 export async function getAllCompanies() {

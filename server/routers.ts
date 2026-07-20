@@ -9,6 +9,14 @@ import { createHash, randomBytes } from "node:crypto";
 import * as db from "./db";
 import { parseDateString, parseDateRange } from "./dateHelpers";
 import { isWorkedType, extractDateKey, workedDayValueTimes10 } from "@shared/attendanceStatus";
+import {
+  PERMISSION_AREA_KEYS,
+  parsePermissionOverrides,
+  resolveAreaPermission,
+  resolveAllAreaPermissions,
+  type PermissionArea,
+  type PermissionOverrides,
+} from "@shared/permissionAreas";
 import { storageGet, storagePut } from "./storage";
 import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "../shared/uploadValidation";
 import * as schema from "../drizzle/schema";
@@ -106,12 +114,35 @@ const leaderOrAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
 });
 
 /**
+ * エリア別権限プロシージャ（個人別 表示/ブロック設定）。
+ * ロール既定（manager以上=可 / worker,guest=不可）に users.permissionOverrides の
+ * allow/deny を重ねて判定する（shared/permissionAreas.ts）。
+ * leaderOrAdminProcedure の代わりに、エリアが特定できる管理系ルーターで使う。
+ */
+const areaProcedure = (area: PermissionArea) =>
+  protectedProcedure.use(({ ctx, next }) => {
+    if (!resolveAreaPermission(ctx.user as any, area)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "この機能へのアクセス権限がありません（表示設定でブロックされています）" });
+    }
+    return next({ ctx });
+  });
+const financeProcedure = areaProcedure("finance");
+const ratesProcedure = areaProcedure("rates");
+const employeesAreaProcedure = areaProcedure("employees");
+const projectsProcedure = areaProcedure("projects");
+const attendanceAdminProcedure = areaProcedure("attendance");
+const closingAdminProcedure = areaProcedure("closing");
+const companyAreaProcedure = areaProcedure("company");
+
+/**
  * 従業員データへのアクセスを「本人（employee.userId が自分）」か「管理者系（manager以上）」に限定する。
  * 旧実装の「appRole === "worker" だけ弾く」判定では guest / leader ロールがすり抜けて
  * 他人の銀行口座・在留カード等を閲覧・更新できたため、許可条件を明示する方式に統一。
  */
 function assertEmployeeSelfOrManager(ctx: { user: { id: number; appRole?: string | null } }, employee: { userId?: number | null }) {
-  if (isManagerLike((ctx.user as any).appRole)) return;
+  // 従業員管理エリアの実効権限（ロール既定＋個人別 表示/ブロック設定）で判定。
+  // manager でも employees を deny されていれば他人のプロフィールは見られない。
+  if (resolveAreaPermission(ctx.user as any, "employees")) return;
   if (employee.userId != null && Number(employee.userId) === Number(ctx.user.id)) return;
   throw new TRPCError({ code: "FORBIDDEN", message: "アクセス権限がありません" });
 }
@@ -710,11 +741,12 @@ async function repairClosingYearShiftProjectMonth(projectId: number, fromMonth: 
   };
 }
 
-async function getMyClosingSubmission(projectId: number, closingMonth: string, userId: number, requestedEmployeeId?: number, actorRole?: string) {
+async function getMyClosingSubmission(projectId: number, closingMonth: string, userId: number, requestedEmployeeId?: number, actorRole?: string, actorOverrides?: string | null) {
   const employee = await db.getEmployeeByUserId(userId);
   if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
   const role = actorRole || "worker";
-  const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+  // 代行可否は月締め管理エリアの実効権限（ロール既定＋個人別 表示/ブロック設定）
+  const canDelegate = resolveAreaPermission({ appRole: role, permissionOverrides: actorOverrides }, "closing");
   // 作業員は自分のみ。管理者は対象未指定なら自分の月締め、指定があればその作業員（代理）。
   if (!canDelegate && requestedEmployeeId && Number(requestedEmployeeId) !== Number(employee.id)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の月締めは参照できません" });
@@ -725,6 +757,7 @@ async function getMyClosingSubmission(projectId: number, closingMonth: string, u
     closingMonth,
     actorUserId: userId,
     actorRole: role,
+    actorOverrides,
     employeeId: targetEmployeeId,
   });
   const targetHasMonthlyAttendance = Boolean(overview?.isTarget);
@@ -770,11 +803,13 @@ async function buildWorkerMonthlyOverview(params: {
   closingMonth: string;
   actorUserId: number;
   actorRole?: string | null;
+  actorOverrides?: string | null;
   employeeId?: number;
   projectId?: number;
 }) {
   const role = params.actorRole || "worker";
-  const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+  // 代行可否は月締め管理エリアの実効権限（ロール既定＋個人別 表示/ブロック設定）
+  const canDelegate = resolveAreaPermission({ appRole: role, permissionOverrides: params.actorOverrides }, "closing");
   const actorEmployee = await db.getEmployeeByUserId(params.actorUserId);
   // 管理者は対象未指定なら自分の月締め、指定があればその作業員（代理）。自分の従業員レコードも対象
   // 指定も無い管理者だけ対象が必要。作業員は常に自分。
@@ -848,8 +883,8 @@ async function buildWorkerMonthlyOverview(params: {
  * workerInvoice などの「My系」エンドポイントの代行対応に使う。作業員が他人を指定したら FORBIDDEN。
  */
 async function resolveWorkerTargetEmployee(ctx: { user: { id: number; appRole?: string | null } }, requestedEmployeeId?: number) {
-  const role = (ctx.user as any)?.appRole;
-  const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+  // 代行可否は月締め管理エリアの実効権限（ロール既定＋個人別 表示/ブロック設定）
+  const canDelegate = resolveAreaPermission(ctx.user as any, "closing");
   const me = await db.getEmployeeByUserId(ctx.user.id);
   if (requestedEmployeeId && !canDelegate && Number(requestedEmployeeId) !== Number(me?.id)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員のデータは操作できません" });
@@ -969,7 +1004,8 @@ async function buildWorkerInvoicePreviewModelFromSnapshot(invoice: any) {
 
 async function ensureWorkerInvoiceAccess(ctx: any, invoice: any) {
   const me = await db.getEmployeeByUserId(ctx.user.id);
-  const manager = isManagerLike(ctx.user.appRole) || isSuperAdmin(ctx.user.appRole);
+  // 他人の請求書は月締め管理エリアの権限がある場合のみ（本人は常に可）
+  const manager = resolveAreaPermission(ctx.user as any, "closing");
   if (!manager && (!me || me.id !== invoice.employeeId)) throw new TRPCError({ code: "FORBIDDEN" });
   return { me, manager };
 }
@@ -1604,7 +1640,7 @@ export const appRouter = router({
 
   // ── Invitation System ──
   invitation: router({
-    create: leaderOrAdminProcedure
+    create: companyAreaProcedure
       .input(z.object({
         loginId: z.string().min(1),
         tempPassword: z.string().min(6),
@@ -1642,19 +1678,19 @@ export const appRouter = router({
         };
       }),
 
-    list: leaderOrAdminProcedure.query(async ({ ctx }) => {
+    list: companyAreaProcedure.query(async ({ ctx }) => {
       if (ctx.user.appRole === "admin") {
         return db.getAllInvitations(ctx.companyId);
       }
       return db.getInvitationsByCreator(ctx.user.id);
     }),
 
-    deleteExpired: leaderOrAdminProcedure
+    deleteExpired: companyAreaProcedure
       .mutation(async () => {
         const count = await db.deleteExpiredInvitations();
         return { deleted: count };
       }),
-    delete: leaderOrAdminProcedure
+    delete: companyAreaProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteInvitation(input.id);
@@ -1684,7 +1720,7 @@ export const appRouter = router({
   // ── Company Profile ──
   company: router({
     // 会社の銀行口座番号等を含むため管理者系のみ（呼び出し元は会社設定画面のみ）
-    get: leaderOrAdminProcedure.query(async () => {
+    get: companyAreaProcedure.query(async () => {
       const profile = await db.getCompanyProfile();
       if (!profile) return null;
       // ロゴ/社印/透かしの保存URLは失効するため、返す前に署名を貼り直す（プレビューで画像が壊れる不具合の修正）。
@@ -1752,15 +1788,19 @@ export const appRouter = router({
 
   // ── Employee Management ──
   employee: router({
-    list: leaderOrAdminProcedure.query(async ({ ctx }) => {
+    list: employeesAreaProcedure.query(async ({ ctx }) => {
       const employees = await db.getAllEmployees(ctx.companyId);
       const users = await db.getAllUsers(ctx.companyId);
-      const roleByUserId = new Map<number, string>(users.map((u: any) => [u.id, u.appRole]));
-      // アカウント未連携（userId が無い / 対応ユーザーが見つからない）の従業員は appRole を null で返す
-      return employees.map((emp: any) => ({
-        ...emp,
-        appRole: emp.userId != null ? roleByUserId.get(emp.userId) ?? null : null,
-      }));
+      const userById = new Map<number, any>(users.map((u: any) => [u.id, u]));
+      // アカウント未連携（userId が無い / 対応ユーザーが見つからない）の従業員は appRole/permissionOverrides を null で返す
+      return employees.map((emp: any) => {
+        const account = emp.userId != null ? userById.get(emp.userId) : undefined;
+        return {
+          ...emp,
+          appRole: account?.appRole ?? null,
+          permissionOverrides: account ? parsePermissionOverrides(account.permissionOverrides) : null,
+        };
+      });
     }),
 
     get: protectedProcedure
@@ -1911,7 +1951,7 @@ export const appRouter = router({
       };
     }),
 
-    create: leaderOrAdminProcedure
+    create: employeesAreaProcedure
       .input(z.object({
         nameKanji: z.string().min(1),
         nameKana: z.string().optional(),
@@ -2229,7 +2269,7 @@ export const appRouter = router({
         return db.getDocumentsByEmployee(input.employeeId);
       }),
 
-    updateStatus: leaderOrAdminProcedure
+    updateStatus: employeesAreaProcedure
       .input(z.object({
         id: z.number(),
         docStatus: z.enum(["valid", "renewing", "renewed", "expired"]),
@@ -2238,7 +2278,7 @@ export const appRouter = router({
         return db.updateDocument(input.id, { docStatus: input.docStatus });
       }),
 
-    delete: leaderOrAdminProcedure
+    delete: employeesAreaProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteDocument(input.id);
@@ -2254,11 +2294,11 @@ export const appRouter = router({
 
   // ── Clients (取引先) ──
   clientInfo: router({
-    list: leaderOrAdminProcedure.query(async ({ ctx }) => {
+    list: projectsProcedure.query(async ({ ctx }) => {
       return db.getAllClients(ctx.companyId);
     }),
 
-    get: leaderOrAdminProcedure
+    get: projectsProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const client = await db.getClientById(input.id);
@@ -2266,7 +2306,7 @@ export const appRouter = router({
         return client;
       }),
 
-    create: leaderOrAdminProcedure
+    create: projectsProcedure
       .input(z.object({
         name: z.string().min(1),
         postalCode: z.string().optional(),
@@ -2280,7 +2320,7 @@ export const appRouter = router({
         return db.createClient(input);
       }),
 
-    update: leaderOrAdminProcedure
+    update: projectsProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().optional(),
@@ -2306,7 +2346,7 @@ export const appRouter = router({
 
   // ── Projects (現場) ──
   project: router({
-    list: leaderOrAdminProcedure.query(async ({ ctx }) => {
+    list: projectsProcedure.query(async ({ ctx }) => {
       const [projectList, clientList] = await Promise.all([
         db.getAllProjects(ctx.companyId),
         db.getAllClients(ctx.companyId),
@@ -2318,7 +2358,7 @@ export const appRouter = router({
       }));
     }),
 
-    get: leaderOrAdminProcedure
+    get: projectsProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const project = await db.getProjectById(input.id);
@@ -2327,7 +2367,7 @@ export const appRouter = router({
         return { ...project, client };
       }),
 
-    create: leaderOrAdminProcedure
+    create: projectsProcedure
       .input(z.object({
         name: z.string().min(1),
         clientId: z.number().optional(),
@@ -2344,7 +2384,7 @@ export const appRouter = router({
         return db.createProject(data);
       }),
 
-    update: leaderOrAdminProcedure
+    update: projectsProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().optional(),
@@ -2371,7 +2411,7 @@ export const appRouter = router({
       }),
 
     /** List project members */
-    members: leaderOrAdminProcedure
+    members: projectsProcedure
       .input(z.object({ projectId: z.number() }))
       .query(async ({ input }) => {
         const members = await db.getProjectMembers(input.projectId);
@@ -2384,7 +2424,7 @@ export const appRouter = router({
       }),
 
     /** Add member to project */
-    addMember: leaderOrAdminProcedure
+    addMember: projectsProcedure
       .input(z.object({
         projectId: z.number(),
         employeeId: z.number(),
@@ -2400,7 +2440,7 @@ export const appRouter = router({
       }),
 
     /** Remove member from project */
-    removeMember: leaderOrAdminProcedure
+    removeMember: projectsProcedure
       .input(z.object({
         projectId: z.number(),
         employeeId: z.number(),
@@ -2413,7 +2453,7 @@ export const appRouter = router({
 
   // ── Employee Rates (単価管理) ──
   rate: router({
-    listByProject: leaderOrAdminProcedure
+    listByProject: ratesProcedure
       .input(z.object({ projectId: z.number() }))
       .query(async ({ input }) => {
         const [rates, empList] = await Promise.all([
@@ -2427,7 +2467,7 @@ export const appRouter = router({
         }));
       }),
 
-    listByEmployee: leaderOrAdminProcedure
+    listByEmployee: ratesProcedure
       .input(z.object({ employeeId: z.number() }))
       .query(async ({ input }) => {
         const [rates, projList] = await Promise.all([
@@ -2441,7 +2481,7 @@ export const appRouter = router({
         }));
       }),
 
-    listAll: leaderOrAdminProcedure.query(async () => {
+    listAll: ratesProcedure.query(async () => {
       const [rates, empList, projList, clientList] = await Promise.all([
         db.getAllEmployeeRates(),
         db.getAllEmployees(),
@@ -2474,7 +2514,7 @@ export const appRouter = router({
       }));
     }),
 
-    create: leaderOrAdminProcedure
+    create: ratesProcedure
       .input(z.object({
         employeeId: z.number().nullable().optional(),
         scopeType: z.enum(["project", "client"]).default("project"),
@@ -2498,7 +2538,7 @@ export const appRouter = router({
         return db.createEmployeeRate(data);
       }),
 
-    update: leaderOrAdminProcedure
+    update: ratesProcedure
       .input(z.object({
         id: z.number(),
         shiftType: z.enum(["day", "night"]).optional(),
@@ -2516,14 +2556,14 @@ export const appRouter = router({
         return db.updateEmployeeRate(id, data);
       }),
 
-    delete: leaderOrAdminProcedure
+    delete: ratesProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteEmployeeRate(input.id);
         return { success: true };
       }),
 
-    resolvePreview: leaderOrAdminProcedure
+    resolvePreview: ratesProcedure
       .input(z.object({
         projectId: z.number(),
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
@@ -2532,11 +2572,11 @@ export const appRouter = router({
   }),
 
   workerBaseRate: router({
-    listAll: leaderOrAdminProcedure.query(async ({ ctx }) => db.getAllWorkerBaseRates(ctx.companyId)),
-    listByEmployee: leaderOrAdminProcedure
+    listAll: ratesProcedure.query(async ({ ctx }) => db.getAllWorkerBaseRates(ctx.companyId)),
+    listByEmployee: ratesProcedure
       .input(z.object({ employeeId: z.number() }))
       .query(async ({ input }) => db.getWorkerBaseRatesByEmployee(input.employeeId)),
-    create: leaderOrAdminProcedure
+    create: ratesProcedure
       .input(z.object({
         employeeId: z.number(),
         shiftType: z.enum(["day", "night"]).default("day"),
@@ -2553,7 +2593,7 @@ export const appRouter = router({
         effectiveUntil: input.effectiveUntil ? parseDateString(input.effectiveUntil) : null,
         notes: input.notes || null,
       } as any)),
-    update: leaderOrAdminProcedure
+    update: ratesProcedure
       .input(z.object({
         id: z.number(),
         shiftType: z.enum(["day", "night"]).optional(),
@@ -2570,7 +2610,7 @@ export const appRouter = router({
           effectiveUntil: rest.effectiveUntil ? parseDateString(rest.effectiveUntil) : rest.effectiveUntil === null ? null : undefined,
         } as any);
       }),
-    delete: leaderOrAdminProcedure
+    delete: ratesProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteWorkerBaseRate(input.id);
@@ -2581,7 +2621,7 @@ export const appRouter = router({
   // ── PDF Generation (作業員名簿) ──
   pdf: router({
     /** Generate individual worker roster PDF */
-    rosterSingle: leaderOrAdminProcedure
+    rosterSingle: employeesAreaProcedure
       .input(z.object({
         employeeId: z.number(),
         projectName: z.string().optional(),
@@ -2608,7 +2648,7 @@ export const appRouter = router({
       }),
 
     /** Generate multi-worker roster list PDF (table format) */
-    rosterList: leaderOrAdminProcedure
+    rosterList: employeesAreaProcedure
       .input(z.object({
         employeeIds: z.array(z.number()),
         projectName: z.string().optional(),
@@ -2637,7 +2677,7 @@ export const appRouter = router({
       }),
 
     /** Generate multiple individual roster PDFs (one page per worker) */
-    rosterMulti: leaderOrAdminProcedure
+    rosterMulti: employeesAreaProcedure
       .input(z.object({
         employeeIds: z.array(z.number()).min(1),
         projectName: z.string().optional(),
@@ -2666,7 +2706,7 @@ export const appRouter = router({
   // ── Attendance (出面表 / 出勤管理) ──
   attendance: router({
     /** List attendance records for a date range (optionally filtered by project) */
-    list: leaderOrAdminProcedure
+    list: attendanceAdminProcedure
       .input(z.object({
         startDate: z.string(),
         endDate: z.string(),
@@ -2703,7 +2743,7 @@ export const appRouter = router({
       }),
 
     /** Upsert a single attendance record (admin/leader or project member) */
-    upsert: leaderOrAdminProcedure
+    upsert: attendanceAdminProcedure
       .input(z.object({
         employeeId: z.number().nullable().optional(),
         guestName: z.string().optional(),
@@ -2731,7 +2771,7 @@ export const appRouter = router({
       }),
 
     /** Batch upsert attendance records (for grid entry) */
-    batchUpsert: leaderOrAdminProcedure
+    batchUpsert: attendanceAdminProcedure
       .input(z.object({
         records: z.array(z.object({
           employeeId: z.number().nullable().optional(),
@@ -2823,7 +2863,7 @@ export const appRouter = router({
       }),
 
     /** Delete an attendance record */
-    delete: leaderOrAdminProcedure
+    delete: attendanceAdminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteAttendance(input.id);
@@ -2913,7 +2953,7 @@ export const appRouter = router({
     /** Get projects where the current employee has attendance records or is assigned */
     myProjects: protectedProcedure.query(async ({ ctx }) => {
       const allProjects = await db.getAllProjects();
-      if (isManagerLike((ctx.user as any).appRole)) {
+      if (resolveAreaPermission(ctx.user as any, "attendance")) {
         return allProjects.filter(p => p.status === "active");
       }
       const employee = await db.getEmployeeByUserId(ctx.user.id);
@@ -2943,7 +2983,7 @@ export const appRouter = router({
         }
 
         let candidateProjects = allProjects;
-        if (!isManagerLike((ctx.user as any).appRole)) {
+        if (!resolveAreaPermission(ctx.user as any, "attendance")) {
           const employee = await db.getEmployeeByUserId(ctx.user.id);
           if (!employee) return [];
           const [memberships, ownRawMonthlyRecords] = await Promise.all([
@@ -3027,7 +3067,7 @@ export const appRouter = router({
         );
         const records = excludeRemovedGuestMarkers(rawRecords);
 
-        if (!isManagerLike((ctx.user as any).appRole)) {
+        if (!resolveAreaPermission(ctx.user as any, "attendance")) {
           const employee = await db.getEmployeeByUserId(ctx.user.id);
           if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "従業員情報が見つかりません" });
           const memberships = await db.getProjectsByEmployee(employee.id);
@@ -3085,7 +3125,7 @@ export const appRouter = router({
     }),
 
     /** Generate attendance PDF */
-    generatePdf: leaderOrAdminProcedure
+    generatePdf: attendanceAdminProcedure
       .input(z.object({
         year: z.number(),
         month: z.number().min(1).max(12),
@@ -3145,7 +3185,7 @@ export const appRouter = router({
       }),
 
     /** Generate Excel for attendance */
-    generateExcel: leaderOrAdminProcedure
+    generateExcel: attendanceAdminProcedure
       .input(z.object({
         year: z.number(),
         month: z.number().min(1).max(12),
@@ -3209,7 +3249,7 @@ export const appRouter = router({
      * Returns one row per project that had attendance in the target month.
      * Each project row includes a list of participating workers with their status.
      */
-    projectDashboard: leaderOrAdminProcedure
+    projectDashboard: closingAdminProcedure
       .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const { start, end } = getMonthDateRange(input.targetMonth);
@@ -3305,7 +3345,7 @@ export const appRouter = router({
         projectRows.sort((a, b) => a.projectName.localeCompare(b.projectName, "ja"));
         return { targetMonth: input.targetMonth, projects: projectRows };
       }),
-    dashboard: leaderOrAdminProcedure
+    dashboard: closingAdminProcedure
       .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const { start, end } = getMonthDateRange(input.targetMonth);
@@ -3696,7 +3736,7 @@ export const appRouter = router({
           };
         }));
       }),
-    updateProjectStatus: leaderOrAdminProcedure
+    updateProjectStatus: closingAdminProcedure
       .input(z.object({
         targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
         projectId: z.number().int().positive(),
@@ -3710,7 +3750,7 @@ export const appRouter = router({
           updatedBy: ctx.user.id,
         });
       }),
-    updateParticipantStatus: leaderOrAdminProcedure
+    updateParticipantStatus: closingAdminProcedure
       .input(z.object({
         targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
         projectId: z.number().int().positive(),
@@ -3789,7 +3829,7 @@ export const appRouter = router({
   }),
 
   closing: router({
-    listByMonth: leaderOrAdminProcedure
+    listByMonth: closingAdminProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const { start, end } = getMonthDateRange(input.closingMonth);
@@ -3841,7 +3881,7 @@ export const appRouter = router({
         return rows.sort((a, b) => a.project.name.localeCompare(b.project.name, "ja"));
       }),
 
-    get: leaderOrAdminProcedure
+    get: closingAdminProcedure
       .input(z.object({
         projectId: z.number(),
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
@@ -3873,7 +3913,7 @@ export const appRouter = router({
         return result;
       }),
 
-    initialize: leaderOrAdminProcedure
+    initialize: closingAdminProcedure
       .input(z.object({
         projectId: z.number(),
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
@@ -3884,7 +3924,7 @@ export const appRouter = router({
         return buildClosingDetail(input.projectId, input.closingMonth);
       }),
 
-    updateSubmission: leaderOrAdminProcedure
+    updateSubmission: closingAdminProcedure
       .input(z.object({
         id: z.number(),
         status: z.enum(["not_required", "pending", "submitted", "approved", "rejected"]).optional(),
@@ -3930,7 +3970,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    uploadReceipt: leaderOrAdminProcedure
+    uploadReceipt: closingAdminProcedure
       .input(z.object({
         submissionId: z.number(),
         base64: z.string(),
@@ -3965,7 +4005,7 @@ export const appRouter = router({
         return { url, fileName: input.fileName };
       }),
 
-    clearReceipt: leaderOrAdminProcedure
+    clearReceipt: closingAdminProcedure
       .input(z.object({ submissionId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const submission = await db.getClosingSubmissionById(input.submissionId);
@@ -3984,7 +4024,7 @@ export const appRouter = router({
     mySubmission: protectedProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().optional() }))
       .query(async ({ ctx, input }) => {
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole, (ctx.user as any).permissionOverrides);
         return {
           eligible: result.eligible,
           isTarget: result.eligible,
@@ -4013,6 +4053,7 @@ export const appRouter = router({
           closingMonth: input.closingMonth,
           actorUserId: ctx.user.id,
           actorRole: (ctx.user as any).appRole,
+          actorOverrides: (ctx.user as any).permissionOverrides,
           employeeId: input.employeeId,
           projectId: input.projectId,
         });
@@ -4026,8 +4067,7 @@ export const appRouter = router({
         employeeId: z.number().optional(),
       }))
       .query(async ({ ctx, input }) => {
-        const role = (ctx.user as any).appRole;
-        const canDelegate = role === "super_admin" || role === "admin" || role === "manager";
+        const canDelegate = resolveAreaPermission(ctx.user as any, "closing");
         const me = await db.getEmployeeByUserId(ctx.user.id);
         if (input.employeeId && !canDelegate && Number(input.employeeId) !== Number(me?.id)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の支払状況は参照できません" });
@@ -4068,7 +4108,7 @@ export const appRouter = router({
         if (isGuestRole((ctx.user as any).appRole)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では編集できません" });
         }
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole, (ctx.user as any).permissionOverrides);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では編集できません" });
@@ -4108,7 +4148,7 @@ export const appRouter = router({
         if (isGuestRole((ctx.user as any).appRole)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では提出できません" });
         }
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole, (ctx.user as any).permissionOverrides);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では提出できません" });
@@ -4139,7 +4179,7 @@ export const appRouter = router({
         if (isGuestRole((ctx.user as any).appRole)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では領収書をアップロードできません" });
         }
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole, (ctx.user as any).permissionOverrides);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "この状態ではアップロードできません" });
@@ -4168,7 +4208,7 @@ export const appRouter = router({
     listMyReceiptDocuments: protectedProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().optional() }))
       .query(async ({ ctx, input }) => {
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole, (ctx.user as any).permissionOverrides);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         const docs = await db.listClosingSubmissionDocuments(result.submission.id);
         return { documents: docs, legacyReceipt: result.submission.receiptFileUrl ? { fileUrl: result.submission.receiptFileUrl, fileName: result.submission.receiptFileName, fileKey: result.submission.receiptFileKey, mimeType: result.submission.receiptMimeType } : null };
@@ -4177,7 +4217,7 @@ export const appRouter = router({
     uploadMyReceiptDocument: protectedProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), base64: z.string(), mimeType: z.string(), fileName: z.string(), documentType: z.enum(["receipt","company_card","etc","other"]).optional(), employeeId: z.number().optional() }))
       .mutation(async ({ ctx, input }) => {
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole, (ctx.user as any).permissionOverrides);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "この状態ではアップロードできません" });
         const buffer = Buffer.from(input.base64, "base64");
@@ -4194,7 +4234,7 @@ export const appRouter = router({
     deleteMyReceiptDocument: protectedProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/), documentId: z.number(), employeeId: z.number().optional() }))
       .mutation(async ({ ctx, input }) => {
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole, (ctx.user as any).permissionOverrides);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         if (!canWorkerEditSubmission(result.closing.status, result.submission.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "この状態では削除できません" });
         const doc = await db.getClosingSubmissionDocumentById(input.documentId);
@@ -4211,7 +4251,7 @@ export const appRouter = router({
         if (isGuestRole((ctx.user as any).appRole)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "ゲスト権限では領収書を解除できません" });
         }
-        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole);
+        const result = await getMyClosingSubmission(input.projectId, input.closingMonth, ctx.user.id, input.employeeId, (ctx.user as any).appRole, (ctx.user as any).permissionOverrides);
         if (!result.eligible || !result.submission || !result.closing?.id) throw new TRPCError({ code: "BAD_REQUEST", message: "この月の提出対象ではありません" });
         await db.updateClosingSubmission(result.submission.id, {
           receiptUploaded: false,
@@ -4227,7 +4267,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    markReady: leaderOrAdminProcedure
+    markReady: closingAdminProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .mutation(async ({ ctx, input }) => {
         const detail = await buildClosingDetail(input.projectId, input.closingMonth);
@@ -4240,7 +4280,7 @@ export const appRouter = router({
         return buildClosingDetail(input.projectId, input.closingMonth);
       }),
 
-    close: leaderOrAdminProcedure
+    close: closingAdminProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .mutation(async ({ ctx, input }) => {
         const detail = await buildClosingDetail(input.projectId, input.closingMonth);
@@ -4257,7 +4297,7 @@ export const appRouter = router({
         return buildClosingDetail(input.projectId, input.closingMonth);
       }),
 
-    reopen: leaderOrAdminProcedure
+    reopen: closingAdminProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .mutation(async ({ ctx, input }) => {
         const detail = await buildClosingDetail(input.projectId, input.closingMonth);
@@ -4272,7 +4312,7 @@ export const appRouter = router({
       }),
 
     /** Generate invoice draft for closing */
-    generateForClosing: leaderOrAdminProcedure
+    generateForClosing: closingAdminProcedure
       .input(z.object({
         projectId: z.number().optional(),
         projectIds: z.array(z.number()).optional(),
@@ -4371,7 +4411,7 @@ export const appRouter = router({
         };
       }),
 
-    sameClientInvoiceCandidates: leaderOrAdminProcedure
+    sameClientInvoiceCandidates: closingAdminProcedure
       .input(z.object({
         projectId: z.number(),
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
@@ -4386,9 +4426,8 @@ export const appRouter = router({
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
       }))
       .mutation(async ({ ctx, input }) => {
-        const actorRole = (ctx.user as any).appRole;
         const actorEmployee = await db.getEmployeeByUserId(ctx.user.id);
-        if (!isManagerLike(actorRole) && (!actorEmployee || actorEmployee.id !== input.employeeId)) {
+        if (!resolveAreaPermission(ctx.user as any, "closing") && (!actorEmployee || actorEmployee.id !== input.employeeId)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "権限がありません" });
         }
         const employee = await db.getEmployeeById(input.employeeId);
@@ -4456,9 +4495,8 @@ export const appRouter = router({
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
       }))
       .query(async ({ ctx, input }) => {
-        const actorRole = (ctx.user as any).appRole;
         const actorEmployee = await db.getEmployeeByUserId(ctx.user.id);
-        if (!isManagerLike(actorRole) && (!actorEmployee || actorEmployee.id !== input.employeeId)) {
+        if (!resolveAreaPermission(ctx.user as any, "closing") && (!actorEmployee || actorEmployee.id !== input.employeeId)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "権限がありません" });
         }
         const allLogs = await db.getAuditLogsByAction("closing.generateConfirmationPdf");
@@ -4487,7 +4525,7 @@ export const appRouter = router({
 
 
   payment: router({
-    listByMonth: leaderOrAdminProcedure
+    listByMonth: financeProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const [projects, clients, closings] = await Promise.all([
@@ -4524,13 +4562,13 @@ export const appRouter = router({
         return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
       }),
 
-    get: leaderOrAdminProcedure
+    get: financeProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         return await buildPaymentDetail(input.projectId, input.closingMonth);
       }),
 
-    refresh: leaderOrAdminProcedure
+    refresh: financeProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .mutation(async ({ ctx, input }) => {
         await ensurePaymentRowsForProjectMonth(input.projectId, input.closingMonth);
@@ -4540,7 +4578,7 @@ export const appRouter = router({
 
       }),
 
-    update: leaderOrAdminProcedure
+    update: financeProcedure
       .input(z.object({
         id: z.number(),
         adjustmentAmount: z.number().optional(),
@@ -4562,7 +4600,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    markPaid: leaderOrAdminProcedure
+    markPaid: financeProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const current = await db.getEmployeePaymentById(input.id);
@@ -4572,7 +4610,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    markUnpaid: leaderOrAdminProcedure
+    markUnpaid: financeProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const current = await db.getEmployeePaymentById(input.id);
@@ -4583,7 +4621,7 @@ export const appRouter = router({
       }),
 
     // 作業員単位の月次支払サマリー（支払は作業員単位で行うため、案件横断で集計する）。
-    workerMonthSummary: leaderOrAdminProcedure
+    workerMonthSummary: financeProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         // 出面がある全現場の支払行を先に生成・再計算してから集計（取りこぼし防止）。
@@ -4695,7 +4733,7 @@ export const appRouter = router({
       }),
 
     // 作業員単位の一括支払済み（その月のその作業員の全支払行を paid にする）。
-    markWorkerPaid: leaderOrAdminProcedure
+    markWorkerPaid: financeProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const rows = (await collectMonthPaymentRows(input.closingMonth)).filter((r) => r.payment.employeeId === input.employeeId);
@@ -4707,7 +4745,7 @@ export const appRouter = router({
       }),
 
     // 作業員単位の一括未払い戻し。
-    markWorkerUnpaid: leaderOrAdminProcedure
+    markWorkerUnpaid: financeProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const rows = (await collectMonthPaymentRows(input.closingMonth)).filter((r) => r.payment.employeeId === input.employeeId);
@@ -4722,7 +4760,7 @@ export const appRouter = router({
   // 前借り／立替 台帳（残高）と支払時の自動相殺。
   advance: router({
     // 残高のある作業員一覧（台帳の概要）。
-    overview: leaderOrAdminProcedure.query(async () => {
+    overview: financeProcedure.query(async () => {
       const [advances, employees] = await Promise.all([db.getAllWorkerAdvances(), db.getAllEmployees()]);
       const empMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
       const byEmp = new Map<number, any[]>();
@@ -4750,7 +4788,7 @@ export const appRouter = router({
     }),
 
     // ある作業員の台帳（残高＋履歴）。
-    ledger: leaderOrAdminProcedure
+    ledger: financeProcedure
       .input(z.object({ employeeId: z.number().int().positive() }))
       .query(async ({ input }) => {
         const [entries, emp] = await Promise.all([
@@ -4769,7 +4807,7 @@ export const appRouter = router({
       }),
 
     // 台帳エントリの手動追加（前借り／相殺／調整）。
-    addEntry: leaderOrAdminProcedure
+    addEntry: financeProcedure
       .input(z.object({
         employeeId: z.number().int().positive(),
         entryType: z.enum(["advance", "repayment", "adjustment"]),
@@ -4792,7 +4830,7 @@ export const appRouter = router({
       }),
 
     // 台帳エントリの削除（管理者の訂正用）。
-    deleteEntry: leaderOrAdminProcedure
+    deleteEntry: financeProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const entry = await db.getWorkerAdvanceById(input.id);
@@ -4803,7 +4841,7 @@ export const appRouter = router({
       }),
 
     // 支払時の相殺（前借り残高を支払から差し引く）。repayment を支払に紐づけて記録。
-    offsetPayment: leaderOrAdminProcedure
+    offsetPayment: financeProcedure
       .input(z.object({ paymentId: z.number().int().positive(), amount: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const payment = await db.getEmployeePaymentById(input.paymentId);
@@ -4834,7 +4872,7 @@ export const appRouter = router({
       }),
 
     // 作業員単位の月次相殺（その月の支払行へ順に相殺を配分して repayment を記録）。
-    offsetWorkerMonth: leaderOrAdminProcedure
+    offsetWorkerMonth: financeProcedure
       .input(z.object({
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
         employeeId: z.number().int().positive(),
@@ -4884,7 +4922,7 @@ export const appRouter = router({
       }),
 
     // 支払詳細画面向け: この締めの各支払行の残高・適用相殺・相殺可能額・差引支払額。
-    paymentContext: leaderOrAdminProcedure
+    paymentContext: financeProcedure
       .input(z.object({ projectId: z.number().int().positive(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const closing = await db.getProjectClosingByProjectMonth(input.projectId, input.closingMonth);
@@ -4924,7 +4962,7 @@ export const appRouter = router({
   workReport: router({
     // 管理者向け: 対象月に出面がある全作業員（社員のみ・ゲスト除外）の日報サマリー一覧。
     // 一覧表示（年月選択→全員を行で表示）＋各行から検算(展開/PDF)へ。
-    monthList: leaderOrAdminProcedure
+    monthList: attendanceAdminProcedure
       .input(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const { start, end } = getMonthDateRange(input.month);
@@ -4963,8 +5001,7 @@ export const appRouter = router({
         employeeId: z.number().int().positive().optional(),
       }))
       .query(async ({ ctx, input }) => {
-        const role = (ctx.user as any).appRole;
-        const canViewOthers = ["super_admin", "admin", "manager", "leader", "supervisor"].includes(String(role || ""));
+        const canViewOthers = resolveAreaPermission(ctx.user as any, "attendance");
         const me = await db.getEmployeeByUserId(ctx.user.id);
         if (input.employeeId && !canViewOthers && Number(input.employeeId) !== Number(me?.id)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の日報は参照できません" });
@@ -4984,8 +5021,7 @@ export const appRouter = router({
         includeTransport: z.boolean().optional().default(true),
       }))
       .mutation(async ({ ctx, input }) => {
-        const role = (ctx.user as any).appRole;
-        const canViewOthers = ["super_admin", "admin", "manager", "leader", "supervisor"].includes(String(role || ""));
+        const canViewOthers = resolveAreaPermission(ctx.user as any, "attendance");
         const me = await db.getEmployeeByUserId(ctx.user.id);
         if (input.employeeId && !canViewOthers && Number(input.employeeId) !== Number(me?.id)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "他の作業員の日報は参照できません" });
@@ -5012,7 +5048,7 @@ export const appRouter = router({
   }),
 
   receivable: router({
-    listByMonth: leaderOrAdminProcedure
+    listByMonth: financeProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const [invoices, clients, projects, summary] = await Promise.all([
@@ -5044,7 +5080,7 @@ export const appRouter = router({
         return { rows, summary };
       }),
 
-    get: leaderOrAdminProcedure
+    get: financeProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const invoice = await db.getInvoiceById(input.id);
@@ -5066,7 +5102,7 @@ export const appRouter = router({
         };
       }),
 
-    update: leaderOrAdminProcedure
+    update: financeProcedure
       .input(z.object({
         id: z.number(),
         receivedAmount: z.number().optional(),
@@ -5096,7 +5132,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    markReceived: leaderOrAdminProcedure
+    markReceived: financeProcedure
       .input(z.object({ id: z.number(), receivedAmount: z.number().optional(), receivedAt: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
         const current = await db.getInvoiceById(input.id);
@@ -5112,7 +5148,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    markUnreceived: leaderOrAdminProcedure
+    markUnreceived: financeProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const current = await db.getInvoiceById(input.id);
@@ -5136,7 +5172,7 @@ export const appRouter = router({
       }),
 
     // 会計ソフト（freee / マネーフォワード）向けCSV出力（参考用）。対象月の売上(取引先請求)を出力。
-    exportCsv: leaderOrAdminProcedure
+    exportCsv: financeProcedure
       .input(z.object({
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
         format: z.enum(["freee", "mf", "detail"]),
@@ -5328,12 +5364,12 @@ export const appRouter = router({
   }),
   invoice: router({
     /** List all invoices */
-    list: leaderOrAdminProcedure.query(async ({ ctx }) => {
+    list: financeProcedure.query(async ({ ctx }) => {
       return db.getAllInvoices(ctx.companyId);
     }),
 
     /** Get single invoice with items */
-    get: leaderOrAdminProcedure
+    get: financeProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const invoice = await db.getInvoiceById(input.id);
@@ -5354,7 +5390,7 @@ export const appRouter = router({
      * PDF as the 出面表 screen. Project list comes from the invoice (its projectId, plus projectIds=
      * recorded in the internal memo for consolidated multi-project invoices).
      */
-    generateAttendanceSheets: leaderOrAdminProcedure
+    generateAttendanceSheets: financeProcedure
       .input(z.object({ invoiceId: z.number(), includeGuests: z.boolean().optional().default(true) }))
       .mutation(async ({ input }) => {
         const invoice = await db.getInvoiceById(input.invoiceId);
@@ -5371,7 +5407,7 @@ export const appRouter = router({
       }),
 
     /** 請求書に添付できるアップロード済み書類（領収書など）と、作業日報の対象作業員候補。 */
-    listAttachableDocuments: leaderOrAdminProcedure
+    listAttachableDocuments: financeProcedure
       .input(z.object({ invoiceId: z.number() }))
       .query(async ({ input }) => {
         const invoice = await db.getInvoiceById(input.invoiceId);
@@ -5405,7 +5441,7 @@ export const appRouter = router({
      * 関連づいた推奨ファイル名（○○年○○月分請求書 取引先名 / …出面表 / …領収書N）で返す。
      * PDF合体はしない（オーナー要望: 合体生成が失敗するため個別添付方式に変更）。
      */
-    downloadPackage: leaderOrAdminProcedure
+    downloadPackage: financeProcedure
       .input(z.object({
         id: z.number(),
         includeAttendanceSheets: z.boolean().optional().default(true),
@@ -5533,7 +5569,7 @@ export const appRouter = router({
       }),
 
     /** Create invoice from attendance data */
-    createFromAttendance: leaderOrAdminProcedure
+    createFromAttendance: financeProcedure
       .input(z.object({
         clientId: z.number(),
         projectIds: z.array(z.number()).min(1),
@@ -5632,7 +5668,7 @@ export const appRouter = router({
       }),
 
     /** Generate PDF for an invoice（出面表・アップロード書類を1つのPDFに合体して添付できる） */
-    generatePdf: leaderOrAdminProcedure
+    generatePdf: financeProcedure
       .input(z.object({
         id: z.number(),
         // 出面表（現場別・自動生成）を後ろに合体する
@@ -5734,7 +5770,7 @@ export const appRouter = router({
       }),
 
     /** Update invoice status */
-    updateStatus: leaderOrAdminProcedure
+    updateStatus: financeProcedure
       .input(z.object({
         id: z.number(),
         status: z.enum(["draft", "sent", "paid", "overdue", "cancelled"]),
@@ -5753,7 +5789,7 @@ export const appRouter = router({
       }),
 
     /** Create manual invoice (手動請求書作成) */
-    createManual: leaderOrAdminProcedure
+    createManual: financeProcedure
       .input(z.object({
         clientId: z.number(),
         projectId: z.number().optional(),
@@ -5845,7 +5881,7 @@ export const appRouter = router({
       }),
 
     /** Add item to existing invoice */
-    addItem: leaderOrAdminProcedure
+    addItem: financeProcedure
       .input(z.object({
         invoiceId: z.number(),
         itemType: z.enum(["normal", "text"]).default("normal"),
@@ -5883,7 +5919,7 @@ export const appRouter = router({
       }),
 
     /** Update an invoice item */
-    updateItem: leaderOrAdminProcedure
+    updateItem: financeProcedure
       .input(z.object({
         id: z.number(),
         description: z.string().optional(),
@@ -5908,7 +5944,7 @@ export const appRouter = router({
       }),
 
     /** Delete an invoice item */
-    deleteItem: leaderOrAdminProcedure
+    deleteItem: financeProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const item = await db.getInvoiceItemById(input.id);
@@ -5922,7 +5958,7 @@ export const appRouter = router({
       }),
 
     /** Update invoice details */
-    update: leaderOrAdminProcedure
+    update: financeProcedure
       .input(z.object({
         id: z.number(),
         subject: z.string().max(255).optional(),
@@ -5944,7 +5980,7 @@ export const appRouter = router({
       }),
 
 
-    getSameClientProjects: leaderOrAdminProcedure
+    getSameClientProjects: financeProcedure
       .input(z.object({
         projectId: z.number(),
         closingMonth: z.string(),
@@ -5971,7 +6007,7 @@ export const appRouter = router({
       }),
 
     /** Delete an invoice */
-    delete: leaderOrAdminProcedure
+    delete: financeProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         await db.deleteInvoice(input.id);
@@ -6081,6 +6117,7 @@ export const appRouter = router({
           closingMonth: input.closingMonth,
           actorUserId: ctx.user.id,
           actorRole: (ctx.user as any).appRole,
+          actorOverrides: (ctx.user as any).permissionOverrides,
           employeeId: me.id,
         });
         const projectLines = overview?.projectLines || [];
@@ -6169,6 +6206,7 @@ export const appRouter = router({
           closingMonth: input.closingMonth,
           actorUserId: ctx.user.id,
           actorRole: (ctx.user as any).appRole,
+          actorOverrides: (ctx.user as any).permissionOverrides,
           employeeId: me.id,
         });
         const projectLines = overview?.projectLines || [];
@@ -6240,7 +6278,7 @@ export const appRouter = router({
      * Labor (出勤日数×単価), transport (日割り), and expense are computed by the V2 builder.
      * Tax rates are provisional and overridable per request (明細可変); read-only preview, no DB write.
      */
-    getV2Draft: leaderOrAdminProcedure
+    getV2Draft: closingAdminProcedure
       .input(z.object({
         workerId: z.number().int().positive(),
         targetMonth: z.string().regex(/^\d{4}-\d{2}$/),
@@ -6339,16 +6377,16 @@ export const appRouter = router({
       return db.getWorkerInvoicesByEmployee(me.id);
     }),
     listForReview: protectedProcedure.query(async ({ ctx }) => {
-      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      if (!resolveAreaPermission(ctx.user as any, "closing")) throw new TRPCError({ code: "FORBIDDEN" });
       return db.listWorkerInvoicesForReview(ctx.companyId);
     }),
     getForReview: protectedProcedure.input(z.object({ invoiceId: z.number() })).query(async ({ ctx, input }) => {
-      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      if (!resolveAreaPermission(ctx.user as any, "closing")) throw new TRPCError({ code: "FORBIDDEN" });
       const all = await db.listWorkerInvoicesForReview(ctx.companyId);
       return all.find((v: any) => v.id === input.invoiceId) || null;
     }),
     approve: protectedProcedure.input(z.object({ invoiceId: z.number() })).mutation(async ({ ctx, input }) => {
-      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      if (!resolveAreaPermission(ctx.user as any, "closing")) throw new TRPCError({ code: "FORBIDDEN" });
       const invoice = await db.getWorkerInvoiceById(input.invoiceId);
       if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
       if (invoice.status !== "submitted" && invoice.status !== "returned") throw new TRPCError({ code: "BAD_REQUEST", message: "提出済みまたは差戻し済みの請求書のみ承認できます" });
@@ -6357,7 +6395,7 @@ export const appRouter = router({
       return { success: true };
     }),
     returnInvoice: protectedProcedure.input(z.object({ invoiceId: z.number(), reason: z.string().min(1) })).mutation(async ({ ctx, input }) => {
-      if (!isManagerLike(ctx.user.appRole) && !isSuperAdmin(ctx.user.appRole)) throw new TRPCError({ code: "FORBIDDEN" });
+      if (!resolveAreaPermission(ctx.user as any, "closing")) throw new TRPCError({ code: "FORBIDDEN" });
       const invoice = await db.getWorkerInvoiceById(input.invoiceId);
       if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
       if (invoice.status !== "submitted" && invoice.status !== "approved") throw new TRPCError({ code: "BAD_REQUEST", message: "提出済みまたは承認済みの請求書のみ差戻しできます" });
@@ -6447,6 +6485,46 @@ export const appRouter = router({
       const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
       return { url };
     }),
+  }),
+
+  // ── 個人別 表示/ブロック設定（エリア別権限オーバーライド） ──
+  permission: router({
+    /** 自分の実効エリア権限（ナビ・ルートガード用） */
+    my: protectedProcedure.query(({ ctx }) => ({
+      role: (ctx.user as any).appRole || "worker",
+      areas: resolveAllAreaPermissions(ctx.user as any),
+    })),
+
+    /**
+     * 対象ユーザーの表示/ブロック設定を保存する（admin以上）。
+     * super_admin / admin にはオーバーライドが適用されないため、対象にできない。
+     */
+    setOverrides: adminProcedure
+      .input(z.object({
+        userId: z.number().int().positive(),
+        // キーは部分指定可（未知キーは保存時に無視）。enumキーのrecordは全キー必須になるためstringで受ける
+        overrides: z.record(z.string(), z.enum(["allow", "deny", "default"])),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const target = await db.getUserById(input.userId);
+        if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "対象ユーザーが見つかりません" });
+        const targetRole = (target as any).appRole;
+        if (targetRole === "super_admin" || targetRole === "admin") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "統括管理者・管理者には表示設定を適用できません（常に全機能を利用できます）" });
+        }
+        const normalized: PermissionOverrides = {};
+        for (const area of PERMISSION_AREA_KEYS) {
+          const value = input.overrides[area];
+          if (value === "allow" || value === "deny") normalized[area] = value;
+        }
+        const json = Object.keys(normalized).length > 0 ? JSON.stringify(normalized) : null;
+        await db.updateUserPermissionOverrides(input.userId, json);
+        await safeAuditLog(ctx.user.id, "permission.setOverrides", "user", {
+          entityId: input.userId,
+          note: json || "（すべてロール通りに戻す）",
+        });
+        return { success: true, overrides: normalized };
+      }),
   }),
 });
 
