@@ -1753,7 +1753,14 @@ export const appRouter = router({
   // ── Employee Management ──
   employee: router({
     list: leaderOrAdminProcedure.query(async ({ ctx }) => {
-      return db.getAllEmployees(ctx.companyId);
+      const employees = await db.getAllEmployees(ctx.companyId);
+      const users = await db.getAllUsers(ctx.companyId);
+      const roleByUserId = new Map<number, string>(users.map((u: any) => [u.id, u.appRole]));
+      // アカウント未連携（userId が無い / 対応ユーザーが見つからない）の従業員は appRole を null で返す
+      return employees.map((emp: any) => ({
+        ...emp,
+        appRole: emp.userId != null ? roleByUserId.get(emp.userId) ?? null : null,
+      }));
     }),
 
     get: protectedProcedure
