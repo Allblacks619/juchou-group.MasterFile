@@ -666,6 +666,58 @@ const floorsRouter = router({
         return { success: true as const };
       }),
   }),
+
+  /**
+   * 図面マーキング(注釈)レイヤー (段階2)。図面に自由曲線/直線/矢印/折線/多角形を重ねて全員に共有。
+   * 元の図面ファイルは変更せず、当アプリのレイヤーとして保持する。作成/削除はリーダー以上。
+   */
+  annotations: router({
+    list: genbaProcedure.input(z.object({ floorId: genbaIdSchema })).query(async ({ ctx, input }) => {
+      const floor = await genbaDb.getGenbaFloorById(input.floorId);
+      if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "図面が見つかりません" });
+      assertLinkSiteId(ctx, floor.siteId);
+      const rows = await genbaDb.listGenbaFloorAnnotations(input.floorId);
+      return rows.map((a) => ({
+        id: a.id, floorId: a.floorId, kind: a.kind,
+        points: Array.isArray(a.points) ? (a.points as { x: number; y: number }[]) : [],
+        color: a.color, strokeWidth: a.strokeWidth, text: a.text, byUserId: a.byUserId, createdAt: a.createdAt,
+      }));
+    }),
+
+    create: genbaFieldProcedure
+      .input(z.object({
+        floorId: genbaIdSchema,
+        kind: z.enum(["freehand", "line", "arrow", "polyline", "polygon", "text"]),
+        points: z.array(z.object({ x: z.number().int(), y: z.number().int() })).min(1).max(4000),
+        color: z.string().max(16).optional(),
+        strokeWidth: z.number().int().min(1).max(40).optional(),
+        text: z.string().trim().max(200).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const floor = await genbaDb.getGenbaFloorById(input.floorId);
+        if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "図面が見つかりません" });
+        assertLinkSiteId(ctx, floor.siteId);
+        const ann = await genbaDb.createGenbaFloorAnnotation({
+          id: nanoid(21), floorId: input.floorId, kind: input.kind,
+          points: input.points, color: input.color ?? "#FF4B00", strokeWidth: input.strokeWidth ?? 3,
+          text: input.text ?? null, byUserId: uid(ctx),
+        } as any);
+        await safeGenbaAuditLog(uid(ctx), "genba.floors.annotations.create", { entityId: input.floorId, note: `マーキング追加: ${input.kind}` });
+        return ann;
+      }),
+
+    remove: genbaFieldProcedure
+      .input(z.object({ id: genbaIdSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const ann = await genbaDb.getGenbaFloorAnnotationById(input.id);
+        if (!ann) throw new TRPCError({ code: "NOT_FOUND", message: "マーキングが見つかりません" });
+        const floor = await genbaDb.getGenbaFloorById(ann.floorId);
+        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await genbaDb.deleteGenbaFloorAnnotation(input.id);
+        await safeGenbaAuditLog(uid(ctx), "genba.floors.annotations.remove", { entityId: ann.floorId, note: "マーキング削除" });
+        return { success: true as const };
+      }),
+  }),
 });
 
 // ── zones (M2-B) ──

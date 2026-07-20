@@ -9,6 +9,7 @@ import {
   genbaZoneFiles, GenbaZoneFile, InsertGenbaZoneFile,
   genbaFloorFiles, GenbaFloorFile, InsertGenbaFloorFile,
   genbaFloorPins, GenbaFloorPin, InsertGenbaFloorPin,
+  genbaFloorAnnotations, GenbaFloorAnnotation, InsertGenbaFloorAnnotation,
   genbaTaskTemplates, GenbaTaskTemplate, InsertGenbaTaskTemplate,
   genbaTeams, GenbaTeam, InsertGenbaTeam,
   genbaTeamMembers, GenbaTeamMember, InsertGenbaTeamMember,
@@ -440,6 +441,34 @@ export async function deleteGenbaFloorPin(id: string): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(genbaFloorPins).where(eq(genbaFloorPins.id, id));
+}
+
+// ── genba_floor_annotations (図面マーキング・M5段階2) ──
+export async function listGenbaFloorAnnotations(floorId: string): Promise<GenbaFloorAnnotation[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaFloorAnnotations).where(eq(genbaFloorAnnotations.floorId, floorId)).orderBy(asc(genbaFloorAnnotations.createdAt));
+}
+
+export async function createGenbaFloorAnnotation(data: InsertGenbaFloorAnnotation): Promise<GenbaFloorAnnotation | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(genbaFloorAnnotations).values(data);
+  const rows = await db.select().from(genbaFloorAnnotations).where(eq(genbaFloorAnnotations.id, data.id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getGenbaFloorAnnotationById(id: string): Promise<GenbaFloorAnnotation | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(genbaFloorAnnotations).where(eq(genbaFloorAnnotations.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function deleteGenbaFloorAnnotation(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaFloorAnnotations).where(eq(genbaFloorAnnotations.id, id));
 }
 
 /** ゲスト(現場名簿)の表示名を修正する。登録アカウントの氏名は変更しない (これは名簿の表示名のみ) */
