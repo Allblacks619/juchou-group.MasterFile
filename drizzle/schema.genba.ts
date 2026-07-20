@@ -292,6 +292,33 @@ export const genbaFloorFiles = mysqlTable("genba_floor_files", {
 export type GenbaFloorFile = typeof genbaFloorFiles.$inferSelect;
 export type InsertGenbaFloorFile = typeof genbaFloorFiles.$inferInsert;
 
+/**
+ * 図面上の位置ピン問題報告 (M5-段階3)。図面(フロア)の座標(x,y)に問題を刺し、写真+コメントを添えて
+ * 管理者へワンプッシュ報告する。作業員も作成可。x,y は図面px座標(floor.w/h基準・genba_zones.polygonと同系)。
+ */
+export const genbaFloorPins = mysqlTable("genba_floor_pins", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  floorId: varchar("floorId", { length: 24 }).notNull(),
+  /** 落ちたエリア(任意・記録用) */
+  zoneId: varchar("zoneId", { length: 24 }),
+  x: int("x").notNull(),
+  y: int("y").notNull(),
+  kind: mysqlEnum("genbaFloorPinKind", ["issue", "note"]).default("issue").notNull(),
+  text: text("text"),
+  /** 添付写真のR2キー配列 */
+  photoKeys: json("photoKeys"),
+  status: mysqlEnum("genbaFloorPinStatus", ["open", "resolved"]).default("open").notNull(),
+  byUserId: int("byUserId"),
+  resolvedByUserId: int("resolvedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  index("genba_floor_pins_floor_idx").on(table.floorId, table.createdAt),
+]));
+
+export type GenbaFloorPin = typeof genbaFloorPins.$inferSelect;
+export type InsertGenbaFloorPin = typeof genbaFloorPins.$inferInsert;
+
 /** 資材プリセット (工事名 → 部材名リスト) */
 export const genbaMaterialPresets = mysqlTable("genba_material_presets", {
   id: varchar("id", { length: 24 }).primaryKey(),

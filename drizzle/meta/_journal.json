@@ -309,6 +309,13 @@
       "when": 1785300000000,
       "tag": "0039_multitenant_genba",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "5",
+      "when": 1785700000000,
+      "tag": "0043_genba_floor_pins",
+      "breakpoints": true
     }
   ]
 }
