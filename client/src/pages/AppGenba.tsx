@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Loader2, Plus, HardHat } from "lucide-react";
+import { Loader2, Plus, HardHat, Archive } from "lucide-react";
 import GenbaShell from "@/components/genba/GenbaShell";
 
 /**
@@ -23,6 +23,15 @@ export default function AppGenba() {
 
   const createSite = trpc.genba.sites.create.useMutation({
     onSuccess: () => { utils.genba.sites.list.invalidate(); setCreateOpen(false); setNewName(""); toast.success("現場を作成しました"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // admin のみ: 削除(アーカイブ)した現場を復元できる。現場ゼロの空画面でも復元に辿り着けるようにする
+  const isGenbaAdmin = me?.genbaRole === "admin";
+  const { data: archivedSites } = trpc.genba.sites.listArchived.useQuery(undefined, { retry: false, enabled: !!me && isGenbaAdmin });
+  const archivedList = (archivedSites || []) as { id: string; name: string }[];
+  const restoreSite = trpc.genba.sites.archive.useMutation({
+    onSuccess: () => { utils.genba.sites.list.invalidate(); utils.genba.sites.listArchived.invalidate(); toast.success("現場を復元しました"); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -69,6 +78,25 @@ export default function AppGenba() {
           </p>
         </div>
         {canEdit && <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-1" />現場を作成</Button>}
+
+        {/* 削除(アーカイブ)した現場の復元。現場ゼロでもここから戻せる (admin のみ・データは無事) */}
+        {isGenbaAdmin && archivedList.length > 0 && (
+          <div className="w-full max-w-sm mt-4 rounded-xl border border-border p-3 text-left space-y-2">
+            <div className="text-sm font-bold flex items-center gap-1.5"><Archive className="h-4 w-4" /> 削除した現場（復元）</div>
+            <p className="text-[11px] text-muted-foreground">削除した現場はデータを保持しています。ここから元に戻せます。</p>
+            <div className="rounded-lg border border-border divide-y divide-border/60">
+              {archivedList.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 p-2">
+                  <span className="flex-1 truncate text-sm">{s.name}</span>
+                  <Button size="sm" variant="outline" className="h-7 text-xs text-[#03AF7A] border-[#03AF7A]/40 hover:bg-[#03AF7A]/10"
+                    onClick={() => restoreSite.mutate({ id: s.id, archived: false })} disabled={restoreSite.isPending}>
+                    ↩ 復元
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {createDialog}
       </div>
     );
