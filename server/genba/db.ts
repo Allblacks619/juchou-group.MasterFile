@@ -46,6 +46,13 @@ export async function listGenbaSites(): Promise<GenbaSite[]> {
   return db.select().from(genbaSites).where(eq(genbaSites.archived, false)).orderBy(asc(genbaSites.createdAt));
 }
 
+/** アーカイブ済み(削除された)現場の一覧。復元UI用。データは消えていない (archived=true) */
+export async function listGenbaSitesArchived(): Promise<GenbaSite[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(genbaSites).where(eq(genbaSites.archived, true)).orderBy(desc(genbaSites.updatedAt));
+}
+
 export async function getGenbaSiteById(id: string): Promise<GenbaSite | null> {
   const db = await getDb();
   if (!db) return null;
