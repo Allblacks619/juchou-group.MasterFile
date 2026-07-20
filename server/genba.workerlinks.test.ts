@@ -14,6 +14,8 @@ const mockGenbaDb = vi.hoisted(() => ({
   deleteGenbaWorkerLink: vi.fn(),
   getGenbaSiteWorkerById: vi.fn(),
   updateGenbaSiteWorkerName: vi.fn(),
+  deleteGuestAssigneesBySiteWorker: vi.fn(),
+  deleteGenbaSiteWorker: vi.fn(),
   // public
   getGenbaWorkerLinkByToken: vi.fn(),
   getGenbaSiteById: vi.fn(),
@@ -134,6 +136,33 @@ describe("genba 作業員専用リンク (G2)", () => {
 
     it("renameWorker: worker は 403", async () => {
       await expect(worker().genba.workerLinks.renameWorker({ siteWorkerId: SW_GUEST.id, displayName: "x" }))
+        .rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("deleteWorker: ゲストを名簿から削除 (割当→リンク→名簿の順)。leader可", async () => {
+      mockGenbaDb.getGenbaSiteWorkerById.mockResolvedValue(SW_GUEST);
+      mockGenbaDb.getGenbaWorkerLinkBySiteWorker.mockResolvedValue(LINK());
+      await expect(leader().genba.workerLinks.deleteWorker({ siteWorkerId: SW_GUEST.id }))
+        .resolves.toMatchObject({ success: true });
+      expect(mockGenbaDb.deleteGuestAssigneesBySiteWorker).toHaveBeenCalledWith(SW_GUEST.id);
+      expect(mockGenbaDb.deleteGenbaWorkerLink).toHaveBeenCalledWith(LINK().id);
+      expect(mockGenbaDb.deleteGenbaSiteWorker).toHaveBeenCalledWith(SW_GUEST.id);
+    });
+
+    it("deleteWorker: リンク未発行でも名簿と割当は消える", async () => {
+      mockGenbaDb.getGenbaSiteWorkerById.mockResolvedValue(SW_GUEST);
+      mockGenbaDb.getGenbaWorkerLinkBySiteWorker.mockResolvedValue(null);
+      await expect(leader().genba.workerLinks.deleteWorker({ siteWorkerId: SW_GUEST.id }))
+        .resolves.toMatchObject({ success: true });
+      expect(mockGenbaDb.deleteGenbaWorkerLink).not.toHaveBeenCalled();
+      expect(mockGenbaDb.deleteGenbaSiteWorker).toHaveBeenCalledWith(SW_GUEST.id);
+    });
+
+    it("deleteWorker: 登録アカウントは削除不可 (400)。worker は 403", async () => {
+      mockGenbaDb.getGenbaSiteWorkerById.mockResolvedValue({ ...SW_GUEST, kind: "registered" });
+      await expect(leader().genba.workerLinks.deleteWorker({ siteWorkerId: SW_GUEST.id }))
+        .rejects.toThrow("ゲストのみ");
+      await expect(worker().genba.workerLinks.deleteWorker({ siteWorkerId: SW_GUEST.id }))
         .rejects.toMatchObject({ code: "FORBIDDEN" });
     });
   });

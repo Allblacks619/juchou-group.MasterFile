@@ -2181,6 +2181,28 @@ const workerLinksRouter = router({
       await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.remove", { entityId: input.id, note: `作業員リンクを削除: ${worker?.displayName ?? existing.siteWorkerId}` });
       return { success: true as const };
     }),
+
+  /**
+   * 名簿から不要なゲスト作業員を削除 (field=leader+)。名簿行 + 専用リンク + 全作業への割当をまとめて消す。
+   * 登録アカウント(kind=user)は出面表(attendance)から自動取り込みされるため、ここでは削除不可
+   * (削除しても次回同期で復活する)。ゲストのみ対象。
+   */
+  deleteWorker: genbaStaffFieldProcedure
+    .input(z.object({ siteWorkerId: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const worker = await genbaDb.getGenbaSiteWorkerById(input.siteWorkerId);
+      if (!worker) throw new TRPCError({ code: "NOT_FOUND", message: "作業員が名簿に見つかりません" });
+      if (worker.kind !== "guest") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "登録作業員は出面表から自動取り込みされるため、ここでは削除できません（ゲストのみ削除可）" });
+      }
+      // 割当 → 専用リンク → 名簿行 の順で後始末
+      await genbaDb.deleteGuestAssigneesBySiteWorker(input.siteWorkerId);
+      const link = await genbaDb.getGenbaWorkerLinkBySiteWorker(input.siteWorkerId);
+      if (link) await genbaDb.deleteGenbaWorkerLink(link.id);
+      await genbaDb.deleteGenbaSiteWorker(input.siteWorkerId);
+      await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.deleteWorker", { entityId: input.siteWorkerId, note: `名簿からゲストを削除: ${worker.displayName}` });
+      return { success: true as const };
+    }),
 });
 
 /** 公開: 作業員専用リンク (トークン認証・ログイン不要)。閲覧+自分の担当のステータス更新 */
