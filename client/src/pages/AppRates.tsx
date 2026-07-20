@@ -380,6 +380,10 @@ function ProjectsTab() {
 function RatesTab() {
   const utils = trpc.useUtils();
   const { data: rates, isLoading } = trpc.rate.listAll.useQuery();
+  // 取引先請求単価（売上単価）の金額は「取引先請求」エリアの許可が必要（管理者以上のみ）。
+  // 許可が無い場合、サーバーが clientRate を null にマスクして返す。
+  const permQuery = trpc.permission.my.useQuery();
+  const canSeeBilling = !!permQuery.data?.areas?.billing;
   const { data: employees } = trpc.employee.list.useQuery();
   const { data: projects } = trpc.project.list.useQuery();
   const { data: clients } = trpc.clientInfo.list.useQuery();
@@ -577,10 +581,10 @@ function RatesTab() {
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
+                {canSeeBilling && <div>
                   <Label>売上単価（日額）</Label>
                   <Input type="number" value={form.clientRate} onChange={(e) => setForm(p => ({ ...p, clientRate: e.target.value }))} placeholder="25000" />
-                </div>
+                </div>}
                 <div>
                   <Label>支払単価（日額）</Label>
                   <Input type="number" value={form.workerRate} onChange={(e) => setForm(p => ({ ...p, workerRate: e.target.value }))} placeholder="18000" />
@@ -672,7 +676,7 @@ function RatesTab() {
               {editId === r.id ? (
                 <div className="space-y-2 border-t pt-2">
                   <div className="grid grid-cols-2 gap-2">
-                    <div><Label className="text-xs">売上単価</Label><Input type="number" value={editForm.clientRate} onChange={(e) => setEditForm(p => ({ ...p, clientRate: e.target.value }))} /></div>
+                    {canSeeBilling && <div><Label className="text-xs">売上単価</Label><Input type="number" value={editForm.clientRate} onChange={(e) => setEditForm(p => ({ ...p, clientRate: e.target.value }))} /></div>}
                     <div><Label className="text-xs">支払単価</Label><Input type="number" value={editForm.workerRate} onChange={(e) => setEditForm(p => ({ ...p, workerRate: e.target.value }))} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -727,7 +731,7 @@ function RatesTab() {
                           </SelectContent>
                         </Select>
                       </td>
-                      <td className="py-2 px-3"><Input type="number" className="w-24 text-right" value={editForm.clientRate} onChange={(e) => setEditForm(p => ({ ...p, clientRate: e.target.value }))} /></td>
+                      <td className="py-2 px-3">{canSeeBilling ? <Input type="number" className="w-24 text-right" value={editForm.clientRate} onChange={(e) => setEditForm(p => ({ ...p, clientRate: e.target.value }))} /> : <span className="text-muted-foreground">—</span>}</td>
                       <td className="py-2 px-3"><Input type="number" className="w-24 text-right" value={editForm.workerRate} onChange={(e) => setEditForm(p => ({ ...p, workerRate: e.target.value }))} /></td>
                       <td className="py-2 px-3 text-right">{formatYen(Number(editForm.clientRate) - Number(editForm.workerRate))}</td>
                       <td className="py-2 px-3">

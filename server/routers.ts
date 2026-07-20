@@ -126,7 +126,17 @@ const areaProcedure = (area: PermissionArea) =>
     }
     return next({ ctx });
   });
-const financeProcedure = areaProcedure("finance");
+const billingProcedure = areaProcedure("billing");
+const paymentsProcedure = areaProcedure("payments");
+
+/**
+ * 取引先請求単価（clientRate）の金額は「取引先請求」エリアの許可が必要（オーナー指示: 管理者以上のみ）。
+ * 単価管理エリアだけ許可されたユーザーには clientRate を null に落として返す。
+ */
+function maskClientRates<T extends { clientRate?: number | null }>(ctx: { user: any }, rows: T[]): T[] {
+  if (resolveAreaPermission(ctx.user, "billing")) return rows;
+  return rows.map((r) => ({ ...r, clientRate: null }));
+}
 const ratesProcedure = areaProcedure("rates");
 const employeesAreaProcedure = areaProcedure("employees");
 const projectsProcedure = areaProcedure("projects");
@@ -2482,33 +2492,33 @@ export const appRouter = router({
   rate: router({
     listByProject: ratesProcedure
       .input(z.object({ projectId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const [rates, empList] = await Promise.all([
           db.getRatesByProject(input.projectId),
           db.getAllEmployees(),
         ]);
         const empMap = new Map(empList.map(e => [e.id, e]));
-        return rates.map(r => ({
+        return maskClientRates(ctx, rates.map(r => ({
           ...r,
           employee: r.employeeId ? empMap.get(r.employeeId) ?? null : null,
-        }));
+        })));
       }),
 
     listByEmployee: ratesProcedure
       .input(z.object({ employeeId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const [rates, projList] = await Promise.all([
           db.getRatesByEmployee(input.employeeId),
           db.getAllProjects(),
         ]);
         const projMap = new Map(projList.map(p => [p.id, p]));
-        return rates.map(r => ({
+        return maskClientRates(ctx, rates.map(r => ({
           ...r,
           project: r.projectId ? projMap.get(r.projectId) ?? null : null,
-        }));
+        })));
       }),
 
-    listAll: ratesProcedure.query(async () => {
+    listAll: ratesProcedure.query(async ({ ctx }) => {
       const [rates, empList, projList, clientList] = await Promise.all([
         db.getAllEmployeeRates(),
         db.getAllEmployees(),
@@ -2526,7 +2536,7 @@ export const appRouter = router({
         const bTo = toTime(b.effectiveUntil, Number.MAX_SAFE_INTEGER);
         return aFrom <= bTo && bFrom <= aTo;
       };
-      return rates.map(r => ({
+      return maskClientRates(ctx, rates.map(r => ({
         ...r,
         employee: r.employeeId ? empMap.get(r.employeeId) ?? null : null,
         project: r.projectId ? projMap.get(r.projectId) ?? null : null,
@@ -2538,7 +2548,7 @@ export const appRouter = router({
           && (other.employeeId ?? null) === (r.employeeId ?? null)
           && (other.shiftType ?? "day") === (r.shiftType ?? "day")
           && overlaps(r, other)),
-      }));
+      })));
     }),
 
     create: ratesProcedure
@@ -2556,9 +2566,13 @@ export const appRouter = router({
       }).refine((data) => data.clientRate != null || data.workerRate != null, {
         message: "売上単価または支払単価のいずれかを入力してください",
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         if (input.scopeType === "project" && !input.projectId) throw new TRPCError({ code: "BAD_REQUEST", message: "現場別では現場選択が必需です" });
         if (input.scopeType === "client" && !input.clientId) throw new TRPCError({ code: "BAD_REQUEST", message: "取引先別では取引先選択が必需です" });
+        // 取引先請求単価の設定は「取引先請求」エリアの許可が必要（管理者以上のみ）
+        if (input.clientRate != null && !resolveAreaPermission(ctx.user as any, "billing")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "取引先請求単価を設定する権限がありません" });
+        }
         const data: any = { ...input };
         if (input.effectiveFrom) data.effectiveFrom = parseDateString(input.effectiveFrom);
         if (input.effectiveUntil) data.effectiveUntil = parseDateString(input.effectiveUntil);
@@ -2575,8 +2589,12 @@ export const appRouter = router({
         effectiveUntil: z.string().optional(),
         notes: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, ...updateData } = input;
+        // 取引先請求単価の変更は「取引先請求」エリアの許可が必要（管理者以上のみ）
+        if (updateData.clientRate != null && !resolveAreaPermission(ctx.user as any, "billing")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "取引先請求単価を変更する権限がありません" });
+        }
         const data: any = { ...updateData };
         if (updateData.effectiveFrom) data.effectiveFrom = parseDateString(updateData.effectiveFrom);
         if (updateData.effectiveUntil) data.effectiveUntil = parseDateString(updateData.effectiveUntil);
@@ -2595,7 +2613,10 @@ export const appRouter = router({
         projectId: z.number(),
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
       }))
-      .query(async ({ input }) => resolveProjectMemberRatesForMonth(input)),
+      .query(async ({ ctx, input }) => {
+        const rows = await resolveProjectMemberRatesForMonth(input);
+        return maskClientRates(ctx, rows as any[]);
+      }),
   }),
 
   workerBaseRate: router({
@@ -4552,7 +4573,7 @@ export const appRouter = router({
 
 
   payment: router({
-    listByMonth: financeProcedure
+    listByMonth: paymentsProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const [projects, clients, closings] = await Promise.all([
@@ -4589,13 +4610,13 @@ export const appRouter = router({
         return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
       }),
 
-    get: financeProcedure
+    get: paymentsProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         return await buildPaymentDetail(input.projectId, input.closingMonth);
       }),
 
-    refresh: financeProcedure
+    refresh: paymentsProcedure
       .input(z.object({ projectId: z.number(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .mutation(async ({ ctx, input }) => {
         await ensurePaymentRowsForProjectMonth(input.projectId, input.closingMonth);
@@ -4605,7 +4626,7 @@ export const appRouter = router({
 
       }),
 
-    update: financeProcedure
+    update: paymentsProcedure
       .input(z.object({
         id: z.number(),
         adjustmentAmount: z.number().optional(),
@@ -4627,7 +4648,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    markPaid: financeProcedure
+    markPaid: paymentsProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const current = await db.getEmployeePaymentById(input.id);
@@ -4637,7 +4658,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    markUnpaid: financeProcedure
+    markUnpaid: paymentsProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const current = await db.getEmployeePaymentById(input.id);
@@ -4648,7 +4669,7 @@ export const appRouter = router({
       }),
 
     // 作業員単位の月次支払サマリー（支払は作業員単位で行うため、案件横断で集計する）。
-    workerMonthSummary: financeProcedure
+    workerMonthSummary: paymentsProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         // 出面がある全現場の支払行を先に生成・再計算してから集計（取りこぼし防止）。
@@ -4760,7 +4781,7 @@ export const appRouter = router({
       }),
 
     // 作業員単位の一括支払済み（その月のその作業員の全支払行を paid にする）。
-    markWorkerPaid: financeProcedure
+    markWorkerPaid: paymentsProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const rows = (await collectMonthPaymentRows(input.closingMonth)).filter((r) => r.payment.employeeId === input.employeeId);
@@ -4772,7 +4793,7 @@ export const appRouter = router({
       }),
 
     // 作業員単位の一括未払い戻し。
-    markWorkerUnpaid: financeProcedure
+    markWorkerUnpaid: paymentsProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/), employeeId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const rows = (await collectMonthPaymentRows(input.closingMonth)).filter((r) => r.payment.employeeId === input.employeeId);
@@ -4787,7 +4808,7 @@ export const appRouter = router({
   // 前借り／立替 台帳（残高）と支払時の自動相殺。
   advance: router({
     // 残高のある作業員一覧（台帳の概要）。
-    overview: financeProcedure.query(async () => {
+    overview: paymentsProcedure.query(async () => {
       const [advances, employees] = await Promise.all([db.getAllWorkerAdvances(), db.getAllEmployees()]);
       const empMap = new Map<number, any>(employees.map((e: any) => [e.id, e]));
       const byEmp = new Map<number, any[]>();
@@ -4815,7 +4836,7 @@ export const appRouter = router({
     }),
 
     // ある作業員の台帳（残高＋履歴）。
-    ledger: financeProcedure
+    ledger: paymentsProcedure
       .input(z.object({ employeeId: z.number().int().positive() }))
       .query(async ({ input }) => {
         const [entries, emp] = await Promise.all([
@@ -4834,7 +4855,7 @@ export const appRouter = router({
       }),
 
     // 台帳エントリの手動追加（前借り／相殺／調整）。
-    addEntry: financeProcedure
+    addEntry: paymentsProcedure
       .input(z.object({
         employeeId: z.number().int().positive(),
         entryType: z.enum(["advance", "repayment", "adjustment"]),
@@ -4857,7 +4878,7 @@ export const appRouter = router({
       }),
 
     // 台帳エントリの削除（管理者の訂正用）。
-    deleteEntry: financeProcedure
+    deleteEntry: paymentsProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const entry = await db.getWorkerAdvanceById(input.id);
@@ -4868,7 +4889,7 @@ export const appRouter = router({
       }),
 
     // 支払時の相殺（前借り残高を支払から差し引く）。repayment を支払に紐づけて記録。
-    offsetPayment: financeProcedure
+    offsetPayment: paymentsProcedure
       .input(z.object({ paymentId: z.number().int().positive(), amount: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const payment = await db.getEmployeePaymentById(input.paymentId);
@@ -4899,7 +4920,7 @@ export const appRouter = router({
       }),
 
     // 作業員単位の月次相殺（その月の支払行へ順に相殺を配分して repayment を記録）。
-    offsetWorkerMonth: financeProcedure
+    offsetWorkerMonth: paymentsProcedure
       .input(z.object({
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
         employeeId: z.number().int().positive(),
@@ -4949,7 +4970,7 @@ export const appRouter = router({
       }),
 
     // 支払詳細画面向け: この締めの各支払行の残高・適用相殺・相殺可能額・差引支払額。
-    paymentContext: financeProcedure
+    paymentContext: paymentsProcedure
       .input(z.object({ projectId: z.number().int().positive(), closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const closing = await db.getProjectClosingByProjectMonth(input.projectId, input.closingMonth);
@@ -5075,7 +5096,7 @@ export const appRouter = router({
   }),
 
   receivable: router({
-    listByMonth: financeProcedure
+    listByMonth: billingProcedure
       .input(z.object({ closingMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const [invoices, clients, projects, summary] = await Promise.all([
@@ -5107,7 +5128,7 @@ export const appRouter = router({
         return { rows, summary };
       }),
 
-    get: financeProcedure
+    get: billingProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const invoice = await db.getInvoiceById(input.id);
@@ -5129,7 +5150,7 @@ export const appRouter = router({
         };
       }),
 
-    update: financeProcedure
+    update: billingProcedure
       .input(z.object({
         id: z.number(),
         receivedAmount: z.number().optional(),
@@ -5159,7 +5180,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    markReceived: financeProcedure
+    markReceived: billingProcedure
       .input(z.object({ id: z.number(), receivedAmount: z.number().optional(), receivedAt: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
         const current = await db.getInvoiceById(input.id);
@@ -5175,7 +5196,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    markUnreceived: financeProcedure
+    markUnreceived: billingProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const current = await db.getInvoiceById(input.id);
@@ -5199,7 +5220,7 @@ export const appRouter = router({
       }),
 
     // 会計ソフト（freee / マネーフォワード）向けCSV出力（参考用）。対象月の売上(取引先請求)を出力。
-    exportCsv: financeProcedure
+    exportCsv: billingProcedure
       .input(z.object({
         closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
         format: z.enum(["freee", "mf", "detail"]),
@@ -5391,12 +5412,12 @@ export const appRouter = router({
   }),
   invoice: router({
     /** List all invoices */
-    list: financeProcedure.query(async ({ ctx }) => {
+    list: billingProcedure.query(async ({ ctx }) => {
       return db.getAllInvoices(ctx.companyId);
     }),
 
     /** Get single invoice with items */
-    get: financeProcedure
+    get: billingProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const invoice = await db.getInvoiceById(input.id);
@@ -5417,7 +5438,7 @@ export const appRouter = router({
      * PDF as the 出面表 screen. Project list comes from the invoice (its projectId, plus projectIds=
      * recorded in the internal memo for consolidated multi-project invoices).
      */
-    generateAttendanceSheets: financeProcedure
+    generateAttendanceSheets: billingProcedure
       .input(z.object({ invoiceId: z.number(), includeGuests: z.boolean().optional().default(true) }))
       .mutation(async ({ input }) => {
         const invoice = await db.getInvoiceById(input.invoiceId);
@@ -5434,7 +5455,7 @@ export const appRouter = router({
       }),
 
     /** 請求書に添付できるアップロード済み書類（領収書など）と、作業日報の対象作業員候補。 */
-    listAttachableDocuments: financeProcedure
+    listAttachableDocuments: billingProcedure
       .input(z.object({ invoiceId: z.number() }))
       .query(async ({ input }) => {
         const invoice = await db.getInvoiceById(input.invoiceId);
@@ -5468,7 +5489,7 @@ export const appRouter = router({
      * 関連づいた推奨ファイル名（○○年○○月分請求書 取引先名 / …出面表 / …領収書N）で返す。
      * PDF合体はしない（オーナー要望: 合体生成が失敗するため個別添付方式に変更）。
      */
-    downloadPackage: financeProcedure
+    downloadPackage: billingProcedure
       .input(z.object({
         id: z.number(),
         includeAttendanceSheets: z.boolean().optional().default(true),
@@ -5596,7 +5617,7 @@ export const appRouter = router({
       }),
 
     /** Create invoice from attendance data */
-    createFromAttendance: financeProcedure
+    createFromAttendance: billingProcedure
       .input(z.object({
         clientId: z.number(),
         projectIds: z.array(z.number()).min(1),
@@ -5695,7 +5716,7 @@ export const appRouter = router({
       }),
 
     /** Generate PDF for an invoice（出面表・アップロード書類を1つのPDFに合体して添付できる） */
-    generatePdf: financeProcedure
+    generatePdf: billingProcedure
       .input(z.object({
         id: z.number(),
         // 出面表（現場別・自動生成）を後ろに合体する
@@ -5797,7 +5818,7 @@ export const appRouter = router({
       }),
 
     /** Update invoice status */
-    updateStatus: financeProcedure
+    updateStatus: billingProcedure
       .input(z.object({
         id: z.number(),
         status: z.enum(["draft", "sent", "paid", "overdue", "cancelled"]),
@@ -5816,7 +5837,7 @@ export const appRouter = router({
       }),
 
     /** Create manual invoice (手動請求書作成) */
-    createManual: financeProcedure
+    createManual: billingProcedure
       .input(z.object({
         clientId: z.number(),
         projectId: z.number().optional(),
@@ -5908,7 +5929,7 @@ export const appRouter = router({
       }),
 
     /** Add item to existing invoice */
-    addItem: financeProcedure
+    addItem: billingProcedure
       .input(z.object({
         invoiceId: z.number(),
         itemType: z.enum(["normal", "text"]).default("normal"),
@@ -5946,7 +5967,7 @@ export const appRouter = router({
       }),
 
     /** Update an invoice item */
-    updateItem: financeProcedure
+    updateItem: billingProcedure
       .input(z.object({
         id: z.number(),
         description: z.string().optional(),
@@ -5971,7 +5992,7 @@ export const appRouter = router({
       }),
 
     /** Delete an invoice item */
-    deleteItem: financeProcedure
+    deleteItem: billingProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const item = await db.getInvoiceItemById(input.id);
@@ -5985,7 +6006,7 @@ export const appRouter = router({
       }),
 
     /** Update invoice details */
-    update: financeProcedure
+    update: billingProcedure
       .input(z.object({
         id: z.number(),
         subject: z.string().max(255).optional(),
@@ -6007,7 +6028,7 @@ export const appRouter = router({
       }),
 
 
-    getSameClientProjects: financeProcedure
+    getSameClientProjects: billingProcedure
       .input(z.object({
         projectId: z.number(),
         closingMonth: z.string(),
@@ -6034,7 +6055,7 @@ export const appRouter = router({
       }),
 
     /** Delete an invoice */
-    delete: financeProcedure
+    delete: billingProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         await db.deleteInvoice(input.id);
