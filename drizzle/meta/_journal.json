@@ -316,6 +316,13 @@
       "when": 1785700000000,
       "tag": "0043_genba_floor_pins",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "5",
+      "when": 1785800000000,
+      "tag": "0044_genba_floor_annotations",
+      "breakpoints": true
     }
   ]
 }

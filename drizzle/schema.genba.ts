@@ -319,6 +319,31 @@ export const genbaFloorPins = mysqlTable("genba_floor_pins", {
 export type GenbaFloorPin = typeof genbaFloorPins.$inferSelect;
 export type InsertGenbaFloorPin = typeof genbaFloorPins.$inferInsert;
 
+/**
+ * 図面マーキング(注釈)レイヤー (M5-段階2)。図面(フロア)に自由曲線/直線/矢印/折線/多角形を重ねて
+ * 全員に共有する。元の図面ファイルは変更せず、当アプリのレイヤーとして保持する。
+ * points は図面px座標の点列 [{x,y},...] (genba_zones.polygon と同系)。
+ */
+export const genbaFloorAnnotations = mysqlTable("genba_floor_annotations", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  floorId: varchar("floorId", { length: 24 }).notNull(),
+  kind: mysqlEnum("genbaFloorAnnotationKind", ["freehand", "line", "arrow", "polyline", "polygon", "text"]).notNull(),
+  /** 点列 [{x,y},...] */
+  points: json("points").notNull(),
+  color: varchar("color", { length: 16 }),
+  strokeWidth: int("strokeWidth").default(3).notNull(),
+  /** kind=text のときの文字 */
+  text: varchar("text", { length: 200 }),
+  byUserId: int("byUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ([
+  index("genba_floor_annotations_floor_idx").on(table.floorId, table.createdAt),
+]));
+
+export type GenbaFloorAnnotation = typeof genbaFloorAnnotations.$inferSelect;
+export type InsertGenbaFloorAnnotation = typeof genbaFloorAnnotations.$inferInsert;
+
 /** 資材プリセット (工事名 → 部材名リスト) */
 export const genbaMaterialPresets = mysqlTable("genba_material_presets", {
   id: varchar("id", { length: 24 }).primaryKey(),

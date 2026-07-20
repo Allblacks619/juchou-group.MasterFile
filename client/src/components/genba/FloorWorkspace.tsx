@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, Upload, Trash2, ImageOff, ZoomIn, ZoomOut, Maximize, Sparkles, Moon, AlertTriangle } from "lucide-react";
+import { Loader2, Upload, Trash2, ImageOff, ZoomIn, ZoomOut, Maximize, Sparkles, Moon, AlertTriangle, Pencil } from "lucide-react";
 import { fileToResizedImage, pdfToImages, type GenbaUploadImage } from "@/lib/genbaUpload";
 import { PRIORITY, polyPath, centroid, zoneFillStyle, type Pt } from "@/lib/genbaMap";
 import { fullViewBox, clampViewBox, zoomAt, fitViewBox, snapThreshold, snapPointToPolys, type ViewBox } from "@shared/genba/mapview";
@@ -19,7 +19,21 @@ type FloorWorkspaceProps = {
   mapOnly?: boolean;
 };
 
-type Mode = "view" | "draw" | "edit" | "report";
+type Mode = "view" | "draw" | "edit" | "report" | "mark";
+type MarkTool = "freehand" | "line" | "arrow" | "polyline" | "polygon";
+type Annotation = { id: string; kind: string; points: Pt[]; color: string | null; strokeWidth: number; text: string | null };
+const MARK_COLORS = ["#FF4B00", "#F6AA00", "#03AF7A", "#005AFF", "#000000", "#FFFFFF"];
+
+/** 矢印(2点)の本体+矢じりのパス。scaleで矢じりの大きさを一定に保つ */
+function arrowPath(a: Pt, b: Pt, scale: number): string {
+  const ang = Math.atan2(b.y - a.y, b.x - a.x);
+  const len = 18 * scale;
+  const spread = Math.PI / 7;
+  const h1 = { x: b.x - len * Math.cos(ang - spread), y: b.y - len * Math.sin(ang - spread) };
+  const h2 = { x: b.x - len * Math.cos(ang + spread), y: b.y - len * Math.sin(ang + spread) };
+  return `M ${a.x} ${a.y} L ${b.x} ${b.y} M ${h1.x} ${h1.y} L ${b.x} ${b.y} L ${h2.x} ${h2.y}`;
+}
+function ptsStr(pts: Pt[]): string { return pts.map((p) => `${p.x},${p.y}`).join(" "); }
 
 /**
  * 現場ビジョン: 図面(フロア)タブ。図面アップロード/表示 + エリア(ゾーン)のポリゴン描画・
@@ -84,11 +98,40 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
   const openPin = pins.find((p) => p.id === openPinId) || null;
   const invalidatePins = () => activeFloor && utils.genba.floors.pins.list.invalidate({ floorId: activeFloor.id });
 
+  // 図面マーキング(注釈) 段階2
+  const { data: annData } = trpc.genba.floors.annotations.list.useQuery(
+    { floorId: activeFloor?.id ?? "" }, { retry: false, enabled: !!activeFloor },
+  );
+  const annotations = (annData || []) as Annotation[];
+  const invalidateAnn = () => activeFloor && utils.genba.floors.annotations.list.invalidate({ floorId: activeFloor.id });
+  const createAnn = trpc.genba.floors.annotations.create.useMutation({ onSuccess: invalidateAnn, onError: (e) => toast.error(e.message) });
+  const removeAnn = trpc.genba.floors.annotations.remove.useMutation({ onSuccess: invalidateAnn, onError: (e) => toast.error(e.message) });
+  const [markTool, setMarkTool] = useState<MarkTool>("freehand");
+  const [markColor, setMarkColor] = useState("#FF4B00");
+  const [markWidth, setMarkWidth] = useState(4);
+  const [markPts, setMarkPts] = useState<Pt[]>([]); // line/arrow/polyline/polygon のタップ点
+  const freehandRef = useRef<Pt[] | null>(null);
+  const [freehandPreview, setFreehandPreview] = useState<Pt[]>([]);
+
+  function saveAnnotation(kind: MarkTool, pts: Pt[]) {
+    if (!activeFloor || pts.length < 1) return;
+    // 点が多すぎる自由曲線は間引いて軽くする (最大600点)
+    let points = pts;
+    if (points.length > 600) { const step = Math.ceil(points.length / 600); points = points.filter((_, i) => i % step === 0 || i === pts.length - 1); }
+    createAnn.mutate({ floorId: activeFloor.id, kind, points, color: markColor, strokeWidth: markWidth });
+  }
+  function confirmMarkShape() {
+    const need = markTool === "polygon" ? 3 : 2;
+    if (markPts.length < need) { toast.error(`点を${need}つ以上タップしてください`); return; }
+    saveAnnotation(markTool, markPts); setMarkPts([]);
+  }
+
   // フロア切替時に描画/選択/ズーム状態をリセット
   useEffect(() => {
     setMode("view"); setSelectedZoneId(null); setDraftPoly([]); setDraftParentZoneId(null);
     setEditZoneId(null); setEditPoly([]); setSelVtx(null);
     setVb(null); setFocusZoneId(null); setReportAt(null); setOpenPinId(null);
+    setMarkPts([]); freehandRef.current = null; setFreehandPreview([]);
   }, [activeFloor?.id]);
 
   const createFloor = trpc.genba.floors.create.useMutation({ onError: (e) => toast.error(e.message) });
@@ -163,6 +206,19 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
     if (mode === "report" && !didPanRef.current) {
       const p = svgPoint(evt);
       if (p) setReportAt(p);
+      return;
+    }
+    // マーキング: 直線/矢印/折線/多角形はタップで点を足す (なぞりはポインタ処理側)
+    if (mode === "mark" && markTool !== "freehand") {
+      const p = svgPoint(evt);
+      if (!p) return;
+      if (markTool === "line" || markTool === "arrow") {
+        const next = [...markPts, p];
+        if (next.length >= 2) { saveAnnotation(markTool, next.slice(0, 2)); setMarkPts([]); }
+        else setMarkPts(next);
+      } else {
+        setMarkPts((d) => [...d, p]);
+      }
     }
   }
   function confirmDraft() {
@@ -293,6 +349,12 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
       };
       return;
     }
+    // マーキング(なぞり): 1本指/マウスで曲線を描く
+    if (mode === "mark" && markTool === "freehand" && (!touches || touches.length === 1)) {
+      const p = svgPoint(evt);
+      if (p) { freehandRef.current = [p]; setFreehandPreview([p]); }
+      return;
+    }
     // 1本指/マウスのドラッグパンは view モードのみ (draw=頂点タップ, edit=頂点ドラッグを優先)
     if (mode !== "view") return;
     const cx = touches ? touches[0].clientX : (evt as React.MouseEvent).clientX;
@@ -327,6 +389,13 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
       return;
     }
 
+    // マーキング(なぞり)中: 点を追加
+    if (freehandRef.current) {
+      const p = svgPoint(evt);
+      if (p) { freehandRef.current.push(p); setFreehandPreview(freehandRef.current.slice()); }
+      return;
+    }
+
     // 頂点ドラッグ (edit)。隣接スナップが有効なら境界へ吸着
     if (mode === "edit" && dragIdx.current !== null) {
       const p = svgPoint(evt);
@@ -348,6 +417,13 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
     }
   }
   function onPointerUp(evt?: React.TouchEvent | React.MouseEvent) {
+    // マーキング(なぞり)確定
+    if (freehandRef.current) {
+      const pts = freehandRef.current;
+      freehandRef.current = null;
+      setFreehandPreview([]);
+      if (pts.length >= 2) saveAnnotation("freehand", pts);
+    }
     dragIdx.current = null;
     panRef.current = null;
     const touches = evt && "touches" in evt ? evt.touches : null;
@@ -476,11 +552,18 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                 className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${dark ? "bg-gold/20 border-gold/60 text-gold" : "border-border bg-background/90 hover:bg-muted"}`}>
                 <Moon className="h-4.5 w-4.5" />
               </button>
-              {mode !== "draw" && mode !== "edit" && (
+              {mode !== "draw" && mode !== "edit" && mode !== "mark" && (
                 <button title="問題報告: 図面をタップして写真つきで報告"
                   onClick={() => { setMode((m) => (m === "report" ? "view" : "report")); setReportAt(null); setSelectedZoneId(null); }}
                   className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${mode === "report" ? "bg-[#FF4B00] border-[#FF4B00] text-white" : "border-border bg-background/90 hover:bg-muted text-[#FF4B00]"}`}>
                   <AlertTriangle className="h-4.5 w-4.5" />
+                </button>
+              )}
+              {canEdit && mode !== "draw" && mode !== "edit" && mode !== "report" && (
+                <button title="マーキング: 図面に線・矢印・多角形を描く"
+                  onClick={() => { setMode((m) => (m === "mark" ? "view" : "mark")); setMarkPts([]); setSelectedZoneId(null); }}
+                  className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${mode === "mark" ? "bg-[#005AFF] border-[#005AFF] text-white" : "border-border bg-background/90 hover:bg-muted text-[#005AFF]"}`}>
+                  <Pencil className="h-4.5 w-4.5" />
                 </button>
               )}
               {zoomLevel > 1.01 && (
@@ -634,6 +717,45 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                 </g>
               )}
 
+              {/* マーキング(注釈)レイヤー: 図面に重ねて全員に共有 */}
+              {annotations.map((a) => {
+                const col = a.color || "#FF4B00";
+                const w = a.strokeWidth * scale;
+                const pts = a.points || [];
+                if (pts.length === 0) return null;
+                const common = { stroke: col, strokeWidth: w, fill: "none" as const, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+                let shape: React.ReactNode;
+                let hitD = "";
+                const polyD = "M " + pts.map((p, i) => `${i ? "L " : ""}${p.x} ${p.y}`).join(" ");
+                if (a.kind === "polygon") { shape = <polygon points={ptsStr(pts)} {...common} />; hitD = polyD + " Z"; }
+                else if (a.kind === "arrow" && pts.length >= 2) { shape = <path d={arrowPath(pts[0], pts[1], scale)} {...common} />; hitD = `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`; }
+                else if (a.kind === "line" && pts.length >= 2) { shape = <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} {...common} />; hitD = `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`; }
+                else { shape = <polyline points={ptsStr(pts)} {...common} />; hitD = "M " + pts.map((p, i) => `${i ? "L " : ""}${p.x} ${p.y}`).join(" "); }
+                const deletable = canEdit && mode !== "mark";
+                return (
+                  <g key={a.id}>
+                    {shape}
+                    {deletable && (
+                      <path d={hitD} fill="none" stroke="transparent" strokeWidth={Math.max(w, 20 * scale)}
+                        style={{ cursor: "pointer", pointerEvents: "stroke" }}
+                        onClick={(e) => { e.stopPropagation(); if (window.confirm("このマーキングを削除しますか？")) removeAnn.mutate({ id: a.id }); }} />
+                    )}
+                  </g>
+                );
+              })}
+              {/* なぞり中プレビュー */}
+              {freehandPreview.length > 1 && (
+                <polyline points={ptsStr(freehandPreview)} fill="none" stroke={markColor} strokeWidth={markWidth * scale} strokeLinecap="round" strokeLinejoin="round" opacity={0.9} />
+              )}
+              {/* 図形(直線/矢印/折線/多角形)の作図中プレビュー */}
+              {mode === "mark" && markTool !== "freehand" && markPts.length > 0 && (
+                <g>
+                  {markTool === "polygon" && markPts.length >= 2 && <polygon points={ptsStr(markPts)} fill={`${markColor}22`} stroke={markColor} strokeWidth={markWidth * scale} strokeDasharray={`${8 * scale} ${5 * scale}`} />}
+                  {(markTool === "polyline" || markTool === "line" || markTool === "arrow") && markPts.length >= 2 && <polyline points={ptsStr(markPts)} fill="none" stroke={markColor} strokeWidth={markWidth * scale} strokeDasharray={`${8 * scale} ${5 * scale}`} />}
+                  {markPts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={7 * scale} fill={markColor} stroke="#fff" strokeWidth={2 * scale} />)}
+                </g>
+              )}
+
               {/* 問題報告ピン (図面上の位置) */}
               {pins.map((p) => (
                 <g key={p.id} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); setOpenPinId(p.id); }}>
@@ -648,6 +770,41 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                 </g>
               )}
             </svg>
+
+            {/* マーキング用ツールパレット */}
+            {mode === "mark" && (
+              <div className="absolute bottom-2 left-2 right-2 z-10 rounded-xl border border-border bg-background/95 shadow p-2 space-y-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(([["freehand", "✎ なぞり"], ["line", "／ 直線"], ["arrow", "↗ 矢印"], ["polyline", "∿ 折線"], ["polygon", "▱ 多角形"]]) as [MarkTool, string][]).map(([t, label]) => (
+                    <button key={t} onClick={() => { setMarkTool(t); setMarkPts([]); }}
+                      className={`text-xs px-2 py-1 rounded-lg border ${markTool === t ? "bg-[#005AFF] text-white border-[#005AFF]" : "border-border text-foreground/80"}`}>{label}</button>
+                  ))}
+                  <button onClick={() => { setMode("view"); setMarkPts([]); }} className="ml-auto text-xs px-2 py-1 rounded-lg border border-border">完了</button>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] text-muted-foreground">色</span>
+                  {MARK_COLORS.map((c) => (
+                    <button key={c} onClick={() => setMarkColor(c)} className="w-6 h-6 rounded-md border border-border"
+                      style={{ background: c, outline: markColor === c ? "2px solid #0f172a" : undefined, outlineOffset: 1 }} />
+                  ))}
+                  <span className="text-[11px] text-muted-foreground ml-1">太さ</span>
+                  <input type="range" min={1} max={12} value={markWidth} onChange={(e) => setMarkWidth(Number(e.target.value))} className="w-20 accent-[#005AFF]" />
+                  {markTool !== "freehand" && markPts.length > 0 && (
+                    <>
+                      <button onClick={() => setMarkPts((d) => d.slice(0, -1))} className="text-xs px-2 py-1 rounded-lg border border-border">1点戻す</button>
+                      <button onClick={confirmMarkShape} className="text-xs px-2 py-1 rounded-lg border bg-[#03AF7A] text-white border-[#03AF7A]">確定</button>
+                    </>
+                  )}
+                  {annotations.length > 0 && (
+                    <button onClick={() => { const last = annotations[annotations.length - 1]; if (last && window.confirm("最後のマーキングを消しますか？")) removeAnn.mutate({ id: last.id }); }}
+                      className="text-xs px-2 py-1 rounded-lg border border-border text-muted-foreground">↩ 1つ消す</button>
+                  )}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  {markTool === "freehand" ? "図面をなぞって描きます（指／マウス）" : markTool === "line" || markTool === "arrow" ? "始点→終点の2か所をタップ" : "点を順にタップ→「確定」"}
+                </div>
+              </div>
+            )}
           </div>
 
           {reportAt && activeFloor && (
