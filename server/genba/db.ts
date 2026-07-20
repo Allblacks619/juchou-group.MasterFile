@@ -420,23 +420,28 @@ export type AssignableUser = { id: number; name: string | null; appRole: string 
  * その案件の出面(attendance)に登録された作業員(users.employeeId 一致)のみを返す。
  * 未リンク/未指定なら全ユーザーを返す (従来動作)。
  */
-export async function listAssignableUsers(siteId?: string): Promise<AssignableUser[]> {
+export async function listAssignableUsers(siteId?: string, companyId?: number): Promise<AssignableUser[]> {
   const db = await getDb();
   if (!db) return [];
   if (siteId) {
     const site = await getGenbaSiteById(siteId);
     if (site?.projectId) {
+      const conds = [eq(attendance.projectId, site.projectId)];
+      if (companyId != null) conds.push(eq(users.companyId, companyId));
       const rows = await db
         .select({ id: users.id, name: users.name, appRole: users.appRole })
         .from(users)
         .innerJoin(attendance, eq(attendance.employeeId, users.employeeId))
-        .where(eq(attendance.projectId, site.projectId))
+        .where(and(...conds))
         .groupBy(users.id, users.name, users.appRole)
         .orderBy(asc(users.name));
       return rows as AssignableUser[];
     }
   }
-  const rows = await db.select({ id: users.id, name: users.name, appRole: users.appRole }).from(users).orderBy(asc(users.name));
+  const base = db.select({ id: users.id, name: users.name, appRole: users.appRole }).from(users);
+  const rows = companyId != null
+    ? await base.where(eq(users.companyId, companyId)).orderBy(asc(users.name))
+    : await base.orderBy(asc(users.name));
   return rows as AssignableUser[];
 }
 
@@ -449,13 +454,15 @@ export async function listUserNamesByIds(ids: number[]): Promise<Map<number, str
 }
 
 /** 現場に連携できる工事案件(projects)の一覧 (案件ピッカー用)。active を先頭に新しい順 */
-export async function listLinkableProjects(): Promise<{ id: number; name: string; status: string; startDate: Date | null; endDate: Date | null }[]> {
+export async function listLinkableProjects(companyId?: number): Promise<{ id: number; name: string; status: string; startDate: Date | null; endDate: Date | null }[]> {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db
+  const base = db
     .select({ id: projects.id, name: projects.name, status: projects.status, startDate: projects.startDate, endDate: projects.endDate })
-    .from(projects)
-    .orderBy(desc(projects.createdAt));
+    .from(projects);
+  const rows = companyId != null
+    ? await base.where(eq(projects.companyId, companyId)).orderBy(desc(projects.createdAt))
+    : await base.orderBy(desc(projects.createdAt));
   return rows;
 }
 
@@ -1272,9 +1279,24 @@ export async function getGenbaUserRole(userId: number): Promise<GenbaUserRole | 
   return rows[0] ?? null;
 }
 
-export async function listGenbaUserRoles(): Promise<GenbaUserRole[]> {
+export async function listGenbaUserRoles(companyId?: number): Promise<GenbaUserRole[]> {
   const db = await getDb();
   if (!db) return [];
+  if (companyId != null) {
+    // genba_user_roles は companyId を持たないため users との join で会社スコープを導出
+    const rows = await db
+      .select({
+        userId: genbaUserRoles.userId,
+        role: genbaUserRoles.role,
+        updatedByUserId: genbaUserRoles.updatedByUserId,
+        createdAt: genbaUserRoles.createdAt,
+        updatedAt: genbaUserRoles.updatedAt,
+      })
+      .from(genbaUserRoles)
+      .innerJoin(users, eq(users.id, genbaUserRoles.userId))
+      .where(eq(users.companyId, companyId));
+    return rows as GenbaUserRole[];
+  }
   return db.select().from(genbaUserRoles);
 }
 
@@ -1292,11 +1314,12 @@ export async function deleteGenbaUserRole(userId: number): Promise<void> {
 }
 
 /** appRole が admin 級のユーザーID一覧 (最後の管理者ガード用) */
-export async function listAppAdminUserIds(): Promise<number[]> {
+export async function listAppAdminUserIds(companyId?: number): Promise<number[]> {
   const db = await getDb();
   if (!db) return [];
+  const roleCond = or(eq(users.appRole, "super_admin" as any), eq(users.appRole, "admin" as any));
   const rows = await db.select({ id: users.id }).from(users)
-    .where(or(eq(users.appRole, "super_admin" as any), eq(users.appRole, "admin" as any)));
+    .where(companyId != null ? and(roleCond, eq(users.companyId, companyId)) : roleCond);
   return rows.map((r) => r.id);
 }
 

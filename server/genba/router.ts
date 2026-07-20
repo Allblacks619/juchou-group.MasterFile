@@ -5,6 +5,7 @@ import { genbaRoleOf } from "../../shared/genba/roles";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import * as db from "../db";
 import * as genbaDb from "./db";
+import { isMultiTenantEnabled } from "../tenancy";
 import { storageGet, storagePut, storageGetBytes } from "../storage";
 import { validateFile } from "../../shared/uploadValidation";
 import { computeZoneAggregates } from "./aggregate";
@@ -97,39 +98,70 @@ function uid(ctx: { user: { id: number } | null; genbaLink?: GenbaLinkCtx | null
   return ctx.user?.id ?? ctx.genbaLink?.userId ?? null;
 }
 
-/** 参照ID群 (siteId/floorId/zoneId/taskId/teamId/instructionId) から現場を解決してリンクの現場と照合 */
-async function assertLinkRefScope(link: GenbaLinkCtx, raw: Record<string, unknown>): Promise<void> {
-  const deny = () => { throw new TRPCError({ code: "FORBIDDEN", message: "この現場のリンクでは操作できません" }); };
+/**
+ * 入力の参照ID群 (siteId/floorId/zoneId/parentZoneId/taskId/teamId/instructionId) を
+ * 現場ID(siteId) の集合へ解決する。リンク照合 (assertLinkRefScope) と
+ * テナント照合 (assertUserCompanyScope) で共用。
+ */
+async function resolveInputSiteIds(raw: Record<string, unknown>): Promise<string[]> {
   const s = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+  const out = new Set<string>();
   const siteId = s(raw.siteId);
-  if (siteId && siteId !== link.siteId) deny();
+  if (siteId) out.add(siteId);
   const floorId = s(raw.floorId);
   if (floorId) {
     const f = await genbaDb.getGenbaFloorById(floorId);
-    if (f && f.siteId !== link.siteId) deny();
+    if (f) out.add(f.siteId);
   }
   const zoneId = s(raw.zoneId) ?? s(raw.parentZoneId);
   if (zoneId) {
     const z = await genbaDb.getGenbaZoneById(zoneId);
     const f = z ? await genbaDb.getGenbaFloorById(z.floorId) : null;
-    if (f && f.siteId !== link.siteId) deny();
+    if (f) out.add(f.siteId);
   }
   const taskId = s(raw.taskId);
   if (taskId) {
     const t = await genbaDb.getGenbaTaskById(taskId);
     const z = t ? await genbaDb.getGenbaZoneById(t.zoneId) : null;
     const f = z ? await genbaDb.getGenbaFloorById(z.floorId) : null;
-    if (f && f.siteId !== link.siteId) deny();
+    if (f) out.add(f.siteId);
   }
   const teamId = s(raw.teamId);
   if (teamId) {
     const t = await genbaDb.getGenbaTeamById(teamId);
-    if (t && t.siteId !== link.siteId) deny();
+    if (t) out.add(t.siteId);
   }
   const instructionId = s(raw.instructionId);
   if (instructionId) {
     const i = await genbaDb.getGenbaInstructionById(instructionId);
-    if (i && i.siteId !== link.siteId) deny();
+    if (i) out.add(i.siteId);
+  }
+  return Array.from(out);
+}
+
+/** 参照ID群 (siteId/floorId/zoneId/taskId/teamId/instructionId) から現場を解決してリンクの現場と照合 */
+async function assertLinkRefScope(link: GenbaLinkCtx, raw: Record<string, unknown>): Promise<void> {
+  const siteIds = await resolveInputSiteIds(raw);
+  for (const sid of siteIds) {
+    if (sid !== link.siteId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "この現場のリンクでは操作できません" });
+    }
+  }
+}
+
+/**
+ * テナント照合 (マルチテナント化 Phase 1d)。認証ユーザーの入力が指す現場が
+ * 別会社のものなら FORBIDDEN。MULTI_TENANT off（既定）または companyId 未設定時は
+ * 即 return ＝追加クエリゼロで現行動作と完全互換。
+ */
+async function assertUserCompanyScope(companyId: number | undefined, raw: Record<string, unknown>): Promise<void> {
+  if (!isMultiTenantEnabled() || companyId == null) return;
+  const siteIds = await resolveInputSiteIds(raw);
+  for (const sid of siteIds) {
+    const site = await genbaDb.getGenbaSiteById(sid);
+    if (site && (site as any).companyId != null && (site as any).companyId !== companyId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "この現場にはアクセスできません" });
+    }
   }
 }
 
@@ -157,6 +189,11 @@ const genbaProcedure = publicProcedure.use(async ({ ctx, next, path, getRawInput
   assertGenbaEnabled();
   if (ctx.user) {
     const role = await resolveGenbaRole(ctx.user.id, (ctx.user as any).appRole);
+    // テナント照合 (Phase 1d): MULTI_TENANT off の間は即 return で追加クエリゼロ
+    if (isMultiTenantEnabled()) {
+      const raw = (await getRawInput()) as Record<string, unknown> | undefined;
+      if (raw && typeof raw === "object") await assertUserCompanyScope((ctx as any).companyId, raw);
+    }
     return next({ ctx: { ...ctx, user: ctx.user as typeof ctx.user | null, genbaRole: role, genbaLink: null as GenbaLinkCtx | null } });
   }
   const header = (ctx.req as any)?.headers?.["x-genba-link"];
@@ -286,7 +323,8 @@ const sitesRouter = router({
         name: input.name,
         projectId: input.projectId ?? null,
         driveUrl: input.driveUrl || null,
-      });
+        companyId: (ctx as any).companyId,
+      } as any);
       await safeGenbaAuditLog(uid(ctx), "genba.sites.create", { entityId: id, note: `現場を作成: ${input.name}` });
       return site;
     }),
@@ -323,8 +361,8 @@ const sitesRouter = router({
     }),
 
   /** 連携先の工事案件(projects)一覧。現場↔案件リンクのピッカー用 (field) */
-  listProjects: genbaStaffFieldProcedure.query(async () => {
-    const rows = await genbaDb.listLinkableProjects();
+  listProjects: genbaStaffFieldProcedure.query(async ({ ctx }) => {
+    const rows = await genbaDb.listLinkableProjects((ctx as any).companyId);
     return rows.map((p) => ({ id: p.id, name: p.name, status: p.status, startDate: toYmd(p.startDate), endDate: toYmd(p.endDate) }));
   }),
 
@@ -1345,7 +1383,7 @@ const usersRouter = router({
   listAssignable: genbaProcedure
     .input(z.object({ siteId: genbaIdSchema }).optional())
     .query(async ({ ctx, input }) => {
-      return genbaDb.listAssignableUsers(ctx.genbaLink ? ctx.genbaLink.siteId : input?.siteId);
+      return genbaDb.listAssignableUsers(ctx.genbaLink ? ctx.genbaLink.siteId : input?.siteId, (ctx as any).companyId);
     }),
 
   /**
@@ -1355,9 +1393,9 @@ const usersRouter = router({
    */
   siteRoster: genbaProcedure
     .input(z.object({ siteId: genbaIdSchema }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       // genba内上書きを実効役割として同梱 (G3)。UI の種別ラベル/権限selectに使う
-      const overrides = new Map((await genbaDb.listGenbaUserRoles()).map((r) => [r.userId, r.role]));
+      const overrides = new Map((await genbaDb.listGenbaUserRoles((ctx as any).companyId)).map((r) => [r.userId, r.role]));
       const effective = (userId: number | null, appRole: string | null) => {
         if (userId == null) return null;
         const ov = overrides.get(userId);
@@ -1371,7 +1409,7 @@ const usersRouter = router({
           roster: roster.map((r) => ({ ...r, genbaRole: effective(r.userId, r.appRole), roleOverridden: r.userId != null && overrides.has(r.userId) })),
         };
       }
-      const all = await genbaDb.listAssignableUsers();
+      const all = await genbaDb.listAssignableUsers(undefined, (ctx as any).companyId);
       return {
         linked: false as const,
         roster: all.map((u) => ({
@@ -1432,8 +1470,8 @@ const usersRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "オーナーの権限は変更できません" });
       }
       const countAdmins = async () => {
-        const appAdminIds = await genbaDb.listAppAdminUserIds();
-        const overrides = new Map((await genbaDb.listGenbaUserRoles()).map((r) => [r.userId, r.role]));
+        const appAdminIds = await genbaDb.listAppAdminUserIds((ctx as any).companyId);
+        const overrides = new Map((await genbaDb.listGenbaUserRoles((ctx as any).companyId)).map((r) => [r.userId, r.role]));
         const set = new Set<number>();
         for (const id of appAdminIds) { const ov = overrides.get(id); if (!ov || ov === "admin") set.add(id); }
         overrides.forEach((role, id) => { if (role === "admin") set.add(id); });
@@ -1442,7 +1480,7 @@ const usersRouter = router({
 
       // 事前チェック: 実効adminを降格すると誰も残らない場合は拒否
       const before = await countAdmins();
-      const demoting = before.has(input.userId) && input.role !== "admin" && !(input.role === null && (await genbaDb.listAppAdminUserIds()).includes(input.userId));
+      const demoting = before.has(input.userId) && input.role !== "admin" && !(input.role === null && (await genbaDb.listAppAdminUserIds((ctx as any).companyId)).includes(input.userId));
       if (demoting && before.size <= 1) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "最後の管理者は降格できません" });
       }
@@ -1465,7 +1503,7 @@ const usersRouter = router({
 // ── board (M3-C): 現在の割当から人別/エリア別を自動生成 ──
 
 const boardRouter = router({
-  get: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+  get: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ ctx, input }) => {
     const floors = await genbaDb.listGenbaFloorsBySite(input.siteId);
     const zones = await genbaDb.listGenbaZonesByFloorIds(floors.map((f) => f.id));
     const tasks = await genbaDb.listGenbaTasksByZoneIds(zones.map((z) => z.id));
@@ -1474,7 +1512,7 @@ const boardRouter = router({
       genbaDb.listTaskAssigneesByTaskIds(taskIds),
       genbaDb.listTaskTeamsByTaskIds(taskIds),
       genbaDb.listGenbaTeamsBySite(input.siteId),
-      genbaDb.listAssignableUsers(),
+      genbaDb.listAssignableUsers(undefined, (ctx as any).companyId),
       genbaDb.listGuestAssigneesByTaskIds(taskIds),
       genbaDb.listGenbaSiteWorkersBySite(input.siteId),
     ]);

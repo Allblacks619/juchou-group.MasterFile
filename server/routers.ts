@@ -248,6 +248,23 @@ async function safeAuditLog(userId: number | null | undefined, action: string, e
   }
 }
 
+/**
+ * テナント照合 (マルチテナント化 Phase 1d)。id 直指定で取得した行が別会社のものなら
+ * NOT_FOUND を投げる（他社に存在を明かさない）。ctx.companyId 未設定（旧セッション/旧テスト）や
+ * 行に companyId が無い場合は素通し＝現行動作。MULTI_TENANT off の間は全行 companyId=1 のため無稼働。
+ */
+function assertCompanyScope(
+  ctx: { companyId?: number },
+  row: { companyId?: number | null } | null | undefined,
+  message = "見つかりません"
+) {
+  if (!row) return;
+  const rowCompany = (row as any).companyId;
+  if (ctx.companyId != null && rowCompany != null && rowCompany !== ctx.companyId) {
+    throw new TRPCError({ code: "NOT_FOUND", message });
+  }
+}
+
 function getMonthDateRange(closingMonth: string): { start: Date; end: Date } {
   if (!/^\d{4}-\d{2}$/.test(closingMonth)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "closingMonth must be YYYY-MM" });
@@ -1810,6 +1827,7 @@ export const appRouter = router({
         if (!employee) {
           throw new TRPCError({ code: "NOT_FOUND", message: "従業員が見つかりません" });
         }
+        assertCompanyScope(ctx, employee, "従業員が見つかりません");
         // 本人か管理者系のみ（guest/leader も他人は閲覧不可）
         assertEmployeeSelfOrManager(ctx, employee);
         return employee;
@@ -1824,7 +1842,8 @@ export const appRouter = router({
           const created = await db.createEmployee({
             nameKanji: userName,
             userId: ctx.user.id,
-          });
+            companyId: ctx.companyId,
+          } as any);
           // Link employee to user
           const dbInstance = await db.getDb();
           if (dbInstance && created.id) {
@@ -1999,8 +2018,8 @@ export const appRouter = router({
         insuredNumber: z.string().optional(),
         userId: z.number().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const data: any = { ...input };
+      .mutation(async ({ ctx, input }) => {
+        const data: any = { ...input, companyId: ctx.companyId };
         // Convert date strings to Date objects
         if (input.dateOfBirth) data.dateOfBirth = parseDateString(input.dateOfBirth);
         if (input.residenceCardExpiry) data.residenceCardExpiry = parseDateString(input.residenceCardExpiry);
@@ -2065,6 +2084,7 @@ export const appRouter = router({
         if (!employee) {
           throw new TRPCError({ code: "NOT_FOUND", message: "従業員が見つかりません" });
         }
+        assertCompanyScope(ctx, employee, "従業員が見つかりません");
         // 本人か管理者系のみ更新可（guest/leader も他人は不可）
         assertEmployeeSelfOrManager(ctx, employee);
         const data: any = { ...updateData };
@@ -2089,7 +2109,8 @@ export const appRouter = router({
 
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        assertCompanyScope(ctx, await db.getEmployeeById(input.id), "従業員が見つかりません");
         await db.deleteEmployee(input.id);
         return { success: true };
       }),
@@ -2300,9 +2321,10 @@ export const appRouter = router({
 
     get: projectsProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const client = await db.getClientById(input.id);
         if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "取引先が見つかりません" });
+        assertCompanyScope(ctx, client, "取引先が見つかりません");
         return client;
       }),
 
@@ -2316,8 +2338,8 @@ export const appRouter = router({
         contactPerson: z.string().optional(),
         notes: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        return db.createClient(input);
+      .mutation(async ({ ctx, input }) => {
+        return db.createClient({ ...input, companyId: ctx.companyId } as any);
       }),
 
     update: projectsProcedure
@@ -2333,12 +2355,14 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
+        assertCompanyScope(ctx, await db.getClientById(id), "取引先が見つかりません");
         return db.updateClient(id, data);
       }),
 
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        assertCompanyScope(ctx, await db.getClientById(input.id), "取引先が見つかりません");
         await db.deleteClient(input.id);
         return { success: true };
       }),
@@ -2360,9 +2384,10 @@ export const appRouter = router({
 
     get: projectsProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const project = await db.getProjectById(input.id);
         if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+        assertCompanyScope(ctx, project, "現場が見つかりません");
         const client = project.clientId ? await db.getClientById(project.clientId) : null;
         return { ...project, client };
       }),
@@ -2377,8 +2402,8 @@ export const appRouter = router({
         endDate: z.string().optional(),
         notes: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const data: any = { ...input };
+      .mutation(async ({ ctx, input }) => {
+        const data: any = { ...input, companyId: ctx.companyId };
         if (input.startDate) data.startDate = parseDateString(input.startDate);
         if (input.endDate) data.endDate = parseDateString(input.endDate);
         return db.createProject(data);
@@ -2395,8 +2420,9 @@ export const appRouter = router({
         endDate: z.string().optional(),
         notes: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, ...updateData } = input;
+        assertCompanyScope(ctx, await db.getProjectById(id), "現場が見つかりません");
         const data: any = { ...updateData };
         if (updateData.startDate) data.startDate = parseDateString(updateData.startDate);
         if (updateData.endDate) data.endDate = parseDateString(updateData.endDate);
@@ -2405,7 +2431,8 @@ export const appRouter = router({
 
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        assertCompanyScope(ctx, await db.getProjectById(input.id), "現場が見つかりません");
         await db.deleteProject(input.id);
         return { success: true };
       }),
