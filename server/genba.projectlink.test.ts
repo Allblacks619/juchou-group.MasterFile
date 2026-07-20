@@ -74,12 +74,12 @@ describe("genba 現場↔案件リンク + 出面連動 (B)", () => {
       mockGenbaDb.listAssignableUsers.mockResolvedValue([{ id: 10, name: "山田", appRole: "worker" }]);
       const res = await leader().genba.users.listAssignable({ siteId: SITE.id });
       expect(res).toHaveLength(1);
-      expect(mockGenbaDb.listAssignableUsers).toHaveBeenCalledWith(SITE.id);
+      expect(mockGenbaDb.listAssignableUsers).toHaveBeenCalledWith(SITE.id, undefined);
     });
     it("siteId 未指定なら undefined (全ユーザー)", async () => {
       mockGenbaDb.listAssignableUsers.mockResolvedValue([]);
       await leader().genba.users.listAssignable();
-      expect(mockGenbaDb.listAssignableUsers).toHaveBeenCalledWith(undefined);
+      expect(mockGenbaDb.listAssignableUsers).toHaveBeenCalledWith(undefined, undefined);
     });
   });
 });
