@@ -34,6 +34,18 @@ export default function TaskDetailModal({
     onError: (e) => toast.error(e.message),
   });
   const update = trpc.genba.tasks.update.useMutation({ onSuccess: onChanged, onError: (e) => toast.error(e.message) });
+  const move = trpc.genba.tasks.move.useMutation({ onSuccess: () => { onChanged(); toast.success("作業を移動しました"); }, onError: (e) => toast.error(e.message) });
+  // 移動先候補: 同エリアの作業から「自分自身」と「自分の子孫」を除く (循環防止)。トップ(親なし)も選べる
+  const zoneTasksQ = trpc.genba.tasks.listByZone.useQuery({ zoneId }, { enabled: open && canEdit, retry: false });
+  const moveCandidates = (() => {
+    const all = (zoneTasksQ.data || []) as { id: string; parentTaskId: string | null; name: string; romaji: string | null }[];
+    const childrenOf = new Map<string, string[]>();
+    for (const t of all) { if (t.parentTaskId) { const a = childrenOf.get(t.parentTaskId) || []; a.push(t.id); childrenOf.set(t.parentTaskId, a); } }
+    const banned = new Set<string>([task.id]);
+    const stack = [task.id];
+    while (stack.length) { for (const c of childrenOf.get(stack.pop()!) || []) { if (!banned.has(c)) { banned.add(c); stack.push(c); } } }
+    return all.filter((t) => !banned.has(t.id));
+  })();
   const create = trpc.genba.tasks.create.useMutation({
     onSuccess: () => { onChanged(); toast.success("サブ作業を追加しました"); },
     onError: (e) => toast.error(e.message),
@@ -164,6 +176,24 @@ export default function TaskDetailModal({
             </div>
             <Input value={hoNote} onChange={(e) => setHoNote(e.target.value)} placeholder="申し送り（任意）" className="text-xs" />
           </div>
+
+          {/* 作業の移動 (親付け替え): メイン作業の下へ入れたり、トップへ出したりできる */}
+          {canEdit && (
+            <div className="space-y-1 border-t border-border pt-3">
+              <Label className="text-xs text-muted-foreground">📂 移動（この作業を別の作業の下へ / トップへ）</Label>
+              <select
+                value={task.parentTaskId || ""}
+                onChange={(e) => move.mutate({ id: task.id, parentTaskId: e.target.value || null })}
+                disabled={move.isPending}
+                className="w-full rounded-md border border-border bg-background p-2 text-sm"
+              >
+                <option value="">トップ（親なし）</option>
+                {moveCandidates.map((t) => (
+                  <option key={t.id} value={t.id}>{dispName(t.name, t.romaji)} の下へ</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {canEdit && (
             <div className="flex gap-2 pt-1">
