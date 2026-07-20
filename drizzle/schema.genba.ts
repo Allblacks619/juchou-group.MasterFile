@@ -18,11 +18,18 @@ export const genbaSites = mysqlTable("genba_sites", {
   /** Google Drive 等の共有フォルダURL */
   driveUrl: varchar("driveUrl", { length: 500 }),
   archived: boolean("archived").default(false).notNull(),
+  /**
+   * テナント(会社)ID。マルチテナント化 Phase 1c — genba 階層の会社境界の唯一の正本。
+   * 全 genba 子テーブル(floor/zone/task 等)は siteId 経由でこの会社に属する。
+   * projectId 連携時は projects.companyId と一致させる(アプリ層で担保)。既存データは既定会社=1。
+   */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
   index("genba_sites_project_idx").on(table.projectId),
   index("genba_sites_archived_idx").on(table.archived),
+  index("genba_sites_company_idx").on(table.companyId),
 ]));
 
 export type GenbaSite = typeof genbaSites.$inferSelect;
@@ -293,6 +300,8 @@ export const genbaMaterialPresets = mysqlTable("genba_material_presets", {
   workName: varchar("workName", { length: 120 }).notNull(),
   /** 部材名の文字列配列 */
   parts: json("parts"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1c — siteId=null(全現場共通)プリセットも会社内共通。既定=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -343,6 +352,8 @@ export const genbaTaskTemplates = mysqlTable("genba_task_templates", {
   name: varchar("name", { length: 200 }).notNull(),
   romaji: varchar("romaji", { length: 200 }),
   sortOrder: int("sortOrder").default(0).notNull(),
+  /** テナント(会社)ID。マルチテナント化 Phase 1c — テンプレは会社ごと。既定=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([
@@ -435,9 +446,12 @@ export const genbaActivityLogs = mysqlTable("genba_activity_logs", {
   type: varchar("type", { length: 24 }).notNull(),
   byUserId: int("byUserId"),
   payload: json("payload"),
+  /** テナント(会社)ID。マルチテナント化 Phase 1c — insights/logs を会社ごとに分離。既定=1 */
+  companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ([
   index("genba_activity_logs_type_created_idx").on(table.type, table.createdAt),
+  index("genba_activity_logs_company_idx").on(table.companyId),
 ]));
 
 export type GenbaActivityLog = typeof genbaActivityLogs.$inferSelect;

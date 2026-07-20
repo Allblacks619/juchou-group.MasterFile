@@ -263,12 +263,12 @@ const sitesRouter = router({
       const site = await genbaDb.getGenbaSiteById(ctx.genbaLink.siteId);
       return site && !site.archived ? [site] : [];
     }
-    return genbaDb.listGenbaSites();
+    return genbaDb.listGenbaSites(ctx.companyId);
   }),
 
   /** アーカイブ済み(削除された)現場の一覧。復元用 (admin のみ・リンク不可)。データは消えていない */
-  listArchived: genbaAdminProcedure.query(async () => {
-    return genbaDb.listGenbaSitesArchived();
+  listArchived: genbaAdminProcedure.query(async ({ ctx }) => {
+    return genbaDb.listGenbaSitesArchived(ctx.companyId);
   }),
 
   create: genbaStaffFieldProcedure
@@ -1393,7 +1393,7 @@ const usersRouter = router({
    * 担当ゼロの現場は返さない。
    */
   mySummary: genbaProcedure.query(async ({ ctx }) => {
-    const sites = await genbaDb.listGenbaSites();
+    const sites = await genbaDb.listGenbaSites(ctx.companyId);
     const result: { siteId: string; siteName: string; taskCount: number; issueCount: number }[] = [];
     for (const site of sites) {
       const { tasks } = await loadSiteTaskContext(site.id);
@@ -1676,8 +1676,8 @@ const materialsRouter = router({
     }),
 
   /** プリセット一覧 (siteId 指定で 共通(null)+その現場) */
-  listPresets: genbaProcedure.input(z.object({ siteId: genbaIdSchema.nullish() }).optional()).query(async ({ input }) => {
-    return genbaDb.listGenbaMaterialPresets(input?.siteId ?? null);
+  listPresets: genbaProcedure.input(z.object({ siteId: genbaIdSchema.nullish() }).optional()).query(async ({ ctx, input }) => {
+    return genbaDb.listGenbaMaterialPresets(input?.siteId ?? null, ctx.companyId);
   }),
 
   /** プリセットの作成/更新 (id 指定で更新) */
@@ -1739,8 +1739,8 @@ function flattenTemplateTree(nodes: { name: string; romaji?: string; children?: 
 
 const templatesRouter = router({
   /** 現在の作業テンプレート (ツリー)。未設定なら既定テンプレートを返す */
-  get: genbaProcedure.query(async () => {
-    const rows = await genbaDb.listGenbaTaskTemplates();
+  get: genbaProcedure.query(async ({ ctx }) => {
+    const rows = await genbaDb.listGenbaTaskTemplates(ctx.companyId);
     if (rows.length === 0) return { tree: DEFAULT_TEMPLATE_DATA, isDefault: true as const };
     return {
       tree: buildTemplateTree(rows.map((r) => ({ id: r.id, parentId: r.parentId, name: r.name, romaji: r.romaji, sortOrder: r.sortOrder }))),
@@ -1956,20 +1956,20 @@ const logsRouter = router({
   /** 利用ログの一覧 (field・直近 limit 件) */
   list: genbaFieldProcedure
     .input(z.object({ type: z.string().max(24).optional(), limit: z.number().int().min(1).max(200).default(50) }).optional())
-    .query(async ({ input }) => {
-      return genbaDb.listGenbaActivityLogs(input?.type, input?.limit ?? 50);
+    .query(async ({ ctx, input }) => {
+      return genbaDb.listGenbaActivityLogs(input?.type, input?.limit ?? 50, ctx.companyId);
     }),
 
   /** 学習と改善提案 (field)。利用ログ + 現場のタスク/テンプレ/ゾーン/プリセットから集計 */
   insights: genbaFieldProcedure
     .input(z.object({ siteId: genbaIdSchema }))
-    .query(async ({ input }) => {
-      const logs = await genbaDb.listGenbaActivityLogs(undefined, 1000);
+    .query(async ({ ctx, input }) => {
+      const logs = await genbaDb.listGenbaActivityLogs(undefined, 1000, ctx.companyId);
       const graph = await genbaDb.collectSiteGraph(input.siteId);
-      const templateRows = await genbaDb.listGenbaTaskTemplates();
+      const templateRows = await genbaDb.listGenbaTaskTemplates(ctx.companyId);
       const parentIds = new Set(templateRows.map((r) => r.parentId).filter((p): p is string => !!p));
       const templateLeafNames = templateRows.filter((r) => !parentIds.has(r.id)).map((r) => r.name);
-      const presets = await genbaDb.listGenbaMaterialPresets(input.siteId);
+      const presets = await genbaDb.listGenbaMaterialPresets(input.siteId, ctx.companyId);
       return computeInsights({
         logs: logs.map((l) => ({ type: l.type, payload: l.payload })),
         taskNames: graph.tasks.map((t) => t.name),

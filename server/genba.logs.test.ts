@@ -32,7 +32,7 @@ describe("genba.logs / insights (M4-D)", () => {
     mockGenbaDb.listGenbaActivityLogs.mockResolvedValue([{ id: 2, type: "material", byUserId: 1, payload: { name: "x" }, createdAt: new Date() }]);
     const res = await leader().genba.logs.list({ limit: 10 });
     expect(res).toHaveLength(1);
-    expect(mockGenbaDb.listGenbaActivityLogs).toHaveBeenCalledWith(undefined, 10);
+    expect(mockGenbaDb.listGenbaActivityLogs).toHaveBeenCalledWith(undefined, 10, undefined);
   });
 
   it("insights は field 限定 (worker 403)", async () => {
