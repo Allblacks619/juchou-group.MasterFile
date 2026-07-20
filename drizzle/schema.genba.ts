@@ -546,6 +546,15 @@ export const genbaSiteWorkers = mysqlTable("genba_site_workers", {
   /** 表示名 (出面/ユーザー名のスナップショット) */
   displayName: varchar("displayName", { length: 128 }).notNull(),
   active: boolean("active").default(true).notNull(),
+  /**
+   * 会社間連携の名寄せ (Phase 2, PLAN_v1.md §2.6)。名簿提出の受理でゲスト行が
+   * 「他社所属の作業員」に格上げされたとき、所属テナントと相手側 employees.id の写しを持つ。
+   * guestName 文字列一致依存からの脱却。partner_link 経由でのみ設定される。
+   */
+  externalCompanyId: int("externalCompanyId"),
+  externalEmployeeRef: int("externalEmployeeRef"),
+  /** CCUS番号（会社横断の本人特定キー） */
+  ccusNumber: varchar("ccusNumber", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ([

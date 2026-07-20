@@ -1369,6 +1369,19 @@ export async function updateGenbaSiteWorkerRole(id: string, role: string): Promi
   await db.update(genbaSiteWorkers).set({ role }).where(eq(genbaSiteWorkers.id, id));
 }
 
+/**
+ * 会社間連携の名寄せ結果を反映 (Phase 2, PLAN_v1.md §2.6)。
+ * ゲスト行を「他社所属の作業員」へ格上げする（guestName 文字列一致依存からの脱却）。
+ */
+export async function updateGenbaSiteWorkerExternalRef(
+  id: string,
+  data: { externalCompanyId: number | null; externalEmployeeRef: number | null; ccusNumber: string | null },
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(genbaSiteWorkers).set(data).where(eq(genbaSiteWorkers.id, id));
+}
+
 /** users.appRole の取得 (オーナー=super_admin の保護判定用) */
 export async function getUserAppRoleById(userId: number): Promise<string | null> {
   const db = await getDb();
