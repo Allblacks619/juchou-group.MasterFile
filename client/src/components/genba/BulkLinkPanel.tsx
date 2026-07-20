@@ -2,19 +2,19 @@ import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Users, MapPin, ListChecks, Loader2 } from "lucide-react";
+import { Link2, MapPin, ListChecks, Loader2 } from "lucide-react";
 import { dispName } from "@/lib/genbaRomaji";
-import { rosterKindLabel, type RosterEntry } from "./AssignPicker";
 
 type SiteTask = { id: string; name: string; romaji: string | null; zoneId: string; zoneName: string; floorId: string | null; floorName: string | null };
-type Assignee = { kind: "user" | "guest" | "team"; id: number | string; label: string };
 
 /**
- * まとめて配置 (一括割当)。作業員/班を選び、①複数エリアの全作業、または②特定の作業だけを
- * 複数エリアへ、1操作で割り当てる。対象 taskId をクライアントで列挙して tasks.bulkAssign へ渡す。
+ * まとめて図面リンク添付。図面/資料の共有リンクを、①複数エリアの全作業、または②特定の作業だけ
+ * (例: 強電作業) へ、1操作でまとめて添付する。対象 taskId をクライアントで列挙し、既存の
+ * tasks.files.addLink を各作業へ適用する (作業員は各作業からワンタッチで開ける)。
  */
-export default function BulkAssignPanel({
+export default function BulkLinkPanel({
   siteId, open, onOpenChange,
 }: {
   siteId: string;
@@ -22,31 +22,22 @@ export default function BulkAssignPanel({
   onOpenChange: (v: boolean) => void;
 }) {
   const utils = trpc.useUtils();
-  const { data: rosterData } = trpc.genba.users.siteRoster.useQuery({ siteId }, { enabled: open, retry: false });
-  const { data: teamsData } = trpc.genba.teams.listBySite.useQuery({ siteId }, { enabled: open, retry: false });
   const { data: siteTasks, isLoading } = trpc.genba.tasks.listBySite.useQuery({ siteId }, { enabled: open, retry: false });
 
-  const [assignees, setAssignees] = useState<Assignee[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<"all" | "specific">("all");
+  const [linkTitle, setLinkTitle] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [mode, setMode] = useState<"all" | "specific">("specific");
   const [selNames, setSelNames] = useState<Set<string>>(new Set());
   const [selZones, setSelZones] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
 
-  const bulk = trpc.genba.tasks.bulkAssign.useMutation();
+  const addLink = trpc.genba.tasks.files.addLink.useMutation();
 
-  function reset() { setAssignees([]); setMode("all"); setSelNames(new Set()); setSelZones(new Set()); }
+  function reset() { setLinkTitle(""); setLinkUrl(""); setMode("specific"); setSelNames(new Set()); setSelZones(new Set()); }
 
-  const isSel = (kind: Assignee["kind"], id: number | string) => assignees.some((a) => a.kind === kind && a.id === id);
-  const toggleAssignee = (a: Assignee) =>
-    setAssignees((prev) => (prev.some((x) => x.kind === a.kind && x.id === a.id)
-      ? prev.filter((x) => !(x.kind === a.kind && x.id === a.id))
-      : [...prev, a]));
-
-  const roster = (rosterData?.roster || []) as RosterEntry[];
-  const teams = (teamsData || []) as { id: string; name: string; memberIds: number[] }[];
   const tasks = (siteTasks || []) as SiteTask[];
 
-  // エリア一覧 (フロア別) と作業名一覧を現場の全作業から導出
+  // エリア一覧 (フロア別) と作業名一覧を現場の全作業から導出 (BulkAssignPanel と同ロジック)
   const floorsWithZones = useMemo(() => {
     const zoneMap = new Map<string, { zoneId: string; zoneName: string; count: number }>();
     const floorOf = new Map<string, { floorId: string | null; floorName: string | null }>();
@@ -71,7 +62,6 @@ export default function BulkAssignPanel({
     return Array.from(m.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
   }, [tasks]);
 
-  // 選択に応じた対象 taskId (エリア選択 × (全作業 or 特定作業))
   const targetTaskIds = useMemo(() => {
     return tasks
       .filter((t) => selZones.has(t.zoneId) && (mode === "all" || selNames.has(t.name)))
@@ -86,26 +76,27 @@ export default function BulkAssignPanel({
   const allZoneIds = floorsWithZones.flatMap((f) => f.zones.map((z) => z.zoneId));
   const allZonesSelected = allZoneIds.length > 0 && allZoneIds.every((id) => selZones.has(id));
 
+  const url = linkUrl.trim();
+  const urlValid = /^https?:\/\//i.test(url);
+
   async function apply() {
-    if (assignees.length === 0) { toast.error("配置する作業員または班を選んでください"); return; }
-    if (targetTaskIds.length === 0) { toast.error("対象の作業がありません。エリアや作業を選んでください"); return; }
+    if (!url) { toast.error("図面リンクのURLを入力してください"); return; }
+    if (!urlValid) { toast.error("URLは https:// から入力してください"); return; }
+    if (targetTaskIds.length === 0) { toast.error("対象の作業がありません。作業やエリアを選んでください"); return; }
+    const title = linkTitle.trim() || undefined;
     setBusy(true);
     try {
-      // 選んだ人／班をそれぞれ対象作業へ割当 (bulkAssign は1割当ずつ。add* は重複挿入しない)
-      for (const a of assignees) {
-        const key = a.kind === "user" ? { userId: a.id as number }
-          : a.kind === "guest" ? { siteWorkerId: a.id as string }
-            : { teamId: a.id as string };
-        await bulk.mutateAsync({ taskIds: targetTaskIds, ...key, on: true });
+      for (const taskId of targetTaskIds) {
+        await addLink.mutateAsync({ taskId, url, title });
       }
-      utils.genba.board.get.invalidate({ siteId });
+      utils.genba.tasks.files.list.invalidate();
       utils.genba.tasks.listByZone.invalidate();
       utils.genba.tasks.listBySite.invalidate({ siteId });
-      toast.success(`${assignees.length}名／班 を ${targetTaskIds.length}件の作業へ配置しました`);
+      toast.success(`${targetTaskIds.length}件の作業に図面リンクを添付しました`);
       reset();
       onOpenChange(false);
     } catch (e: any) {
-      toast.error(e?.message || "配置に失敗しました");
+      toast.error(e?.message || "添付に失敗しました");
     } finally {
       setBusy(false);
     }
@@ -114,69 +105,34 @@ export default function BulkAssignPanel({
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader><DialogTitle>📥 まとめて配置</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>🔗 まとめて図面リンク添付</DialogTitle></DialogHeader>
         <p className="text-xs text-muted-foreground">
-          作業員（または班）を、複数のエリアへ一度に配置します。特定の作業だけを複数エリアへ配置することもできます。
+          図面・資料の共有リンクを、特定の作業（例: 強電作業）や複数エリアへ、1操作でまとめて添付します。作業員は各作業からワンタッチで開けます。
         </p>
 
         {isLoading ? (
           <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         ) : (
           <div className="space-y-4">
-            {/* ① 誰を */}
+            {/* ① リンク */}
             <section className="space-y-1.5">
-              <div className="text-sm font-bold flex items-center gap-1.5">
-                <Users className="h-4 w-4" /> ① 配置する人／班
-                <span className="text-[11px] font-normal text-muted-foreground">（複数選べます{assignees.length > 0 ? ` ・ ${assignees.length}名／班` : ""}）</span>
-                {assignees.length > 0 && (
-                  <button type="button" className="ml-auto text-xs text-[#005AFF] font-semibold" onClick={() => setAssignees([])}>全解除</button>
-                )}
-              </div>
-              <div className="max-h-40 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
-                {roster.map((r) => {
-                  const isUser = r.userId != null;
-                  const id = isUser ? r.userId! : r.siteWorkerId;
-                  if (id == null) return null;
-                  const kind = isUser ? "user" as const : "guest" as const;
-                  const selected = isSel(kind, id);
-                  const badge = rosterKindLabel(r);
-                  return (
-                    <button key={`${kind}-${id}`} type="button"
-                      onClick={() => toggleAssignee({ kind, id, label: r.displayName })}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm ${selected ? "bg-gold/15" : "hover:bg-muted/50"}`}>
-                      <span className={`shrink-0 inline-flex h-4 w-4 items-center justify-center rounded border text-[10px] ${selected ? "bg-gold border-gold text-white" : "border-border text-transparent"}`}>✓</span>
-                      <span className="flex-1 truncate">{r.displayName}</span>
-                      <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${badge.cls}`}>{badge.label}</span>
-                    </button>
-                  );
-                })}
-                {teams.map((t) => {
-                  const selected = isSel("team", t.id);
-                  return (
-                    <button key={`team-${t.id}`} type="button"
-                      onClick={() => toggleAssignee({ kind: "team", id: t.id, label: t.name })}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm ${selected ? "bg-gold/15" : "hover:bg-muted/50"}`}>
-                      <span className={`shrink-0 inline-flex h-4 w-4 items-center justify-center rounded border text-[10px] ${selected ? "bg-gold border-gold text-white" : "border-border text-transparent"}`}>✓</span>
-                      <span className="flex-1 truncate">{t.name}</span>
-                      <span className="text-[9px] px-1 py-0.5 rounded border leading-none bg-[#005AFF]/10 text-[#005AFF] border-[#005AFF]/30">班</span>
-                    </button>
-                  );
-                })}
-                {roster.length === 0 && teams.length === 0 && <div className="p-3 text-xs text-muted-foreground">名簿・班がありません。</div>}
-              </div>
+              <div className="text-sm font-bold flex items-center gap-1.5"><Link2 className="h-4 w-4" /> ① 添付する図面リンク</div>
+              <Input value={linkTitle} onChange={(e) => setLinkTitle(e.target.value)} placeholder="表示名（任意・例: 強電 平面図）" className="h-9 text-sm" />
+              <Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://drive.google.com/..." className="h-9 text-sm" />
+              {url && !urlValid && <p className="text-[11px] text-destructive">URLは https:// から入力してください。</p>}
             </section>
 
-            {/* ② 何を */}
+            {/* ② 何に */}
             <section className="space-y-1.5">
-              <div className="text-sm font-bold flex items-center gap-1.5"><ListChecks className="h-4 w-4" /> ② 何を配置するか</div>
+              <div className="text-sm font-bold flex items-center gap-1.5"><ListChecks className="h-4 w-4" /> ② どの作業に付けるか</div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => setMode("all")}
-                  className={`px-3 py-1.5 rounded-lg text-sm border ${mode === "all" ? "bg-gold/10 text-gold border-gold/40 font-semibold" : "border-border text-muted-foreground"}`}>
-                  そのエリアの全作業
-                </button>
                 <button type="button" onClick={() => setMode("specific")}
                   className={`px-3 py-1.5 rounded-lg text-sm border ${mode === "specific" ? "bg-gold/10 text-gold border-gold/40 font-semibold" : "border-border text-muted-foreground"}`}>
                   特定の作業だけ
+                </button>
+                <button type="button" onClick={() => setMode("all")}
+                  className={`px-3 py-1.5 rounded-lg text-sm border ${mode === "all" ? "bg-gold/10 text-gold border-gold/40 font-semibold" : "border-border text-muted-foreground"}`}>
+                  そのエリアの全作業
                 </button>
               </div>
               {mode === "specific" && (
@@ -230,11 +186,10 @@ export default function BulkAssignPanel({
             {/* 適用 */}
             <div className="sticky bottom-0 bg-background pt-2 border-t border-border/60 flex items-center gap-2">
               <span className="text-xs text-muted-foreground flex-1">
-                {assignees.length > 0 ? <strong className="text-foreground">{assignees.length === 1 ? assignees[0].label : `${assignees.length}名／班`}</strong> : "未選択"}
-                {" を "}<strong className="text-foreground">{targetTaskIds.length}</strong>{" 件の作業へ配置"}
+                図面リンクを <strong className="text-foreground">{targetTaskIds.length}</strong> 件の作業へ添付
               </span>
-              <Button onClick={apply} disabled={busy || assignees.length === 0 || targetTaskIds.length === 0}>
-                {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}配置する
+              <Button onClick={apply} disabled={busy || !url || !urlValid || targetTaskIds.length === 0}>
+                {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}添付する
               </Button>
             </div>
           </div>

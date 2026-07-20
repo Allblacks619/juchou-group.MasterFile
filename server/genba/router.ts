@@ -1879,11 +1879,21 @@ const budgetsRouter = router({
     if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
     const budget = await genbaDb.getGenbaBudget(input.siteId);
     if (!budget || !budget.enabled) {
-      return { enabled: false as const, source: budget?.attendanceSource ?? "manual", attendanceManDays: 0, calc: null, budget };
+      return { enabled: false as const, source: budget?.attendanceSource ?? "manual", attendanceManDays: 0, calc: null, budget, effectivePeriodStart: null, effectivePeriodEnd: null, periodFromProject: false };
     }
+    // 連携案件の工期を工期のフォールバックに使う (予算側の工期が未入力でも「連携」で逆算できるように)。
+    // 出面(project集計)も同じ実効工期で集計する。
+    let projStart: string | null = null, projEnd: string | null = null;
+    if (site.projectId) {
+      const p = await genbaDb.getProjectPeriod(site.projectId);
+      if (p) { projStart = toYmd(p.startDate); projEnd = toYmd(p.endDate); }
+    }
+    const effStart = budget.periodStart || projStart;
+    const effEnd = budget.periodEnd || projEnd;
+    const periodFromProject = (!budget.periodStart && !!projStart) || (!budget.periodEnd && !!projEnd);
     const useProject = budget.attendanceSource === "project" && !!site.projectId;
     const attendanceManDays = useProject
-      ? await genbaDb.sumProjectAttendanceManDays(site.projectId!, budget.periodStart, budget.periodEnd)
+      ? await genbaDb.sumProjectAttendanceManDays(site.projectId!, effStart, effEnd)
       : await genbaDb.sumManualBudgetManDays(input.siteId);
     const calc = computeBudget({
       contractAmount: budget.contractAmount,
@@ -1891,13 +1901,13 @@ const budgetsRouter = router({
       targetValue: budget.targetValue,
       costPerManDay: budget.costPerManDay,
       monthlyExpense: budget.monthlyExpense,
-      periodStart: budget.periodStart,
-      periodEnd: budget.periodEnd,
+      periodStart: effStart,
+      periodEnd: effEnd,
       preManDays: budget.preManDays,
       attendanceManDays,
       now: new Date(),
     });
-    return { enabled: true as const, source: useProject ? "project" as const : "manual" as const, attendanceManDays, calc, budget };
+    return { enabled: true as const, source: useProject ? "project" as const : "manual" as const, attendanceManDays, calc, budget, effectivePeriodStart: effStart, effectivePeriodEnd: effEnd, periodFromProject };
   }),
 });
 
@@ -2169,6 +2179,28 @@ const workerLinksRouter = router({
       const worker = await genbaDb.getGenbaSiteWorkerById(existing.siteWorkerId);
       await genbaDb.deleteGenbaWorkerLink(input.id);
       await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.remove", { entityId: input.id, note: `作業員リンクを削除: ${worker?.displayName ?? existing.siteWorkerId}` });
+      return { success: true as const };
+    }),
+
+  /**
+   * 名簿から不要なゲスト作業員を削除 (field=leader+)。名簿行 + 専用リンク + 全作業への割当をまとめて消す。
+   * 登録アカウント(kind=user)は出面表(attendance)から自動取り込みされるため、ここでは削除不可
+   * (削除しても次回同期で復活する)。ゲストのみ対象。
+   */
+  deleteWorker: genbaStaffFieldProcedure
+    .input(z.object({ siteWorkerId: genbaIdSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const worker = await genbaDb.getGenbaSiteWorkerById(input.siteWorkerId);
+      if (!worker) throw new TRPCError({ code: "NOT_FOUND", message: "作業員が名簿に見つかりません" });
+      if (worker.kind !== "guest") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "登録作業員は出面表から自動取り込みされるため、ここでは削除できません（ゲストのみ削除可）" });
+      }
+      // 割当 → 専用リンク → 名簿行 の順で後始末
+      await genbaDb.deleteGuestAssigneesBySiteWorker(input.siteWorkerId);
+      const link = await genbaDb.getGenbaWorkerLinkBySiteWorker(input.siteWorkerId);
+      if (link) await genbaDb.deleteGenbaWorkerLink(link.id);
+      await genbaDb.deleteGenbaSiteWorker(input.siteWorkerId);
+      await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.deleteWorker", { entityId: input.siteWorkerId, note: `名簿からゲストを削除: ${worker.displayName}` });
       return { success: true as const };
     }),
 });

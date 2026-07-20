@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Copy, RefreshCw, Ban, CircleCheck, Trash2, Link as LinkIcon, Pencil } from "lucide-react";
+import { Copy, RefreshCw, Ban, CircleCheck, Trash2, Link as LinkIcon, Pencil, UserX } from "lucide-react";
 import { rosterKindLabel, type RosterEntry } from "./AssignPicker";
 
 type LinkRow = {
@@ -63,6 +63,13 @@ export default function WorkerLinksPanel({
     const v = window.prompt("ゲストの表示名を修正", current);
     if (v && v.trim() && v.trim() !== current) renameWorker.mutate({ siteWorkerId, displayName: v.trim() });
   };
+  const deleteWorker = trpc.genba.workerLinks.deleteWorker.useMutation({
+    onSuccess: () => { utils.genba.users.siteRoster.invalidate({ siteId }); invalidate(); toast.success("名簿から削除しました"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const promptDeleteWorker = (siteWorkerId: string, name: string) => {
+    if (window.confirm(`${name} を名簿から完全に削除しますか？\n（専用リンクと、この作業員の全作業への割当も一緒に消えます）`)) deleteWorker.mutate({ siteWorkerId });
+  };
 
   const roster = (rosterData?.roster || []) as RosterEntry[];
   const linked = rosterData?.linked ?? false;
@@ -111,6 +118,11 @@ export default function WorkerLinksPanel({
                   {l.kind === "guest" && (
                     <button title="ゲスト名を修正" className="text-muted-foreground hover:text-foreground" onClick={() => promptRename(l.siteWorkerId, l.displayName)}>
                       <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
+                  {l.kind === "guest" && (
+                    <button title="名簿から完全に削除（リンク・割当も消去）" className="text-muted-foreground hover:text-destructive" onClick={() => promptDeleteWorker(l.siteWorkerId, l.displayName)}>
+                      <UserX className="h-3.5 w-3.5" />
                     </button>
                   )}
                   <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${kind.cls}`}>{kind.label}</span>
@@ -172,6 +184,11 @@ export default function WorkerLinksPanel({
                 {r.kind === "guest" && r.siteWorkerId && (
                   <button title="ゲスト名を修正" className="text-muted-foreground hover:text-foreground" onClick={() => promptRename(r.siteWorkerId as string, r.displayName)}>
                     <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+                {r.kind === "guest" && r.siteWorkerId && (
+                  <button title="名簿から完全に削除（割当も消去）" className="text-muted-foreground hover:text-destructive" onClick={() => promptDeleteWorker(r.siteWorkerId as string, r.displayName)}>
+                    <UserX className="h-3.5 w-3.5" />
                   </button>
                 )}
                 <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${kind.cls}`}>{kind.label}</span>

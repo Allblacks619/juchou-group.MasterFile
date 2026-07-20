@@ -1150,6 +1150,20 @@ export async function removeGuestAssignee(taskId: string, siteWorkerId: string):
   await db.delete(genbaGuestAssignees).where(and(eq(genbaGuestAssignees.taskId, taskId), eq(genbaGuestAssignees.siteWorkerId, siteWorkerId)));
 }
 
+/** 名簿削除に伴い、その作業員(ゲスト)の全作業への割当をまとめて解除する */
+export async function deleteGuestAssigneesBySiteWorker(siteWorkerId: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaGuestAssignees).where(eq(genbaGuestAssignees.siteWorkerId, siteWorkerId));
+}
+
+/** 名簿(現場作業員)の行を削除する。呼び出し側で割当・リンクの後始末を済ませておくこと */
+export async function deleteGenbaSiteWorker(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(genbaSiteWorkers).where(eq(genbaSiteWorkers.id, id));
+}
+
 // ── genba_worker_links (G2 作業員専用リンク) ──
 
 export async function getGenbaWorkerLinkById(id: string): Promise<GenbaWorkerLink | null> {

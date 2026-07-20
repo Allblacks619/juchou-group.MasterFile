@@ -2,11 +2,12 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { UserPlus } from "lucide-react";
+import { UserPlus, Link2 } from "lucide-react";
 import { STATUS, PRIORITY } from "@/lib/genbaMap";
 import { colorForKey } from "@/lib/genbaTeamColor";
 import { dispName } from "@/lib/genbaRomaji";
 import BulkAssignPanel from "./BulkAssignPanel";
+import BulkLinkPanel from "./BulkLinkPanel";
 
 /** 配置ボード (プロトタイプ BoardTab 移植): 現在の割当から人別/エリア別を自動生成 (毎日の入力不要) */
 export default function BoardPanel({
@@ -23,6 +24,7 @@ export default function BoardPanel({
   const active = embedded || !!open;
   const [view, setView] = useState<"people" | "zone">("people");
   const [showBulk, setShowBulk] = useState(false);
+  const [showBulkLink, setShowBulkLink] = useState(false);
   const { data: board } = trpc.genba.board.get.useQuery({ siteId }, { enabled: active, retry: false });
   const { data: teams } = trpc.genba.teams.listBySite.useQuery({ siteId }, { enabled: active, retry: false });
   const { data: users } = trpc.genba.users.listAssignable.useQuery(undefined, { enabled: active, retry: false });
@@ -44,12 +46,18 @@ export default function BoardPanel({
           <button onClick={() => setView("people")} className={`px-3 py-1.5 rounded-lg text-sm border ${view === "people" ? "bg-gold/10 text-gold border-gold/40" : "border-border text-muted-foreground"}`}>👷 人別</button>
           <button onClick={() => setView("zone")} className={`px-3 py-1.5 rounded-lg text-sm border ${view === "zone" ? "bg-gold/10 text-gold border-gold/40" : "border-border text-muted-foreground"}`}>🗺 エリア別</button>
           {canEdit && (
-            <Button size="sm" className="ml-auto" onClick={() => setShowBulk(true)}>
-              <UserPlus className="h-4 w-4 mr-1" /> まとめて配置
-            </Button>
+            <div className="ml-auto flex gap-1.5">
+              <Button size="sm" variant="outline" onClick={() => setShowBulkLink(true)}>
+                <Link2 className="h-4 w-4 mr-1" /> まとめて図面リンク
+              </Button>
+              <Button size="sm" onClick={() => setShowBulk(true)}>
+                <UserPlus className="h-4 w-4 mr-1" /> まとめて配置
+              </Button>
+            </div>
           )}
         </div>
         {canEdit && showBulk && <BulkAssignPanel siteId={siteId} open={showBulk} onOpenChange={setShowBulk} />}
+        {canEdit && showBulkLink && <BulkLinkPanel siteId={siteId} open={showBulkLink} onOpenChange={setShowBulkLink} />}
         <p className="text-xs text-muted-foreground">現在の割り当てから自動生成されます（毎日の入力は不要）。完了・親作業は除外。</p>
 
         {view === "people" ? (
