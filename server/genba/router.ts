@@ -266,6 +266,11 @@ const sitesRouter = router({
     return genbaDb.listGenbaSites();
   }),
 
+  /** アーカイブ済み(削除された)現場の一覧。復元用 (admin のみ・リンク不可)。データは消えていない */
+  listArchived: genbaAdminProcedure.query(async () => {
+    return genbaDb.listGenbaSitesArchived();
+  }),
+
   create: genbaStaffFieldProcedure
     .input(z.object({
       /** プロトタイプ互換のクライアント生成uid。省略時はサーバー生成 */

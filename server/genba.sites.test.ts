@@ -5,6 +5,7 @@ import type { User } from "../drizzle/schema";
 
 const mockGenbaDb = vi.hoisted(() => ({
   listGenbaSites: vi.fn(),
+  listGenbaSitesArchived: vi.fn(),
   getGenbaSiteById: vi.fn(),
   createGenbaSite: vi.fn(),
   updateGenbaSite: vi.fn(),
@@ -169,6 +170,23 @@ describe("genba.sites", () => {
       const adminCaller = appRouter.createCaller(ctx(createUser({ appRole: "admin" as any, role: "admin" })));
       const result = await adminCaller.genba.sites.archive({ id: BETA_SITE.id, archived: true });
       expect(result?.archived).toBe(true);
+    });
+
+    it("listArchived は admin のみ。削除(archived=false)で復元できる", async () => {
+      const managerCaller = appRouter.createCaller(ctx(createUser({ appRole: "manager" as any })));
+      await expect(managerCaller.genba.sites.listArchived()).rejects.toThrow("管理者権限が必要です");
+
+      const adminCaller = appRouter.createCaller(ctx(createUser({ appRole: "admin" as any, role: "admin" })));
+      mockGenbaDb.listGenbaSitesArchived.mockResolvedValue([{ ...BETA_SITE, archived: true }]);
+      const list = await adminCaller.genba.sites.listArchived();
+      expect(list).toHaveLength(1);
+      expect(mockGenbaDb.listGenbaSitesArchived).toHaveBeenCalledOnce();
+
+      // 復元 = archive(archived:false)
+      mockGenbaDb.getGenbaSiteById.mockResolvedValue({ ...BETA_SITE, archived: true });
+      mockGenbaDb.updateGenbaSite.mockResolvedValue({ ...BETA_SITE, archived: false });
+      const restored = await adminCaller.genba.sites.archive({ id: BETA_SITE.id, archived: false });
+      expect(restored?.archived).toBe(false);
     });
 
     it("未ログインは UNAUTHORIZED", async () => {
