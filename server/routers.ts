@@ -9,6 +9,14 @@ import { createHash, randomBytes } from "node:crypto";
 import * as db from "./db";
 import { parseDateString, parseDateRange } from "./dateHelpers";
 import { isWorkedType, extractDateKey, workedDayValueTimes10 } from "@shared/attendanceStatus";
+import {
+  PERMISSION_AREA_KEYS,
+  parsePermissionOverrides,
+  resolveAreaPermission,
+  resolveAllAreaPermissions,
+  type PermissionArea,
+  type PermissionOverrides,
+} from "@shared/permissionAreas";
 import { storageGet, storagePut } from "./storage";
 import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "../shared/uploadValidation";
 import * as schema from "../drizzle/schema";
@@ -1756,10 +1764,16 @@ export const appRouter = router({
       const employees = await db.getAllEmployees(ctx.companyId);
       const users = await db.getAllUsers(ctx.companyId);
       const roleByUserId = new Map<number, string>(users.map((u: any) => [u.id, u.appRole]));
+      const overridesByUserId = new Map<number, unknown>(users.map((u: any) => [u.id, u.permissionOverrides]));
       // アカウント未連携（userId が無い / 対応ユーザーが見つからない）の従業員は appRole を null で返す
       return employees.map((emp: any) => ({
         ...emp,
         appRole: emp.userId != null ? roleByUserId.get(emp.userId) ?? null : null,
+        // 個人別 表示/ブロック設定。未連携は null、連携済みで未設定なら {}
+        permissionOverrides:
+          emp.userId != null && overridesByUserId.has(emp.userId)
+            ? parsePermissionOverrides(overridesByUserId.get(emp.userId))
+            : null,
       }));
     }),
 
@@ -6447,6 +6461,52 @@ export const appRouter = router({
       const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
       return { url };
     }),
+  }),
+
+  /**
+   * 個人別 表示/ブロック設定（エリア別権限オーバーライド）。
+   * - my: ログインユーザー自身のエリア別実効権限（ナビ・ルートガード用、全ログインユーザー可）。
+   * - setOverrides: 対象ユーザーの表示/ブロックを保存（管理者のみ、super_admin/admin は対象外）。
+   * ※ クライアント実装のための最小サーバー実装。詳細な権限プロシージャ連携は親セッションの実装に置き換わる想定。
+   */
+  permission: router({
+    my: protectedProcedure.query(({ ctx }) => {
+      const role = (ctx.user as any).appRole || ctx.user.role || "worker";
+      return {
+        role: String(role),
+        areas: resolveAllAreaPermissions(ctx.user as any),
+      };
+    }),
+    setOverrides: adminProcedure
+      .input(
+        z.object({
+          userId: z.number(),
+          overrides: z.record(
+            z.enum(PERMISSION_AREA_KEYS as [PermissionArea, ...PermissionArea[]]),
+            z.enum(["allow", "deny", "default"]),
+          ),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+        const [target] = await dbInstance.select().from(schema.users).where(eq(schema.users.id, input.userId));
+        if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "ユーザーが見つかりません" });
+        // super_admin / admin は設定する側のため対象にできない
+        if (target.appRole === "super_admin" || target.appRole === "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "管理者の表示設定は変更できません" });
+        }
+        // default はキー削除、allow/deny のみ保存。空なら null にする
+        const merged: Record<string, "allow" | "deny"> = {};
+        for (const area of PERMISSION_AREA_KEYS) {
+          const value = input.overrides[area];
+          if (value === "allow" || value === "deny") merged[area] = value;
+        }
+        const json = Object.keys(merged).length ? JSON.stringify(merged) : null;
+        await dbInstance.update(schema.users).set({ permissionOverrides: json }).where(eq(schema.users.id, input.userId));
+        await safeAuditLog(ctx.user.id, "permission.setOverrides", "user", { entityId: input.userId, note: json ?? "(クリア)" });
+        return { success: true };
+      }),
   }),
 });
 
