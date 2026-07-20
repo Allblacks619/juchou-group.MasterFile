@@ -235,7 +235,7 @@ export async function createGenbaTasksBulk(rows: InsertGenbaTask[]): Promise<voi
 
 export async function updateGenbaTask(
   id: string,
-  patch: Partial<Pick<InsertGenbaTask, "name" | "romaji" | "status" | "percent" | "priority" | "issueText" | "startDate" | "dueDate" | "memo" | "memoVisible" | "linkUrl" | "sortOrder">>,
+  patch: Partial<Pick<InsertGenbaTask, "name" | "romaji" | "status" | "percent" | "priority" | "issueText" | "startDate" | "dueDate" | "memo" | "memoVisible" | "linkUrl" | "sortOrder" | "parentTaskId">>,
 ): Promise<GenbaTask | null> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

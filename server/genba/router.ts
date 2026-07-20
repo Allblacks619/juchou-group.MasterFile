@@ -876,6 +876,41 @@ const tasksRouter = router({
     }),
 
   /**
+   * 作業の移動 (親付け替え): 同じエリア内で parentTaskId を変更する。
+   * parentTaskId=null でトップ(親なし)へ。循環(自分自身・自分の子孫を親に)は拒否。
+   */
+  move: genbaFieldProcedure
+    .input(z.object({ id: genbaIdSchema, parentTaskId: genbaIdSchema.nullish() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await genbaDb.getGenbaTaskById(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      await assertLinkTaskScope(ctx, existing);
+      const newParentId = input.parentTaskId ?? null;
+      if (newParentId === existing.id) throw new TRPCError({ code: "BAD_REQUEST", message: "自分自身の下には移動できません" });
+
+      const zoneTasks = await genbaDb.listGenbaTasksByZone(existing.zoneId);
+      let sortOrder = 0;
+      if (newParentId) {
+        const parent = zoneTasks.find((t) => t.id === newParentId);
+        if (!parent) throw new TRPCError({ code: "BAD_REQUEST", message: "移動先の作業が同じエリアに見つかりません" });
+        // 循環防止: 移動先が自分の子孫でないことを確認
+        const childrenOf = new Map<string, string[]>();
+        for (const t of zoneTasks) { if (t.parentTaskId) { const a = childrenOf.get(t.parentTaskId) || []; a.push(t.id); childrenOf.set(t.parentTaskId, a); } }
+        const descendants = new Set<string>();
+        const stack = [existing.id];
+        while (stack.length) { for (const c of childrenOf.get(stack.pop()!) || []) { if (!descendants.has(c)) { descendants.add(c); stack.push(c); } } }
+        if (descendants.has(newParentId)) throw new TRPCError({ code: "BAD_REQUEST", message: "自分の下の作業には移動できません" });
+      }
+      // 移動先の末尾に置く (兄弟の最大 sortOrder + 1)
+      const siblings = zoneTasks.filter((t) => (t.parentTaskId ?? null) === newParentId && t.id !== existing.id);
+      sortOrder = siblings.reduce((m, t) => Math.max(m, t.sortOrder), -1) + 1;
+
+      const task = await genbaDb.updateGenbaTask(input.id, { parentTaskId: newParentId, sortOrder });
+      await safeGenbaAuditLog(uid(ctx), "genba.tasks.move", { entityId: input.id, note: `作業を移動: ${existing.name}` });
+      return task;
+    }),
+
+  /**
    * 現場入力: ステータス変更 (worker も可)。
    * 問題報告時は写真を base64 で受け R2 保存し、履歴イベント(task_events)に記録する。
    */

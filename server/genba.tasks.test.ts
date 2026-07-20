@@ -95,6 +95,48 @@ describe("genba.tasks", () => {
     await expect(worker().genba.tasks.create({ zoneId: ZONE.id, name: "x" })).rejects.toThrow("現場編集権限がありません");
   });
 
+  describe("move (親付け替え)", () => {
+    const PARENT = { ...TASK, id: "Genba_Beta_Task_parent", name: "配管(メイン)", parentTaskId: null, sortOrder: 2 };
+    const CHILD = { ...TASK, id: "Genba_Beta_Task_child", name: "ダクター", parentTaskId: PARENT.id, sortOrder: 0 };
+    const LONE = { ...TASK, id: "Genba_Beta_Task_lone", name: "配管", parentTaskId: null, sortOrder: 5 };
+
+    it("leader は作業を別のメイン作業の下へ移動できる (兄弟末尾へ)", async () => {
+      mockGenbaDb.getGenbaTaskById.mockResolvedValue(LONE);
+      mockGenbaDb.listGenbaTasksByZone.mockResolvedValue([PARENT, CHILD, LONE]);
+      mockGenbaDb.updateGenbaTask.mockImplementation(async (_id: string, patch: any) => ({ ...LONE, ...patch }));
+      const res = await leader().genba.tasks.move({ id: LONE.id, parentTaskId: PARENT.id });
+      expect(mockGenbaDb.updateGenbaTask).toHaveBeenCalledWith(LONE.id, { parentTaskId: PARENT.id, sortOrder: 1 });
+      expect(res?.parentTaskId).toBe(PARENT.id);
+    });
+
+    it("トップ(親なし)へ戻せる", async () => {
+      mockGenbaDb.getGenbaTaskById.mockResolvedValue(CHILD);
+      mockGenbaDb.listGenbaTasksByZone.mockResolvedValue([PARENT, CHILD, LONE]);
+      mockGenbaDb.updateGenbaTask.mockImplementation(async (_id: string, patch: any) => ({ ...CHILD, ...patch }));
+      const res = await leader().genba.tasks.move({ id: CHILD.id, parentTaskId: null });
+      expect(res?.parentTaskId).toBeNull();
+    });
+
+    it("自分自身の下へは移動不可", async () => {
+      mockGenbaDb.getGenbaTaskById.mockResolvedValue(PARENT);
+      mockGenbaDb.listGenbaTasksByZone.mockResolvedValue([PARENT, CHILD, LONE]);
+      await expect(leader().genba.tasks.move({ id: PARENT.id, parentTaskId: PARENT.id })).rejects.toThrow("自分自身");
+      expect(mockGenbaDb.updateGenbaTask).not.toHaveBeenCalled();
+    });
+
+    it("自分の子孫の下へは移動不可 (循環防止)", async () => {
+      mockGenbaDb.getGenbaTaskById.mockResolvedValue(PARENT);
+      mockGenbaDb.listGenbaTasksByZone.mockResolvedValue([PARENT, CHILD, LONE]);
+      await expect(leader().genba.tasks.move({ id: PARENT.id, parentTaskId: CHILD.id })).rejects.toThrow("自分の下");
+      expect(mockGenbaDb.updateGenbaTask).not.toHaveBeenCalled();
+    });
+
+    it("worker は 403", async () => {
+      mockGenbaDb.getGenbaTaskById.mockResolvedValue(LONE);
+      await expect(worker().genba.tasks.move({ id: LONE.id, parentTaskId: PARENT.id })).rejects.toThrow("現場編集権限がありません");
+    });
+  });
+
   describe("setStatus (worker も可 = 現場入力)", () => {
     beforeEach(() => {
       mockGenbaDb.getGenbaTaskById.mockResolvedValue(TASK);
