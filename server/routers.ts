@@ -34,6 +34,7 @@ import { buildWorkerWorkReport } from "./workReport";
 import { computeAdvanceBalance, computeAppliedOffset, computeMaxOffset, signedDelta } from "./workerAdvance";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 import { genbaRouter } from "./genba/router";
+import { connectRouter } from "./connect/router";
 
 const BCRYPT_ROUNDS = 12;
 const RESET_LINK_TTL_MS = 60 * 60 * 1000;
@@ -1244,6 +1245,7 @@ export const appRouter = router({
    * GENBA_ENABLED=false で全手続きが FORBIDDEN を返す。
    */
   genba: genbaRouter,
+  connect: connectRouter,
 
   /**
    * Beta test fixture (固定Betaセット) — super_admin only. Creates/resets the fixed Beta set
