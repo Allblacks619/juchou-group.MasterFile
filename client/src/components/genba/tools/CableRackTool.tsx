@@ -70,7 +70,7 @@ const toInput = (r: RouteState): CableRackRouteInput => ({
 });
 
 export default function CableRackTool() {
-  const [routes, setRoutes] = useState<RouteState[]>([newRoute()]);
+  const [routes, setRoutes] = useState<RouteState[]>(() => [newRoute()]);
 
   const inputs = useMemo(() => routes.map(toInput), [routes]);
   const routeResults = useMemo(() => inputs.map(calcCableRackRoute), [inputs]);
