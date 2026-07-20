@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { Loader2, FileDown, History, FileText } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { isManagerLikeAppRole } from "@/lib/appRoles";
 import { useAppLang } from "@/contexts/AppLanguageContext";
 import { usePdfViewer } from "@/components/PdfViewer";
 
@@ -35,9 +36,9 @@ export default function AppConfirmationPdf() {
 
   const closingMonth = buildMonthString(selectedYear, selectedMonth);
 
-  // Get employees list (for managers)
+  // Get employees list (for managers)。worker では leaderOrAdmin ガードで毎回403になるため発火させない
   const employeesQuery = trpc.employee.list.useQuery(undefined, {
-    enabled: !!user,
+    enabled: !!user && isManagerLikeAppRole((user as any)?.appRole),
   });
 
   // Get current user's employee info

@@ -735,6 +735,13 @@ export async function getQualificationsByEmployee(employeeId: number) {
   return db.select().from(qualifications).where(eq(qualifications.employeeId, employeeId));
 }
 
+export async function getQualificationById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(qualifications).where(eq(qualifications.id, id)).limit(1);
+  return rows[0];
+}
+
 export async function createQualification(data: InsertQualification) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

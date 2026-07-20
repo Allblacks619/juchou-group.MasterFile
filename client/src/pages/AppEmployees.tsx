@@ -30,6 +30,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
+import {
   Plus,
   Search,
   User,
@@ -44,6 +54,41 @@ import {
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
+type AppRoleValue = "super_admin" | "admin" | "manager" | "worker" | "guest";
+
+// ロール表示のメタ情報。色分けは super_admin=金 / admin=赤 / manager=紫 / worker=灰 / guest=青。
+const ROLE_META: Record<AppRoleValue, { label: string; badgeClass: string }> = {
+  super_admin: { label: "統括管理者", badgeClass: "bg-gold/20 text-gold border-gold/40" },
+  admin: { label: "管理者", badgeClass: "bg-red-500/15 text-red-400 border-red-500/30" },
+  manager: { label: "責任者", badgeClass: "bg-purple-500/15 text-purple-300 border-purple-500/30" },
+  worker: { label: "作業員", badgeClass: "bg-muted text-muted-foreground border-border" },
+  guest: { label: "ゲスト", badgeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
+};
+
+// 個別変更で割当可能なロール。一括変更エンドポイントと同じ制約で super_admin は含めない
+// （super_admin への昇格はサーバ側で拒否、既存 super_admin の変更はスキップされる）。
+const ASSIGNABLE_ROLES: AppRoleValue[] = ["admin", "manager", "worker", "guest"];
+// このロールを付与すると財務など管理機能が閲覧可能になる（誤付与警告用）。
+const FINANCE_VISIBLE_ROLES: AppRoleValue[] = ["admin", "manager"];
+
+/** 保存されている appRole を表示用に正規化。未連携は null。
+ * 旧 "leader" はサーバー側 normalizeAppRole で worker 扱いになるため、実効権限どおり作業員として表示する。 */
+function normalizeRole(role: string | null | undefined): AppRoleValue | null {
+  if (!role) return null;
+  if (role === "leader") return "worker";
+  if (role === "super_admin" || role === "admin" || role === "manager" || role === "worker" || role === "guest") return role;
+  return "worker";
+}
+
+function RoleBadge({ role }: { role: string | null | undefined }) {
+  const normalized = normalizeRole(role);
+  if (!normalized) {
+    return <Badge variant="outline" className="border-dashed text-muted-foreground">未連携</Badge>;
+  }
+  const meta = ROLE_META[normalized];
+  return <Badge variant="outline" className={meta.badgeClass}>{meta.label}</Badge>;
+}
+
 export default function AppEmployees() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
@@ -57,6 +102,10 @@ export default function AppEmployees() {
   const employeesQuery = trpc.employee.list.useQuery();
   const meQuery = trpc.auth.me.useQuery();
   const isSuperAdmin = (meQuery.data as any)?.appRole === "super_admin";
+  const myUserId = (meQuery.data as any)?.id as number | undefined;
+
+  type EmployeeRow = NonNullable<typeof employeesQuery.data>[number];
+  const [pendingRoleChange, setPendingRoleChange] = useState<{ emp: EmployeeRow; newRole: AppRoleValue } | null>(null);
 
   const filtered = useMemo(() => {
     return (employeesQuery.data || []).filter((emp) => {
@@ -133,8 +182,23 @@ export default function AppEmployees() {
   const isPending = generateRosterList.isPending || generateRosterMulti.isPending;
 
   const bulkRoleMutation = trpc.superAdmin.bulkChangeRoles.useMutation({
-    onSuccess: () => toast.success("ロールを一括変更しました"),
+    onSuccess: () => {
+      toast.success("ロールを一括変更しました");
+      employeesQuery.refetch();
+    },
     onError: (e) => toast.error(`一括変更エラー: ${e.message}`),
+  });
+  // 個別のロール変更は一括変更エンドポイントを1人分だけ呼ぶ（制約・ガードは共通）。
+  const roleChangeMutation = trpc.superAdmin.bulkChangeRoles.useMutation({
+    onSuccess: () => {
+      toast.success("権限を変更しました");
+      employeesQuery.refetch();
+      setPendingRoleChange(null);
+    },
+    onError: (e) => {
+      toast.error(`変更エラー: ${e.message}`);
+      setPendingRoleChange(null);
+    },
   });
   const bulkDeleteMutation = trpc.superAdmin.bulkDeleteEmployees.useMutation({
     onSuccess: () => {
@@ -160,6 +224,31 @@ export default function AppEmployees() {
     if (!ids.length) return toast.error("対象を選択してください");
     bulkDeleteMutation.mutate({ employeeIds: ids, confirmText: confirmDeleteText });
   };
+
+  // 個別ロール変更: 確認ダイアログを開く（実行は confirmRoleChange）。
+  const requestRoleChange = (emp: EmployeeRow, newRole: AppRoleValue) => {
+    if (!isSuperAdmin || typeof emp.userId !== "number") return;
+    if (normalizeRole(emp.appRole) === newRole) return;
+    setPendingRoleChange({ emp, newRole });
+  };
+
+  const confirmRoleChange = () => {
+    if (!pendingRoleChange) return;
+    const { emp, newRole } = pendingRoleChange;
+    if (typeof emp.userId !== "number") return setPendingRoleChange(null);
+    roleChangeMutation.mutate({ userIds: [emp.userId], appRole: newRole });
+  };
+
+  // 選択中の従業員の現在ロール内訳（一括変更の誤操作防止用）。
+  const selectedRoleSummary = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const emp of employeesQuery.data || []) {
+      if (!selectedIds.has(emp.id)) continue;
+      const key = normalizeRole(emp.appRole) ?? "未連携";
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return Array.from(counts.entries());
+  }, [employeesQuery.data, selectedIds]);
 
   return (
     <div className="space-y-6">
@@ -242,17 +331,35 @@ export default function AppEmployees() {
 
       {/* Selection info bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 bg-gold/10 border border-gold/20 rounded-md px-4 py-2">
-          <CheckSquare className="h-4 w-4 text-gold" />
-          <span className="text-sm font-medium">{selectedIds.size}名選択中</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs"
-            onClick={() => setSelectedIds(new Set())}
-          >
-            選択解除
-          </Button>
+        <div className="bg-gold/10 border border-gold/20 rounded-md px-4 py-2 space-y-1.5">
+          <div className="flex items-center gap-3 flex-wrap">
+            <CheckSquare className="h-4 w-4 text-gold" />
+            <span className="text-sm font-medium">{selectedIds.size}名選択中</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              選択解除
+            </Button>
+          </div>
+          {isSuperAdmin && (
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-muted-foreground">選択中の権限:</span>
+              {selectedRoleSummary.map(([role, count]) => (
+                <span key={role} className="inline-flex items-center gap-1">
+                  <RoleBadge role={role === "未連携" ? null : role} />
+                  <span className="text-muted-foreground">×{count}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {isSuperAdmin && FINANCE_VISIBLE_ROLES.includes(bulkRole) && (
+            <p className="text-xs text-amber-500">
+              ※「{ROLE_META[bulkRole].label}」は財務など管理機能が閲覧可能になります。一括変更の対象を確認してください。
+            </p>
+          )}
         </div>
       )}
 
@@ -292,6 +399,7 @@ export default function AppEmployees() {
                     />
                   </TableHead>
                   <TableHead>氏名</TableHead>
+                  <TableHead>権限</TableHead>
                   <TableHead>フリガナ</TableHead>
                   <TableHead>国籍</TableHead>
                   <TableHead>電話番号</TableHead>
@@ -315,6 +423,25 @@ export default function AppEmployees() {
                       onClick={() => setLocation(`/app/employees/${emp.id}`)}
                     >
                       {emp.nameKanji}
+                    </TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      {isSuperAdmin && emp.userId != null && normalizeRole(emp.appRole) !== "super_admin" ? (
+                        <Select
+                          value={normalizeRole(emp.appRole) ?? "worker"}
+                          onValueChange={(v) => requestRoleChange(emp, v as AppRoleValue)}
+                        >
+                          <SelectTrigger className="h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus:ring-0 [&>svg]:opacity-60">
+                            <RoleBadge role={emp.appRole} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ASSIGNABLE_ROLES.map((r) => (
+                              <SelectItem key={r} value={r}>{ROLE_META[r].label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <RoleBadge role={emp.appRole} />
+                      )}
                     </TableCell>
                     <TableCell
                       className="text-muted-foreground"
@@ -391,6 +518,50 @@ export default function AppEmployees() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 個別ロール変更 確認ダイアログ */}
+      <AlertDialog
+        open={!!pendingRoleChange}
+        onOpenChange={(open) => { if (!open) setPendingRoleChange(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>権限を変更しますか？</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                {pendingRoleChange && (
+                  <>
+                    <span className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-foreground">{pendingRoleChange.emp.nameKanji || "（氏名未設定）"}</span>
+                      <span>さんの権限を</span>
+                      <RoleBadge role={pendingRoleChange.emp.appRole} />
+                      <span>→</span>
+                      <RoleBadge role={pendingRoleChange.newRole} />
+                      <span>に変更します。</span>
+                    </span>
+                    {FINANCE_VISIBLE_ROLES.includes(pendingRoleChange.newRole) && (
+                      <span className="block text-amber-500">※ この権限では財務など管理機能が閲覧可能になります。</span>
+                    )}
+                    {pendingRoleChange.emp.userId === myUserId && (
+                      <span className="block text-destructive">※ これはあなた自身のアカウントです。権限を下げると操作できなくなる場合があります。</span>
+                    )}
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={roleChangeMutation.isPending}>キャンセル</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); confirmRoleChange(); }}
+              disabled={roleChangeMutation.isPending}
+            >
+              {roleChangeMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              変更する
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
