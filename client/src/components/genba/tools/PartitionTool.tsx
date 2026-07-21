@@ -13,6 +13,8 @@ import {
   type PartitionCard,
   type RenType,
 } from "@shared/genba/tools/partition";
+import { genbaTr, type GenbaLang } from "@shared/genba/i18n";
+import { romanize } from "@/lib/genbaRomaji";
 
 /** 器具カード1枚（UI状態: 数値は文字列で保持し計算時に数値化） */
 type CardInput = {
@@ -30,7 +32,11 @@ type CardInput = {
  * ボックス取付金物・ボックス探知マグネットを即時集計する。
  * データ・計算は shared/genba/tools/partition.ts。完全クライアント完結（サーバー通信なし）。
  */
-export default function PartitionTool() {
+export default function PartitionTool({ lang }: { lang: GenbaLang }) {
+  const t = (ja: string) => genbaTr(ja, lang);
+  // 材料名・型番はポルトガル語に訳さず日本語ローマ字表示（オーナー方針）
+  const mn = (name: string) => (lang === "pt" ? romanize(name) : name);
+
   const [pfEnabled, setPfEnabled] = useState(true);
   const [pf16Avg, setPf16Avg] = useState(String(PF_AVG_DEFAULT_M));
   const [pf22Avg, setPf22Avg] = useState(String(PF_AVG_DEFAULT_M));
@@ -73,76 +79,76 @@ export default function PartitionTool() {
       {/* 見出し */}
       <div className="flex items-center gap-2">
         <PanelsTopLeft className="w-5 h-5 text-muted-foreground" />
-        <h2 className="text-base font-bold">間仕切り 仕込み材 拾い出し</h2>
+        <h2 className="text-base font-bold">{t("間仕切り 仕込み材 拾い出し")}</h2>
       </div>
-      <p className="text-[11px] text-muted-foreground px-1 -mt-2">器具カードを追加すると必要材料を即時集計します</p>
+      <p className="text-[11px] text-muted-foreground px-1 -mt-2">{t("器具カードを追加すると必要材料を即時集計します")}</p>
 
       {/* STEP1: PF管の設定 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
         <div className="flex items-center">
-          <div className="text-xs font-bold text-muted-foreground">STEP 1　PF管の設定</div>
-          <ToggleButton on={pfEnabled} onLabel="PF計算 ON" offLabel="PF計算 OFF" onClick={() => setPfEnabled((v) => !v)} />
+          <div className="text-xs font-bold text-muted-foreground">{t("STEP 1　PF管の設定")}</div>
+          <ToggleButton on={pfEnabled} onLabel={t("PF計算 ON")} offLabel={t("PF計算 OFF")} onClick={() => setPfEnabled((v) => !v)} />
         </div>
         {pfEnabled ? (
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <AvgInput label="PF16 平均使用長" value={pf16Avg} onChange={setPf16Avg} />
-            <AvgInput label="PF22 平均使用長" value={pf22Avg} onChange={setPf22Avg} />
+            <AvgInput label={t("PF16 平均使用長")} value={pf16Avg} onChange={setPf16Avg} lang={lang} />
+            <AvgInput label={t("PF22 平均使用長")} value={pf22Avg} onChange={setPf22Avg} lang={lang} />
           </div>
         ) : (
-          <p className="mt-2 text-[11px] text-muted-foreground">PF管の使用長・巻数の集計を省略します（コネクタは集計されます）</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">{t("PF管の使用長・巻数の集計を省略します（コネクタは集計されます）")}</p>
         )}
       </div>
 
       {/* STEP2: 器具カード */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground">STEP 2　器具カード</div>
-        <div className="text-[11px] text-muted-foreground mt-0.5 mb-2">設置箇所ごとに種類・箇所数・立ち上げ本数を入力</div>
+        <div className="text-xs font-bold text-muted-foreground">{t("STEP 2　器具カード")}</div>
+        <div className="text-[11px] text-muted-foreground mt-0.5 mb-2">{t("設置箇所ごとに種類・箇所数・立ち上げ本数を入力")}</div>
         {cards.length === 0 && (
-          <p className="text-sm text-muted-foreground text-center py-4">「器具カードを追加」を押して入力を始めてください</p>
+          <p className="text-sm text-muted-foreground text-center py-4">{t("「器具カードを追加」を押して入力を始めてください")}</p>
         )}
         <div className="space-y-3">
           {cards.map((c, idx) => (
             <div key={c.id} className="rounded-xl border border-border bg-card/50 p-3">
               <div className="flex items-center mb-2">
-                <span className="text-sm font-bold">器具 {idx + 1}</span>
+                <span className="text-sm font-bold">{t("器具")} {idx + 1}</span>
                 <button
                   type="button"
                   onClick={() => removeCard(c.id)}
                   className="ml-auto rounded-lg p-1 text-muted-foreground hover:text-foreground"
-                  aria-label={`器具 ${idx + 1} を削除`}
+                  aria-label={`${t("器具")} ${idx + 1} ${t("削除")}`}
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[11px] font-bold text-muted-foreground mb-1">器具種類</label>
+                  <label className="block text-[11px] font-bold text-muted-foreground mb-1">{t("器具種類")}</label>
                   <select
                     value={c.type}
                     onChange={(e) => patchCard(c.id, { type: e.target.value as InstrumentType })}
                     className="w-full rounded-lg border border-border bg-card px-2 py-2 text-sm"
                   >
-                    {INSTRUMENT_TYPES.map((t) => (
-                      <option key={t} value={t}>{t}</option>
+                    {INSTRUMENT_TYPES.map((it) => (
+                      <option key={it} value={it}>{mn(it)}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-muted-foreground mb-1">塗代カバー</label>
+                  <label className="block text-[11px] font-bold text-muted-foreground mb-1">{mn("塗代カバー")}</label>
                   <select
                     value={c.ren}
                     onChange={(e) => patchCard(c.id, { ren: e.target.value as RenType })}
                     className="w-full rounded-lg border border-border bg-card px-2 py-2 text-sm"
                   >
                     {REN_TYPES.map((r) => (
-                      <option key={r} value={r}>{r}</option>
+                      <option key={r} value={r}>{mn(r)}</option>
                     ))}
                   </select>
                 </div>
-                <NumField label="箇所数" value={c.count} onChange={(v) => patchCard(c.id, { count: v })} />
+                <NumField label={t("箇所数")} value={c.count} onChange={(v) => patchCard(c.id, { count: v })} />
                 <div />
-                <NumField label="PF16 立ち上げ本数" value={c.pf16} onChange={(v) => patchCard(c.id, { pf16: v })} />
-                <NumField label="PF22 立ち上げ本数" value={c.pf22} onChange={(v) => patchCard(c.id, { pf22: v })} />
+                <NumField label={t("PF16 立ち上げ本数")} value={c.pf16} onChange={(v) => patchCard(c.id, { pf16: v })} />
+                <NumField label={t("PF22 立ち上げ本数")} value={c.pf22} onChange={(v) => patchCard(c.id, { pf22: v })} />
               </div>
             </div>
           ))}
@@ -153,7 +159,7 @@ export default function PartitionTool() {
           className="mt-3 w-full rounded-xl border border-dashed border-border bg-card/50 px-3 py-2.5 text-sm font-bold text-muted-foreground flex items-center justify-center gap-1.5"
         >
           <Plus className="w-4 h-4" />
-          器具カードを追加
+          {t("器具カードを追加")}
         </button>
       </div>
 
@@ -162,66 +168,66 @@ export default function PartitionTool() {
         <div className="flex items-center">
           <div className="flex items-center gap-1.5">
             <Magnet className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-bold">ボックス探知マグネット</span>
+            <span className="text-sm font-bold">{mn("ボックス探知マグネット")}</span>
           </div>
           <ToggleButton on={useMagnet} onLabel="ON" offLabel="OFF" onClick={() => setUseMagnet((v) => !v)} />
         </div>
-        <p className="mt-1 text-[11px] text-muted-foreground">ON にすると BOX と同数のマグネットを集計します</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">{t("ON にすると BOX と同数のマグネットを集計します")}</p>
       </div>
 
       {/* 結果（即時計算） */}
       {pfEnabled && (
         <div className="rounded-2xl border border-border bg-card/70 p-4">
-          <div className="text-xs font-bold text-muted-foreground mb-1">PF 材料</div>
-          <div className="text-[11px] text-muted-foreground mb-3">1巻 = {PF_ROLL_LENGTH_M} m 換算・切り上げ</div>
+          <div className="text-xs font-bold text-muted-foreground mb-1">{t("PF 材料")}</div>
+          <div className="text-[11px] text-muted-foreground mb-3">1{t("巻")} = {PF_ROLL_LENGTH_M} m {t("換算・切り上げ")}</div>
           <div className="space-y-3">
-            <ResultRow label={`PF16（総 ${result.pf16TotalM} m）`} value={result.pf16Rolls} unit="巻" color="#4DC4FF" big />
-            <ResultRow label={`PF22（総 ${result.pf22TotalM} m）`} value={result.pf22Rolls} unit="巻" color="#4DC4FF" big />
+            <ResultRow label={`PF16（${t("総")} ${result.pf16TotalM} m）`} value={result.pf16Rolls} unit={t("巻")} color="#4DC4FF" big />
+            <ResultRow label={`PF22（${t("総")} ${result.pf22TotalM} m）`} value={result.pf22Rolls} unit={t("巻")} color="#4DC4FF" big />
           </div>
         </div>
       )}
 
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground mb-3">ボックス系</div>
+        <div className="text-xs font-bold text-muted-foreground mb-3">{t("ボックス系")}</div>
         <div className="space-y-3">
-          <ResultRow label="4×4 BOX" value={result.boxes} unit="個" color="#03AF7A" big />
+          <ResultRow label={mn("4×4 BOX")} value={result.boxes} unit={t("個")} color="#03AF7A" big />
           {REN_TYPES.map((r) => (
-            <ResultRow key={r} label={`${r} 塗代カバー`} value={result.covers[r]} unit="枚" color="#03AF7A" />
+            <ResultRow key={r} label={mn(`${r} 塗代カバー`)} value={result.covers[r]} unit={t("枚")} color="#03AF7A" />
           ))}
         </div>
       </div>
 
       {pfEnabled && (
         <div className="rounded-2xl border border-border bg-card/70 p-4">
-          <div className="text-xs font-bold text-muted-foreground mb-3">配管部材</div>
+          <div className="text-xs font-bold text-muted-foreground mb-3">{t("配管部材")}</div>
           <div className="space-y-3">
-            <ResultRow label="PF16 コネクタ" value={result.pf16Connectors} unit="個" color="#4DC4FF" />
-            <ResultRow label="PF22 コネクタ" value={result.pf22Connectors} unit="個" color="#4DC4FF" />
+            <ResultRow label={mn("PF16 コネクタ")} value={result.pf16Connectors} unit={t("個")} color="#4DC4FF" />
+            <ResultRow label={mn("PF22 コネクタ")} value={result.pf22Connectors} unit={t("個")} color="#4DC4FF" />
           </div>
         </div>
       )}
 
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground mb-3">その他</div>
+        <div className="text-xs font-bold text-muted-foreground mb-3">{t("その他")}</div>
         <div className="space-y-3">
-          <ResultRow label="ボックス取付金物" value={result.brackets} unit="個" color="#03AF7A" />
-          {useMagnet && <ResultRow label="ボックス探知マグネット" value={result.magnets} unit="個" color="#03AF7A" />}
+          <ResultRow label={mn("ボックス取付金物")} value={result.brackets} unit={t("個")} color="#03AF7A" />
+          {useMagnet && <ResultRow label={mn("ボックス探知マグネット")} value={result.magnets} unit={t("個")} color="#03AF7A" />}
         </div>
       </div>
 
       {/* 常時集計バー */}
       <div className="sticky bottom-2 rounded-2xl border border-border bg-card p-3 shadow-lg">
         <div className="grid grid-cols-3 gap-2 text-center">
-          <SummaryCell label="PF16" value={pfEnabled ? String(result.pf16Rolls) : "-"} unit="巻" dim={!pfEnabled} />
-          <SummaryCell label="PF22" value={pfEnabled ? String(result.pf22Rolls) : "-"} unit="巻" dim={!pfEnabled} />
-          <SummaryCell label="4×4 BOX" value={String(result.boxes)} unit="個" />
+          <SummaryCell label={mn("PF16")} value={pfEnabled ? String(result.pf16Rolls) : "-"} unit={t("巻")} dim={!pfEnabled} />
+          <SummaryCell label={mn("PF22")} value={pfEnabled ? String(result.pf22Rolls) : "-"} unit={t("巻")} dim={!pfEnabled} />
+          <SummaryCell label={mn("4×4 BOX")} value={String(result.boxes)} unit={t("個")} />
         </div>
       </div>
 
       {/* 免責注記 */}
       <div className="text-[11px] text-muted-foreground px-1 space-y-0.5">
-        <p>※ 1巻=50m・平均使用長は目安値による切り上げ集計です。ロス・予備は含みません。</p>
-        <p>※ 集計値は目安です。実施工では現場実測・設計図書・施工要領書を優先し、余裕分を確認してください。</p>
+        <p>{t("※ 1巻=50m・平均使用長は目安値による切り上げ集計です。ロス・予備は含みません。")}</p>
+        <p>{t("※ 集計値は目安です。実施工では現場実測・設計図書・施工要領書を優先し、余裕分を確認してください。")}</p>
       </div>
     </div>
   );
@@ -245,10 +251,11 @@ function ToggleButton({ on, onLabel, offLabel, onClick }: { on: boolean; onLabel
 }
 
 /** 平均使用長入力（1〜99 m） */
-function AvgInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function AvgInput({ label, value, onChange, lang }: { label: string; value: string; onChange: (v: string) => void; lang: GenbaLang }) {
+  const tr = (ja: string) => genbaTr(ja, lang);
   return (
     <div>
-      <label className="block text-[11px] font-bold text-muted-foreground mb-1">{label}（m/カ所）</label>
+      <label className="block text-[11px] font-bold text-muted-foreground mb-1">{label}（m/{tr("カ所")}）</label>
       <input
         type="number"
         inputMode="decimal"
