@@ -5,6 +5,8 @@ import {
   holePunchPlan,
   type PipeKind,
 } from "@shared/genba/tools/pipes";
+import { genbaTr, type GenbaLang } from "@shared/genba/i18n";
+import { romanize } from "@/lib/genbaRomaji";
 
 /** CUD 判定色（テーマ不変） */
 const CUD = {
@@ -19,7 +21,11 @@ const CUD = {
  * 工具別（ホールソー/コアドリル/ギムネ）の推奨径を即表示する。
  * データ・計算は shared/genba/tools/pipes.ts（JIS C 8305 / カタログ目安）に集約。
  */
-export default function HolePunchTool() {
+export default function HolePunchTool({ lang }: { lang: GenbaLang }) {
+  const t = (ja: string) => genbaTr(ja, lang);
+  // 材料名・型番はポルトガル語に訳さず日本語ローマ字表示（オーナー方針）
+  const mn = (name: string) => (lang === "pt" ? romanize(name) : name);
+
   const [kind, setKind] = useState<PipeKind | null>(null);
   const [size, setSize] = useState<number | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
@@ -59,15 +65,15 @@ export default function HolePunchTool() {
   return (
     <div className="space-y-4">
       <div className="px-1">
-        <h2 className="text-base font-bold">抜き径・貫通穴 検索</h2>
+        <h2 className="text-base font-bold">{t("抜き径・貫通穴 検索")}</h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          配管の種類と呼び径を選ぶと、貫通穴の推奨サイズを表示します
+          {t("配管の種類と呼び径を選ぶと、貫通穴の推奨サイズを表示します")}
         </p>
       </div>
 
       {/* STEP 1: 配管の種類 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground mb-2">STEP 1｜配管の種類を選ぶ</div>
+        <div className="text-xs font-bold text-muted-foreground mb-2">{t("STEP 1｜配管の種類を選ぶ")}</div>
         <div className="grid grid-cols-2 gap-2">
           {PIPE_KIND_ORDER.map((k) => {
             const p = GENBA_PIPES[k];
@@ -81,8 +87,8 @@ export default function HolePunchTool() {
                   on ? "border-foreground bg-secondary" : "border-border bg-card/50"
                 }`}
               >
-                <div className={`text-sm ${on ? "font-bold" : "font-medium"}`}>{p.label}</div>
-                <div className="text-[11px] text-muted-foreground">{p.sub}</div>
+                <div className={`text-sm ${on ? "font-bold" : "font-medium"}`}>{mn(p.label)}</div>
+                <div className="text-[11px] text-muted-foreground">{mn(p.sub)}</div>
               </button>
             );
           })}
@@ -93,7 +99,7 @@ export default function HolePunchTool() {
       {kind && (
         <div className="rounded-2xl border border-border bg-card/70 p-4">
           <div className="text-xs font-bold text-muted-foreground mb-2">
-            STEP 2｜呼び径を選ぶ（{GENBA_PIPES[kind].label}）
+            {t("STEP 2｜呼び径を選ぶ")}（{mn(GENBA_PIPES[kind].label)}）
           </div>
           <div className="grid grid-cols-4 gap-2">
             {sizes.map((s) => {
@@ -119,17 +125,17 @@ export default function HolePunchTool() {
       {kind && size != null && plan && (
         <div ref={resultRef} className="rounded-2xl border border-border bg-card/70 p-4 space-y-3">
           <div className="text-xs text-muted-foreground">
-            {GENBA_PIPES[kind].label}（{GENBA_PIPES[kind].sub}） 呼び {size} の貫通穴
+            {mn(GENBA_PIPES[kind].label)}（{mn(GENBA_PIPES[kind].sub)}） {t("呼び")} {size} {t("の貫通穴")}
           </div>
 
           {/* 配管外径 */}
           <div className="flex items-end gap-1">
-            <span className="text-xs text-muted-foreground mb-1.5 mr-1">配管外径</span>
+            <span className="text-xs text-muted-foreground mb-1.5 mr-1">{t("配管外径")}</span>
             <span className="text-3xl font-black tabular-nums">φ{plan.od}</span>
             <span className="text-sm font-bold text-muted-foreground mb-1">mm</span>
             {GENBA_PIPES[kind].approx && (
               <span className="ml-auto text-[11px] font-bold mb-1" style={{ color: CUD.warn }}>
-                目安値
+                {t("目安値")}
               </span>
             )}
           </div>
@@ -137,35 +143,35 @@ export default function HolePunchTool() {
           {/* ジャスト / 余裕 */}
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-lg border border-border bg-card/50 p-3 text-center">
-              <div className="text-[11px] text-muted-foreground">ジャスト（ぴったり）</div>
+              <div className="text-[11px] text-muted-foreground">{t("ジャスト（ぴったり）")}</div>
               <div className="text-3xl font-black tabular-nums mt-0.5" style={{ color: CUD.ok }}>
                 φ{plan.just}
               </div>
             </div>
             <div className="rounded-lg border border-border bg-card/50 p-3 text-center">
-              <div className="text-[11px] text-muted-foreground">余裕あり（施工しやすい）</div>
+              <div className="text-[11px] text-muted-foreground">{t("余裕あり（施工しやすい）")}</div>
               <div className="text-3xl font-black tabular-nums mt-0.5" style={{ color: CUD.info }}>
                 φ{plan.clear}
-                {!plan.clearIsStd && <span className="text-sm font-bold ml-0.5">以上</span>}
+                {!plan.clearIsStd && <span className="text-sm font-bold ml-0.5">{t("以上")}</span>}
               </div>
             </div>
           </div>
 
           {/* 工具別 */}
           <div>
-            <div className="text-xs font-bold text-muted-foreground mb-1.5">工具別の推奨サイズ</div>
+            <div className="text-xs font-bold text-muted-foreground mb-1.5">{t("工具別の推奨サイズ")}</div>
             <div className="space-y-1.5">
               <ToolRow
-                name="ホールソー"
+                name={t("ホールソー")}
                 just={`φ${plan.just}`}
-                clear={plan.clearIsStd ? `φ${plan.clear}` : `φ${plan.clear} 以上`}
+                clear={plan.clearIsStd ? `φ${plan.clear}` : `φ${plan.clear} ${t("以上")}`}
               />
               <ToolRow
-                name="コアドリル"
-                just={plan.coreJust != null ? `φ${plan.coreJust}` : "対応サイズなし"}
-                clear={plan.coreClear != null ? `φ${plan.coreClear}` : "対応サイズなし"}
+                name={t("コアドリル")}
+                just={plan.coreJust != null ? `φ${plan.coreJust}` : t("対応サイズなし")}
+                clear={plan.coreClear != null ? `φ${plan.coreClear}` : t("対応サイズなし")}
               />
-              <ToolRow name="ギムネ" just={`φ${plan.gimlet} 程度`} clear={null} />
+              <ToolRow name={t("ギムネ")} just={`φ${plan.gimlet} ${t("程度")}`} clear={null} />
             </div>
           </div>
         </div>
@@ -173,8 +179,8 @@ export default function HolePunchTool() {
 
       {/* 免責注記 */}
       <div className="px-1 space-y-0.5 text-[11px] text-muted-foreground">
-        <p>※ G管・E管は JIS C 8305 規格値。フレキ・プリカ類はメーカーにより外径が異なる場合があります。</p>
-        <p>※ PF・CD・FEP・VE・フレキ類は目安値です。現場実測・設計図書を優先してください。</p>
+        <p>{t("※ G管・E管は JIS C 8305 規格値。フレキ・プリカ類はメーカーにより外径が異なる場合があります。")}</p>
+        <p>{t("※ PF・CD・FEP・VE・フレキ類は目安値です。現場実測・設計図書を優先してください。")}</p>
       </div>
     </div>
   );
