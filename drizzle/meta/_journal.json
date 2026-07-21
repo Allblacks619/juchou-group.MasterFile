@@ -337,6 +337,13 @@
       "when": 1786000000000,
       "tag": "0045_connect_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "5",
+      "when": 1786100000000,
+      "tag": "0046_genba_multitenant_repair",
+      "breakpoints": true
     }
   ]
 }
