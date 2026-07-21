@@ -28,7 +28,9 @@ export default function AppGenba() {
 
   // admin のみ: 削除(アーカイブ)した現場を復元できる。現場ゼロの空画面でも復元に辿り着けるようにする
   const isGenbaAdmin = me?.genbaRole === "admin";
-  const { data: archivedSites } = trpc.genba.sites.listArchived.useQuery(undefined, { retry: false, enabled: !!me && isGenbaAdmin });
+  // 診断のため canEdit(リーダー以上)で問い合わせ、権限エラーも拾えるようにする
+  const canQueryArchived = !!me && me?.genbaRole !== "worker";
+  const { data: archivedSites, error: archivedError } = trpc.genba.sites.listArchived.useQuery(undefined, { retry: false, enabled: canQueryArchived });
   const archivedList = (archivedSites || []) as { id: string; name: string }[];
   const restoreSite = trpc.genba.sites.archive.useMutation({
     onSuccess: () => { utils.genba.sites.list.invalidate(); utils.genba.sites.listArchived.invalidate(); toast.success("現場を復元しました"); },
@@ -78,6 +80,14 @@ export default function AppGenba() {
           </p>
         </div>
         {canEdit && <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-1" />現場を作成</Button>}
+
+        {/* 診断用: 現場が消えて見える時の切り分け (ID/会社ID/権限/削除済み件数)。canEdit のみ表示 */}
+        {canEdit && (
+          <div className="w-full max-w-sm mt-1 rounded-lg border border-border/60 bg-muted/20 p-2 text-left text-[11px] font-mono text-muted-foreground space-y-0.5">
+            <div>ID: {me.userId ?? "-"} ／ 会社ID: {(me as any).companyId ?? "-"} ／ 権限: {me.genbaRole}</div>
+            <div>削除済み現場: {archivedError ? `取得エラー(${archivedError.message})` : `${archivedList.length}件`}</div>
+          </div>
+        )}
 
         {/* 削除(アーカイブ)した現場の復元。現場ゼロでもここから戻せる (admin のみ・データは無事) */}
         {isGenbaAdmin && archivedList.length > 0 && (

@@ -2700,6 +2700,7 @@ export const genbaRouter = router({
       userId: uid(ctx),
       name: ctx.user?.name ?? null,
       genbaRole: ctx.genbaRole,
+      companyId: (ctx as any).companyId ?? null,
       settings: settings ?? { userId: uid(ctx) ?? 0, ...genbaDb.GENBA_DEFAULT_USER_SETTINGS },
       link: null,
     };
