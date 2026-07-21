@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Zap } from "lucide-react";
+import { genbaTr, type GenbaLang } from "@shared/genba/i18n";
+import { romanize } from "@/lib/genbaRomaji";
 import {
   BOND_WIRE_SIMPLE_MAX_A,
   GROUND_CLASS_NOTES,
@@ -51,7 +53,8 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "bond", label: "ボンド線" },
 ];
 
-export default function WiringCalcTool() {
+export default function WiringCalcTool({ lang }: { lang: GenbaLang }) {
+  const t = (ja: string) => genbaTr(ja, lang);
   const [tab, setTab] = useState<TabKey>("drop");
 
   return (
@@ -59,38 +62,37 @@ export default function WiringCalcTool() {
       {/* 見出し */}
       <div className="flex items-center gap-2">
         <Zap className="w-5 h-5 text-muted-foreground" />
-        <h2 className="text-base font-bold">配線 計算</h2>
+        <h2 className="text-base font-bold">{t("配線 計算")}</h2>
       </div>
 
       {/* タブ切替 */}
       <div className="grid grid-cols-4 gap-1.5">
-        {TABS.map((t) => {
-          const on = tab === t.key;
+        {TABS.map((tb) => {
+          const on = tab === tb.key;
           return (
             <button
-              key={t.key}
+              key={tb.key}
               type="button"
-              onClick={() => setTab(t.key)}
+              onClick={() => setTab(tb.key)}
               className={`rounded-xl border px-1 py-2 text-xs font-bold transition-colors ${
                 on ? "border-transparent text-white" : "border-border bg-card/50 text-muted-foreground"
               }`}
               style={on ? { background: INFO_COLOR } : undefined}
             >
-              {t.label}
+              {t(tb.label)}
             </button>
           );
         })}
       </div>
 
-      {tab === "drop" && <VoltDropTab />}
-      {tab === "ampacity" && <AmpacityTab />}
-      {tab === "ground" && <GroundTab />}
-      {tab === "bond" && <BondTab />}
+      {tab === "drop" && <VoltDropTab lang={lang} />}
+      {tab === "ampacity" && <AmpacityTab lang={lang} />}
+      {tab === "ground" && <GroundTab lang={lang} />}
+      {tab === "bond" && <BondTab lang={lang} />}
 
       {/* 免責注記 */}
       <p className="text-[11px] text-muted-foreground px-1">
-        ※ 本ツールは内線規程・電技解釈等の一般周知値に基づく目安です。最終判断は設計図書・
-        電力会社基準・所轄基準・現場実測を優先してください。
+        {t("※ 本ツールは内線規程・電技解釈等の一般周知値に基づく目安です。最終判断は設計図書・電力会社基準・所轄基準・現場実測を優先してください。")}
       </p>
     </div>
   );
@@ -156,7 +158,8 @@ function parseNum(s: string): number | null {
 /* タブ1: 電圧降下                                                      */
 /* ------------------------------------------------------------------ */
 
-function VoltDropTab() {
+function VoltDropTab({ lang }: { lang: GenbaLang }) {
+  const t = (ja: string) => genbaTr(ja, lang);
   const [methodKey, setMethodKey] = useState<WiringMethodKey>("single2");
   const [lStr, setLStr] = useState("");
   const [iStr, setIStr] = useState("");
@@ -184,23 +187,23 @@ function VoltDropTab() {
     <>
       {/* STEP1: 配電方式 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground mb-2">STEP 1　配電方式</div>
+        <div className="text-xs font-bold text-muted-foreground mb-2">{t("STEP 1　配電方式")}</div>
         <div className="space-y-1.5">
-          {WIRING_METHODS.map((m) => {
-            const on = methodKey === m.key;
+          {WIRING_METHODS.map((wm) => {
+            const on = methodKey === wm.key;
             return (
               <button
-                key={m.key}
+                key={wm.key}
                 type="button"
-                onClick={() => setMethodKey(m.key)}
+                onClick={() => setMethodKey(wm.key)}
                 className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${
                   on ? "border-transparent text-white" : "border-border bg-card/50"
                 }`}
                 style={on ? { background: INFO_COLOR } : undefined}
               >
-                <div className="text-sm font-bold leading-tight">{m.label}</div>
+                <div className="text-sm font-bold leading-tight">{t(wm.label)}</div>
                 <div className={`text-[11px] leading-tight tabular-nums ${on ? "text-white/80" : "text-muted-foreground"}`}>
-                  {m.sub}
+                  {t(wm.sub)}
                 </div>
               </button>
             );
@@ -210,13 +213,13 @@ function VoltDropTab() {
 
       {/* STEP2: 条件入力 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4 space-y-3">
-        <div className="text-xs font-bold text-muted-foreground">STEP 2　条件入力</div>
+        <div className="text-xs font-bold text-muted-foreground">{t("STEP 2　条件入力")}</div>
         <div className="grid grid-cols-2 gap-2">
-          <NumField label="こう長 L" unit="m" value={lStr} onChange={setLStr} placeholder="例: 30" />
-          <NumField label="電流 I" unit="A" value={iStr} onChange={setIStr} placeholder="例: 20" />
+          <NumField label={t("こう長 L")} unit="m" value={lStr} onChange={setLStr} placeholder={t("例: 30")} />
+          <NumField label={t("電流 I")} unit="A" value={iStr} onChange={setIStr} placeholder={t("例: 20")} />
         </div>
         <div>
-          <NumField label="電線断面積 A" unit="sq" value={aStr} onChange={setAStr} placeholder="例: 5.5" />
+          <NumField label={t("電線断面積 A")} unit="sq" value={aStr} onChange={setAStr} placeholder={t("例: 5.5")} />
           <div className="mt-1.5 grid grid-cols-5 gap-1.5">
             {WIRE_SECTION_PRESETS_SQ.map((sq) => (
               <Chip key={sq} on={sectionSq === sq} onClick={() => setAStr(String(sq))}>
@@ -225,11 +228,11 @@ function VoltDropTab() {
             ))}
           </div>
           <div className="mt-1 text-[11px] text-muted-foreground">
-            ※ 単線は 1.6mm ≒ 2sq / 2.0mm ≒ 3.5sq（一般換算目安）
+            {t("※ 単線は 1.6mm ≒ 2sq / 2.0mm ≒ 3.5sq（一般換算目安）")}
           </div>
         </div>
         <div>
-          <NumField label="回路電圧 V" unit="V" value={vStr} onChange={setVStr} placeholder="例: 100" />
+          <NumField label={t("回路電圧 V")} unit="V" value={vStr} onChange={setVStr} placeholder={t("例: 100")} />
           <div className="mt-1.5 grid grid-cols-3 gap-1.5">
             {VOLTAGE_PRESETS.map((v) => (
               <Chip key={v} on={voltage === v} onClick={() => setVStr(String(v))}>
@@ -243,7 +246,7 @@ function VoltDropTab() {
       {/* 結果 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
         <div className="text-xs text-muted-foreground">
-          電圧降下　e = K・L・I ÷ (1000・A)（K = {method.k}）
+          {t("電圧降下")}　e = K・L・I ÷ (1000・A)（K = {method.k}）
         </div>
         {result ? (
           <>
@@ -256,7 +259,7 @@ function VoltDropTab() {
                 className="ml-auto mb-1 rounded-lg px-2.5 py-1 text-xs font-bold text-white"
                 style={{ background: color }}
               >
-                {JUDGE_LABEL[result.status]}
+                {t(JUDGE_LABEL[result.status])}
               </span>
             </div>
             <div className="mt-2 flex items-end gap-2">
@@ -265,20 +268,20 @@ function VoltDropTab() {
               </span>
               <span className="text-sm font-bold text-muted-foreground mb-0.5">%</span>
               <span className="ml-auto text-xs text-muted-foreground tabular-nums mb-0.5">
-                目安 上限 {result.limit}%（こう長 {lengthM}m）
+                {t("目安 上限")} {result.limit}%（{t("こう長")} {lengthM}m）
               </span>
             </div>
             <div className="mt-2 text-[11px] text-muted-foreground">
-              ※ 降下率の上限目安（内線規程系）: こう長60m以下 2% / 120m以下 4% / 200m以下 5% / 200m超 6%
+              {t("※ 降下率の上限目安（内線規程系）: こう長60m以下 2% / 120m以下 4% / 200m以下 5% / 200m超 6%")}
             </div>
             {result.status === "ng" && (
               <div className="mt-2 rounded-lg px-3 py-2 text-xs font-bold text-white" style={{ background: "#FF4B00" }}>
-                降下率が目安上限を超えています。電線サイズを上げるか、こう長・電流を見直してください。
+                {t("降下率が目安上限を超えています。電線サイズを上げるか、こう長・電流を見直してください。")}
               </div>
             )}
           </>
         ) : (
-          <p className="text-sm text-muted-foreground mt-1">STEP 2 の条件を入力すると即時計算します。</p>
+          <p className="text-sm text-muted-foreground mt-1">{t("STEP 2 の条件を入力すると即時計算します。")}</p>
         )}
       </div>
     </>
@@ -289,7 +292,9 @@ function VoltDropTab() {
 /* タブ2: 幹線・許容電流                                                */
 /* ------------------------------------------------------------------ */
 
-function AmpacityTab() {
+function AmpacityTab({ lang }: { lang: GenbaLang }) {
+  const t = (ja: string) => genbaTr(ja, lang);
+  const m = (name: string) => (lang === "pt" ? romanize(name) : name);
   const [condKey, setCondKey] = useState<string>(INSTALL_CONDITIONS[0].key);
   const [wireKey, setWireKey] = useState<string | null>(null);
 
@@ -300,7 +305,7 @@ function AmpacityTab() {
     <>
       {/* STEP1: 敷設条件 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground mb-2">STEP 1　敷設条件</div>
+        <div className="text-xs font-bold text-muted-foreground mb-2">{t("STEP 1　敷設条件")}</div>
         <div className="grid grid-cols-2 gap-2">
           {INSTALL_CONDITIONS.map((c) => {
             const on = condKey === c.key;
@@ -314,26 +319,26 @@ function AmpacityTab() {
                 }`}
                 style={on ? { background: INFO_COLOR } : undefined}
               >
-                <div className="text-sm font-bold leading-tight">{c.label}</div>
+                <div className="text-sm font-bold leading-tight">{t(c.label)}</div>
                 <div className={`text-[11px] leading-tight tabular-nums ${on ? "text-white/80" : "text-muted-foreground"}`}>
-                  {c.sub}
+                  {t(c.sub)}
                 </div>
               </button>
             );
           })}
         </div>
         <div className="mt-2 text-[11px] text-muted-foreground">
-          ※ 同一管内4本以上はさらに低減されます（内線規程の低減係数表を参照）。
+          {t("※ 同一管内4本以上はさらに低減されます（内線規程の低減係数表を参照）。")}
         </div>
       </div>
 
       {/* STEP2: 電線サイズ */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground mb-2">STEP 2　電線サイズ（IV）</div>
+        <div className="text-xs font-bold text-muted-foreground mb-2">{t("STEP 2　電線サイズ（IV）")}</div>
         <div className="grid grid-cols-3 gap-1.5">
           {IV_AMPACITY.map((w) => (
             <Chip key={w.key} on={wireKey === w.key} onClick={() => setWireKey(w.key)}>
-              {w.label.replace("IV ", "")}
+              {m(w.label.replace("IV ", ""))}
             </Chip>
           ))}
         </div>
@@ -343,7 +348,7 @@ function AmpacityTab() {
       {wire && (
         <div className="rounded-2xl border border-border bg-card/70 p-4">
           <div className="text-xs text-muted-foreground">
-            {wire.label} の許容電流（{cond.label}）
+            {m(wire.label)} {t("の許容電流")}（{t(cond.label)}）
           </div>
           <div className="flex items-end gap-2 mt-1">
             <span className="text-5xl font-black tabular-nums" style={{ color: "#03AF7A" }}>
@@ -352,7 +357,7 @@ function AmpacityTab() {
             <span className="text-lg font-bold text-muted-foreground mb-1">A</span>
             {cond.factor !== 1 && (
               <span className="ml-auto text-xs text-muted-foreground tabular-nums mb-1">
-                基準 {wire.baseA}A × {cond.factor.toFixed(2)}
+                {t("基準")} {wire.baseA}A × {cond.factor.toFixed(2)}
               </span>
             )}
           </div>
@@ -361,13 +366,13 @@ function AmpacityTab() {
 
       {/* 一覧表 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground mb-2">許容電流 一覧（周知目安値）</div>
+        <div className="text-xs font-bold text-muted-foreground mb-2">{t("許容電流 一覧（周知目安値）")}</div>
         <table className="w-full text-sm tabular-nums">
           <thead>
             <tr className="text-xs text-muted-foreground border-b border-border">
-              <th className="text-left font-bold py-1.5">電線</th>
-              <th className="text-right font-bold py-1.5">がいし引き (A)</th>
-              <th className="text-right font-bold py-1.5">{cond.factor === 1 ? "適用値 (A)" : `×${cond.factor.toFixed(2)} (A)`}</th>
+              <th className="text-left font-bold py-1.5">{t("電線")}</th>
+              <th className="text-right font-bold py-1.5">{t("がいし引き")} (A)</th>
+              <th className="text-right font-bold py-1.5">{cond.factor === 1 ? `${t("適用値")} (A)` : `×${cond.factor.toFixed(2)} (A)`}</th>
             </tr>
           </thead>
           <tbody>
@@ -375,7 +380,7 @@ function AmpacityTab() {
               const on = wireKey === w.key;
               return (
                 <tr key={w.key} className={`border-b border-border/50 last:border-0 ${on ? "font-bold" : ""}`}>
-                  <td className="py-1.5">{w.label}</td>
+                  <td className="py-1.5">{m(w.label)}</td>
                   <td className="py-1.5 text-right">{w.baseA}</td>
                   <td className="py-1.5 text-right" style={on ? { color: INFO_COLOR } : undefined}>
                     {allowableCurrent(w.baseA, cond.factor).toFixed(cond.factor === 1 ? 0 : 1)}
@@ -394,7 +399,9 @@ function AmpacityTab() {
 /* タブ3: アース線（接地線）太さ                                         */
 /* ------------------------------------------------------------------ */
 
-function GroundTab() {
+function GroundTab({ lang }: { lang: GenbaLang }) {
+  const t = (ja: string) => genbaTr(ja, lang);
+  const m = (name: string) => (lang === "pt" ? romanize(name) : name);
   const [aStr, setAStr] = useState("");
   const breakerA = parseNum(aStr);
   const entry = breakerA != null ? groundWireSize(breakerA) : null;
@@ -404,7 +411,7 @@ function GroundTab() {
     <>
       {/* STEP1: 遮断器容量 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4 space-y-2">
-        <div className="text-xs font-bold text-muted-foreground">STEP 1　過電流遮断器の定格容量</div>
+        <div className="text-xs font-bold text-muted-foreground">{t("STEP 1　過電流遮断器の定格容量")}</div>
         <div className="grid grid-cols-4 gap-1.5">
           {GROUND_WIRE_TABLE.map((e) => (
             <Chip key={e.maxA} on={breakerA === e.maxA} onClick={() => setAStr(String(e.maxA))}>
@@ -412,40 +419,40 @@ function GroundTab() {
             </Chip>
           ))}
         </div>
-        <NumField label="容量を直接入力" unit="A" value={aStr} onChange={setAStr} placeholder="例: 75" />
+        <NumField label={t("容量を直接入力")} unit="A" value={aStr} onChange={setAStr} placeholder={t("例: 75")} />
       </div>
 
       {/* 結果 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs text-muted-foreground">接地線の太さ（内線規程 1350-3 系の一般表）</div>
+        <div className="text-xs text-muted-foreground">{t("接地線の太さ（内線規程 1350-3 系の一般表）")}</div>
         {entry ? (
           <>
             <div className="flex items-end gap-2 mt-1">
               <span className="text-4xl font-black tabular-nums" style={{ color: "#03AF7A" }}>
-                {entry.label}
+                {m(entry.label)}
               </span>
             </div>
             <div className="mt-1 text-xs text-muted-foreground tabular-nums">
-              遮断器 {entry.maxA}A 以下の欄を適用（入力: {breakerA}A）
+              {t("遮断器")} {entry.maxA}A {t("以下の欄を適用（入力:")} {breakerA}A）
             </div>
           </>
         ) : over ? (
           <div className="mt-2 rounded-lg px-3 py-2 text-xs font-bold text-white" style={{ background: "#FF4B00" }}>
-            600Aを超える容量は一般表の範囲外です。設計図書に基づき個別に選定してください。
+            {t("600Aを超える容量は一般表の範囲外です。設計図書に基づき個別に選定してください。")}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground mt-1">遮断器容量を選択・入力すると太さを表示します。</p>
+          <p className="text-sm text-muted-foreground mt-1">{t("遮断器容量を選択・入力すると太さを表示します。")}</p>
         )}
       </div>
 
       {/* 一覧表 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground mb-2">遮断器容量 → 接地線太さ 一覧</div>
+        <div className="text-xs font-bold text-muted-foreground mb-2">{t("遮断器容量 → 接地線太さ 一覧")}</div>
         <table className="w-full text-sm tabular-nums">
           <thead>
             <tr className="text-xs text-muted-foreground border-b border-border">
-              <th className="text-left font-bold py-1.5">遮断器容量</th>
-              <th className="text-right font-bold py-1.5">接地線の太さ</th>
+              <th className="text-left font-bold py-1.5">{t("遮断器容量")}</th>
+              <th className="text-right font-bold py-1.5">{t("接地線の太さ")}</th>
             </tr>
           </thead>
           <tbody>
@@ -453,9 +460,9 @@ function GroundTab() {
               const on = entry != null && entry.maxA === e.maxA;
               return (
                 <tr key={e.maxA} className={`border-b border-border/50 last:border-0 ${on ? "font-bold" : ""}`}>
-                  <td className="py-1.5">{e.maxA}A 以下</td>
+                  <td className="py-1.5">{e.maxA}A {t("以下")}</td>
                   <td className="py-1.5 text-right" style={on ? { color: INFO_COLOR } : undefined}>
-                    {e.label}
+                    {m(e.label)}
                   </td>
                 </tr>
               );
@@ -466,11 +473,11 @@ function GroundTab() {
 
       {/* C種/D種の説明 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4 space-y-2">
-        <div className="text-xs font-bold text-muted-foreground">C種 / D種 接地工事（電技解釈の一般周知値）</div>
+        <div className="text-xs font-bold text-muted-foreground">{t("C種 / D種 接地工事（電技解釈の一般周知値）")}</div>
         {GROUND_CLASS_NOTES.map((n) => (
           <div key={n.key} className="rounded-xl border border-border bg-card/50 px-3 py-2">
-            <div className="text-sm font-bold" style={{ color: INFO_COLOR }}>{n.label}</div>
-            <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{n.text}</div>
+            <div className="text-sm font-bold" style={{ color: INFO_COLOR }}>{t(n.label)}</div>
+            <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{t(n.text)}</div>
           </div>
         ))}
       </div>
@@ -482,7 +489,9 @@ function GroundTab() {
 /* タブ4: ボンド線 目安                                                 */
 /* ------------------------------------------------------------------ */
 
-function BondTab() {
+function BondTab({ lang }: { lang: GenbaLang }) {
+  const t = (ja: string) => genbaTr(ja, lang);
+  const m = (name: string) => (lang === "pt" ? romanize(name) : name);
   const [aStr, setAStr] = useState("");
   const breakerA = parseNum(aStr);
   const result = breakerA != null ? bondWireSize(breakerA) : null;
@@ -492,7 +501,7 @@ function BondTab() {
     <>
       {/* STEP1: 遮断器容量 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4 space-y-2">
-        <div className="text-xs font-bold text-muted-foreground">STEP 1　回路の過電流遮断器容量</div>
+        <div className="text-xs font-bold text-muted-foreground">{t("STEP 1　回路の過電流遮断器容量")}</div>
         <div className="grid grid-cols-4 gap-1.5">
           {GROUND_WIRE_TABLE.map((e) => (
             <Chip key={e.maxA} on={breakerA === e.maxA} onClick={() => setAStr(String(e.maxA))}>
@@ -500,37 +509,36 @@ function BondTab() {
             </Chip>
           ))}
         </div>
-        <NumField label="容量を直接入力" unit="A" value={aStr} onChange={setAStr} placeholder="例: 60" />
+        <NumField label={t("容量を直接入力")} unit="A" value={aStr} onChange={setAStr} placeholder={t("例: 60")} />
       </div>
 
       {/* 結果 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs text-muted-foreground">ボンド線の太さ（一般目安値）</div>
+        <div className="text-xs text-muted-foreground">{t("ボンド線の太さ（一般目安値）")}</div>
         {result ? (
           <>
             <div className="flex items-end gap-2 mt-1">
               <span className="text-4xl font-black tabular-nums" style={{ color: "#03AF7A" }}>
-                {result.label}
+                {m(result.label)}
               </span>
             </div>
-            <div className="mt-1 text-xs text-muted-foreground">{result.note}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{t(result.note)}</div>
           </>
         ) : over ? (
           <div className="mt-2 rounded-lg px-3 py-2 text-xs font-bold text-white" style={{ background: "#FF4B00" }}>
-            600Aを超える容量は目安表の範囲外です。設計図書に基づき個別に選定してください。
+            {t("600Aを超える容量は目安表の範囲外です。設計図書に基づき個別に選定してください。")}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground mt-1">遮断器容量を選択・入力すると目安を表示します。</p>
+          <p className="text-sm text-muted-foreground mt-1">{t("遮断器容量を選択・入力すると目安を表示します。")}</p>
         )}
       </div>
 
       {/* 解説 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground mb-1">ボンド線とは</div>
+        <div className="text-xs font-bold text-muted-foreground mb-1">{t("ボンド線とは")}</div>
         <p className="text-xs text-muted-foreground leading-relaxed">
-          金属管相互・金属管とボックス等を電気的に接続（ボンディング）し、接地の連続性を確保するための電線です。
-          一般に過電流遮断器 {BOND_WIRE_SIMPLE_MAX_A}A 以下の回路では 5.5sq が目安とされ、
-          それを超える回路では接地線太さの一般表に準じた太さを目安とします。
+          {t("金属管相互・金属管とボックス等を電気的に接続（ボンディング）し、接地の連続性を確保するための電線です。一般に過電流遮断器")} {BOND_WIRE_SIMPLE_MAX_A}
+          {t("A 以下の回路では 5.5sq が目安とされ、それを超える回路では接地線太さの一般表に準じた太さを目安とします。")}
         </p>
       </div>
     </>

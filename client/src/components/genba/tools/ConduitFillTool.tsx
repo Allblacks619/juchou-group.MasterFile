@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Cable, Minus, Plus } from "lucide-react";
+import { genbaTr, type GenbaLang } from "@shared/genba/i18n";
+import { romanize } from "@/lib/genbaRomaji";
 import {
   CONDUIT_FILL_PIPES,
   CONDUIT_KIND_ORDER,
@@ -37,7 +39,9 @@ const STATUS_LABEL: Record<FillStatus, string> = {
 /** バー表示レンジ [%]（32%閾値線がバーの2/3付近に来るスケール） */
 const BAR_MAX_PERCENT = 48;
 
-export default function ConduitFillTool() {
+export default function ConduitFillTool({ lang }: { lang: GenbaLang }) {
+  const t = (ja: string) => genbaTr(ja, lang);
+  const m = (name: string) => (lang === "pt" ? romanize(name) : name);
   const [kind, setKind] = useState<ConduitKind | null>(null);
   const [size, setSize] = useState<number | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -76,21 +80,21 @@ export default function ConduitFillTool() {
       {/* 見出し */}
       <div className="flex items-center gap-2">
         <Cable className="w-5 h-5 text-muted-foreground" />
-        <h2 className="text-base font-bold">占積率 計算</h2>
+        <h2 className="text-base font-bold">{t("占積率 計算")}</h2>
         {usedWires.length > 0 && (
           <button
             type="button"
             onClick={() => setCounts({})}
             className="ml-auto rounded-lg border border-border bg-card/50 px-2.5 py-1.5 text-xs font-bold text-muted-foreground transition-colors"
           >
-            本数クリア
+            {t("本数クリア")}
           </button>
         )}
       </div>
 
       {/* STEP1: 管種 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs font-bold text-muted-foreground mb-2">STEP 1　電線管の種類</div>
+        <div className="text-xs font-bold text-muted-foreground mb-2">{t("STEP 1　電線管の種類")}</div>
         <div className="grid grid-cols-2 gap-2">
           {CONDUIT_KIND_ORDER.map((k) => {
             const p = CONDUIT_FILL_PIPES[k];
@@ -105,9 +109,9 @@ export default function ConduitFillTool() {
                 }`}
                 style={on ? { background: "#4DC4FF" } : undefined}
               >
-                <div className="text-sm font-bold leading-tight">{p.label}</div>
+                <div className="text-sm font-bold leading-tight">{m(p.label)}</div>
                 <div className={`text-[11px] leading-tight ${on ? "text-white/80" : "text-muted-foreground"}`}>
-                  {p.sub}
+                  {m(p.sub)}
                 </div>
               </button>
             );
@@ -118,7 +122,7 @@ export default function ConduitFillTool() {
       {/* STEP2: 呼び径 */}
       {pipe && (
         <div className="rounded-2xl border border-border bg-card/70 p-4">
-          <div className="text-xs font-bold text-muted-foreground mb-2">STEP 2　呼び径</div>
+          <div className="text-xs font-bold text-muted-foreground mb-2">{t("STEP 2　呼び径")}</div>
           <div className="grid grid-cols-4 gap-2">
             {sizes.map((s) => {
               const on = size === s;
@@ -139,7 +143,7 @@ export default function ConduitFillTool() {
           </div>
           {size != null && innerDia != null && (
             <div className="mt-2 text-[11px] text-muted-foreground tabular-nums">
-              内径 φ{innerDia.toFixed(1)}mm（{pipe.note}）
+              {t("内径")} φ{innerDia.toFixed(1)}mm（{t(pipe.note)}）
             </div>
           )}
         </div>
@@ -149,7 +153,7 @@ export default function ConduitFillTool() {
       {innerDia != null && (
         <div className="rounded-2xl border border-border bg-card/70 p-4">
           <div className="text-xs font-bold text-muted-foreground mb-2">
-            STEP 3　入れる電線（IV）　※複数種の混在可
+            {t("STEP 3　入れる電線（IV）　※複数種の混在可")}
           </div>
           <div className="space-y-1.5">
             {IV_WIRES.map((w) => {
@@ -162,9 +166,9 @@ export default function ConduitFillTool() {
                   }`}
                 >
                   <div className="min-w-0">
-                    <div className="text-sm font-bold leading-tight">{w.label}</div>
+                    <div className="text-sm font-bold leading-tight">{m(w.label)}</div>
                     <div className="text-[11px] text-muted-foreground leading-tight tabular-nums">
-                      仕上外径 φ{w.odMm.toFixed(1)}mm（目安）
+                      {t("仕上外径")} φ{w.odMm.toFixed(1)}mm（{t("目安")}）
                     </div>
                   </div>
                   <div className="ml-auto flex items-center gap-1.5">
@@ -172,7 +176,7 @@ export default function ConduitFillTool() {
                       type="button"
                       onClick={() => addCount(w.key, -1)}
                       disabled={n === 0}
-                      aria-label={`${w.label} を1本減らす`}
+                      aria-label={`${m(w.label)} ${t("を1本減らす")}`}
                       className="w-8 h-8 rounded-lg border border-border bg-card/50 flex items-center justify-center disabled:opacity-30"
                     >
                       <Minus className="w-4 h-4" />
@@ -186,7 +190,7 @@ export default function ConduitFillTool() {
                     <button
                       type="button"
                       onClick={() => addCount(w.key, 1)}
-                      aria-label={`${w.label} を1本増やす`}
+                      aria-label={`${m(w.label)} ${t("を1本増やす")}`}
                       className="w-8 h-8 rounded-lg border border-border bg-card/50 flex items-center justify-center"
                     >
                       <Plus className="w-4 h-4" />
@@ -197,7 +201,7 @@ export default function ConduitFillTool() {
             })}
           </div>
           <div className="mt-2 text-[11px] text-muted-foreground">
-            ※ CV（単心）・CVV 等はメーカーカタログの仕上外径（目安）を確認してください。
+            {t("※ CV（単心）・CVV 等はメーカーカタログの仕上外径（目安）を確認してください。")}
           </div>
         </div>
       )}
@@ -206,7 +210,7 @@ export default function ConduitFillTool() {
       {result && innerDia != null && (
         <div className="rounded-2xl border border-border bg-card/70 p-4">
           <div className="text-xs text-muted-foreground">
-            占積率（上限 {FILL_LIMIT_PERCENT}%・内線規程の一般則）
+            {t("占積率")}（{t("上限")} {FILL_LIMIT_PERCENT}%・{t("内線規程の一般則")}）
           </div>
           {result.wireCount > 0 ? (
             <>
@@ -219,7 +223,7 @@ export default function ConduitFillTool() {
                   className="ml-auto mb-1 rounded-lg px-2.5 py-1 text-xs font-bold text-white"
                   style={{ background: color }}
                 >
-                  {status ? STATUS_LABEL[status] : ""}
+                  {status ? t(STATUS_LABEL[status]) : ""}
                 </span>
               </div>
 
@@ -251,20 +255,20 @@ export default function ConduitFillTool() {
               </div>
 
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground tabular-nums">
-                <div>電線 合計 {result.wireCount} 本</div>
-                <div className="text-right">電線断面積 計 {result.wireAreaMm2.toFixed(1)} mm²</div>
-                <div>内径 φ{innerDia.toFixed(1)} mm</div>
-                <div className="text-right">管内断面積 {result.conduitAreaMm2.toFixed(1)} mm²</div>
+                <div>{t("電線 合計")} {result.wireCount} {t("本")}</div>
+                <div className="text-right">{t("電線断面積 計")} {result.wireAreaMm2.toFixed(1)} mm²</div>
+                <div>{t("内径")} φ{innerDia.toFixed(1)} mm</div>
+                <div className="text-right">{t("管内断面積")} {result.conduitAreaMm2.toFixed(1)} mm²</div>
               </div>
               {status === "ng" && (
                 <div className="mt-2 rounded-lg px-3 py-2 text-xs font-bold text-white" style={{ background: "#FF4B00" }}>
-                  占積率が {FILL_LIMIT_PERCENT}% を超えています。管サイズを上げるか本数を減らしてください。
+                  {t("占積率が")} {FILL_LIMIT_PERCENT}% {t("を超えています。管サイズを上げるか本数を減らしてください。")}
                 </div>
               )}
             </>
           ) : (
             <p className="text-sm text-muted-foreground mt-1">
-              STEP 3 で電線を追加すると占積率を表示します。
+              {t("STEP 3 で電線を追加すると占積率を表示します。")}
             </p>
           )}
         </div>
@@ -274,14 +278,14 @@ export default function ConduitFillTool() {
       {innerDia != null && pipe && size != null && (
         <div className="rounded-2xl border border-border bg-card/70 p-4">
           <div className="text-xs font-bold text-muted-foreground mb-2">
-            {pipe.label} {size}（内径 φ{innerDia.toFixed(1)}mm）の最大収容本数　※同一太さ単独時
+            {m(pipe.label)} {size}（{t("内径")} φ{innerDia.toFixed(1)}mm）{t("の最大収容本数　※同一太さ単独時")}
           </div>
           <table className="w-full text-sm tabular-nums">
             <thead>
               <tr className="text-xs text-muted-foreground border-b border-border">
-                <th className="text-left font-bold py-1.5">電線</th>
-                <th className="text-right font-bold py-1.5">仕上外径 (mm)</th>
-                <th className="text-right font-bold py-1.5">最大本数</th>
+                <th className="text-left font-bold py-1.5">{t("電線")}</th>
+                <th className="text-right font-bold py-1.5">{t("仕上外径")} (mm)</th>
+                <th className="text-right font-bold py-1.5">{t("最大本数")}</th>
               </tr>
             </thead>
             <tbody>
@@ -289,10 +293,10 @@ export default function ConduitFillTool() {
                 const used = (counts[w.key] || 0) > 0;
                 return (
                   <tr key={w.key} className={`border-b border-border/50 last:border-0 ${used ? "font-bold" : ""}`}>
-                    <td className="py-1.5">{w.label}</td>
+                    <td className="py-1.5">{m(w.label)}</td>
                     <td className="py-1.5 text-right">φ{w.odMm.toFixed(1)}</td>
                     <td className="py-1.5 text-right" style={used ? { color: "#4DC4FF" } : undefined}>
-                      {maxWireCount(innerDia, w.odMm)} 本
+                      {maxWireCount(innerDia, w.odMm)} {t("本")}
                     </td>
                   </tr>
                 );
@@ -300,15 +304,15 @@ export default function ConduitFillTool() {
             </tbody>
           </table>
           <div className="mt-2 text-[11px] text-muted-foreground">
-            ※ 占積率 {FILL_LIMIT_PERCENT}% 以内で単独収容した場合の計算値です。
+            {t("※ 占積率")} {FILL_LIMIT_PERCENT}% {t("以内で単独収容した場合の計算値です。")}
           </div>
         </div>
       )}
 
       {/* 免責注記 */}
       <p className="text-[11px] text-muted-foreground px-1">
-        ※ 内径・仕上外径は規格・カタログに基づく目安値です。占積率の上限（{FILL_LIMIT_PERCENT}%）は
-        内線規程の一般則によります。実施工では現場実測・設計図書・所轄基準を優先してください。
+        {t("※ 内径・仕上外径は規格・カタログに基づく目安値です。占積率の上限（")}{FILL_LIMIT_PERCENT}
+        {t("%）は内線規程の一般則によります。実施工では現場実測・設計図書・所轄基準を優先してください。")}
       </p>
     </div>
   );

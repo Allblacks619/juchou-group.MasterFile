@@ -14,6 +14,7 @@ import {
   Ruler,
   Zap,
 } from "lucide-react";
+import { genbaTr, type GenbaLang } from "@shared/genba/i18n";
 import PipeOuterDiameterTool from "./tools/PipeOuterDiameterTool";
 import HolePunchTool from "./tools/HolePunchTool";
 import SupportSpanTool from "./tools/SupportSpanTool";
@@ -32,7 +33,7 @@ type ToolDef = {
   name: string;
   desc: string;
   icon: ComponentType<{ className?: string }>;
-  component: ComponentType;
+  component: ComponentType<{ lang: GenbaLang }>;
 };
 
 type Category = { title: string; tools: ToolDef[] };
@@ -66,11 +67,12 @@ const CATEGORIES: Category[] = [
  * 現場ツールボックス: 現場で使う検索・計算ツールのポータル。
  * カテゴリ別カード一覧 → タップで各ツール画面へ（完全クライアント完結・サーバー通信なし）。
  */
-export default function ToolsPanel() {
+export default function ToolsPanel({ lang = "ja" }: { lang?: GenbaLang }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const t = (ja: string) => genbaTr(ja, lang);
 
   const selected = selectedKey
-    ? CATEGORIES.flatMap((c) => c.tools).find((t) => t.key === selectedKey) ?? null
+    ? CATEGORIES.flatMap((c) => c.tools).find((x) => x.key === selectedKey) ?? null
     : null;
 
   if (selected) {
@@ -83,34 +85,34 @@ export default function ToolsPanel() {
             onClick={() => setSelectedKey(null)}
             className="inline-flex items-center gap-1 rounded-lg border border-border bg-card/50 px-2.5 py-1.5 text-sm font-bold text-muted-foreground"
           >
-            <ArrowLeft className="w-4 h-4" /> 戻る
+            <ArrowLeft className="w-4 h-4" /> {t("戻る")}
           </button>
-          <span className="text-sm font-bold truncate">{selected.name}</span>
+          <span className="text-sm font-bold truncate">{t(selected.name)}</span>
         </div>
-        <ToolComponent />
+        <ToolComponent lang={lang} />
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <h2 className="text-base font-bold px-1">現場ツールボックス</h2>
+      <h2 className="text-base font-bold px-1">{t("現場ツールボックス")}</h2>
       {CATEGORIES.map((cat) => (
         <div key={cat.title} className="space-y-2">
-          <div className="text-xs font-bold text-muted-foreground px-1">{cat.title}</div>
+          <div className="text-xs font-bold text-muted-foreground px-1">{t(cat.title)}</div>
           <div className="grid grid-cols-2 gap-2">
-            {cat.tools.map((t) => {
-              const Icon = t.icon;
+            {cat.tools.map((tool) => {
+              const Icon = tool.icon;
               return (
                 <button
-                  key={t.key}
+                  key={tool.key}
                   type="button"
-                  onClick={() => setSelectedKey(t.key)}
+                  onClick={() => setSelectedKey(tool.key)}
                   className="rounded-2xl border border-border bg-card/70 p-3 text-left active:opacity-70 transition-opacity"
                 >
                   <Icon className="w-5 h-5 text-muted-foreground" />
-                  <div className="mt-1.5 text-sm font-bold leading-tight">{t.name}</div>
-                  <div className="mt-1 text-[11px] text-muted-foreground leading-snug">{t.desc}</div>
+                  <div className="mt-1.5 text-sm font-bold leading-tight">{t(tool.name)}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground leading-snug">{t(tool.desc)}</div>
                 </button>
               );
             })}

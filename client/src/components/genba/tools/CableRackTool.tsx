@@ -10,6 +10,8 @@ import {
   type RackType,
   type RackWidth,
 } from "@shared/genba/tools/cableRack";
+import { genbaTr, type GenbaLang } from "@shared/genba/i18n";
+import { romanize } from "@/lib/genbaRomaji";
 
 /**
  * ケーブルラック 材料計算: ルートごとにラック種別/幅/延長/付属部材/セパレータ/
@@ -69,7 +71,11 @@ const toInput = (r: RouteState): CableRackRouteInput => ({
   rails: r.rails.map((row) => ({ size: Math.floor(num(row.size)), count: Math.floor(num(row.count)) })),
 });
 
-export default function CableRackTool() {
+export default function CableRackTool({ lang }: { lang: GenbaLang }) {
+  const t = (ja: string) => genbaTr(ja, lang);
+  // 材料名・型番はポルトガル語に訳さず日本語ローマ字表示（オーナー方針）
+  const mn = (name: string) => (lang === "pt" ? romanize(name) : name);
+
   const [routes, setRoutes] = useState<RouteState[]>(() => [newRoute()]);
 
   const inputs = useMemo(() => routes.map(toInput), [routes]);
@@ -86,21 +92,22 @@ export default function CableRackTool() {
       {/* 見出し */}
       <div className="flex items-center gap-2">
         <Layers className="w-5 h-5 text-muted-foreground" />
-        <h2 className="text-base font-bold">ケーブルラック 材料計算</h2>
+        <h2 className="text-base font-bold">{t("ケーブルラック 材料計算")}</h2>
       </div>
       <p className="text-xs text-muted-foreground px-1 -mt-2">
-        ルートごとに入力すると、本体・ジョイント・支持材を即時計算します。
+        {t("ルートごとに入力すると、本体・ジョイント・支持材を即時計算します。")}
       </p>
 
       {/* STEP 1: ルート入力 */}
       <div className="rounded-2xl border border-border bg-card/70 p-4 space-y-3">
-        <div className="text-xs font-bold text-muted-foreground">STEP 1　ラックルートを入力</div>
+        <div className="text-xs font-bold text-muted-foreground">{t("STEP 1　ラックルートを入力")}</div>
         {routes.map((r, i) => (
           <RouteCard
             key={r.id}
             index={i}
             route={r}
             removable={routes.length > 1}
+            lang={lang}
             onPatch={(p) => patch(r.id, p)}
             onRemove={() => setRoutes((rs) => rs.filter((x) => x.id !== r.id))}
           />
@@ -110,14 +117,14 @@ export default function CableRackTool() {
           onClick={() => setRoutes((rs) => [...rs, newRoute()])}
           className="w-full rounded-xl border border-dashed border-border px-3 py-2.5 text-sm font-bold text-muted-foreground flex items-center justify-center gap-1.5"
         >
-          <Plus className="w-4 h-4" /> ルートを追加
+          <Plus className="w-4 h-4" /> {t("ルートを追加")}
         </button>
       </div>
 
       {/* 結果（即時） */}
       {!hasAnything && (
         <p className="text-sm text-muted-foreground text-center py-4">
-          延長・部材・ダクターレールを入力すると自動で計算します。
+          {t("延長・部材・ダクターレールを入力すると自動で計算します。")}
         </p>
       )}
       {hasAnything && (
@@ -129,54 +136,54 @@ export default function CableRackTool() {
             return (
               <div key={r.id} className="rounded-2xl border border-border bg-card/70 p-4">
                 <div className="text-xs font-bold text-muted-foreground mb-2">
-                  ルート{i + 1}　W{r.width} {r.type}
+                  {t("ルート")}{i + 1}　W{r.width} {r.type}
                 </div>
                 <div>
-                  {res.racks > 0 && <Row label={`ラック本体（定尺 ${3}m）`} value={res.racks} unit="本" big color="#4DC4FF" />}
-                  {res.straightJoints > 0 && <Row label="ジョイント（直線用）" value={res.straightJoints} unit="枚" />}
+                  {res.racks > 0 && <Row label={mn(`ラック本体（定尺 ${3}m）`)} value={res.racks} unit={t("本")} big color="#4DC4FF" />}
+                  {res.straightJoints > 0 && <Row label={mn("ジョイント（直線用）")} value={res.straightJoints} unit={t("枚")} />}
                   {inputs[i]!.corner > 0 && (
                     <>
-                      <Row label="L形分岐" value={inputs[i]!.corner} unit="個" />
-                      <Row label="ジョイント（コーナー用）" value={res.cornerJoints} unit="枚" />
+                      <Row label={mn("L形分岐")} value={inputs[i]!.corner} unit={t("個")} />
+                      <Row label={mn("ジョイント（コーナー用）")} value={res.cornerJoints} unit={t("枚")} />
                     </>
                   )}
                   {inputs[i]!.rise > 0 && (
                     <>
-                      <Row label="上下自在" value={inputs[i]!.rise} unit="箇所" />
-                      <Row label="上下自在継手" value={res.riseJoints} unit="対" />
-                      {res.riseSepJoints > 0 && <Row label="セパレータ用上下自在継手" value={res.riseSepJoints} unit="対" />}
+                      <Row label={mn("上下自在")} value={inputs[i]!.rise} unit={t("箇所")} />
+                      <Row label={mn("上下自在継手")} value={res.riseJoints} unit={t("対")} />
+                      {res.riseSepJoints > 0 && <Row label={mn("セパレータ用上下自在継手")} value={res.riseSepJoints} unit={t("対")} />}
                     </>
                   )}
                   {inputs[i]!.lr > 0 && (
                     <>
-                      <Row label="左右自在" value={inputs[i]!.lr} unit="箇所" />
-                      <Row label="左右自在継手" value={res.lrJoints} unit="対" />
+                      <Row label={mn("左右自在")} value={inputs[i]!.lr} unit={t("箇所")} />
+                      <Row label={mn("左右自在継手")} value={res.lrJoints} unit={t("対")} />
                     </>
                   )}
                   {inputs[i]!.expansion > 0 && (
                     <>
-                      <Row label="伸縮" value={inputs[i]!.expansion} unit="箇所" />
-                      <Row label="伸縮継手" value={res.expJoints} unit="枚" />
+                      <Row label={mn("伸縮")} value={inputs[i]!.expansion} unit={t("箇所")} />
+                      <Row label={mn("伸縮継手")} value={res.expJoints} unit={t("枚")} />
                     </>
                   )}
                   {inputs[i]!.tBranch > 0 && (
                     <>
-                      <Row label="T形分岐" value={inputs[i]!.tBranch} unit="個" />
-                      <Row label="ジョイント（T形用）" value={res.tBranchJoints} unit="枚" />
+                      <Row label={mn("T形分岐")} value={inputs[i]!.tBranch} unit={t("個")} />
+                      <Row label={mn("ジョイント（T形用）")} value={res.tBranchJoints} unit={t("枚")} />
                     </>
                   )}
                   {inputs[i]!.xBranch > 0 && (
                     <>
-                      <Row label="X形分岐" value={inputs[i]!.xBranch} unit="個" />
-                      <Row label="ジョイント（X形用）" value={res.xBranchJoints} unit="枚" />
+                      <Row label={mn("X形分岐")} value={inputs[i]!.xBranch} unit={t("個")} />
+                      <Row label={mn("ジョイント（X形用）")} value={res.xBranchJoints} unit={t("枚")} />
                     </>
                   )}
-                  {res.fure > 0 && <Row label={`ふれどめ（${r.type}用）`} value={res.fure} unit="個" />}
+                  {res.fure > 0 && <Row label={mn(`ふれどめ（${r.type}用）`)} value={res.fure} unit={t("個")} />}
                   {res.sepSheets > 0 && (
                     <>
-                      <Row label="セパレータ（約1500mm）" value={res.sepSheets} unit="枚" />
-                      {res.sepJointPlates > 0 && <Row label="セパレータ用ジョイントプレート" value={res.sepJointPlates} unit="枚" />}
-                      <Row label="押さえ金具" value={res.sepClamps} unit="個" />
+                      <Row label={mn("セパレータ（約1500mm）")} value={res.sepSheets} unit={t("枚")} />
+                      {res.sepJointPlates > 0 && <Row label={mn("セパレータ用ジョイントプレート")} value={res.sepJointPlates} unit={t("枚")} />}
+                      <Row label={mn("押さえ金具")} value={res.sepClamps} unit={t("個")} />
                     </>
                   )}
                 </div>
@@ -184,24 +191,24 @@ export default function CableRackTool() {
                 {res.rails.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-border/50">
                     <div className="text-[11px] font-bold text-muted-foreground mb-1">
-                      ダクターレール（定尺 2500mm・{res.railClass}）
+                      {mn("ダクターレール")}（{t("定尺")} 2500mm・{res.railClass}）
                     </div>
                     {res.rails.map((row) => (
                       <div key={row.size} className="flex items-baseline justify-between gap-2 py-0.5">
                         <span className="text-[11px] text-muted-foreground">
-                          {row.size}mm × {row.count}か所（1本から{row.perBar}本取り　余り{row.remainder}mm）
+                          {row.size}mm × {row.count}{t("か所")}（{t("1本から")}{row.perBar}{t("本取り　余り")}{row.remainder}mm）
                         </span>
-                        <span className="text-sm font-bold tabular-nums shrink-0">{row.bars}本</span>
+                        <span className="text-sm font-bold tabular-nums shrink-0">{row.bars}{t("本")}</span>
                       </div>
                     ))}
-                    {res.rails.length > 1 && <Row label="定尺 小計" value={res.railBarsSubtotal} unit="本" />}
+                    {res.rails.length > 1 && <Row label={t("定尺 小計")} value={res.railBarsSubtotal} unit={t("本")} />}
                   </div>
                 )}
                 {/* コーナー×セパレータの手動加算注記 */}
                 {res.cSepSheets > 0 && (
                   <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "#F6AA00" }}>
-                    ※ L形分岐 {inputs[i]!.corner}か所分：セパレータ +{res.cSepSheets}枚、押さえ金具 +{res.cSepClampsMin}〜{res.cSepClampsMax}個を加算してください
-                    {res.cSepJoints > 0 ? `（セパレータ用ジョイント +${res.cSepJoints}枚）` : ""}
+                    {t("※ L形分岐")} {inputs[i]!.corner}{t("か所分：セパレータ +")}{res.cSepSheets}{t("枚、押さえ金具 +")}{res.cSepClampsMin}〜{res.cSepClampsMax}{t("個を加算してください")}
+                    {res.cSepJoints > 0 ? `${t("（セパレータ用ジョイント +")}${res.cSepJoints}${t("枚）")}` : ""}
                   </p>
                 )}
               </div>
@@ -210,15 +217,15 @@ export default function CableRackTool() {
 
           {/* 支持材（合計） */}
           <div className="rounded-2xl border border-border bg-card/70 p-4">
-            <div className="text-xs font-bold text-muted-foreground mb-2">支持材（合計）</div>
-            <Row label="支持箇所（ダクターレール合計）" value={totals.totalRailCount} unit="か所" big color="#4DC4FF" />
-            {totals.boltsSmall > 0 && <Row label="全ネジボルト（W3/8）" value={totals.boltsSmall} unit="本" />}
-            {totals.boltsLarge > 0 && <Row label="全ネジボルト（W1/2）" value={totals.boltsLarge} unit="本" />}
+            <div className="text-xs font-bold text-muted-foreground mb-2">{t("支持材（合計）")}</div>
+            <Row label={t("支持箇所（ダクターレール合計）")} value={totals.totalRailCount} unit={t("か所")} big color="#4DC4FF" />
+            {totals.boltsSmall > 0 && <Row label={mn("全ネジボルト（W3/8）")} value={totals.boltsSmall} unit={t("本")} />}
+            {totals.boltsLarge > 0 && <Row label={mn("全ネジボルト（W1/2）")} value={totals.boltsLarge} unit={t("本")} />}
             {totals.avgIntervalM != null && totals.intervalWarning && (
               <p className="mt-2 flex items-start gap-1.5 text-sm leading-relaxed">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "#FF4B00" }} />
                 <span>
-                  支持間隔が平均 {totals.avgIntervalM.toFixed(1)}m になっています。内線規程では2m以内が推奨です。
+                  {t("支持間隔が平均")} {totals.avgIntervalM.toFixed(1)}{t("m になっています。内線規程では2m以内が推奨です。")}
                 </span>
               </p>
             )}
@@ -226,19 +233,19 @@ export default function CableRackTool() {
 
           {/* ダクターレール（定尺） */}
           <div className="rounded-2xl border border-border bg-card/70 p-4">
-            <div className="text-xs font-bold text-muted-foreground mb-2">ダクターレール（定尺 2500mm）</div>
+            <div className="text-xs font-bold text-muted-foreground mb-2">{mn("ダクターレール")}（{t("定尺")} 2500mm）</div>
             {totals.railsD1.totalBars === 0 && totals.railsD2.totalBars === 0 ? (
-              <p className="text-sm text-muted-foreground">※ ダクターレールの入力なし</p>
+              <p className="text-sm text-muted-foreground">{t("※ ダクターレールの入力なし")}</p>
             ) : (
               <>
-                {totals.railsD1.totalBars > 0 && <Row label="D1（W600以下）" value={totals.railsD1.totalBars} unit="本" big color="#03AF7A" />}
-                {totals.railsD2.totalBars > 0 && <Row label="D2（W800以上）" value={totals.railsD2.totalBars} unit="本" big color="#03AF7A" />}
+                {totals.railsD1.totalBars > 0 && <Row label={t("D1（W600以下）")} value={totals.railsD1.totalBars} unit={t("本")} big color="#03AF7A" />}
+                {totals.railsD2.totalBars > 0 && <Row label={t("D2（W800以上）")} value={totals.railsD2.totalBars} unit={t("本")} big color="#03AF7A" />}
                 <div className="mt-1.5 space-y-0.5">
                   {(["D1", "D2"] as const).map((cls) => {
                     const agg = cls === "D1" ? totals.railsD1 : totals.railsD2;
                     return agg.items.map((row) => (
                       <p key={`${cls}-${row.size}`} className="text-[11px] text-muted-foreground">
-                        {cls}：{row.size}mm × {row.count}本　定尺1本から {row.perBar}本取り（余り {row.remainder}mm）
+                        {cls}：{row.size}mm × {row.count}{t("本")}　{t("定尺1本から")} {row.perBar}{t("本取り（余り")} {row.remainder}mm）
                       </p>
                     ));
                   })}
@@ -249,49 +256,48 @@ export default function CableRackTool() {
 
           {/* 全材料 合計 */}
           <div className="rounded-2xl border border-border bg-card/70 p-4">
-            <div className="text-xs font-bold text-muted-foreground mb-2">全材料 合計</div>
+            <div className="text-xs font-bold text-muted-foreground mb-2">{t("全材料 合計")}</div>
             <div>
               {totals.rackBodies.map((b) => (
-                <Row key={`rk-${b.type}-${b.width}`} label={`ケーブルラック ${b.type} W${b.width}（定尺 3m）`} value={b.count} unit="本" big color="#4DC4FF" />
+                <Row key={`rk-${b.type}-${b.width}`} label={mn(`ケーブルラック ${b.type} W${b.width}（定尺 3m）`)} value={b.count} unit={t("本")} big color="#4DC4FF" />
               ))}
               {totals.corners.map((c) => (
-                <Row key={`cn-${c.type}-${c.width}`} label={`L形分岐 ${c.type} W${c.width}`} value={c.count} unit="個" />
+                <Row key={`cn-${c.type}-${c.width}`} label={mn(`L形分岐 ${c.type} W${c.width}`)} value={c.count} unit={t("個")} />
               ))}
-              {RACK_TYPE_ORDER.map((t) => (
+              {RACK_TYPE_ORDER.map((rt) => (
                 <RowsPerType
-                  key={t}
-                  t={t}
+                  key={rt}
+                  lang={lang}
                   totals={{
-                    [`ジョイント（${t}用）|枚`]: totals.joints[t],
-                    [`上下自在継手（${t}用）|対`]: totals.riseJoints[t],
-                    [`左右自在継手（${t}用）|対`]: totals.lrJoints[t],
-                    [`伸縮継手（${t}用）|枚`]: totals.expJoints[t],
-                    [`T形分岐（${t}）|個`]: totals.tBranch[t],
-                    [`X形分岐（${t}）|個`]: totals.xBranch[t],
-                    [`ふれどめ（${t}用）|個`]: totals.fure[t],
-                    [`セパレータ 約1500mm（${t}）|枚`]: totals.sepSheets[t],
-                    [`セパレータ用ジョイントプレート（${t}）|枚`]: totals.sepJointPlates[t],
-                    [`セパレータ用上下自在継手（${t}）|対`]: totals.riseSepJoints[t],
+                    [`ジョイント（${rt}用）|枚`]: totals.joints[rt],
+                    [`上下自在継手（${rt}用）|対`]: totals.riseJoints[rt],
+                    [`左右自在継手（${rt}用）|対`]: totals.lrJoints[rt],
+                    [`伸縮継手（${rt}用）|枚`]: totals.expJoints[rt],
+                    [`T形分岐（${rt}）|個`]: totals.tBranch[rt],
+                    [`X形分岐（${rt}）|個`]: totals.xBranch[rt],
+                    [`ふれどめ（${rt}用）|個`]: totals.fure[rt],
+                    [`セパレータ 約1500mm（${rt}）|枚`]: totals.sepSheets[rt],
+                    [`セパレータ用ジョイントプレート（${rt}）|枚`]: totals.sepJointPlates[rt],
+                    [`セパレータ用上下自在継手（${rt}）|対`]: totals.riseSepJoints[rt],
                   }}
                 />
               ))}
-              {totals.sepClamps > 0 && <Row label="押さえ金具（直線分）" value={totals.sepClamps} unit="個" />}
-              {totals.boltsSmall > 0 && <Row label="全ネジボルト W3/8" value={totals.boltsSmall} unit="本" />}
-              {totals.boltsLarge > 0 && <Row label="全ネジボルト W1/2" value={totals.boltsLarge} unit="本" />}
-              {totals.railsD1.totalBars > 0 && <Row label="ダクターレール D1（定尺 2500mm）" value={totals.railsD1.totalBars} unit="本" />}
-              {totals.railsD2.totalBars > 0 && <Row label="ダクターレール D2（定尺 2500mm）" value={totals.railsD2.totalBars} unit="本" />}
+              {totals.sepClamps > 0 && <Row label={mn("押さえ金具（直線分）")} value={totals.sepClamps} unit={t("個")} />}
+              {totals.boltsSmall > 0 && <Row label={mn("全ネジボルト W3/8")} value={totals.boltsSmall} unit={t("本")} />}
+              {totals.boltsLarge > 0 && <Row label={mn("全ネジボルト W1/2")} value={totals.boltsLarge} unit={t("本")} />}
+              {totals.railsD1.totalBars > 0 && <Row label={mn("ダクターレール D1（定尺 2500mm）")} value={totals.railsD1.totalBars} unit={t("本")} />}
+              {totals.railsD2.totalBars > 0 && <Row label={mn("ダクターレール D2（定尺 2500mm）")} value={totals.railsD2.totalBars} unit={t("本")} />}
             </div>
             {totals.cornerSepNote && (
               <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "#F6AA00" }}>
-                ※ L形分岐のあるルートはセパレータ・押さえ金具を別途加算してください。
-                W500以下：+1枚/か所、W600以上：+2枚/か所。押さえ金具はL形分岐の箇所数 × 2〜3個が目安です。
+                {t("※ L形分岐のあるルートはセパレータ・押さえ金具を別途加算してください。W500以下：+1枚/か所、W600以上：+2枚/か所。押さえ金具はL形分岐の箇所数 × 2〜3個が目安です。")}
               </p>
             )}
             <div className="mt-2 space-y-1 text-[11px] text-muted-foreground leading-relaxed">
-              <p>※ ジョイント枚数はラックの延長から算出した概算です。加工や施工手順により前後します。</p>
-              <p>※ 各数量は経験則に基づく目安です。現場の状況や施工方法により変動します。</p>
-              <p>※ ダクターレール・全ネジボルトのサイズはラック幅による目安です。実際の選定はラックにかかる荷重・現場条件で判断してください。</p>
-              <p>※ 計算値は最低限の数量です。現場の状況に応じて余裕分を確認してください。</p>
+              <p>{t("※ ジョイント枚数はラックの延長から算出した概算です。加工や施工手順により前後します。")}</p>
+              <p>{t("※ 各数量は経験則に基づく目安です。現場の状況や施工方法により変動します。")}</p>
+              <p>{t("※ ダクターレール・全ネジボルトのサイズはラック幅による目安です。実際の選定はラックにかかる荷重・現場条件で判断してください。")}</p>
+              <p>{t("※ 計算値は最低限の数量です。現場の状況に応じて余裕分を確認してください。")}</p>
             </div>
           </div>
         </div>
@@ -299,8 +305,8 @@ export default function CableRackTool() {
 
       {/* 免責注記 */}
       <div className="text-[11px] text-muted-foreground px-1 space-y-0.5">
-        <p>※ 支持間隔2m以内（内線規程 目安）・ラック定尺3m・ダクターレール定尺2500mm基準の概算です。</p>
-        <p>※ 規格・経験則に基づく目安値です。実施工では現場実測・設計図書・施工要領書を優先してください。</p>
+        <p>{t("※ 支持間隔2m以内（内線規程 目安）・ラック定尺3m・ダクターレール定尺2500mm基準の概算です。")}</p>
+        <p>{t("※ 規格・経験則に基づく目安値です。実施工では現場実測・設計図書・施工要領書を優先してください。")}</p>
       </div>
     </div>
   );
@@ -311,21 +317,25 @@ function RouteCard({
   index,
   route,
   removable,
+  lang,
   onPatch,
   onRemove,
 }: {
   index: number;
   route: RouteState;
   removable: boolean;
+  lang: GenbaLang;
   onPatch: (p: Partial<RouteState>) => void;
   onRemove: () => void;
 }) {
+  const t = (ja: string) => genbaTr(ja, lang);
+  const mn = (name: string) => (lang === "pt" ? romanize(name) : name);
   return (
     <div className="rounded-xl border border-border bg-card/50 p-3 space-y-2.5">
       <div className="flex items-center">
-        <span className="text-sm font-bold">ルート {index + 1}</span>
+        <span className="text-sm font-bold">{t("ルート")} {index + 1}</span>
         {removable && (
-          <button type="button" onClick={onRemove} className="ml-auto p-1 text-muted-foreground" aria-label="このルートを削除">
+          <button type="button" onClick={onRemove} className="ml-auto p-1 text-muted-foreground" aria-label={t("このルートを削除")}>
             <X className="w-4 h-4" />
           </button>
         )}
@@ -334,24 +344,24 @@ function RouteCard({
       {/* 種別 + 幅 */}
       <div className="grid grid-cols-2 gap-2">
         <div className="grid grid-cols-2 gap-1.5">
-          {RACK_TYPE_ORDER.map((t) => {
-            const on = route.type === t;
+          {RACK_TYPE_ORDER.map((rt) => {
+            const on = route.type === rt;
             return (
               <button
-                key={t}
+                key={rt}
                 type="button"
-                onClick={() => onPatch({ type: t })}
+                onClick={() => onPatch({ type: rt })}
                 className={`rounded-lg border px-2 py-1.5 text-center transition-colors ${on ? "border-transparent text-white" : "border-border bg-card/50"}`}
                 style={on ? { background: "#4DC4FF" } : undefined}
               >
-                <div className="text-sm font-bold leading-tight">{RACK_TYPES[t].label}</div>
-                <div className={`text-[10px] leading-tight ${on ? "text-white/80" : "text-muted-foreground"}`}>{RACK_TYPES[t].sub}</div>
+                <div className="text-sm font-bold leading-tight">{RACK_TYPES[rt].label}</div>
+                <div className={`text-[10px] leading-tight ${on ? "text-white/80" : "text-muted-foreground"}`}>{mn(RACK_TYPES[rt].sub)}</div>
               </button>
             );
           })}
         </div>
         <label className="block">
-          <span className="text-[11px] text-muted-foreground">ラック幅</span>
+          <span className="text-[11px] text-muted-foreground">{t("ラック幅")}</span>
           <select
             value={route.width}
             onChange={(e) => onPatch({ width: Number(e.target.value) as RackWidth })}
@@ -365,16 +375,16 @@ function RouteCard({
       </div>
 
       {/* 延長 */}
-      <NumField label="延長" unit="m" step="0.1" placeholder="例：15" value={route.len} onChange={(v) => onPatch({ len: v })} />
+      <NumField label={t("延長")} unit="m" step="0.1" placeholder="例：15" value={route.len} onChange={(v) => onPatch({ len: v })} />
 
       {/* 部材（か所） */}
       <div className="grid grid-cols-3 gap-2">
-        <NumField label="コーナー" unit="か所" value={route.corner} onChange={(v) => onPatch({ corner: v })} />
-        <NumField label="上下自在" unit="か所" value={route.rise} onChange={(v) => onPatch({ rise: v })} />
-        <NumField label="左右自在" unit="か所" value={route.lr} onChange={(v) => onPatch({ lr: v })} />
-        <NumField label="伸縮" unit="か所" value={route.expansion} onChange={(v) => onPatch({ expansion: v })} />
-        <NumField label="T形分岐" unit="か所" value={route.tBranch} onChange={(v) => onPatch({ tBranch: v })} />
-        <NumField label="X形分岐" unit="か所" value={route.xBranch} onChange={(v) => onPatch({ xBranch: v })} />
+        <NumField label={mn("コーナー")} unit={t("か所")} value={route.corner} onChange={(v) => onPatch({ corner: v })} />
+        <NumField label={mn("上下自在")} unit={t("か所")} value={route.rise} onChange={(v) => onPatch({ rise: v })} />
+        <NumField label={mn("左右自在")} unit={t("か所")} value={route.lr} onChange={(v) => onPatch({ lr: v })} />
+        <NumField label={mn("伸縮")} unit={t("か所")} value={route.expansion} onChange={(v) => onPatch({ expansion: v })} />
+        <NumField label={mn("T形分岐")} unit={t("か所")} value={route.tBranch} onChange={(v) => onPatch({ tBranch: v })} />
+        <NumField label={mn("X形分岐")} unit={t("か所")} value={route.xBranch} onChange={(v) => onPatch({ xBranch: v })} />
       </div>
 
       {/* セパレータ */}
@@ -384,20 +394,20 @@ function RouteCard({
         className={`w-full rounded-lg border px-3 py-2 flex items-center justify-between transition-colors ${route.hasSep ? "border-transparent text-white" : "border-border bg-card/50"}`}
         style={route.hasSep ? { background: "#03AF7A" } : undefined}
       >
-        <span className="text-sm font-bold">セパレータ</span>
+        <span className="text-sm font-bold">{mn("セパレータ")}</span>
         <span className={`text-xs font-bold ${route.hasSep ? "text-white/90" : "text-muted-foreground"}`}>{route.hasSep ? "ON" : "OFF"}</span>
       </button>
 
       {/* ダクターレール */}
       <div className="space-y-1.5">
-        <div className="text-[11px] font-bold text-muted-foreground">ダクターレール（支持か所）</div>
+        <div className="text-[11px] font-bold text-muted-foreground">{mn("ダクターレール")}（{t("支持か所")}）</div>
         {route.rails.map((row, ri) => (
           <div key={ri} className="flex items-center gap-1.5">
             <input
               type="number"
               inputMode="numeric"
               min={0}
-              placeholder="寸法"
+              placeholder={t("寸法")}
               value={row.size}
               onChange={(e) => onPatch({ rails: route.rails.map((x, xi) => (xi === ri ? { ...x, size: e.target.value } : x)) })}
               className="w-full min-w-0 rounded-lg border border-border bg-card/50 px-2 py-1.5 text-sm tabular-nums"
@@ -407,18 +417,18 @@ function RouteCard({
               type="number"
               inputMode="numeric"
               min={0}
-              placeholder="箇所"
+              placeholder={t("箇所")}
               value={row.count}
               onChange={(e) => onPatch({ rails: route.rails.map((x, xi) => (xi === ri ? { ...x, count: e.target.value } : x)) })}
               className="w-full min-w-0 rounded-lg border border-border bg-card/50 px-2 py-1.5 text-sm tabular-nums"
             />
-            <span className="text-[11px] text-muted-foreground shrink-0">か所</span>
+            <span className="text-[11px] text-muted-foreground shrink-0">{t("か所")}</span>
             {route.rails.length > 1 && (
               <button
                 type="button"
                 onClick={() => onPatch({ rails: route.rails.filter((_, xi) => xi !== ri) })}
                 className="p-1 text-muted-foreground shrink-0"
-                aria-label="このレール行を削除"
+                aria-label={t("このレール行を削除")}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -430,7 +440,7 @@ function RouteCard({
           onClick={() => onPatch({ rails: [...route.rails, { size: "", count: "" }] })}
           className="w-full rounded-lg border border-dashed border-border px-2 py-1.5 text-xs font-bold text-muted-foreground flex items-center justify-center gap-1"
         >
-          <Plus className="w-3.5 h-3.5" /> レール寸法を追加
+          <Plus className="w-3.5 h-3.5" /> {t("レール寸法を追加")}
         </button>
       </div>
     </div>
@@ -490,14 +500,16 @@ function Row({ label, value, unit, big, color }: { label: string; value: number;
 }
 
 /** 「ラベル|単位」→数量 のマップから 0 を除いて行を並べる（種別別合計用） */
-function RowsPerType({ t, totals }: { t: string; totals: Record<string, number> }) {
+function RowsPerType({ lang, totals }: { lang: GenbaLang; totals: Record<string, number> }) {
+  const tr = (ja: string) => genbaTr(ja, lang);
+  const mn = (name: string) => (lang === "pt" ? romanize(name) : name);
   return (
     <>
       {Object.entries(totals)
         .filter(([, v]) => v > 0)
         .map(([key, v]) => {
           const [label, unit] = key.split("|");
-          return <Row key={`${t}-${key}`} label={label ?? key} value={v} unit={unit ?? ""} />;
+          return <Row key={key} label={mn(label ?? key)} value={v} unit={tr(unit ?? "")} />;
         })}
     </>
   );
