@@ -77,6 +77,30 @@ export const GENBA_PT: Record<string, string> = {
   "材料": "Materiais", "共有": "Compartilhar", "学習": "Aprendizado",
 };
 
+/**
+ * 現場ツールボックス(ToolsPanel + 各ツール)の PT 対訳。材料名・型番はここに入れず、
+ * 画面側で romaji 表示する(オーナー方針: 材料名はポルトガル語でなく日本語ローマ字)。
+ * GENBA_PT に統合するので genbaTr がそのまま解決する。
+ */
+export const GENBA_PT_TOOLS: Record<string, string> = {
+  // ToolsPanel
+  "戻る": "Voltar", "現場ツールボックス": "Ferramentas de obra",
+  "検索・早見": "Consulta rápida", "計算・拾い出し": "Cálculo / Levantamento",
+  "配管外径 早見": "Ø externo do conduíte", "配管種別と呼び径から外径をすぐ確認": "Ø externo por tipo e bitola",
+  "抜き径・貫通穴 検索": "Furo de passagem", "配管に必要な貫通穴サイズと工具を検索": "Tamanho do furo e ferramenta",
+  "支持間隔 早見": "Espaçamento de suporte", "電材ごとの支持・固定間隔の目安を確認": "Espaçamento de fixação por material",
+  "下穴径 早見": "Ø do furo-guia", "タップ・コネクタの下穴径をすぐ確認": "Ø do furo-guia p/ tap/conector",
+  "接続材 選定": "Seleção de conexão", "配管の組み合わせから接続材を選定": "Conexão pela combinação de conduítes",
+  "耐火区画貫通 ガイド": "Selagem corta-fogo", "区画貫通の処理工法をガイドで確認": "Guia de método de selagem",
+  "金属管 拾い出し": "Levant. conduíte metálico", "金属管ルートの材料数量を拾い出し": "Quantidades da rota de conduíte",
+  "ケーブルラック 材料計算": "Cálc. eletrocalha", "ラック本体・付属品の必要数を計算": "Qtd. de eletrocalha e acessórios",
+  "間仕切り 仕込み材 拾い出し": "Levant. de divisórias", "間仕切り工事の仕込み材を拾い出し": "Materiais de divisória",
+  "占積率 計算": "Taxa de ocupação", "管内の電線占積率を計算してチェック": "Ocupação de cabos no conduíte",
+  "配線 計算": "Cálculo de fiação", "電圧降下・幹線・接地線などの配線計算": "Queda de tensão, alimentador, terra",
+  "VVF 発注計算": "Pedido de VVF", "回路入力からロス込みの巻数・ドラム数を計算": "Rolos/tambores com perda por circuito",
+};
+Object.assign(GENBA_PT, GENBA_PT_TOOLS);
+
 /** key(日本語) を lang に応じて翻訳。未登録は原文フォールバック */
 export function genbaTr(key: string, lang: GenbaLang): string {
   if (lang === "pt") return GENBA_PT[key] ?? key;
