@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Map as MapIcon, ClipboardList, Megaphone, LayoutGrid, BarChart3, Wallet, Settings, Plus, ChevronDown, CloudOff, UploadCloud, Package, Zap } from "lucide-react";
+import { Map as MapIcon, ClipboardList, Megaphone, LayoutGrid, BarChart3, Wallet, Settings, Plus, ChevronDown, CloudOff, UploadCloud, Package, Zap, Wrench } from "lucide-react";
 import { resolveGenbaTheme, genbaThemeTokens } from "@shared/genba/themes";
 import type { GenbaLang } from "@shared/genba/i18n";
 import { useGenbaOutbox } from "@/lib/useGenbaOutbox";
@@ -15,6 +15,7 @@ import DispatchPanel from "./DispatchPanel";
 import BoardPanel from "./BoardPanel";
 import BudgetPanel from "./BudgetPanel";
 import GenbaSettingsPanel from "./GenbaSettingsPanel";
+import ToolsPanel from "./ToolsPanel";
 import GuideModal from "./GuideModal";
 import { setRomajiLang } from "@/lib/genbaRomaji";
 
@@ -28,7 +29,7 @@ type Me = {
 };
 type Site = { id: string; name: string; driveUrl: string | null; projectId: number | null };
 
-type TabKey = "map" | "tasks" | "inst" | "board" | "dash" | "budget" | "settings";
+type TabKey = "map" | "tasks" | "inst" | "board" | "dash" | "tools" | "budget" | "settings";
 
 const ROLE_LABEL: Record<string, string> = { admin: "管理者", leader: "リーダー", worker: "作業員" };
 const ROLE_ICON: Record<string, string> = { admin: "🛠", leader: "⭐", worker: "👷" };
@@ -101,6 +102,7 @@ export default function GenbaShell({
       { key: "inst", label: "指示", icon: Megaphone },
       { key: "board", label: "配置", icon: LayoutGrid },
       { key: "dash", label: "全体", icon: BarChart3 },
+      { key: "tools", label: "ツール", icon: Wrench },
     ];
     if (isAdmin) base.push({ key: "budget", label: "予算", icon: Wallet });
     base.push({ key: "settings", label: "設定", icon: Settings });
@@ -223,6 +225,7 @@ export default function GenbaShell({
         )}
         {tab === "board" && <BoardPanel embedded siteId={site.id} meUserId={me.userId ?? null} canEdit={canEdit} />}
         {tab === "dash" && <DashTab siteId={site.id} />}
+        {tab === "tools" && <ToolsPanel />}
         {tab === "budget" && isAdmin && <BudgetPanel embedded siteId={site.id} siteName={site.name} />}
         {tab === "settings" && (
           <GenbaSettingsPanel
