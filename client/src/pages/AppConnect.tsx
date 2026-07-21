@@ -18,8 +18,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Copy, Plus, Inbox, Send, Link2, CheckCircle2, Undo2 } from "lucide-react";
+import { Copy, Plus, Inbox, Send, Link2, CheckCircle2, Undo2, FileText, FileInput } from "lucide-react";
 import { format } from "date-fns";
+import { InvoiceInboxTab, InvoiceOutboxTab } from "@/components/connect/InvoiceTabs";
 
 /**
  * 会社間連携（コネクト層）— Phase 2 UI (docs/multitenant/PLAN_v1.md §2.3-§2.6)
@@ -438,12 +439,16 @@ export default function AppConnect() {
   return (
     <div className="p-4 md:p-6 space-y-4">
       <h1 className="text-xl font-semibold">会社間連携</h1>
-      <Tabs defaultValue="inbox">
-        <TabsList>
-          <TabsTrigger value="inbox"><Inbox className="w-4 h-4 mr-1" />受領箱</TabsTrigger>
-          <TabsTrigger value="outbox"><Send className="w-4 h-4 mr-1" />提出箱</TabsTrigger>
+      <Tabs defaultValue="invoiceInbox">
+        <TabsList className="flex-wrap h-auto">
+          <TabsTrigger value="invoiceInbox"><FileInput className="w-4 h-4 mr-1" />請求受領</TabsTrigger>
+          <TabsTrigger value="invoiceOutbox"><FileText className="w-4 h-4 mr-1" />請求提出</TabsTrigger>
+          <TabsTrigger value="inbox"><Inbox className="w-4 h-4 mr-1" />名簿受領</TabsTrigger>
+          <TabsTrigger value="outbox"><Send className="w-4 h-4 mr-1" />名簿提出</TabsTrigger>
           <TabsTrigger value="partners"><Link2 className="w-4 h-4 mr-1" />連携管理</TabsTrigger>
         </TabsList>
+        <TabsContent value="invoiceInbox"><InvoiceInboxTab /></TabsContent>
+        <TabsContent value="invoiceOutbox"><InvoiceOutboxTab /></TabsContent>
         <TabsContent value="inbox"><InboxTab /></TabsContent>
         <TabsContent value="outbox"><OutboxTab /></TabsContent>
         <TabsContent value="partners"><PartnersTab /></TabsContent>
