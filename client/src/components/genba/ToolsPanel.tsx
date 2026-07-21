@@ -8,6 +8,7 @@ import {
   Drill,
   Flame,
   Layers,
+  Package,
   PanelsTopLeft,
   Percent,
   Ruler,
@@ -24,6 +25,7 @@ import CableRackTool from "./tools/CableRackTool";
 import PartitionTool from "./tools/PartitionTool";
 import ConduitFillTool from "./tools/ConduitFillTool";
 import WiringCalcTool from "./tools/WiringCalcTool";
+import VvfOrderTool from "./tools/VvfOrderTool";
 
 type ToolDef = {
   key: string;
@@ -55,6 +57,7 @@ const CATEGORIES: Category[] = [
       { key: "partition", name: "間仕切り 仕込み材 拾い出し", desc: "間仕切り工事の仕込み材を拾い出し", icon: PanelsTopLeft, component: PartitionTool },
       { key: "conduit-fill", name: "占積率 計算", desc: "管内の電線占積率を計算してチェック", icon: Percent, component: ConduitFillTool },
       { key: "wiring-calc", name: "配線 計算", desc: "電圧降下・幹線・接地線などの配線計算", icon: Zap, component: WiringCalcTool },
+      { key: "vvf-order", name: "VVF 発注計算", desc: "回路入力からロス込みの巻数・ドラム数を計算", icon: Package, component: VvfOrderTool },
     ],
   },
 ];
