@@ -9,6 +9,7 @@ import { Trash2, Plus, ExternalLink, Share2 } from "lucide-react";
 import { romanize, dispName } from "@/lib/genbaRomaji";
 import { todayStr, fmtDate, type GenbaTaskDto } from "@/lib/genbaTask";
 import TaskFilesSection from "./TaskFilesSection";
+import { useGenbaT } from "@/lib/genbaLang";
 
 /** 作業詳細 (プロトタイプ TaskDetailModal 移植): 名前/ローマ字/期限/リンク/メモ/問題写真/引き継ぎ/削除/サブ作業 */
 export default function TaskDetailModal({
@@ -22,6 +23,7 @@ export default function TaskDetailModal({
   onOpenChange: (v: boolean) => void;
   onChanged: () => void;
 }) {
+  const tr = useGenbaT();
   const [name, setName] = useState(task.name);
   const [memo, setMemo] = useState(task.memo || "");
   const [hoTarget, setHoTarget] = useState("");
@@ -30,11 +32,11 @@ export default function TaskDetailModal({
   const events = trpc.genba.tasks.events.useQuery({ taskId: task.id }, { enabled: open, retry: false });
   const usersQ = trpc.genba.users.listAssignable.useQuery(undefined, { enabled: open, retry: false });
   const handover = trpc.genba.tasks.handover.useMutation({
-    onSuccess: () => { onChanged(); setHoTarget(""); setHoNote(""); toast.success("引き継ぎました（相手に指示を送信）"); },
+    onSuccess: () => { onChanged(); setHoTarget(""); setHoNote(""); toast.success(tr("引き継ぎました（相手に指示を送信）")); },
     onError: (e) => toast.error(e.message),
   });
   const update = trpc.genba.tasks.update.useMutation({ onSuccess: onChanged, onError: (e) => toast.error(e.message) });
-  const move = trpc.genba.tasks.move.useMutation({ onSuccess: () => { onChanged(); toast.success("作業を移動しました"); }, onError: (e) => toast.error(e.message) });
+  const move = trpc.genba.tasks.move.useMutation({ onSuccess: () => { onChanged(); toast.success(tr("作業を移動しました")); }, onError: (e) => toast.error(e.message) });
   // 移動先候補: 同エリアの作業から「自分自身」と「自分の子孫」を除く (循環防止)。トップ(親なし)も選べる
   const zoneTasksQ = trpc.genba.tasks.listByZone.useQuery({ zoneId }, { enabled: open && canEdit, retry: false });
   const moveCandidates = (() => {
@@ -47,11 +49,11 @@ export default function TaskDetailModal({
     return all.filter((t) => !banned.has(t.id));
   })();
   const create = trpc.genba.tasks.create.useMutation({
-    onSuccess: () => { onChanged(); toast.success("サブ作業を追加しました"); },
+    onSuccess: () => { onChanged(); toast.success(tr("サブ作業を追加しました")); },
     onError: (e) => toast.error(e.message),
   });
   const remove = trpc.genba.tasks.remove.useMutation({
-    onSuccess: () => { onChanged(); onOpenChange(false); toast.success("作業を削除しました"); },
+    onSuccess: () => { onChanged(); onOpenChange(false); toast.success(tr("作業を削除しました")); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -75,7 +77,7 @@ export default function TaskDetailModal({
         <div className="space-y-4">
           {canEdit && (
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">🇧🇷 ローマ字（ポルトガル語表示用・任意）</Label>
+              <Label className="text-xs text-muted-foreground">{tr("🇧🇷 ローマ字（ポルトガル語表示用・任意）")}</Label>
               <Input defaultValue={task.romaji || ""} placeholder={romanize(task.name)}
                 onBlur={(e) => { const v = e.target.value.trim(); if (v !== (task.romaji || "")) update.mutate({ id: task.id, romaji: v || null }); }}
                 className="text-xs" />
@@ -84,40 +86,40 @@ export default function TaskDetailModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">開始日</Label>
+              <Label className="text-xs text-muted-foreground">{tr("開始日")}</Label>
               {canEdit ? (
                 <Input type="date" defaultValue={task.startDate || ""}
                   onChange={(e) => update.mutate({ id: task.id, startDate: e.target.value || null })} />
-              ) : <div className="text-sm">{task.startDate ? `${fmtDate(task.startDate)}〜` : "設定なし"}</div>}
+              ) : <div className="text-sm">{task.startDate ? `${fmtDate(task.startDate)}〜` : tr("設定なし")}</div>}
             </div>
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">期限</Label>
+              <Label className="text-xs text-muted-foreground">{tr("期限")}</Label>
               {canEdit ? (
                 <Input type="date" defaultValue={task.dueDate || ""}
                   onChange={(e) => update.mutate({ id: task.id, dueDate: e.target.value || null })} />
-              ) : <div className={`text-sm ${overdue ? "text-destructive font-bold" : ""}`}>{task.dueDate ? `${fmtDate(task.dueDate)}${overdue ? "(期限超過!)" : ""}` : "設定なし"}</div>}
+              ) : <div className={`text-sm ${overdue ? "text-destructive font-bold" : ""}`}>{task.dueDate ? `${fmtDate(task.dueDate)}${overdue ? tr("(期限超過!)") : ""}` : tr("設定なし")}</div>}
             </div>
           </div>
 
           {/* 図面・資料。この作業／このエリア／全エリア共通 を1つに統合表示。追加時に範囲を選ぶだけ (作業員はワンタッチで閲覧) */}
-          <TaskFilesSection taskId={task.id} zoneId={zoneId} canEdit={canEdit} label="📐 図面・資料" />
+          <TaskFilesSection taskId={task.id} zoneId={zoneId} canEdit={canEdit} label={tr("📐 図面・資料")} />
 
           {/* 旧: 単一の図面リンク (後方互換。設定済みのみ表示) */}
           {(canEdit || task.linkUrl) && (
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">📐 図面リンク（旧・単一）</Label>
+              <Label className="text-xs text-muted-foreground">{tr("📐 図面リンク（旧・単一）")}</Label>
               {canEdit && (
                 <Input defaultValue={task.linkUrl || ""} placeholder="https://drive.google.com/..."
                   onBlur={(e) => {
                     const v = e.target.value.trim();
-                    if (v && !/^https?:\/\//i.test(v)) { toast.error("URLは https:// から入力してください"); return; }
+                    if (v && !/^https?:\/\//i.test(v)) { toast.error(tr("URLは https:// から入力してください")); return; }
                     if (v !== (task.linkUrl || "")) update.mutate({ id: task.id, linkUrl: v || null });
                   }} />
               )}
               {task.linkUrl && (
                 <a href={task.linkUrl} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1 text-sm text-gold hover:underline mt-1">
-                  <ExternalLink className="h-3.5 w-3.5" /> 図面を開く（最新版）
+                  <ExternalLink className="h-3.5 w-3.5" /> {tr("図面を開く（最新版）")}
                 </a>
               )}
             </div>
@@ -126,16 +128,16 @@ export default function TaskDetailModal({
           {canEdit && (
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <Label className="text-xs text-muted-foreground">📝 管理者メモ</Label>
+                <Label className="text-xs text-muted-foreground">{tr("📝 管理者メモ")}</Label>
                 <label className="text-xs flex items-center gap-1 ml-auto cursor-pointer">
                   <input type="checkbox" defaultChecked={task.memoVisible}
                     onChange={(e) => update.mutate({ id: task.id, memoVisible: e.target.checked })} />
-                  作業員に表示
+                  {tr("作業員に表示")}
                 </label>
               </div>
               <textarea value={memo} onChange={(e) => setMemo(e.target.value)}
                 onBlur={() => memo !== (task.memo || "") && update.mutate({ id: task.id, memo })}
-                rows={3} placeholder="施工上の注意点、指示事項など"
+                rows={3} placeholder={tr("施工上の注意点、指示事項など")}
                 className="w-full rounded-md border border-border bg-background p-2 text-sm" />
             </div>
           )}
@@ -145,13 +147,13 @@ export default function TaskDetailModal({
 
           {task.status === "issue" && (
             <div className="space-y-2 rounded-md border border-[#FF4B00]/30 bg-[#FF4B00]/5 p-2">
-              <div className="text-sm font-bold text-[#b91c1c]">⚠ 報告されている問題</div>
-              <div className="text-sm">{task.issueText || "(詳細未記入)"}</div>
+              <div className="text-sm font-bold text-[#b91c1c]">{tr("⚠ 報告されている問題")}</div>
+              <div className="text-sm">{task.issueText || tr("(詳細未記入)")}</div>
               {latestIssue?.photoUrls?.length > 0 && (
                 <div className="flex gap-2 flex-wrap">
                   {latestIssue.photoUrls.map((u: string, i: number) => (
                     <a key={i} href={u} target="_blank" rel="noopener noreferrer">
-                      <img src={u} alt={`問題写真${i + 1}`} className="h-20 w-20 rounded object-cover border border-border" />
+                      <img src={u} alt={`${tr("問題写真")}${i + 1}`} className="h-20 w-20 rounded object-cover border border-border" />
                     </a>
                   ))}
                 </div>
@@ -161,35 +163,35 @@ export default function TaskDetailModal({
 
           {/* 引き継ぎ (worker も可) */}
           <div className="space-y-1 border-t border-border pt-3">
-            <Label className="text-xs text-muted-foreground flex items-center gap-1"><Share2 className="h-3.5 w-3.5" /> 引き継ぎ（担当を相手に渡し、指示を自動送信）</Label>
+            <Label className="text-xs text-muted-foreground flex items-center gap-1"><Share2 className="h-3.5 w-3.5" /> {tr("引き継ぎ（担当を相手に渡し、指示を自動送信）")}</Label>
             <div className="flex gap-2">
               <select value={hoTarget} onChange={(e) => setHoTarget(e.target.value)} className="flex-1 rounded-md border border-border bg-background p-2 text-sm">
-                <option value="">相手を選択…</option>
+                <option value="">{tr("相手を選択…")}</option>
                 {(usersQ.data || []).filter((u: any) => u.id !== meUserId).map((u: any) => (
                   <option key={u.id} value={u.id}>{u.name || `user#${u.id}`}</option>
                 ))}
               </select>
               <Button size="sm" disabled={!hoTarget || handover.isPending}
                 onClick={() => handover.mutate({ taskId: task.id, toUserId: Number(hoTarget), note: hoNote.trim() || undefined })}>
-                引き継ぐ
+                {tr("引き継ぐ")}
               </Button>
             </div>
-            <Input value={hoNote} onChange={(e) => setHoNote(e.target.value)} placeholder="申し送り（任意）" className="text-xs" />
+            <Input value={hoNote} onChange={(e) => setHoNote(e.target.value)} placeholder={tr("申し送り（任意）")} className="text-xs" />
           </div>
 
           {/* 作業の移動 (親付け替え): メイン作業の下へ入れたり、トップへ出したりできる */}
           {canEdit && (
             <div className="space-y-1 border-t border-border pt-3">
-              <Label className="text-xs text-muted-foreground">📂 移動（この作業を別の作業の下へ / トップへ）</Label>
+              <Label className="text-xs text-muted-foreground">{tr("📂 移動（この作業を別の作業の下へ / トップへ）")}</Label>
               <select
                 value={task.parentTaskId || ""}
                 onChange={(e) => move.mutate({ id: task.id, parentTaskId: e.target.value || null })}
                 disabled={move.isPending}
                 className="w-full rounded-md border border-border bg-background p-2 text-sm"
               >
-                <option value="">トップ（親なし）</option>
+                <option value="">{tr("トップ（親なし）")}</option>
                 {moveCandidates.map((t) => (
-                  <option key={t.id} value={t.id}>{dispName(t.name, t.romaji)} の下へ</option>
+                  <option key={t.id} value={t.id}>{dispName(t.name, t.romaji)} {tr("の下へ")}</option>
                 ))}
               </select>
             </div>
@@ -198,14 +200,14 @@ export default function TaskDetailModal({
           {canEdit && (
             <div className="flex gap-2 pt-1">
               <Button variant="outline" size="sm" onClick={() => {
-                const n = window.prompt("サブ作業名を入力");
+                const n = window.prompt(tr("サブ作業名を入力"));
                 if (n && n.trim()) create.mutate({ zoneId, parentTaskId: task.id, name: n.trim() });
               }}>
-                <Plus className="h-4 w-4 mr-1" /> サブ作業
+                <Plus className="h-4 w-4 mr-1" /> {tr("サブ作業")}
               </Button>
               <Button variant="ghost" size="sm" className="ml-auto text-destructive hover:text-destructive"
-                onClick={() => { if (confirm(`「${task.name}」を削除しますか？\n(サブ作業も削除されます)`)) remove.mutate({ id: task.id }); }}>
-                <Trash2 className="h-4 w-4 mr-1" /> 削除
+                onClick={() => { if (confirm(`「${task.name}${tr("」を削除しますか？")}\n${tr("(サブ作業も削除されます)")}`)) remove.mutate({ id: task.id }); }}>
+                <Trash2 className="h-4 w-4 mr-1" /> {tr("削除")}
               </Button>
             </div>
           )}

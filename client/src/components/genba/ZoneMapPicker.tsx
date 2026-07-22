@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Loader2, MapPin, X } from "lucide-react";
 import { PRIORITY, polyPath, centroid, zoneFillStyle, type Pt } from "@/lib/genbaMap";
 import { dispName } from "@/lib/genbaRomaji";
+import { useGenbaT } from "@/lib/genbaLang";
 
 type ZoneRow = { id: string; floorId: string; parentZoneId: string | null; name: string; polygon: unknown; priority: number | null; workStatus: string | null; color: string | null; fillOpacity: number | null; progress: number; issues: number };
 
@@ -20,6 +21,7 @@ export default function ZoneMapPicker({
   onPick: (zoneId: string | null, zoneName: string) => void;
   onClose: () => void;
 }) {
+  const t = useGenbaT();
   const { data: floors, isLoading: floorsLoading } = trpc.genba.floors.list.useQuery({ siteId }, { retry: false });
   const floorList = (floors || []) as { id: string; name: string; imageUrl: string | null; w: number | null; h: number | null }[];
   const [activeFloorId, setActiveFloorId] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export default function ZoneMapPicker({
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-base flex items-center gap-1.5"><MapPin className="h-4 w-4 text-[#005AFF]" /> 図からエリアを選ぶ</DialogTitle>
+          <DialogTitle className="text-base flex items-center gap-1.5"><MapPin className="h-4 w-4 text-[#005AFF]" /> {t("図からエリアを選ぶ")}</DialogTitle>
         </DialogHeader>
 
         {/* フロア切替 (複数図面のとき) */}
@@ -58,17 +60,17 @@ export default function ZoneMapPicker({
         )}
 
         <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">エリアをタップして選択</span>
+          <span className="text-xs text-muted-foreground">{t("エリアをタップして選択")}</span>
           <button onClick={() => { onPick(null, ""); onClose(); }}
             className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground">
-            <X className="h-3.5 w-3.5" /> エリア指定なし
+            <X className="h-3.5 w-3.5" /> {t("エリア指定なし")}
           </button>
         </div>
 
         {floorsLoading || zonesLoading ? (
           <div className="py-10 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
         ) : !activeFloor ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">図面がまだありません。</p>
+          <p className="text-sm text-muted-foreground py-6 text-center">{t("図面がまだありません。")}</p>
         ) : (
           <>
             <div className="rounded-lg border border-border overflow-hidden bg-muted/20">

@@ -10,6 +10,7 @@ import { fullViewBox, clampViewBox, zoomAt, fitViewBox, snapThreshold, snapPoint
 import ProgressBadge from "./ProgressBadge";
 import ZoneSheet, { type ZoneWithAgg } from "./ZoneSheet";
 import MapReportSheet, { type MapPin } from "./MapReportSheet";
+import { useGenbaT } from "@/lib/genbaLang";
 
 type FloorWorkspaceProps = {
   siteId: string;
@@ -42,6 +43,7 @@ function ptsStr(pts: Pt[]): string { return pts.map((p) => `${p.x},${p.y}`).join
  * 指示・配置・材料・予算・設定などのナビは GenbaShell の下部タブが担当する。
  */
 export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: FloorWorkspaceProps) {
+  const t = useGenbaT();
   const utils = trpc.useUtils();
   const fileRef = useRef<HTMLInputElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -123,7 +125,7 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
   }
   function confirmMarkShape() {
     const need = markTool === "polygon" ? 3 : 2;
-    if (markPts.length < need) { toast.error(`点を${need}つ以上タップしてください`); return; }
+    if (markPts.length < need) { toast.error(`${t("点を")}${need}${t("つ以上タップしてください")}`); return; }
     saveAnnotation(markTool, markPts); setMarkPts([]);
   }
 
@@ -154,16 +156,16 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
     try {
       const b = await utils.genba.floors.getImageBytes.fetch({ floorId: activeFloor.id });
       await saveFileOffline({ id: `floor:${activeFloor.id}`, taskId: activeFloor.id, title: activeFloor.name, fileName: b.fileName }, b);
-      setSavedTick((t) => t + 1);
-      toast.success("図面を端末に保存しました（圏外でも表示）");
-    } catch (e: any) { toast.error(e?.message || "保存に失敗しました"); }
+      setSavedTick((n) => n + 1);
+      toast.success(t("図面を端末に保存しました（圏外でも表示）"));
+    } catch (e: any) { toast.error(e?.message || t("保存に失敗しました")); }
     finally { setSavingFloor(false); }
   }
   async function removeFloorOffline() {
     if (!activeFloor) return;
     await removeOfflineFile(`floor:${activeFloor.id}`).catch(() => {});
-    setSavedTick((t) => t + 1);
-    toast.success("端末保存を解除しました");
+    setSavedTick((n) => n + 1);
+    toast.success(t("端末保存を解除しました"));
   }
 
   // フロア切替時に描画/選択/ズーム状態をリセット
@@ -176,7 +178,7 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
 
   const createFloor = trpc.genba.floors.create.useMutation({ onError: (e) => toast.error(e.message) });
   const removeFloor = trpc.genba.floors.remove.useMutation({
-    onSuccess: () => { utils.genba.floors.list.invalidate({ siteId }); toast.success("図面を削除しました"); },
+    onSuccess: () => { utils.genba.floors.list.invalidate({ siteId }); toast.success(t("図面を削除しました")); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -184,7 +186,7 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
   const createZone = trpc.genba.zones.create.useMutation({ onSuccess: invalidateZones, onError: (e) => toast.error(e.message) });
   const updateZone = trpc.genba.zones.update.useMutation({ onSuccess: invalidateZones, onError: (e) => toast.error(e.message) });
   const removeZone = trpc.genba.zones.remove.useMutation({
-    onSuccess: () => { invalidateZones(); setSelectedZoneId(null); toast.success("エリアを削除しました"); },
+    onSuccess: () => { invalidateZones(); setSelectedZoneId(null); toast.success(t("エリアを削除しました")); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -198,25 +200,25 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
     if (!file) return;
     try {
       if (file.type === "application/pdf") {
-        setBusy("PDFを読み込み中…");
-        const { images, total } = await pdfToImages(file, (i, n) => setBusy(`PDF変換中 ${i}/${n}ページ`));
+        setBusy(t("PDFを読み込み中…"));
+        const { images, total } = await pdfToImages(file, (i, n) => setBusy(`${t("PDF変換中")} ${i}/${n}${t("ページ")}`));
         for (let i = 0; i < images.length; i++) {
-          setBusy(`アップロード中 ${i + 1}/${images.length}`);
+          setBusy(`${t("アップロード中")} ${i + 1}/${images.length}`);
           await uploadOne(images[i], images.length > 1 ? images[i].fileName.replace(/\.jpg$/, "") : file.name.replace(/\.pdf$/i, ""));
         }
-        toast.success(total > images.length ? `${images.length}ページを取り込みました (${total}ページ中、上限12)` : `PDFから${images.length}フロアを取り込みました`);
+        toast.success(total > images.length ? `${images.length}${t("ページを取り込みました (")}${total}${t("ページ中、上限12)")}` : `${t("PDFから")}${images.length}${t("フロアを取り込みました")}`);
       } else if (file.type.startsWith("image/")) {
-        setBusy("図面を処理中…");
+        setBusy(t("図面を処理中…"));
         const img = await fileToResizedImage(file);
         await uploadOne(img, file.name.replace(/\.[^.]+$/, ""));
-        toast.success("図面を追加しました");
+        toast.success(t("図面を追加しました"));
       } else {
-        toast.error("画像(PNG/JPG)またはPDFを選択してください");
+        toast.error(t("画像(PNG/JPG)またはPDFを選択してください"));
         return;
       }
       await utils.genba.floors.list.invalidate({ siteId });
     } catch (err: any) {
-      toast.error(err?.message || "図面の読み込みに失敗しました");
+      toast.error(err?.message || t("図面の読み込みに失敗しました"));
     } finally {
       setBusy(null);
     }
@@ -263,16 +265,16 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
   }
   function confirmDraft() {
     if (!activeFloor) return;
-    if (draftPoly.length < 3) { toast.error("頂点を3点以上タップしてください"); return; }
+    if (draftPoly.length < 3) { toast.error(t("頂点を3点以上タップしてください")); return; }
     const parentName = draftParentZoneId ? zoneList.find((z) => z.id === draftParentZoneId)?.name : null;
     const siblings = zoneList.filter((z) => z.parentZoneId === (draftParentZoneId ?? null));
-    const def = parentName ? `${parentName}-${siblings.length + 1}` : `${zoneList.filter((z) => !z.parentZoneId).length + 1}工区`;
-    const input = window.prompt("エリア名を入力", def);
+    const def = parentName ? `${parentName}-${siblings.length + 1}` : `${zoneList.filter((z) => !z.parentZoneId).length + 1}${t("工区")}`;
+    const input = window.prompt(t("エリア名を入力"), def);
     if (input === null) return;
     const name = input.trim() || def;
     createZone.mutate({ floorId: activeFloor.id, parentZoneId: draftParentZoneId ?? undefined, name, polygon: draftPoly });
     setDraftPoly([]); setMode("view"); setDraftParentZoneId(null);
-    toast.success(`「${name}」を作成しました`);
+    toast.success(`「${name}」${t("を作成しました")}`);
   }
   function cancelDraft() { setDraftPoly([]); setMode("view"); setDraftParentZoneId(null); }
 
@@ -297,17 +299,17 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
     setEditPoly((zone.polygon as Pt[]).map((p) => ({ ...p })));
     setSelVtx(null);
     setSelectedZoneId(null);
-    toast("頂点をドラッグで移動、＋タップで頂点追加");
+    toast(t("頂点をドラッグで移動、＋タップで頂点追加"));
   }
   function saveEditRange() {
     if (editPoly.length >= 3 && editZoneId) updateZone.mutate({ id: editZoneId, polygon: editPoly });
     setMode("view"); setEditZoneId(null); setEditPoly([]); setSelVtx(null);
-    toast.success("エリアの範囲を更新しました");
+    toast.success(t("エリアの範囲を更新しました"));
   }
   function cancelEditRange() { setMode("view"); setEditZoneId(null); setEditPoly([]); setSelVtx(null); }
   function deleteSelVtx() {
-    if (selVtx === null) { toast.error("削除する頂点をタップで選択してください"); return; }
-    if (editPoly.length <= 3) { toast.error("頂点は3点未満にできません"); return; }
+    if (selVtx === null) { toast.error(t("削除する頂点をタップで選択してください")); return; }
+    if (editPoly.length <= 3) { toast.error(t("頂点は3点未満にできません")); return; }
     setEditPoly((p) => p.filter((_, i) => i !== selVtx));
     setSelVtx(null);
   }
@@ -512,14 +514,14 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
               </button>
             );
           })}
-          {list.length === 0 && <span className="text-sm text-muted-foreground py-1.5">図面がありません</span>}
+          {list.length === 0 && <span className="text-sm text-muted-foreground py-1.5">{t("図面がありません")}</span>}
         </div>
         {canEdit && (
           <>
             <input ref={fileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={onFileChosen} />
             <Button size="sm" className="shrink-0" onClick={() => fileRef.current?.click()} disabled={!!busy}>
               {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
-              {busy || "図面"}
+              {busy || t("図面")}
             </Button>
           </>
         )}
@@ -530,30 +532,30 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
         <div className="flex flex-wrap items-center gap-2">
           {mode === "view" ? (
             <>
-              <Button size="sm" onClick={() => { setMode("draw"); setDraftParentZoneId(null); setSelectedZoneId(null); }}>＋ エリア追加</Button>
+              <Button size="sm" onClick={() => { setMode("draw"); setDraftParentZoneId(null); setSelectedZoneId(null); }}>{t("＋ エリア追加")}</Button>
               {selectedZone && (
                 <Button size="sm" variant="secondary" onClick={() => { setMode("draw"); setDraftParentZoneId(selectedZone.id); }}>
-                  ＋ サブエリア: {selectedZone.name}
+                  {t("＋ サブエリア:")} {selectedZone.name}
                 </Button>
               )}
             </>
           ) : mode === "draw" ? (
             <>
-              <span className="text-sm text-muted-foreground flex-1">図面をタップして頂点を追加（{draftPoly.length}）{draftParentZoneId ? ` / 親: ${zoneList.find((z) => z.id === draftParentZoneId)?.name ?? ""}` : ""}</span>
-              <Button size="sm" variant="secondary" onClick={() => setDraftPoly((d) => d.slice(0, -1))}>1点戻す</Button>
-              <Button size="sm" onClick={confirmDraft}>確定</Button>
-              <Button size="sm" variant="ghost" className="text-destructive" onClick={cancelDraft}>中止</Button>
+              <span className="text-sm text-muted-foreground flex-1">{t("図面をタップして頂点を追加")}（{draftPoly.length}）{draftParentZoneId ? ` / ${t("親")}: ${zoneList.find((z) => z.id === draftParentZoneId)?.name ?? ""}` : ""}</span>
+              <Button size="sm" variant="secondary" onClick={() => setDraftPoly((d) => d.slice(0, -1))}>{t("1点戻す")}</Button>
+              <Button size="sm" onClick={confirmDraft}>{t("確定")}</Button>
+              <Button size="sm" variant="ghost" className="text-destructive" onClick={cancelDraft}>{t("中止")}</Button>
             </>
           ) : (
             <>
-              <span className="text-sm text-muted-foreground flex-1">✏ 頂点をドラッグで移動 / ＋タップで追加（{editPoly.length}）</span>
-              <label className="text-xs flex items-center gap-1 cursor-pointer select-none" title="隣接エリアの境界に頂点を吸着">
-                <input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /> 隣接スナップ
+              <span className="text-sm text-muted-foreground flex-1">{t("✏ 頂点をドラッグで移動 / ＋タップで追加")}（{editPoly.length}）</span>
+              <label className="text-xs flex items-center gap-1 cursor-pointer select-none" title={t("隣接エリアの境界に頂点を吸着")}>
+                <input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /> {t("隣接スナップ")}
               </label>
-              <Button size="sm" variant="outline" onClick={() => { setEditPoly((prev) => prev.map(snapForce)); toast.success("隣接エリアの境界に合わせました"); }}>境界を補正</Button>
-              <Button size="sm" variant="secondary" onClick={deleteSelVtx}>選択頂点を削除</Button>
-              <Button size="sm" onClick={saveEditRange}>保存</Button>
-              <Button size="sm" variant="ghost" className="text-destructive" onClick={cancelEditRange}>キャンセル</Button>
+              <Button size="sm" variant="outline" onClick={() => { setEditPoly((prev) => prev.map(snapForce)); toast.success(t("隣接エリアの境界に合わせました")); }}>{t("境界を補正")}</Button>
+              <Button size="sm" variant="secondary" onClick={deleteSelVtx}>{t("選択頂点を削除")}</Button>
+              <Button size="sm" onClick={saveEditRange}>{t("保存")}</Button>
+              <Button size="sm" variant="ghost" className="text-destructive" onClick={cancelEditRange}>{t("キャンセル")}</Button>
             </>
           )}
         </div>
@@ -565,48 +567,48 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
       ) : !activeFloor ? (
         <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-2">
           <ImageOff className="h-8 w-8" />
-          <p>まだ図面がありません。{canEdit ? "「図面を追加」からPDF/画像をアップロードしてください。" : "管理者またはリーダーが図面を追加すると表示されます。"}</p>
+          <p>{t("まだ図面がありません。")}{canEdit ? t("「図面を追加」からPDF/画像をアップロードしてください。") : t("管理者またはリーダーが図面を追加すると表示されます。")}</p>
         </div>
       ) : (
         <div className="space-y-3">
           <div className="relative rounded-lg border border-border overflow-hidden bg-muted/30">
             {/* ズーム/表示コントロール (図面右上のオーバーレイ) */}
             <div className="absolute top-2 right-2 z-10 flex flex-col items-center gap-1.5">
-              <button title="拡大" onClick={() => zoomBy(1.5)}
+              <button title={t("拡大")} onClick={() => zoomBy(1.5)}
                 className="w-9 h-9 rounded-lg border border-border bg-background/90 shadow flex items-center justify-center hover:bg-muted">
                 <ZoomIn className="h-4.5 w-4.5" />
               </button>
-              <button title="縮小" onClick={() => zoomBy(1 / 1.5)}
+              <button title={t("縮小")} onClick={() => zoomBy(1 / 1.5)}
                 className="w-9 h-9 rounded-lg border border-border bg-background/90 shadow flex items-center justify-center hover:bg-muted">
                 <ZoomOut className="h-4.5 w-4.5" />
               </button>
-              <button title="全体表示" onClick={resetView}
+              <button title={t("全体表示")} onClick={resetView}
                 className="w-9 h-9 rounded-lg border border-border bg-background/90 shadow flex items-center justify-center hover:bg-muted">
                 <Maximize className="h-4.5 w-4.5" />
               </button>
-              <button title="くっきり補正 (シャープ化)" onClick={() => setSharpen((s) => !s)}
+              <button title={t("くっきり補正 (シャープ化)")} onClick={() => setSharpen((s) => !s)}
                 className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${sharpen ? "bg-gold/20 border-gold/60 text-gold" : "border-border bg-background/90 hover:bg-muted"}`}>
                 <Sparkles className="h-4.5 w-4.5" />
               </button>
-              <button title="図面を暗く表示 (白い背景を暗く・線は明るく)" onClick={() => setDark((d) => !d)}
+              <button title={t("図面を暗く表示 (白い背景を暗く・線は明るく)")} onClick={() => setDark((d) => !d)}
                 className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${dark ? "bg-gold/20 border-gold/60 text-gold" : "border-border bg-background/90 hover:bg-muted"}`}>
                 <Moon className="h-4.5 w-4.5" />
               </button>
               {mode !== "draw" && mode !== "edit" && mode !== "mark" && (
-                <button title="問題報告: 図面をタップして写真つきで報告"
+                <button title={t("問題報告: 図面をタップして写真つきで報告")}
                   onClick={() => { setMode((m) => (m === "report" ? "view" : "report")); setReportAt(null); setSelectedZoneId(null); }}
                   className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${mode === "report" ? "bg-[#FF4B00] border-[#FF4B00] text-white" : "border-border bg-background/90 hover:bg-muted text-[#FF4B00]"}`}>
                   <AlertTriangle className="h-4.5 w-4.5" />
                 </button>
               )}
               {canEdit && mode !== "draw" && mode !== "edit" && mode !== "report" && (
-                <button title="マーキング: 図面に線・矢印・多角形を描く"
+                <button title={t("マーキング: 図面に線・矢印・多角形を描く")}
                   onClick={() => { setMode((m) => (m === "mark" ? "view" : "mark")); setMarkPts([]); setSelectedZoneId(null); }}
                   className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${mode === "mark" ? "bg-[#005AFF] border-[#005AFF] text-white" : "border-border bg-background/90 hover:bg-muted text-[#005AFF]"}`}>
                   <Pencil className="h-4.5 w-4.5" />
                 </button>
               )}
-              <button title={floorSaved ? "端末保存を解除" : "この図面を端末に保存（圏外でも見る）"}
+              <button title={floorSaved ? t("端末保存を解除") : t("この図面を端末に保存（圏外でも見る）")}
                 onClick={() => (floorSaved ? removeFloorOffline() : saveFloorOffline())} disabled={savingFloor}
                 className={`w-9 h-9 rounded-lg border shadow flex items-center justify-center ${floorSaved ? "bg-[#03AF7A]/20 border-[#03AF7A]/60 text-[#03AF7A]" : "border-border bg-background/90 hover:bg-muted"}`}>
                 {savingFloor ? <Loader2 className="h-4.5 w-4.5 animate-spin" /> : floorSaved ? <CheckCircle2 className="h-4.5 w-4.5" /> : <CloudDownload className="h-4.5 w-4.5" />}
@@ -620,15 +622,15 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
             {/* フォーカス中バナー */}
             {focusZone && (
               <div className="absolute top-2 left-2 z-10 flex items-center gap-2 px-2 py-1.5 rounded-lg border border-border bg-background/90 shadow text-xs">
-                <span>🔍 {focusZone.name} にフォーカス中</span>
-                <button className="font-bold text-gold hover:underline" onClick={resetView}>解除</button>
+                <span>🔍 {focusZone.name} {t("にフォーカス中")}</span>
+                <button className="font-bold text-gold hover:underline" onClick={resetView}>{t("解除")}</button>
               </div>
             )}
             {/* 問題報告モードのバナー */}
             {mode === "report" && !focusZone && (
               <div className="absolute top-2 left-2 z-10 flex items-center gap-2 px-2 py-1.5 rounded-lg border border-[#FF4B00]/50 bg-background/90 shadow text-xs">
-                <span className="text-[#FF4B00] font-semibold">⚠ 図面をタップして問題の位置を指定</span>
-                <button className="font-bold text-muted-foreground hover:underline" onClick={() => { setMode("view"); setReportAt(null); }}>やめる</button>
+                <span className="text-[#FF4B00] font-semibold">{t("⚠ 図面をタップして問題の位置を指定")}</span>
+                <button className="font-bold text-muted-foreground hover:underline" onClick={() => { setMode("view"); setReportAt(null); }}>{t("やめる")}</button>
               </div>
             )}
             <svg
@@ -783,7 +785,7 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
                     {deletable && (
                       <path d={hitD} fill="none" stroke="transparent" strokeWidth={Math.max(w, 20 * scale)}
                         style={{ cursor: "pointer", pointerEvents: "stroke" }}
-                        onClick={(e) => { e.stopPropagation(); if (window.confirm("このマーキングを削除しますか？")) removeAnn.mutate({ id: a.id }); }} />
+                        onClick={(e) => { e.stopPropagation(); if (window.confirm(t("このマーキングを削除しますか？"))) removeAnn.mutate({ id: a.id }); }} />
                     )}
                   </g>
                 );
@@ -820,33 +822,33 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
             {mode === "mark" && (
               <div className="absolute bottom-2 left-2 right-2 z-10 rounded-xl border border-border bg-background/95 shadow p-2 space-y-2">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  {(([["freehand", "✎ なぞり"], ["line", "／ 直線"], ["arrow", "↗ 矢印"], ["polyline", "∿ 折線"], ["polygon", "▱ 多角形"]]) as [MarkTool, string][]).map(([t, label]) => (
-                    <button key={t} onClick={() => { setMarkTool(t); setMarkPts([]); }}
-                      className={`text-xs px-2 py-1 rounded-lg border ${markTool === t ? "bg-[#005AFF] text-white border-[#005AFF]" : "border-border text-foreground/80"}`}>{label}</button>
+                  {(([["freehand", "✎ なぞり"], ["line", "／ 直線"], ["arrow", "↗ 矢印"], ["polyline", "∿ 折線"], ["polygon", "▱ 多角形"]]) as [MarkTool, string][]).map(([tool, label]) => (
+                    <button key={tool} onClick={() => { setMarkTool(tool); setMarkPts([]); }}
+                      className={`text-xs px-2 py-1 rounded-lg border ${markTool === tool ? "bg-[#005AFF] text-white border-[#005AFF]" : "border-border text-foreground/80"}`}>{t(label)}</button>
                   ))}
-                  <button onClick={() => { setMode("view"); setMarkPts([]); }} className="ml-auto text-xs px-2 py-1 rounded-lg border border-border">完了</button>
+                  <button onClick={() => { setMode("view"); setMarkPts([]); }} className="ml-auto text-xs px-2 py-1 rounded-lg border border-border">{t("完了")}</button>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] text-muted-foreground">色</span>
+                  <span className="text-[11px] text-muted-foreground">{t("色")}</span>
                   {MARK_COLORS.map((c) => (
                     <button key={c} onClick={() => setMarkColor(c)} className="w-6 h-6 rounded-md border border-border"
                       style={{ background: c, outline: markColor === c ? "2px solid #0f172a" : undefined, outlineOffset: 1 }} />
                   ))}
-                  <span className="text-[11px] text-muted-foreground ml-1">太さ</span>
+                  <span className="text-[11px] text-muted-foreground ml-1">{t("太さ")}</span>
                   <input type="range" min={1} max={12} value={markWidth} onChange={(e) => setMarkWidth(Number(e.target.value))} className="w-20 accent-[#005AFF]" />
                   {markTool !== "freehand" && markPts.length > 0 && (
                     <>
-                      <button onClick={() => setMarkPts((d) => d.slice(0, -1))} className="text-xs px-2 py-1 rounded-lg border border-border">1点戻す</button>
-                      <button onClick={confirmMarkShape} className="text-xs px-2 py-1 rounded-lg border bg-[#03AF7A] text-white border-[#03AF7A]">確定</button>
+                      <button onClick={() => setMarkPts((d) => d.slice(0, -1))} className="text-xs px-2 py-1 rounded-lg border border-border">{t("1点戻す")}</button>
+                      <button onClick={confirmMarkShape} className="text-xs px-2 py-1 rounded-lg border bg-[#03AF7A] text-white border-[#03AF7A]">{t("確定")}</button>
                     </>
                   )}
                   {annotations.length > 0 && (
-                    <button onClick={() => { const last = annotations[annotations.length - 1]; if (last && window.confirm("最後のマーキングを消しますか？")) removeAnn.mutate({ id: last.id }); }}
-                      className="text-xs px-2 py-1 rounded-lg border border-border text-muted-foreground">↩ 1つ消す</button>
+                    <button onClick={() => { const last = annotations[annotations.length - 1]; if (last && window.confirm(t("最後のマーキングを消しますか？"))) removeAnn.mutate({ id: last.id }); }}
+                      className="text-xs px-2 py-1 rounded-lg border border-border text-muted-foreground">{t("↩ 1つ消す")}</button>
                   )}
                 </div>
                 <div className="text-[10px] text-muted-foreground">
-                  {markTool === "freehand" ? "図面をなぞって描きます（指／マウス）" : markTool === "line" || markTool === "arrow" ? "始点→終点の2か所をタップ" : "点を順にタップ→「確定」"}
+                  {markTool === "freehand" ? t("図面をなぞって描きます（指／マウス）") : markTool === "line" || markTool === "arrow" ? t("始点→終点の2か所をタップ") : t("点を順にタップ→「確定」")}
                 </div>
               </div>
             )}
@@ -867,7 +869,7 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
             {Object.entries(PRIORITY).map(([k, v]) => (
               <span key={k} className="inline-flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-sm" style={{ background: v.color }} />優先{k}: {v.label}
+                <span className="inline-block w-3 h-3 rounded-sm" style={{ background: v.color }} />{t("優先")}{k}: {v.label}
               </span>
             ))}
           </div>
@@ -886,14 +888,14 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
               onSetPriority={(priority) => updateZone.mutate({ id: selectedZone.id, priority })}
               onTogglePaused={() => updateZone.mutate({ id: selectedZone.id, workStatus: selectedZone.workStatus === "paused" ? null : "paused" })}
               onRename={() => {
-                const nm = window.prompt("エリア名を変更", selectedZone.name);
+                const nm = window.prompt(t("エリア名を変更"), selectedZone.name);
                 if (nm && nm.trim() && nm.trim() !== selectedZone.name) updateZone.mutate({ id: selectedZone.id, name: nm.trim() });
               }}
               onStartEditRange={() => startEditRange(selectedZone)}
               onSetStyle={(patch) => updateZone.mutate({ id: selectedZone.id, ...patch })}
               onFocus={() => focusOnZone(selectedZone)}
               onAddSubArea={() => { setMode("draw"); setDraftParentZoneId(selectedZone.id); setSelectedZoneId(null); }}
-              onDelete={() => { if (confirm(`「${selectedZone.name}」を削除しますか？\n(サブエリア・作業も削除されます)`)) removeZone.mutate({ id: selectedZone.id }); }}
+              onDelete={() => { if (confirm(`「${selectedZone.name}」${t("を削除しますか？\n(サブエリア・作業も削除されます)")}`)) removeZone.mutate({ id: selectedZone.id }); }}
               onTasksChanged={() => { invalidateZones(); }}
             />
           )}
@@ -901,9 +903,9 @@ export default function FloorWorkspace({ siteId, canEdit, isAdmin, meUserId }: F
           {canEdit && (
             <div className="flex justify-end">
               <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive"
-                onClick={() => { if (confirm(`「${activeFloor.name}」を削除しますか？`)) { removeFloor.mutate({ id: activeFloor.id }); setActiveFloorId(null); } }}
+                onClick={() => { if (confirm(`「${activeFloor.name}」${t("を削除しますか？")}`)) { removeFloor.mutate({ id: activeFloor.id }); setActiveFloorId(null); } }}
                 disabled={removeFloor.isPending}>
-                <Trash2 className="h-4 w-4 mr-1" /> このフロアを削除
+                <Trash2 className="h-4 w-4 mr-1" /> {t("このフロアを削除")}
               </Button>
             </div>
           )}

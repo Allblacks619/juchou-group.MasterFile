@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Paperclip, Upload, Link2, Trash2, ExternalLink, FileText, ImageIcon, Loader2, Download, CheckCircle2, CloudOff } from "lucide-react";
 import { fileToTaskUpload } from "@/lib/genbaUpload";
+import { useGenbaT } from "@/lib/genbaLang";
 import { saveFileOffline, getOfflineFile, allOfflineFileIds, listOfflineFilesByTask, removeOfflineFile, base64ToBlob } from "@/lib/genbaFileCache";
 import FigureViewer, { type ViewerFile } from "./FigureViewer";
 
@@ -41,6 +42,7 @@ export default function TaskFilesSection({
   canEdit: boolean;
   label?: string;
 }) {
+  const t = useGenbaT();
   const hasTask = !!taskId;
   const hasZone = !!zoneId;
   const ownerCtxId = (taskId ?? zoneId) as string; // オフライン保存のグループキー (この画面の文脈)
@@ -93,22 +95,22 @@ export default function TaskFilesSection({
   };
   useEffect(() => { void refreshSaved(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [ownerCtxId]);
 
-  const onAddSuccess = (scope: Scope) => { invalidate(scope); setShowLink(false); setLinkUrl(""); setLinkTitle(""); toast.success("リンクを追加しました"); };
+  const onAddSuccess = (scope: Scope) => { invalidate(scope); setShowLink(false); setLinkUrl(""); setLinkTitle(""); toast.success(t("リンクを追加しました")); };
   const onErr = (e: any) => toast.error(e.message);
   const taskAdd = trpc.genba.tasks.files.addLink.useMutation({ onSuccess: () => onAddSuccess("task"), onError: onErr });
   const zoneAdd = trpc.genba.zones.files.addLink.useMutation({ onSuccess: () => onAddSuccess("zone"), onError: onErr });
   const floorAdd = trpc.genba.floors.files.addLink.useMutation({ onSuccess: () => onAddSuccess("floor"), onError: onErr });
-  const taskUp = trpc.genba.tasks.files.upload.useMutation({ onSuccess: () => { invalidate("task"); toast.success("ファイルを追加しました"); }, onError: onErr });
-  const zoneUp = trpc.genba.zones.files.upload.useMutation({ onSuccess: () => { invalidate("zone"); toast.success("ファイルを追加しました"); }, onError: onErr });
-  const floorUp = trpc.genba.floors.files.upload.useMutation({ onSuccess: () => { invalidate("floor"); toast.success("ファイルを追加しました"); }, onError: onErr });
-  const onRemove = async (scope: Scope, v: { id: string }) => { invalidate(scope); await removeOfflineFile(v.id).catch(() => {}); await refreshSaved(); toast.success("ファイルを削除しました"); };
+  const taskUp = trpc.genba.tasks.files.upload.useMutation({ onSuccess: () => { invalidate("task"); toast.success(t("ファイルを追加しました")); }, onError: onErr });
+  const zoneUp = trpc.genba.zones.files.upload.useMutation({ onSuccess: () => { invalidate("zone"); toast.success(t("ファイルを追加しました")); }, onError: onErr });
+  const floorUp = trpc.genba.floors.files.upload.useMutation({ onSuccess: () => { invalidate("floor"); toast.success(t("ファイルを追加しました")); }, onError: onErr });
+  const onRemove = async (scope: Scope, v: { id: string }) => { invalidate(scope); await removeOfflineFile(v.id).catch(() => {}); await refreshSaved(); toast.success(t("ファイルを削除しました")); };
   const taskRm = trpc.genba.tasks.files.remove.useMutation({ onSuccess: (_r, v) => onRemove("task", v), onError: onErr });
   const zoneRm = trpc.genba.zones.files.remove.useMutation({ onSuccess: (_r, v) => onRemove("zone", v), onError: onErr });
   const floorRm = trpc.genba.floors.files.remove.useMutation({ onSuccess: (_r, v) => onRemove("floor", v), onError: onErr });
 
   // 外部リンクをアプリに取り込む (サーバーがDL→R2保存→アプリ内表示・圏外保存が可能に)
   const [importingId, setImportingId] = useState<string | null>(null);
-  const onImportSuccess = (scope: Scope) => { invalidate(scope); setImportingId(null); toast.success("アプリに取り込みました（アプリ内で開けます）"); };
+  const onImportSuccess = (scope: Scope) => { invalidate(scope); setImportingId(null); toast.success(t("アプリに取り込みました（アプリ内で開けます）")); };
   const onImportErr = (e: any) => { setImportingId(null); toast.error(e.message); };
   const taskImport = trpc.genba.tasks.files.importLink.useMutation({ onSuccess: () => onImportSuccess("task"), onError: onImportErr });
   const zoneImport = trpc.genba.zones.files.importLink.useMutation({ onSuccess: () => onImportSuccess("zone"), onError: onImportErr });
@@ -148,7 +150,7 @@ export default function TaskFilesSection({
         else await floorUp.mutateAsync({ zoneId: zoneId!, base64: p.base64, mimeType: p.mimeType, fileName: p.fileName });
       }
     } catch (err: any) {
-      toast.error(err?.message || "アップロードに失敗しました");
+      toast.error(err?.message || t("アップロードに失敗しました"));
     } finally { setBusy(false); }
   }
 
@@ -161,9 +163,9 @@ export default function TaskFilesSection({
       const bytes = await fetcher.fetch({ id: f.id });
       await saveFileOffline({ id: f.id, taskId: ownerCtxId, title: f.title, fileName: f.fileName }, bytes);
       await refreshSaved();
-      toast.success("オフラインに保存しました");
+      toast.success(t("オフラインに保存しました"));
     } catch (err: any) {
-      toast.error(err?.message || "保存に失敗しました");
+      toast.error(err?.message || t("保存に失敗しました"));
     } finally { setSavingId(null); }
   }
 
@@ -171,7 +173,7 @@ export default function TaskFilesSection({
     // 外部共有リンク(Drive等・埋め込み不可)は従来どおり外部で開く
     if (f.kind === "link") {
       if (f.url) window.open(f.url, "_blank", "noopener,noreferrer");
-      else toast.error("リンクが見つかりません");
+      else toast.error(t("リンクが見つかりません"));
       return;
     }
     // アップロード実体: オフライン保存があればそれ、無ければサーバー経由で取得(CORS回避)してアプリ内で表示
@@ -184,16 +186,16 @@ export default function TaskFilesSection({
         if (rec) { blob = rec.blob; mimeType = rec.mimeType || mimeType; }
       }
       if (!blob) {
-        if (!online) { toast.error("オフラインでは端末に保存したファイルのみ開けます"); return; }
+        if (!online) { toast.error(t("オフラインでは端末に保存したファイルのみ開けます")); return; }
         const fetcher = f.scope === "task" ? utils.genba.tasks.files.getBytes
           : f.scope === "floor" ? utils.genba.floors.files.getBytes
           : utils.genba.zones.files.getBytes;
         const b = await fetcher.fetch({ id: f.id });
         blob = base64ToBlob(b.base64, b.mimeType); mimeType = b.mimeType;
       }
-      setViewer({ blob, mimeType, title: f.title || f.fileName || "図面" });
+      setViewer({ blob, mimeType, title: f.title || f.fileName || t("図面") });
     } catch (e: any) {
-      toast.error(e?.message || "図面を開けませんでした");
+      toast.error(e?.message || t("図面を開けませんでした"));
     } finally {
       setOpeningId(null);
     }
@@ -204,15 +206,15 @@ export default function TaskFilesSection({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground flex items-center gap-1"><Paperclip className="h-3.5 w-3.5" /> {label || "図面・資料"}</span>
+        <span className="text-xs text-muted-foreground flex items-center gap-1"><Paperclip className="h-3.5 w-3.5" /> {label ? t(label) : t("図面・資料")}</span>
         {canEdit && (
           <div className="ml-auto flex gap-1.5">
             <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={onFileChosen} />
             <Button size="sm" variant="outline" className="h-7 text-xs" disabled={busy || !online} onClick={() => fileRef.current?.click()}>
-              {busy ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}アップロード
+              {busy ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}{t("アップロード")}
             </Button>
             <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!online} onClick={() => setShowLink((v) => !v)}>
-              <Link2 className="h-3.5 w-3.5 mr-1" />リンク
+              <Link2 className="h-3.5 w-3.5 mr-1" />{t("リンク")}
             </Button>
           </div>
         )}
@@ -221,7 +223,7 @@ export default function TaskFilesSection({
       {/* 適用範囲の選択 (アップロード/リンクの保存先)。範囲が複数あるときだけ出す */}
       {canEdit && scopes.length > 1 && (
         <div className="rounded-lg border border-border/70 bg-muted/30 p-1.5 space-y-1">
-          <div className="text-[10px] text-muted-foreground px-0.5">どこに追加しますか？（次のアップロード／リンクの保存先）</div>
+          <div className="text-[10px] text-muted-foreground px-0.5">{t("どこに追加しますか？（次のアップロード／リンクの保存先）")}</div>
           <div className="flex flex-wrap gap-1">
             {scopes.map((s) => {
               const active = addScope === s;
@@ -230,7 +232,7 @@ export default function TaskFilesSection({
                 <button key={s} onClick={() => setAddScope(s)}
                   className="text-[11px] font-medium px-2 py-1 rounded-md border transition-colors"
                   style={{ borderColor: m.color, background: active ? m.color : "transparent", color: active ? "#fff" : m.color }}>
-                  {m.label}
+                  {t(m.label)}
                 </button>
               );
             })}
@@ -240,17 +242,17 @@ export default function TaskFilesSection({
 
       {!online && (
         <div className="flex items-center gap-1.5 text-[11px] rounded-md px-2 py-1" style={{ background: "rgba(246,170,0,0.16)", color: "#8a6d00" }}>
-          <CloudOff className="h-3.5 w-3.5" /> オフライン: 端末に保存したファイルのみ開けます
+          <CloudOff className="h-3.5 w-3.5" /> {t("オフライン: 端末に保存したファイルのみ開けます")}
         </div>
       )}
 
       {canEdit && showLink && (
         <div className="rounded-lg border border-border p-2 space-y-1.5">
-          <Input value={linkTitle} onChange={(e) => setLinkTitle(e.target.value)} placeholder="表示名（任意・例: 強電作業 図面）" className="h-8 text-sm" />
+          <Input value={linkTitle} onChange={(e) => setLinkTitle(e.target.value)} placeholder={t("表示名（任意・例: 強電作業 図面）")} className="h-8 text-sm" />
           <div className="flex gap-1.5">
             <Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://drive.google.com/..." className="h-8 text-sm flex-1"
               onKeyDown={(e) => { if (e.key === "Enter") doAddLink(); }} />
-            <Button size="sm" className="h-8" disabled={!linkUrl.trim() || addPending} onClick={doAddLink}>追加</Button>
+            <Button size="sm" className="h-8" disabled={!linkUrl.trim() || addPending} onClick={doAddLink}>{t("追加")}</Button>
           </div>
         </div>
       )}
@@ -258,12 +260,12 @@ export default function TaskFilesSection({
       {isLoading && online ? (
         <div className="py-3 flex justify-center"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
       ) : list.length === 0 ? (
-        <p className="text-xs text-muted-foreground">まだ図面・資料がありません。{canEdit ? "アップロード、または共有リンクを貼れます。" : ""}</p>
+        <p className="text-xs text-muted-foreground">{t("まだ図面・資料がありません。")}{canEdit ? t("アップロード、または共有リンクを貼れます。") : ""}</p>
       ) : (
         <div className="rounded-lg border border-border divide-y divide-border/60">
           {list.map((f) => {
             const isImg = (f.mimeType || "").startsWith("image/");
-            const rowLabel = f.title || f.fileName || f.url || "ファイル";
+            const rowLabel = f.title || f.fileName || f.url || t("ファイル");
             const saved = savedIds.has(f.id);
             const canSaveOffline = f.kind === "upload";
             const sm = f.scope ? SCOPE_META[f.scope] : null;
@@ -276,42 +278,42 @@ export default function TaskFilesSection({
                   <div className="text-sm truncate flex items-center gap-1.5">
                     <span className="truncate">{rowLabel}</span>
                     {sm && (
-                      <span className="shrink-0 text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: `${sm.color}22`, color: sm.color }}>{sm.short}</span>
+                      <span className="shrink-0 text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: `${sm.color}22`, color: sm.color }}>{t(sm.short)}</span>
                     )}
                   </div>
                   <div className="text-[10px] text-muted-foreground flex items-center gap-1">
-                    {f.kind === "link" ? "共有リンク" : `アップロード${f.sizeBytes ? " · " + fmtSize(f.sizeBytes) : ""}`}
-                    {saved && <span className="inline-flex items-center gap-0.5 text-[#03AF7A]"><CheckCircle2 className="h-3 w-3" />保存済み</span>}
+                    {f.kind === "link" ? t("共有リンク") : `${t("アップロード")}${f.sizeBytes ? " · " + fmtSize(f.sizeBytes) : ""}`}
+                    {saved && <span className="inline-flex items-center gap-0.5 text-[#03AF7A]"><CheckCircle2 className="h-3 w-3" />{t("保存済み")}</span>}
                   </div>
                 </div>
                 {canSaveOffline && (
                   saved ? (
-                    <button title="端末保存を解除" className="shrink-0 text-[#03AF7A] hover:text-muted-foreground p-1"
-                      onClick={async () => { await removeOfflineFile(f.id); await refreshSaved(); toast.success("端末保存を解除しました"); }}>
+                    <button title={t("端末保存を解除")} className="shrink-0 text-[#03AF7A] hover:text-muted-foreground p-1"
+                      onClick={async () => { await removeOfflineFile(f.id); await refreshSaved(); toast.success(t("端末保存を解除しました")); }}>
                       <CheckCircle2 className="h-4 w-4" />
                     </button>
                   ) : (
-                    <button title="オフライン用に端末へ保存" className="shrink-0 text-muted-foreground hover:text-foreground p-1 disabled:opacity-40"
+                    <button title={t("オフライン用に端末へ保存")} className="shrink-0 text-muted-foreground hover:text-foreground p-1 disabled:opacity-40"
                       disabled={savingId === f.id || !online} onClick={() => saveOffline(f)}>
                       {savingId === f.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                     </button>
                   )
                 )}
                 {canEdit && online && f.kind === "link" && f.scope && (
-                  <button title="アプリに取り込む（アプリ内表示・圏外保存が可能に）" disabled={importingId === f.id}
+                  <button title={t("アプリに取り込む（アプリ内表示・圏外保存が可能に）")} disabled={importingId === f.id}
                     onClick={() => doImport(f)}
                     className="shrink-0 text-xs font-semibold text-[#03AF7A] px-2 py-1 rounded hover:bg-muted inline-flex items-center gap-1 disabled:opacity-40">
-                    {importingId === f.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}取り込む
+                    {importingId === f.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}{t("取り込む")}
                   </button>
                 )}
                 <button onClick={() => openFile(f)}
                   className="shrink-0 text-xs font-semibold text-[#005AFF] px-2 py-1 rounded hover:bg-muted disabled:opacity-40 inline-flex items-center gap-1"
                   disabled={(!saved && !f.url) || openingId === f.id}>
-                  {openingId === f.id && <Loader2 className="h-3 w-3 animate-spin" />}開く
+                  {openingId === f.id && <Loader2 className="h-3 w-3 animate-spin" />}{t("開く")}
                 </button>
                 {canEdit && online && f.scope && (
-                  <button title="削除" className="shrink-0 text-muted-foreground hover:text-destructive p-1"
-                    onClick={() => { if (window.confirm(`「${rowLabel}」を削除しますか？`)) doRemove(f); }}>
+                  <button title={t("削除")} className="shrink-0 text-muted-foreground hover:text-destructive p-1"
+                    onClick={() => { if (window.confirm(`「${rowLabel}」${t("を削除しますか？")}`)) doRemove(f); }}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}

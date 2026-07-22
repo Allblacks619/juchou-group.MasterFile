@@ -1,11 +1,13 @@
 import { useState, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { useGenbaT } from "@/lib/genbaLang";
 import type { ZoneWithAgg } from "./ZoneSheet";
 
 type FloorStat = { progress: number; issues: number; zones: number };
 
 /** 全体タブ (正本 DashTab 相当): 現場全体の進捗・問題数・フロア別進捗の俯瞰。 */
 export default function DashTab({ siteId }: { siteId: string }) {
+  const t = useGenbaT();
   const { data: floors } = trpc.genba.floors.list.useQuery({ siteId }, { retry: false });
   const list = (floors || []) as { id: string; name: string }[];
   const [stats, setStats] = useState<Record<string, FloorStat>>({});
@@ -20,20 +22,20 @@ export default function DashTab({ siteId }: { siteId: string }) {
   const totalZones = known.reduce((a, s) => a + s.zones, 0);
 
   if (list.length === 0) {
-    return <p className="text-sm text-muted-foreground py-8 text-center">図面がありません。「図面」タブで図面を追加してください。</p>;
+    return <p className="text-sm text-muted-foreground py-8 text-center">{t("図面がありません。「図面」タブで図面を追加してください。")}</p>;
   }
 
   return (
     <div className="space-y-4">
       {/* 総合カード */}
       <div className="rounded-2xl border border-border bg-card/70 p-4">
-        <div className="text-xs text-muted-foreground">現場全体の進捗</div>
+        <div className="text-xs text-muted-foreground">{t("現場全体の進捗")}</div>
         <div className="flex items-end gap-2 mt-1">
           <span className="text-4xl font-black tabular-nums" style={{ color: "#03AF7A" }}>{overall}</span>
           <span className="text-lg font-bold text-muted-foreground mb-1">%</span>
           <div className="ml-auto text-right text-xs text-muted-foreground">
-            <div>エリア {totalZones}</div>
-            {totalIssues > 0 && <div className="text-[#FF4B00] font-bold">⚠ 問題 {totalIssues}</div>}
+            <div>{t("エリア")} {totalZones}</div>
+            {totalIssues > 0 && <div className="text-[#FF4B00] font-bold">⚠ {t("問題")} {totalIssues}</div>}
           </div>
         </div>
         <div className="mt-2 h-2.5 rounded-full bg-muted overflow-hidden">
@@ -43,7 +45,7 @@ export default function DashTab({ siteId }: { siteId: string }) {
 
       {/* フロア別 */}
       <div className="space-y-2">
-        <div className="text-xs font-bold text-muted-foreground px-1">フロア別</div>
+        <div className="text-xs font-bold text-muted-foreground px-1">{t("フロア別")}</div>
         {list.map((f) => <FloorRow key={f.id} floorId={f.id} name={f.name} onStat={report} />)}
       </div>
     </div>

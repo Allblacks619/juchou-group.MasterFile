@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Map as MapIcon, ClipboardList, Megaphone, LayoutGrid, BarChart3, Wallet, Settings, Plus, ChevronDown, CloudOff, UploadCloud, Package, Zap, Wrench } from "lucide-react";
 import { resolveGenbaTheme, genbaThemeTokens } from "@shared/genba/themes";
-import type { GenbaLang } from "@shared/genba/i18n";
+import { genbaTr, type GenbaLang } from "@shared/genba/i18n";
 import { useGenbaOutbox } from "@/lib/useGenbaOutbox";
 import { getGenbaLinkPrefs, setGenbaLinkPrefs, type GenbaLinkPrefs } from "@/lib/genbaLinkToken";
 import FloorWorkspace from "./FloorWorkspace";
@@ -18,6 +18,7 @@ import GenbaSettingsPanel from "./GenbaSettingsPanel";
 import ToolsPanel from "./ToolsPanel";
 import GuideModal from "./GuideModal";
 import { setRomajiLang } from "@/lib/genbaRomaji";
+import { GenbaLangProvider } from "@/lib/genbaLang";
 
 type Me = {
   userId: number | null;
@@ -58,6 +59,8 @@ export default function GenbaShell({
     : me.settings;
   const theme = resolveGenbaTheme(effSettings.theme);
   const lang = (effSettings.lang === "pt" ? "pt" : "ja") as GenbaLang;
+  // GenbaShell 自身は GenbaLangProvider の提供元なので useGenbaT ではなく直接 genbaTr を使う
+  const tr = (s: string) => genbaTr(s, lang);
   setRomajiLang(lang); // PT時は作業名/電材名を「日本語 — Romaji」で表示 (dispName)
   const isAdmin = me.genbaRole === "admin";
   const canEdit = me.genbaRole !== "worker";
@@ -114,6 +117,7 @@ export default function GenbaShell({
   if (!site) return null;
 
   return (
+    <GenbaLangProvider lang={lang}>
     <div
       className="flex flex-col rounded-2xl overflow-hidden border shadow-sm -m-1"
       style={{ ...genbaThemeTokens(effSettings.theme), background: theme.appBg, borderColor: "rgba(0,0,0,0.08)", minHeight: linkMode ? "calc(100dvh - 0.5rem)" : "calc(100dvh - 6.5rem)" } as CSSProperties}
@@ -149,7 +153,7 @@ export default function GenbaShell({
             className="shrink-0 inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-semibold"
             style={{ background: theme.accent, color: "#fff" }}
           >
-            <Plus className="h-4 w-4" /> 現場
+            <Plus className="h-4 w-4" /> {tr("現場")}
           </button>
         )}
         <button
@@ -173,20 +177,20 @@ export default function GenbaShell({
       >
         <span className="inline-flex items-center gap-1.5 font-semibold text-foreground">
           <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: me.settings.color || theme.accent }} />
-          {me.name || "ユーザー"} <span className="opacity-70">{ROLE_ICON[me.genbaRole]} {ROLE_LABEL[me.genbaRole]}</span>
+          {me.name || tr("ユーザー")} <span className="opacity-70">{ROLE_ICON[me.genbaRole]} {tr(ROLE_LABEL[me.genbaRole])}</span>
           {me.link?.kind === "guest" && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "rgba(246,170,0,0.18)", color: "#8a6d00" }}>ゲスト</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "rgba(246,170,0,0.18)", color: "#8a6d00" }}>{tr("ゲスト")}</span>
           )}
         </span>
         <span className="ml-auto flex items-center gap-2">
           {!outbox.online && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ background: "rgba(246,170,0,0.16)", color: "#8a6d00" }}>
-              <CloudOff className="h-3 w-3" /> オフライン
+              <CloudOff className="h-3 w-3" /> {tr("オフライン")}
             </span>
           )}
           {outbox.pending > 0 && (
             <button onClick={() => outbox.flush()} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ background: "rgba(77,196,255,0.18)", color: "#0369a1" }}>
-              <UploadCloud className="h-3 w-3" /> 送信待ち {outbox.pending}
+              <UploadCloud className="h-3 w-3" /> {tr("送信待ち")} {outbox.pending}
             </button>
           )}
         </span>
@@ -209,10 +213,10 @@ export default function GenbaShell({
           <div className="space-y-3">
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowDispatch(true)} className="inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 border border-[#FF4B00]/50 text-[#FF4B00] font-medium">
-                <Zap className="h-4 w-4" /> 今日の急ぎ手配
+                <Zap className="h-4 w-4" /> {tr("今日の急ぎ手配")}
               </button>
               <button onClick={() => setShowMaterials(true)} className="inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 border border-border font-medium">
-                <Package className="h-4 w-4" /> 材料発注
+                <Package className="h-4 w-4" /> {tr("材料発注")}
               </button>
             </div>
             <InstructionsPanel
@@ -259,7 +263,7 @@ export default function GenbaShell({
               style={{ color: active ? theme.tabOn : theme.tabOff }}
             >
               <Icon className="h-5 w-5" strokeWidth={active ? 2.4 : 1.8} />
-              <span className="text-[10px] font-medium leading-none">{t.label}</span>
+              <span className="text-[10px] font-medium leading-none">{tr(t.label)}</span>
               {t.key === "inst" && instBadge > 0 && (
                 <span className="absolute top-1 right-[22%] min-w-[16px] h-4 px-1 rounded-full bg-[#FF4B00] text-white text-[9px] font-bold flex items-center justify-center">
                   {instBadge}
@@ -275,5 +279,6 @@ export default function GenbaShell({
       {showMaterials && <MaterialsPanel siteId={site.id} canEdit={canEdit} meUserId={me.userId ?? null} open={showMaterials} onOpenChange={setShowMaterials} />}
       {showDispatch && <DispatchPanel siteId={site.id} canEdit={canEdit} meUserId={me.userId ?? null} open={showDispatch} onOpenChange={setShowDispatch} />}
     </div>
+    </GenbaLangProvider>
   );
 }

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Users, MapPin, ListChecks, Loader2 } from "lucide-react";
 import { dispName } from "@/lib/genbaRomaji";
+import { useGenbaT } from "@/lib/genbaLang";
 import { rosterKindLabel, type RosterEntry } from "./AssignPicker";
 
 type SiteTask = { id: string; name: string; romaji: string | null; zoneId: string; zoneName: string; parentZoneId: string | null; floorId: string | null; floorName: string | null };
@@ -21,6 +22,7 @@ export default function BulkAssignPanel({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const t = useGenbaT();
   const utils = trpc.useUtils();
   const { data: rosterData } = trpc.genba.users.siteRoster.useQuery({ siteId }, { enabled: open, retry: false });
   const { data: teamsData } = trpc.genba.teams.listBySite.useQuery({ siteId }, { enabled: open, retry: false });
@@ -123,8 +125,8 @@ export default function BulkAssignPanel({
   const allZonesSelected = allZoneIds.length > 0 && allZoneIds.every((id) => selZones.has(id));
 
   async function apply() {
-    if (assignees.length === 0) { toast.error("配置する作業員または班を選んでください"); return; }
-    if (targetTaskIds.length === 0) { toast.error("対象の作業がありません。エリアや作業を選んでください"); return; }
+    if (assignees.length === 0) { toast.error(t("配置する作業員または班を選んでください")); return; }
+    if (targetTaskIds.length === 0) { toast.error(t("対象の作業がありません。エリアや作業を選んでください")); return; }
     setBusy(true);
     try {
       // 選んだ人／班をそれぞれ対象作業へ割当 (bulkAssign は1割当ずつ。add* は重複挿入しない)
@@ -137,11 +139,11 @@ export default function BulkAssignPanel({
       utils.genba.board.get.invalidate({ siteId });
       utils.genba.tasks.listByZone.invalidate();
       utils.genba.tasks.listBySite.invalidate({ siteId });
-      toast.success(`${assignees.length}名／班 を ${targetTaskIds.length}件の作業へ配置しました`);
+      toast.success(`${assignees.length}${t("名／班 を ")}${targetTaskIds.length}${t("件の作業へ配置しました")}`);
       reset();
       onOpenChange(false);
     } catch (e: any) {
-      toast.error(e?.message || "配置に失敗しました");
+      toast.error(e?.message || t("配置に失敗しました"));
     } finally {
       setBusy(false);
     }
@@ -150,9 +152,9 @@ export default function BulkAssignPanel({
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader><DialogTitle>📥 まとめて配置</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{t("📥 まとめて配置")}</DialogTitle></DialogHeader>
         <p className="text-xs text-muted-foreground">
-          作業員（または班）を、複数のエリアへ一度に配置します。特定の作業だけを複数エリアへ配置することもできます。
+          {t("作業員（または班）を、複数のエリアへ一度に配置します。特定の作業だけを複数エリアへ配置することもできます。")}
         </p>
 
         {isLoading ? (
@@ -162,10 +164,10 @@ export default function BulkAssignPanel({
             {/* ① 誰を */}
             <section className="space-y-1.5">
               <div className="text-sm font-bold flex items-center gap-1.5">
-                <Users className="h-4 w-4" /> ① 配置する人／班
-                <span className="text-[11px] font-normal text-muted-foreground">（複数選べます{assignees.length > 0 ? ` ・ ${assignees.length}名／班` : ""}）</span>
+                <Users className="h-4 w-4" /> {t("① 配置する人／班")}
+                <span className="text-[11px] font-normal text-muted-foreground">（{t("複数選べます")}{assignees.length > 0 ? ` ・ ${assignees.length}${t("名／班")}` : ""}）</span>
                 {assignees.length > 0 && (
-                  <button type="button" className="ml-auto text-xs text-[#005AFF] font-semibold" onClick={() => setAssignees([])}>全解除</button>
+                  <button type="button" className="ml-auto text-xs text-[#005AFF] font-semibold" onClick={() => setAssignees([])}>{t("全解除")}</button>
                 )}
               </div>
               <div className="max-h-40 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
@@ -182,37 +184,37 @@ export default function BulkAssignPanel({
                       className={`w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm ${selected ? "bg-gold/15" : "hover:bg-muted/50"}`}>
                       <span className={`shrink-0 inline-flex h-4 w-4 items-center justify-center rounded border text-[10px] ${selected ? "bg-gold border-gold text-white" : "border-border text-transparent"}`}>✓</span>
                       <span className="flex-1 truncate">{r.displayName}</span>
-                      <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${badge.cls}`}>{badge.label}</span>
+                      <span className={`text-[9px] px-1 py-0.5 rounded border leading-none ${badge.cls}`}>{t(badge.label)}</span>
                     </button>
                   );
                 })}
-                {teams.map((t) => {
-                  const selected = isSel("team", t.id);
+                {teams.map((team) => {
+                  const selected = isSel("team", team.id);
                   return (
-                    <button key={`team-${t.id}`} type="button"
-                      onClick={() => toggleAssignee({ kind: "team", id: t.id, label: t.name })}
+                    <button key={`team-${team.id}`} type="button"
+                      onClick={() => toggleAssignee({ kind: "team", id: team.id, label: team.name })}
                       className={`w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm ${selected ? "bg-gold/15" : "hover:bg-muted/50"}`}>
                       <span className={`shrink-0 inline-flex h-4 w-4 items-center justify-center rounded border text-[10px] ${selected ? "bg-gold border-gold text-white" : "border-border text-transparent"}`}>✓</span>
-                      <span className="flex-1 truncate">{t.name}</span>
-                      <span className="text-[9px] px-1 py-0.5 rounded border leading-none bg-[#005AFF]/10 text-[#005AFF] border-[#005AFF]/30">班</span>
+                      <span className="flex-1 truncate">{team.name}</span>
+                      <span className="text-[9px] px-1 py-0.5 rounded border leading-none bg-[#005AFF]/10 text-[#005AFF] border-[#005AFF]/30">{t("班")}</span>
                     </button>
                   );
                 })}
-                {roster.length === 0 && teams.length === 0 && <div className="p-3 text-xs text-muted-foreground">名簿・班がありません。</div>}
+                {roster.length === 0 && teams.length === 0 && <div className="p-3 text-xs text-muted-foreground">{t("名簿・班がありません。")}</div>}
               </div>
             </section>
 
             {/* ② 何を */}
             <section className="space-y-1.5">
-              <div className="text-sm font-bold flex items-center gap-1.5"><ListChecks className="h-4 w-4" /> ② 何を配置するか</div>
+              <div className="text-sm font-bold flex items-center gap-1.5"><ListChecks className="h-4 w-4" /> {t("② 何を配置するか")}</div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setMode("all")}
                   className={`px-3 py-1.5 rounded-lg text-sm border ${mode === "all" ? "bg-gold/10 text-gold border-gold/40 font-semibold" : "border-border text-muted-foreground"}`}>
-                  そのエリアの全作業
+                  {t("そのエリアの全作業")}
                 </button>
                 <button type="button" onClick={() => setMode("specific")}
                   className={`px-3 py-1.5 rounded-lg text-sm border ${mode === "specific" ? "bg-gold/10 text-gold border-gold/40 font-semibold" : "border-border text-muted-foreground"}`}>
-                  特定の作業だけ
+                  {t("特定の作業だけ")}
                 </button>
               </div>
               {mode === "specific" && (
@@ -226,7 +228,7 @@ export default function BulkAssignPanel({
                       </button>
                     );
                   })}
-                  {workNames.length === 0 && <span className="text-xs text-muted-foreground">作業がありません。</span>}
+                  {workNames.length === 0 && <span className="text-xs text-muted-foreground">{t("作業がありません。")}</span>}
                 </div>
               )}
             </section>
@@ -234,11 +236,11 @@ export default function BulkAssignPanel({
             {/* ③ どのエリア */}
             <section className="space-y-1.5">
               <div className="text-sm font-bold flex items-center gap-1.5">
-                <MapPin className="h-4 w-4" /> ③ どのエリアへ
+                <MapPin className="h-4 w-4" /> {t("③ どのエリアへ")}
                 {allZoneIds.length > 0 && (
                   <button type="button" className="ml-auto text-xs text-[#005AFF] font-semibold"
                     onClick={() => setSelZones(allZonesSelected ? new Set() : new Set(allZoneIds))}>
-                    {allZonesSelected ? "全解除" : "全エリア選択"}
+                    {allZonesSelected ? t("全解除") : t("全エリア選択")}
                   </button>
                 )}
               </div>
@@ -255,25 +257,25 @@ export default function BulkAssignPanel({
                             style={{ marginLeft: z.depth * 16 }}
                             className={`w-full text-left text-xs px-2 py-1 rounded-lg border ${on ? "bg-[#03AF7A] text-white border-[#03AF7A]" : covered ? "border-[#03AF7A]/50 text-[#03AF7A] bg-[#03AF7A]/5" : "border-border text-foreground/80"}`}>
                             {z.depth > 0 ? "└ " : ""}{on ? "✓ " : covered ? "↳ " : ""}{dispName(z.zoneName)} <span className="opacity-70">({z.count})</span>
-                            {covered && <span className="opacity-70"> ・親エリアで選択中</span>}
+                            {covered && <span className="opacity-70"> {t("・親エリアで選択中")}</span>}
                           </button>
                         );
                       })}
                     </div>
                   </div>
                 ))}
-                {floorsWithZones.length === 0 && <p className="text-xs text-muted-foreground p-2">エリア（作業）がありません。先に図面でエリアと作業を作成してください。</p>}
+                {floorsWithZones.length === 0 && <p className="text-xs text-muted-foreground p-2">{t("エリア（作業）がありません。先に図面でエリアと作業を作成してください。")}</p>}
               </div>
             </section>
 
             {/* 適用 */}
             <div className="sticky bottom-0 bg-background pt-2 border-t border-border/60 flex items-center gap-2">
               <span className="text-xs text-muted-foreground flex-1">
-                {assignees.length > 0 ? <strong className="text-foreground">{assignees.length === 1 ? assignees[0].label : `${assignees.length}名／班`}</strong> : "未選択"}
-                {" を "}<strong className="text-foreground">{targetTaskIds.length}</strong>{" 件の作業へ配置"}
+                {assignees.length > 0 ? <strong className="text-foreground">{assignees.length === 1 ? assignees[0].label : `${assignees.length}${t("名／班")}`}</strong> : t("未選択")}
+                {t(" を ")}<strong className="text-foreground">{targetTaskIds.length}</strong>{t(" 件の作業へ配置")}
               </span>
               <Button onClick={apply} disabled={busy || assignees.length === 0 || targetTaskIds.length === 0}>
-                {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}配置する
+                {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}{t("配置する")}
               </Button>
             </div>
           </div>

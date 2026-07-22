@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, X, ZoomIn, ZoomOut, Maximize, Download } from "lucide-react";
 import { loadPdfDocument } from "@/lib/genbaUpload";
+import { useGenbaT } from "@/lib/genbaLang";
 
 export type ViewerFile = { blob: Blob; mimeType: string | null; title: string };
 
@@ -11,6 +12,7 @@ export type ViewerFile = { blob: Blob; mimeType: string | null; title: string };
  * blob はオフライン保存の実体、または getBytes 経由で取得したバイト列から生成して渡す(CORS回避)。
  */
 export default function FigureViewer({ file, onClose }: { file: ViewerFile; onClose: () => void }) {
+  const t = useGenbaT();
   const isPdf = (file.mimeType || file.blob.type || "").includes("pdf");
   const isImage = (file.mimeType || file.blob.type || "").startsWith("image/");
   const [zoom, setZoom] = useState(1);
@@ -99,23 +101,23 @@ export default function FigureViewer({ file, onClose }: { file: ViewerFile; onCl
         <span className="truncate text-sm font-medium flex-1">{file.title}</span>
         {canZoom && (
           <>
-            <button title="縮小" className="p-2 rounded hover:bg-white/10" onClick={() => setZoom((z) => clampZoom(z / 1.25))}><ZoomOut className="h-5 w-5" /></button>
+            <button title={t("縮小")} className="p-2 rounded hover:bg-white/10" onClick={() => setZoom((z) => clampZoom(z / 1.25))}><ZoomOut className="h-5 w-5" /></button>
             <span className="text-xs tabular-nums w-10 text-center">{Math.round(zoom * 100)}%</span>
-            <button title="拡大" className="p-2 rounded hover:bg-white/10" onClick={() => setZoom((z) => clampZoom(z * 1.25))}><ZoomIn className="h-5 w-5" /></button>
-            <button title="全体表示" className="p-2 rounded hover:bg-white/10" onClick={() => setZoom(1)}><Maximize className="h-5 w-5" /></button>
+            <button title={t("拡大")} className="p-2 rounded hover:bg-white/10" onClick={() => setZoom((z) => clampZoom(z * 1.25))}><ZoomIn className="h-5 w-5" /></button>
+            <button title={t("全体表示")} className="p-2 rounded hover:bg-white/10" onClick={() => setZoom(1)}><Maximize className="h-5 w-5" /></button>
           </>
         )}
-        <button title="ダウンロード" className="p-2 rounded hover:bg-white/10" onClick={download}><Download className="h-5 w-5" /></button>
-        <button title="閉じる" className="p-2 rounded hover:bg-white/10" onClick={onClose}><X className="h-5 w-5" /></button>
+        <button title={t("ダウンロード")} className="p-2 rounded hover:bg-white/10" onClick={download}><Download className="h-5 w-5" /></button>
+        <button title={t("閉じる")} className="p-2 rounded hover:bg-white/10" onClick={onClose}><X className="h-5 w-5" /></button>
       </div>
 
       {/* 本体 (スクロール=パン) */}
       <div className="flex-1 overflow-auto overscroll-contain" onWheel={onWheel} style={{ WebkitOverflowScrolling: "touch" }}>
         {status === "loading" && (
-          <div className="h-full flex items-center justify-center text-white/80"><Loader2 className="h-6 w-6 animate-spin mr-2" /> 読み込み中…</div>
+          <div className="h-full flex items-center justify-center text-white/80"><Loader2 className="h-6 w-6 animate-spin mr-2" /> {t("読み込み中…")}</div>
         )}
         {status === "error" && (
-          <div className="h-full flex items-center justify-center text-white/80 text-sm px-6 text-center">この図面を表示できませんでした。ダウンロードしてご確認ください。</div>
+          <div className="h-full flex items-center justify-center text-white/80 text-sm px-6 text-center">{t("この図面を表示できませんでした。ダウンロードしてご確認ください。")}</div>
         )}
 
         {isImage && imgSrc && (
@@ -134,14 +136,14 @@ export default function FigureViewer({ file, onClose }: { file: ViewerFile; onCl
           <div className="mx-auto p-2" style={{ width: `${Math.min(100, 100)}%`, maxWidth: 1400 }}>
             <div ref={canvasWrapRef} style={{ width: `${zoom * 100}%`, margin: "0 auto", transformOrigin: "top center" }} />
             {status === "ready" && pageCount > 0 && (
-              <div className="text-center text-white/60 text-xs py-2">{pageCount}ページ</div>
+              <div className="text-center text-white/60 text-xs py-2">{pageCount}{t("ページ")}</div>
             )}
           </div>
         )}
 
         {!isImage && !isPdf && status !== "loading" && (
           <div className="h-full flex items-center justify-center text-white/80 text-sm px-6 text-center">
-            このファイル形式はアプリ内で表示できません。ダウンロードしてご確認ください。
+            {t("このファイル形式はアプリ内で表示できません。ダウンロードしてご確認ください。")}
           </div>
         )}
       </div>

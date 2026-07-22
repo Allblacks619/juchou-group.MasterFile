@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { colorForKey } from "@/lib/genbaTeamColor";
+import { useGenbaT } from "@/lib/genbaLang";
 
 export type AssignTeam = { id: string; name: string; memberIds: number[] };
 /** 現場名簿エントリ (genba.users.siteRoster)。登録作業員は userId、ゲスト/アカウント無し従業員は siteWorkerId で割当 */
@@ -39,6 +40,7 @@ export default function AssignPicker({
   onToggleTeam: (teamId: string, on: boolean) => void;
   onToggleGuest: (siteWorkerId: string, on: boolean) => void;
 }) {
+  const t = useGenbaT();
   const [open, setOpen] = useState(false);
   const n = assigneeIds.length + teamIds.length + guestIds.length;
 
@@ -47,7 +49,7 @@ export default function AssignPicker({
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
         className="text-xs rounded border border-border px-1.5 py-1 bg-background hover:bg-muted/50"
-        title="担当を割り当て"
+        title={t("担当を割り当て")}
       >
         👤{n || ""}
       </button>
@@ -55,24 +57,24 @@ export default function AssignPicker({
         <>
           <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpen(false); }} />
           <div className="absolute right-0 z-50 mt-1 w-56 max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-lg p-1.5 space-y-1" onClick={(e) => e.stopPropagation()}>
-            {teams.length > 0 && <div className="text-[10px] text-muted-foreground px-1">班</div>}
+            {teams.length > 0 && <div className="text-[10px] text-muted-foreground px-1">{t("班")}</div>}
             {teams.map((g) => {
               const on = teamIds.includes(g.id);
               return (
                 <button key={g.id}
                   className="w-full flex items-center gap-1 text-xs rounded px-2 py-1 font-bold"
                   style={{ background: on ? colorForKey(g.id) : "transparent", color: on ? "#fff" : undefined }}
-                  title={on ? "タップで解除" : "タップで割当"}
+                  title={on ? t("タップで解除") : t("タップで割当")}
                   onClick={(e) => { e.stopPropagation(); onToggleTeam(g.id, !on); }}>
-                  <span className="flex-1 text-left truncate">{on ? "✓ " : ""}{g.name}（{g.memberIds.length}名）</span>
+                  <span className="flex-1 text-left truncate">{on ? "✓ " : ""}{g.name}（{g.memberIds.length}{t("名")}）</span>
                   {on && <span className="opacity-90">✕</span>}
                 </button>
               );
             })}
-            <div className="text-[10px] text-muted-foreground px-1">個人{linked ? "（出面に登録された人のみ）" : ""}</div>
+            <div className="text-[10px] text-muted-foreground px-1">{t("個人")}{linked ? t("（出面に登録された人のみ）") : ""}</div>
             {roster.length === 0 && (
               <div className="text-[11px] text-muted-foreground px-2 py-1.5 leading-snug">
-                割当可能な作業員がいません。案件連携中は出面表に登録された作業員のみ表示されます（設定→この現場）。
+                {t("割当可能な作業員がいません。案件連携中は出面表に登録された作業員のみ表示されます（設定→この現場）。")}
               </div>
             )}
             {roster.map((w) => {
@@ -86,14 +88,14 @@ export default function AssignPicker({
                 <button key={key}
                   className="w-full flex items-center gap-1 text-xs rounded px-2 py-1"
                   style={{ background: on ? colorForKey(colorKey) : "transparent", color: on ? "#fff" : undefined }}
-                  title={on ? "タップで解除" : "タップで割当"}
+                  title={on ? t("タップで解除") : t("タップで割当")}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (useUser) onToggleUser(w.userId as number, !on);
                     else if (w.siteWorkerId) onToggleGuest(w.siteWorkerId, !on);
                   }}>
                   <span className="flex-1 text-left truncate">{on ? "✓ " : ""}{w.displayName}</span>
-                  <span className={`shrink-0 text-[9px] px-1 py-0.5 rounded border leading-none ${on ? "border-white/50 text-white/90 bg-transparent" : kind.cls}`}>{kind.label}</span>
+                  <span className={`shrink-0 text-[9px] px-1 py-0.5 rounded border leading-none ${on ? "border-white/50 text-white/90 bg-transparent" : kind.cls}`}>{t(kind.label)}</span>
                   {on && <span className="opacity-90">✕</span>}
                 </button>
               );
