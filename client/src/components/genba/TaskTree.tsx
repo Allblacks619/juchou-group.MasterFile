@@ -11,9 +11,11 @@ import TaskDetailModal from "./TaskDetailModal";
 import AssignPicker from "./AssignPicker";
 import { enqueueStatus, isNetworkError } from "@/lib/genbaOutbox";
 import { dispName } from "@/lib/genbaRomaji";
+import { useGenbaT } from "@/lib/genbaLang";
 
 /** ゾーン配下の作業ツリー (プロトタイプ TaskTree/TaskRow 移植)。進捗登録・詳細・追加・担当割当。 */
 export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged }: { zoneId: string; siteId: string; meUserId: number | null; canEdit: boolean; onChanged: () => void }) {
+  const t = useGenbaT();
   const utils = trpc.useUtils();
   const { data: tasks } = trpc.genba.tasks.listByZone.useQuery({ zoneId }, { retry: false });
   const { data: rosterData } = trpc.genba.users.siteRoster.useQuery({ siteId }, { retry: false, enabled: canEdit, staleTime: 60 * 1000 });
@@ -28,18 +30,18 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
     onSuccess: (r) => {
       // サブエリアの同名作業へ伝播した可能性があるため全ゾーンを invalidate
       utils.genba.tasks.listByZone.invalidate();
-      if (r?.propagated) toast.success(`サブエリアの同じ作業 ${r.propagated}件にも割り当てました`);
+      if (r?.propagated) toast.success(`${t("サブエリアの同じ作業")} ${r.propagated}${t("件にも割り当てました")}`);
     },
     onError: (e) => toast.error(e.message),
   });
   const assignTeam = trpc.genba.tasks.assignTeam.useMutation({ onSuccess: () => utils.genba.tasks.listByZone.invalidate({ zoneId }), onError: (e) => toast.error(e.message) });
   const assignGuest = trpc.genba.tasks.assignGuest.useMutation({ onSuccess: () => utils.genba.tasks.listByZone.invalidate({ zoneId }), onError: (e) => toast.error(e.message) });
   const createTask = trpc.genba.tasks.create.useMutation({
-    onSuccess: () => { refresh(); toast.success("作業を追加しました"); },
+    onSuccess: () => { refresh(); toast.success(t("作業を追加しました")); },
     onError: (e) => toast.error(e.message),
   });
   const removeTask = trpc.genba.tasks.remove.useMutation({
-    onSuccess: () => { refresh(); toast.success("作業を削除しました"); },
+    onSuccess: () => { refresh(); toast.success(t("作業を削除しました")); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -47,7 +49,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
   const linked = rosterData?.linked ?? false;
   const teamList = (teams || []) as { id: string; name: string; memberIds: number[] }[];
   const userName = (id: number) => roster.find((u) => u.userId === id)?.displayName || `user#${id}`;
-  const guestName = (siteWorkerId: string) => roster.find((u) => u.siteWorkerId === siteWorkerId)?.displayName || "ゲスト";
+  const guestName = (siteWorkerId: string) => roster.find((u) => u.siteWorkerId === siteWorkerId)?.displayName || t("ゲスト");
   const myTeamIds = new Set(teamList.filter((g) => meUserId != null && g.memberIds.includes(meUserId)).map((g) => g.id));
 
   const list = (tasks || []) as GenbaTaskDto[];
@@ -60,7 +62,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
     // オフラインならアウトボックスへ退避 (復帰時に自動送信)
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       await enqueueStatus(payload);
-      toast("📤 オフライン: 送信待ちに保存しました。オンライン復帰時に自動送信します。");
+      toast(t("📤 オフライン: 送信待ちに保存しました。オンライン復帰時に自動送信します。"));
       window.dispatchEvent(new Event("genba-outbox-changed"));
       return;
     }
@@ -71,7 +73,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
       // 送信中に回線が切れた等はキューへ退避してリトライに回す
       if (isNetworkError(e)) {
         await enqueueStatus(payload);
-        toast("📤 通信できないため送信待ちに保存しました。復帰時に自動送信します。");
+        toast(t("📤 通信できないため送信待ちに保存しました。復帰時に自動送信します。"));
         window.dispatchEvent(new Event("genba-outbox-changed"));
         return;
       }
@@ -99,7 +101,7 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
               className="text-xs font-bold rounded px-2 py-1 text-white shrink-0"
               style={{ background: st.color }}
             >
-              {st.icon} {task.status === "progress" ? `${task.percent ?? 50}%` : st.label}
+              {st.icon} {task.status === "progress" ? `${task.percent ?? 50}%` : t(st.label)}
             </button>
           ) : (
             <ExpandRow />
@@ -108,30 +110,30 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className={`text-sm ${isLeaf ? "" : "font-bold"}`}>{dispName(task.name, task.romaji)}</span>
               {!isLeaf && <span className="text-xs text-muted-foreground tabular-nums">{Math.round(prog)}%</span>}
-              {task.dueDate && <span className={`text-[11px] px-1.5 py-0.5 rounded ${overdue ? "bg-destructive/10 text-destructive font-bold" : "bg-muted text-muted-foreground"}`}>📅 {fmtDate(task.dueDate)}{overdue ? " 期限超過" : ""}</span>}
-              {task.memo && task.memoVisible && <span title="メモあり">📝</span>}
-              {task.linkUrl && <span title="図面リンク">📐</span>}
-              {!!task.fileCount && <span title="作業ファイルあり" className="text-[10px] text-muted-foreground">📎{task.fileCount}</span>}
+              {task.dueDate && <span className={`text-[11px] px-1.5 py-0.5 rounded ${overdue ? "bg-destructive/10 text-destructive font-bold" : "bg-muted text-muted-foreground"}`}>📅 {fmtDate(task.dueDate)}{overdue ? " " + t("期限超過") : ""}</span>}
+              {task.memo && task.memoVisible && <span title={t("メモあり")}>📝</span>}
+              {task.linkUrl && <span title={t("図面リンク")}>📐</span>}
+              {!!task.fileCount && <span title={t("作業ファイルあり")} className="text-[10px] text-muted-foreground">📎{task.fileCount}</span>}
               {tTeamIds.map((id) => {
                 const g = teamList.find((t) => t.id === id);
                 return g ? (
                   <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold text-white" style={{ background: colorForKey(id) }}>
                     {g.name}
-                    {canEdit && <button title="この班を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignTeam.mutate({ taskId: task.id, teamId: id, on: false }); }}>✕</button>}
+                    {canEdit && <button title={t("この班を外す")} className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignTeam.mutate({ taskId: task.id, teamId: id, on: false }); }}>✕</button>}
                   </span>
                 ) : null;
               })}
               {assigneeIds.map((id) => (
                 <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }}>
                   {task.assigneeNames?.[id] || userName(id)}
-                  {canEdit && <button title="担当を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignUser.mutate({ taskId: task.id, userId: id, on: false }); }}>✕</button>}
+                  {canEdit && <button title={t("担当を外す")} className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignUser.mutate({ taskId: task.id, userId: id, on: false }); }}>✕</button>}
                 </span>
               ))}
               {tGuestIds.map((id) => (
-                <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }} title="ゲスト作業員">
+                <span key={id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: colorForKey(id) }} title={t("ゲスト作業員")}>
                   {task.guestNames?.[id] || guestName(id)}
                   <span className="text-[8px] px-0.5 rounded bg-white/25 leading-tight">G</span>
-                  {canEdit && <button title="担当を外す" className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignGuest.mutate({ taskId: task.id, siteWorkerId: id, on: false }); }}>✕</button>}
+                  {canEdit && <button title={t("担当を外す")} className="leading-none opacity-80 hover:opacity-100" onClick={(e) => { e.stopPropagation(); assignGuest.mutate({ taskId: task.id, siteWorkerId: id, on: false }); }}>✕</button>}
                 </span>
               ))}
             </div>
@@ -157,9 +159,9 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
           )}
           {canEdit && (
             <button
-              onClick={() => { if (window.confirm(`「${task.name}」を削除しますか？${!isLeaf ? "\n(サブ作業も削除されます)" : ""}`)) removeTask.mutate({ id: task.id }); }}
+              onClick={() => { if (window.confirm(`「${task.name}${t("」を削除しますか？")}${!isLeaf ? "\n" + t("(サブ作業も削除されます)") : ""}`)) removeTask.mutate({ id: task.id }); }}
               className="shrink-0 text-muted-foreground hover:text-destructive p-1"
-              title="作業を削除"
+              title={t("作業を削除")}
             >
               <Trash2 className="h-4 w-4" />
             </button>
@@ -174,16 +176,16 @@ export default function TaskTree({ zoneId, siteId, meUserId, canEdit, onChanged 
     <div>
       <div className="max-h-72 overflow-y-auto">
         {roots.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-2">作業がありません。{canEdit ? "下のボタンから追加できます。" : ""}</p>
+          <p className="text-xs text-muted-foreground py-2">{t("作業がありません。")}{canEdit ? t("下のボタンから追加できます。") : ""}</p>
         ) : roots.map((t) => renderRow(t, 0))}
       </div>
 
       {canEdit && (
         <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => {
-          const n = window.prompt("追加する作業名を入力", "");
+          const n = window.prompt(t("追加する作業名を入力"), "");
           if (n && n.trim()) createTask.mutate({ zoneId, name: n.trim() });
         }}>
-          <Plus className="h-4 w-4 mr-1" /> このエリアに作業を追加
+          <Plus className="h-4 w-4 mr-1" /> {t("このエリアに作業を追加")}
         </Button>
       )}
 

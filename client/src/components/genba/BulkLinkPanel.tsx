@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Link2, MapPin, ListChecks, Loader2 } from "lucide-react";
 import { dispName } from "@/lib/genbaRomaji";
+import { useGenbaT } from "@/lib/genbaLang";
 
 type SiteTask = { id: string; name: string; romaji: string | null; zoneId: string; zoneName: string; floorId: string | null; floorName: string | null };
 
@@ -21,6 +22,7 @@ export default function BulkLinkPanel({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const t = useGenbaT();
   const utils = trpc.useUtils();
   const { data: siteTasks, isLoading } = trpc.genba.tasks.listBySite.useQuery({ siteId }, { enabled: open, retry: false });
 
@@ -80,9 +82,9 @@ export default function BulkLinkPanel({
   const urlValid = /^https?:\/\//i.test(url);
 
   async function apply() {
-    if (!url) { toast.error("図面リンクのURLを入力してください"); return; }
-    if (!urlValid) { toast.error("URLは https:// から入力してください"); return; }
-    if (targetTaskIds.length === 0) { toast.error("対象の作業がありません。作業やエリアを選んでください"); return; }
+    if (!url) { toast.error(t("図面リンクのURLを入力してください")); return; }
+    if (!urlValid) { toast.error(t("URLは https:// から入力してください")); return; }
+    if (targetTaskIds.length === 0) { toast.error(t("対象の作業がありません。作業やエリアを選んでください")); return; }
     const title = linkTitle.trim() || undefined;
     setBusy(true);
     try {
@@ -92,11 +94,11 @@ export default function BulkLinkPanel({
       utils.genba.tasks.files.list.invalidate();
       utils.genba.tasks.listByZone.invalidate();
       utils.genba.tasks.listBySite.invalidate({ siteId });
-      toast.success(`${targetTaskIds.length}件の作業に図面リンクを添付しました`);
+      toast.success(`${targetTaskIds.length}${t("件の作業に図面リンクを添付しました")}`);
       reset();
       onOpenChange(false);
     } catch (e: any) {
-      toast.error(e?.message || "添付に失敗しました");
+      toast.error(e?.message || t("添付に失敗しました"));
     } finally {
       setBusy(false);
     }
@@ -105,9 +107,9 @@ export default function BulkLinkPanel({
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader><DialogTitle>🔗 まとめて図面リンク添付</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>🔗 {t("まとめて図面リンク添付")}</DialogTitle></DialogHeader>
         <p className="text-xs text-muted-foreground">
-          図面・資料の共有リンクを、特定の作業（例: 強電作業）や複数エリアへ、1操作でまとめて添付します。作業員は各作業からワンタッチで開けます。
+          {t("図面・資料の共有リンクを、特定の作業（例: 強電作業）や複数エリアへ、1操作でまとめて添付します。作業員は各作業からワンタッチで開けます。")}
         </p>
 
         {isLoading ? (
@@ -116,23 +118,23 @@ export default function BulkLinkPanel({
           <div className="space-y-4">
             {/* ① リンク */}
             <section className="space-y-1.5">
-              <div className="text-sm font-bold flex items-center gap-1.5"><Link2 className="h-4 w-4" /> ① 添付する図面リンク</div>
-              <Input value={linkTitle} onChange={(e) => setLinkTitle(e.target.value)} placeholder="表示名（任意・例: 強電 平面図）" className="h-9 text-sm" />
+              <div className="text-sm font-bold flex items-center gap-1.5"><Link2 className="h-4 w-4" /> {t("① 添付する図面リンク")}</div>
+              <Input value={linkTitle} onChange={(e) => setLinkTitle(e.target.value)} placeholder={t("表示名（任意・例: 強電 平面図）")} className="h-9 text-sm" />
               <Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://drive.google.com/..." className="h-9 text-sm" />
-              {url && !urlValid && <p className="text-[11px] text-destructive">URLは https:// から入力してください。</p>}
+              {url && !urlValid && <p className="text-[11px] text-destructive">{t("URLは https:// から入力してください。")}</p>}
             </section>
 
             {/* ② 何に */}
             <section className="space-y-1.5">
-              <div className="text-sm font-bold flex items-center gap-1.5"><ListChecks className="h-4 w-4" /> ② どの作業に付けるか</div>
+              <div className="text-sm font-bold flex items-center gap-1.5"><ListChecks className="h-4 w-4" /> {t("② どの作業に付けるか")}</div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setMode("specific")}
                   className={`px-3 py-1.5 rounded-lg text-sm border ${mode === "specific" ? "bg-gold/10 text-gold border-gold/40 font-semibold" : "border-border text-muted-foreground"}`}>
-                  特定の作業だけ
+                  {t("特定の作業だけ")}
                 </button>
                 <button type="button" onClick={() => setMode("all")}
                   className={`px-3 py-1.5 rounded-lg text-sm border ${mode === "all" ? "bg-gold/10 text-gold border-gold/40 font-semibold" : "border-border text-muted-foreground"}`}>
-                  そのエリアの全作業
+                  {t("そのエリアの全作業")}
                 </button>
               </div>
               {mode === "specific" && (
@@ -146,7 +148,7 @@ export default function BulkLinkPanel({
                       </button>
                     );
                   })}
-                  {workNames.length === 0 && <span className="text-xs text-muted-foreground">作業がありません。</span>}
+                  {workNames.length === 0 && <span className="text-xs text-muted-foreground">{t("作業がありません。")}</span>}
                 </div>
               )}
             </section>
@@ -154,11 +156,11 @@ export default function BulkLinkPanel({
             {/* ③ どのエリア */}
             <section className="space-y-1.5">
               <div className="text-sm font-bold flex items-center gap-1.5">
-                <MapPin className="h-4 w-4" /> ③ どのエリアへ
+                <MapPin className="h-4 w-4" /> {t("③ どのエリアへ")}
                 {allZoneIds.length > 0 && (
                   <button type="button" className="ml-auto text-xs text-[#005AFF] font-semibold"
                     onClick={() => setSelZones(allZonesSelected ? new Set() : new Set(allZoneIds))}>
-                    {allZonesSelected ? "全解除" : "全エリア選択"}
+                    {allZonesSelected ? t("全解除") : t("全エリア選択")}
                   </button>
                 )}
               </div>
@@ -179,17 +181,17 @@ export default function BulkLinkPanel({
                     </div>
                   </div>
                 ))}
-                {floorsWithZones.length === 0 && <p className="text-xs text-muted-foreground p-2">エリア（作業）がありません。先に図面でエリアと作業を作成してください。</p>}
+                {floorsWithZones.length === 0 && <p className="text-xs text-muted-foreground p-2">{t("エリア（作業）がありません。先に図面でエリアと作業を作成してください。")}</p>}
               </div>
             </section>
 
             {/* 適用 */}
             <div className="sticky bottom-0 bg-background pt-2 border-t border-border/60 flex items-center gap-2">
               <span className="text-xs text-muted-foreground flex-1">
-                図面リンクを <strong className="text-foreground">{targetTaskIds.length}</strong> 件の作業へ添付
+                {t("図面リンクを")} <strong className="text-foreground">{targetTaskIds.length}</strong> {t("件の作業へ添付")}
               </span>
               <Button onClick={apply} disabled={busy || !url || !urlValid || targetTaskIds.length === 0}>
-                {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}添付する
+                {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}{t("添付する")}
               </Button>
             </div>
           </div>

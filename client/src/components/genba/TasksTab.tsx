@@ -6,11 +6,13 @@ import type { ZoneWithAgg } from "./ZoneSheet";
 import TaskTree from "./TaskTree";
 import StatusModal, { type SetStatusPayload } from "./StatusModal";
 import { dispName } from "@/lib/genbaRomaji";
+import { useGenbaT } from "@/lib/genbaLang";
 
 type MineTask = { id: string; zoneId: string; zoneName: string; name: string; romaji: string | null; status: "todo" | "progress" | "done" | "issue"; percent: number | null; dueDate: string | null; issueText: string | null };
 
 /** 作業タブ (正本 TasksTab 移植): フロア選択 → エリア別に作業ツリーを一覧。「自分の作業」フィルタ付き (G3)。 */
 export default function TasksTab({ siteId, meUserId, canEdit }: { siteId: string; meUserId: number | null; canEdit: boolean }) {
+  const t = useGenbaT();
   const utils = trpc.useUtils();
   const { data: floors } = trpc.genba.floors.list.useQuery({ siteId }, { retry: false });
   const list = (floors || []) as { id: string; name: string }[];
@@ -29,13 +31,13 @@ export default function TasksTab({ siteId, meUserId, canEdit }: { siteId: string
   const refresh = () => activeFloor && utils.genba.zones.listByFloor.invalidate({ floorId: activeFloor.id });
 
   if (list.length === 0) {
-    return <p className="text-sm text-muted-foreground py-8 text-center">図面がありません。「図面」タブで図面を追加してください。</p>;
+    return <p className="text-sm text-muted-foreground py-8 text-center">{t("図面がありません。「図面」タブで図面を追加してください。")}</p>;
   }
 
   const mineChip = meUserId != null && (
     <button onClick={() => setMineOnly(!mineOnly)}
       className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap border ${mineOnly ? "bg-[#005AFF] text-white border-[#005AFF]" : "text-muted-foreground border-border"}`}>
-      👤 自分の作業
+      {t("👤 自分の作業")}
     </button>
   );
 
@@ -45,7 +47,7 @@ export default function TasksTab({ siteId, meUserId, canEdit }: { siteId: string
         <div className="flex gap-2 overflow-x-auto pb-1">
           <button onClick={() => setMineOnly(false)}
             className="px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap border text-muted-foreground border-border">
-            すべての作業
+            {t("すべての作業")}
           </button>
           {mineChip}
         </div>
@@ -70,7 +72,7 @@ export default function TasksTab({ siteId, meUserId, canEdit }: { siteId: string
         {mineChip}
       </div>
 
-      {roots.length === 0 && <p className="text-sm text-muted-foreground py-6 text-center">このフロアにはエリアがありません。「図面」タブでエリアを追加してください。</p>}
+      {roots.length === 0 && <p className="text-sm text-muted-foreground py-6 text-center">{t("このフロアにはエリアがありません。「図面」タブでエリアを追加してください。")}</p>}
 
       {roots.map((z) => {
         const pr = z.priority ? PRIORITY[z.priority] : null;
@@ -78,7 +80,7 @@ export default function TasksTab({ siteId, meUserId, canEdit }: { siteId: string
           <div key={z.id} className="rounded-xl border border-border bg-card/60 overflow-hidden" style={{ borderLeft: `5px solid ${pr ? pr.color : "#cbd5e1"}` }}>
             <div className="flex items-center gap-2 px-3 py-2 bg-muted/40">
               <strong className="text-sm">{z.workStatus === "paused" ? "⏸ " : ""}{dispName(z.name)}</strong>
-              {pr && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: pr.color, color: pr.text }}>{pr.label}</span>}
+              {pr && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: pr.color, color: pr.text }}>{t(pr.label)}</span>}
               <span className="ml-auto text-xs text-muted-foreground tabular-nums">{Math.round(z.progress)}%{z.issues > 0 ? ` · ⚠${z.issues}` : ""}</span>
             </div>
             <div className="px-3 py-2">
@@ -93,10 +95,11 @@ export default function TasksTab({ siteId, meUserId, canEdit }: { siteId: string
 
 /** 自分の担当作業 (G3): 現場内の自分に割り当てられた葉タスクをエリア別に表示・その場で更新 */
 function MyTasksList({ siteId }: { siteId: string }) {
+  const tr = useGenbaT();
   const utils = trpc.useUtils();
   const { data } = trpc.genba.tasks.listMine.useQuery({ siteId }, { retry: false });
   const setStatus = trpc.genba.tasks.setStatus.useMutation({
-    onSuccess: () => { utils.genba.tasks.listMine.invalidate({ siteId }); utils.genba.zones.listByFloor.invalidate(); toast.success("更新しました"); },
+    onSuccess: () => { utils.genba.tasks.listMine.invalidate({ siteId }); utils.genba.zones.listByFloor.invalidate(); toast.success(tr("更新しました")); },
     onError: (e) => toast.error(e.message),
   });
   const [statusTask, setStatusTask] = useState<MineTask | null>(null);
@@ -106,7 +109,7 @@ function MyTasksList({ siteId }: { siteId: string }) {
   for (const t of tasks) { const arr = grouped.get(t.zoneName) || []; arr.push(t); grouped.set(t.zoneName, arr); }
 
   if (tasks.length === 0) {
-    return <p className="text-sm text-muted-foreground rounded-xl border border-border p-4">あなたに割り当てられた作業はありません。管理者・リーダーに確認してください。</p>;
+    return <p className="text-sm text-muted-foreground rounded-xl border border-border p-4">{tr("あなたに割り当てられた作業はありません。管理者・リーダーに確認してください。")}</p>;
   }
 
   return (
@@ -121,7 +124,7 @@ function MyTasksList({ siteId }: { siteId: string }) {
                 <div key={t.id} className="px-3 py-2 flex items-center gap-2">
                   <button onClick={() => setStatusTask(t)}
                     className="text-xs font-bold rounded px-2 py-1.5 text-white shrink-0" style={{ background: st.color }}>
-                    {st.icon} {t.status === "progress" ? `${t.percent ?? 50}%` : st.label}
+                    {st.icon} {t.status === "progress" ? `${t.percent ?? 50}%` : tr(st.label)}
                   </button>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm truncate">{dispName(t.name, t.romaji)}</div>

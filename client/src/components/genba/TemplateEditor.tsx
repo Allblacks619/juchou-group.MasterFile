@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2, Pencil } from "lucide-react";
 import { dispName } from "@/lib/genbaRomaji";
+import { useGenbaT } from "@/lib/genbaLang";
 
 type EditNode = { key: string; name: string; children: EditNode[] };
 
@@ -20,6 +21,7 @@ function toTree(nodes: EditNode[]): { name: string; children?: any[] }[] {
 
 /** 作業テンプレート編集 (プロトタイプ TemplateEditor 移植・簡易版)。エリア作成時に自動適用される標準作業ツリー。 */
 export default function TemplateEditor({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  const t = useGenbaT();
   const { data, isLoading } = trpc.genba.templates.get.useQuery(undefined, { enabled: open, retry: false });
   const utils = trpc.useUtils();
   const [nodes, setNodes] = useState<EditNode[]>([]);
@@ -29,7 +31,7 @@ export default function TemplateEditor({ open, onOpenChange }: { open: boolean; 
   }, [data]);
 
   const save = trpc.genba.templates.saveTree.useMutation({
-    onSuccess: () => { utils.genba.templates.get.invalidate(); toast.success("テンプレートを保存しました"); onOpenChange(false); },
+    onSuccess: () => { utils.genba.templates.get.invalidate(); toast.success(t("テンプレートを保存しました")); onOpenChange(false); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -55,11 +57,11 @@ export default function TemplateEditor({ open, onOpenChange }: { open: boolean; 
     <div key={n.key} style={{ paddingLeft: depth * 16 }}>
       <div className="flex items-center gap-1 py-1">
         <span className="text-sm flex-1 truncate">{dispName(n.name)}</span>
-        <Button variant="ghost" size="sm" className="px-1 h-7" title="名前変更" onClick={() => { const v = window.prompt("名前を変更", n.name); if (v && v.trim()) rename(n.key, v.trim()); }}>
+        <Button variant="ghost" size="sm" className="px-1 h-7" title={t("名前変更")} onClick={() => { const v = window.prompt(t("名前を変更"), n.name); if (v && v.trim()) rename(n.key, v.trim()); }}>
           <Pencil className="h-3.5 w-3.5" />
         </Button>
         {depth < 2 && (
-          <Button variant="ghost" size="sm" className="px-1 h-7" title="子を追加" onClick={() => { const v = window.prompt("子作業名を入力"); if (v && v.trim()) addChild(n.key, v.trim()); }}>
+          <Button variant="ghost" size="sm" className="px-1 h-7" title={t("子を追加")} onClick={() => { const v = window.prompt(t("子作業名を入力")); if (v && v.trim()) addChild(n.key, v.trim()); }}>
             <Plus className="h-3.5 w-3.5" />
           </Button>
         )}
@@ -75,22 +77,22 @@ export default function TemplateEditor({ open, onOpenChange }: { open: boolean; 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>作業テンプレート {data?.isDefault && <span className="text-xs text-muted-foreground">(既定)</span>}</DialogTitle>
+          <DialogTitle>{t("作業テンプレート")} {data?.isDefault && <span className="text-xs text-muted-foreground">{t("(既定)")}</span>}</DialogTitle>
         </DialogHeader>
-        <p className="text-xs text-muted-foreground">エリアを作成すると、このテンプレートの作業が自動で展開されます。</p>
+        <p className="text-xs text-muted-foreground">{t("エリアを作成すると、このテンプレートの作業が自動で展開されます。")}</p>
         {isLoading ? (
           <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
         ) : (
           <div className="border border-border rounded-md p-2">
             {nodes.map((n) => renderNode(n, 0))}
-            <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => { const v = window.prompt("作業名を入力"); if (v && v.trim()) addRoot(v.trim()); }}>
-              <Plus className="h-4 w-4 mr-1" /> 作業を追加
+            <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => { const v = window.prompt(t("作業名を入力")); if (v && v.trim()) addRoot(v.trim()); }}>
+              <Plus className="h-4 w-4 mr-1" /> {t("作業を追加")}
             </Button>
           </div>
         )}
         <DialogFooter>
           <Button onClick={() => save.mutate({ tree: toTree(nodes) })} disabled={save.isPending || isLoading}>
-            {save.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />} 保存
+            {save.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />} {t("保存")}
           </Button>
         </DialogFooter>
       </DialogContent>

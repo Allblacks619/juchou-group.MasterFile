@@ -8,6 +8,7 @@ import * as genbaDb from "./db";
 import { isMultiTenantEnabled } from "../tenancy";
 import { storageGet, storagePut, storageGetBytes } from "../storage";
 import { validateFile } from "../../shared/uploadValidation";
+import { resolveImportMime, decodeHeaderFilename } from "../../shared/genba/importFile";
 import { computeZoneAggregates } from "./aggregate";
 import { computeBoard } from "./board";
 import { computeBudget } from "./budget";
@@ -447,11 +448,14 @@ async function fetchExternalFile(rawUrl: string): Promise<{ buffer: Buffer; mime
   const ab = await res.arrayBuffer();
   const buffer = Buffer.from(ab);
 
-  let fileName = decodeURIComponent((u.pathname.split("/").pop() || "").trim()) || "import";
-  const cd = res.headers.get("content-disposition");
-  const cdm = cd && /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(cd);
-  if (cdm) { try { fileName = decodeURIComponent(cdm[1].replace(/"/g, "")); } catch { fileName = cdm[1].replace(/"/g, ""); } }
-  const mimeType = ct || "application/octet-stream";
+  // ファイル名: Content-Disposition を優先し、latin1 化された日本語(文字化け)を復元。無ければURL末尾。
+  let fileName = decodeHeaderFilename(res.headers.get("content-disposition"), "");
+  if (!fileName) {
+    try { fileName = decodeURIComponent((u.pathname.split("/").pop() || "").trim()); } catch { fileName = (u.pathname.split("/").pop() || "").trim(); }
+  }
+  if (!fileName) fileName = "import";
+  // MIME: Drive等は正規PDF/画像を octet-stream で返すことがあるため、バイト署名で補完する。
+  const mimeType = resolveImportMime(ct, buffer);
   if (!/\.[A-Za-z0-9]+$/.test(fileName)) {
     fileName += mimeType.includes("pdf") ? ".pdf" : mimeType.includes("png") ? ".png" : mimeType.includes("webp") ? ".webp" : mimeType.includes("gif") ? ".gif" : ".jpg";
   }

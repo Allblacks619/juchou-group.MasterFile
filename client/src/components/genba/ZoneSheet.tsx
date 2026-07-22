@@ -5,6 +5,7 @@ import { X, Pencil, Trash2, Plus, ChevronLeft, ZoomIn } from "lucide-react";
 import TaskTree from "./TaskTree";
 import TaskFilesSection from "./TaskFilesSection";
 import { dispName } from "@/lib/genbaRomaji";
+import { useGenbaT } from "@/lib/genbaLang";
 
 export type ZoneWithAgg = {
   id: string;
@@ -47,6 +48,7 @@ export default function ZoneSheet({
   onSetStyle: (patch: { color?: string | null; fillOpacity?: number | null }) => void;
   onFocus: () => void;
 }) {
+  const t = useGenbaT();
   // 透明度スライダーはローカル値で滑らかに動かし、離した時に保存する
   const currentOpacity = Math.round(zoneFillStyle(zone).opacity * 100);
   const [op, setOp] = useState(currentOpacity);
@@ -62,7 +64,7 @@ export default function ZoneSheet({
         )}
         <strong className="text-base truncate">{zone.workStatus === "paused" ? "⏸ " : ""}{dispName(zone.name)}</strong>
         {canEdit && (
-          <Button variant="ghost" size="sm" className="px-1" title="名前を変更" onClick={onRename}>
+          <Button variant="ghost" size="sm" className="px-1" title={t("名前を変更")} onClick={onRename}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
         )}
@@ -70,15 +72,15 @@ export default function ZoneSheet({
         {zone.issues > 0 && (
           <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-[#FF4B00]/15 text-[#FF4B00]">⚠ {zone.issues}</span>
         )}
-        <Button variant="ghost" size="sm" className="ml-auto px-1.5" title="このエリアを拡大表示 (内側だけ見やすく)" onClick={onFocus}>
-          <ZoomIn className="h-4 w-4 mr-0.5" /> <span className="text-xs">拡大</span>
+        <Button variant="ghost" size="sm" className="ml-auto px-1.5" title={t("このエリアを拡大表示 (内側だけ見やすく)")} onClick={onFocus}>
+          <ZoomIn className="h-4 w-4 mr-0.5" /> <span className="text-xs">{t("拡大")}</span>
         </Button>
         <Button variant="ghost" size="sm" className="px-1" onClick={onClose}><X className="h-4 w-4" /></Button>
       </div>
 
       {canEdit && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-muted-foreground">優先度:</span>
+          <span className="text-xs text-muted-foreground">{t("優先度")}:</span>
           {Object.entries(PRIORITY).map(([k, v]) => {
             const active = zone.priority === Number(k);
             return (
@@ -92,7 +94,7 @@ export default function ZoneSheet({
                   borderColor: v.color,
                 }}
               >
-                {v.label}
+                {t(v.label)}
               </button>
             );
           })}
@@ -100,7 +102,7 @@ export default function ZoneSheet({
             onClick={onStartEditRange}
             className="text-xs font-medium px-2 py-1 rounded border border-[#005AFF] text-[#005AFF]"
           >
-            ✏ 範囲を編集
+            ✏ {t("範囲を編集")}
           </button>
           <button
             onClick={onTogglePaused}
@@ -111,10 +113,10 @@ export default function ZoneSheet({
               color: zone.workStatus === "paused" ? "#fff" : undefined,
             }}
           >
-            {zone.workStatus === "paused" ? "⏸ 予定なし" : "▶ 稼働中"}
+            {zone.workStatus === "paused" ? `⏸ ${t("予定なし")}` : `▶ ${t("稼働中")}`}
           </button>
           <Button variant="ghost" size="sm" className="ml-auto text-destructive hover:text-destructive px-2" onClick={onDelete}>
-            <Trash2 className="h-3.5 w-3.5 mr-1" /> 削除
+            <Trash2 className="h-3.5 w-3.5 mr-1" /> {t("削除")}
           </Button>
         </div>
       )}
@@ -122,13 +124,13 @@ export default function ZoneSheet({
       {/* 塗りつぶし色・不透明度 (優先度色とは独立にエリアの見た目を調整できる) */}
       {canEdit && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-muted-foreground">色:</span>
+          <span className="text-xs text-muted-foreground">{t("色")}:</span>
           <button
             onClick={() => onSetStyle({ color: null })}
-            title="自動 (優先度色に従う)"
+            title={t("自動 (優先度色に従う)")}
             className={`text-xs px-2 py-1 rounded border ${!zone.color ? "border-foreground font-bold" : "border-border text-muted-foreground"}`}
           >
-            自動
+            {t("自動")}
           </button>
           {ZONE_COLORS.map((c) => (
             <button
@@ -144,7 +146,7 @@ export default function ZoneSheet({
               }}
             />
           ))}
-          <span className="text-xs text-muted-foreground ml-2">塗り:</span>
+          <span className="text-xs text-muted-foreground ml-2">{t("塗り")}:</span>
           <input
             type="range" min={0} max={100} step={5} value={op}
             onChange={(e) => setOp(Number(e.target.value))}
@@ -155,8 +157,8 @@ export default function ZoneSheet({
           />
           <span className="text-xs tabular-nums w-9">{op}%</span>
           {(zone.color || zone.fillOpacity != null) && (
-            <button className="text-xs text-muted-foreground hover:text-foreground" title="色と塗りを既定に戻す"
-              onClick={() => onSetStyle({ color: null, fillOpacity: null })}>↺ 既定</button>
+            <button className="text-xs text-muted-foreground hover:text-foreground" title={t("色と塗りを既定に戻す")}
+              onClick={() => onSetStyle({ color: null, fillOpacity: null })}>↺ {t("既定")}</button>
           )}
         </div>
       )}
@@ -177,7 +179,7 @@ export default function ZoneSheet({
 
       {canEdit && (
         <Button variant="outline" size="sm" className="w-full" onClick={onAddSubArea}>
-          <Plus className="h-4 w-4 mr-1" /> サブエリアを追加
+          <Plus className="h-4 w-4 mr-1" /> {t("サブエリアを追加")}
         </Button>
       )}
 

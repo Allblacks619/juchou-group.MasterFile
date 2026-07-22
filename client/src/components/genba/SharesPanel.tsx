@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useGenbaT } from "@/lib/genbaLang";
 
 const SCOPES: { key: string; label: string }[] = [
   { key: "map", label: "🗺 図面" },
@@ -24,6 +25,7 @@ export default function SharesPanel({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const t = useGenbaT();
   const utils = trpc.useUtils();
   const { data: list } = trpc.genba.shares.list.useQuery({ siteId }, { enabled: open, retry: false });
   const shares = (list || []) as { id: string; name: string; token: string; scopes: string[]; expiresAt: string | null }[];
@@ -33,11 +35,11 @@ export default function SharesPanel({
   const [expiry, setExpiry] = useState("none");
 
   const create = trpc.genba.shares.create.useMutation({
-    onSuccess: () => { utils.genba.shares.list.invalidate({ siteId }); setName(""); toast.success("共有リンクを作成しました"); },
+    onSuccess: () => { utils.genba.shares.list.invalidate({ siteId }); setName(""); toast.success(t("共有リンクを作成しました")); },
     onError: (e) => toast.error(e.message),
   });
   const revoke = trpc.genba.shares.revoke.useMutation({
-    onSuccess: () => { utils.genba.shares.list.invalidate({ siteId }); toast.success("共有リンクを失効しました"); },
+    onSuccess: () => { utils.genba.shares.list.invalidate({ siteId }); toast.success(t("共有リンクを失効しました")); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -45,62 +47,62 @@ export default function SharesPanel({
   const shareUrl = (token: string) => `${window.location.origin}/app/share/${token}`;
 
   function submit() {
-    if (!name.trim()) { toast.error("共有名を入力してください"); return; }
-    if (scopes.length === 0) { toast.error("公開範囲を1つ以上選んでください"); return; }
+    if (!name.trim()) { toast.error(t("共有名を入力してください")); return; }
+    if (scopes.length === 0) { toast.error(t("公開範囲を1つ以上選んでください")); return; }
     const days = EXPIRY.find((e) => e.key === expiry)?.days ?? null;
     const expiresAt = days ? new Date(Date.now() + days * 86400_000).toISOString() : undefined;
     create.mutate({ siteId, name: name.trim(), scopes: scopes as any, expiresAt });
   }
   async function copy(token: string) {
-    try { await navigator.clipboard.writeText(shareUrl(token)); toast.success("URLをコピーしました"); }
-    catch { toast.error("コピーに失敗しました"); }
+    try { await navigator.clipboard.writeText(shareUrl(token)); toast.success(t("URLをコピーしました")); }
+    catch { toast.error(t("コピーに失敗しました")); }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>🔗 外部共有（閲覧専用）</DialogTitle></DialogHeader>
-        <p className="text-xs text-muted-foreground">施主・元請など外部の方に、選んだ範囲だけを閲覧専用で共有します。社内メモ・Driveリンク・予算・担当者名は共有されません。</p>
+        <DialogHeader><DialogTitle>🔗 {t("外部共有（閲覧専用）")}</DialogTitle></DialogHeader>
+        <p className="text-xs text-muted-foreground">{t("施主・元請など外部の方に、選んだ範囲だけを閲覧専用で共有します。社内メモ・Driveリンク・予算・担当者名は共有されません。")}</p>
 
         {/* 作成 */}
         <div className="rounded-lg border border-border p-3 space-y-2">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="共有名（例: 施主様向け）"
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("共有名（例: 施主様向け）")}
             className="w-full rounded-md border border-border bg-background p-2 text-sm" />
           <div className="flex gap-2 flex-wrap">
             {SCOPES.map((s) => (
               <button key={s.key} onClick={() => toggleScope(s.key)}
                 className={`px-2.5 py-1 rounded-md text-xs border ${scopes.includes(s.key) ? "bg-gold/10 text-gold border-gold/40" : "border-border text-muted-foreground"}`}>
-                {s.label}
+                {t(s.label)}
               </button>
             ))}
           </div>
           <div className="flex gap-2 items-center">
-            <span className="text-xs text-muted-foreground">有効期限</span>
+            <span className="text-xs text-muted-foreground">{t("有効期限")}</span>
             <select value={expiry} onChange={(e) => setExpiry(e.target.value)} className="rounded-md border border-border bg-background p-1.5 text-sm">
-              {EXPIRY.map((e) => <option key={e.key} value={e.key}>{e.label}</option>)}
+              {EXPIRY.map((e) => <option key={e.key} value={e.key}>{t(e.label)}</option>)}
             </select>
-            <Button size="sm" className="ml-auto" onClick={submit} disabled={create.isPending}>リンクを作成</Button>
+            <Button size="sm" className="ml-auto" onClick={submit} disabled={create.isPending}>{t("リンクを作成")}</Button>
           </div>
         </div>
 
         {/* 一覧 */}
         <div className="space-y-2">
-          {shares.length === 0 && <p className="text-sm text-muted-foreground py-2">共有リンクはまだありません。</p>}
+          {shares.length === 0 && <p className="text-sm text-muted-foreground py-2">{t("共有リンクはまだありません。")}</p>}
           {shares.map((sh) => {
             const expired = sh.expiresAt && new Date(sh.expiresAt).getTime() < Date.now();
             return (
               <div key={sh.id} className="rounded-lg border border-border p-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <strong className="text-sm">{sh.name}</strong>
-                  {sh.scopes.map((s) => <span key={s} className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground">{SCOPES.find((x) => x.key === s)?.label || s}</span>)}
-                  {expired && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#FF4B00] text-white">期限切れ</span>}
-                  <button className="ml-auto text-xs text-[#FF4B00]" onClick={() => { if (window.confirm(`「${sh.name}」を失効しますか？`)) revoke.mutate({ id: sh.id }); }}>失効</button>
+                  {sh.scopes.map((s) => <span key={s} className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground">{(() => { const found = SCOPES.find((x) => x.key === s); return found ? t(found.label) : s; })()}</span>)}
+                  {expired && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#FF4B00] text-white">{t("期限切れ")}</span>}
+                  <button className="ml-auto text-xs text-[#FF4B00]" onClick={() => { if (window.confirm(`「${sh.name}」${t("を失効しますか？")}`)) revoke.mutate({ id: sh.id }); }}>{t("失効")}</button>
                 </div>
                 <div className="flex items-center gap-2 mt-1.5">
                   <input readOnly value={shareUrl(sh.token)} className="flex-1 text-[11px] rounded-md border border-border bg-muted/40 p-1.5 text-muted-foreground" />
-                  <Button size="sm" variant="outline" onClick={() => copy(sh.token)}>コピー</Button>
+                  <Button size="sm" variant="outline" onClick={() => copy(sh.token)}>{t("コピー")}</Button>
                 </div>
-                {sh.expiresAt && !expired && <div className="text-[10px] text-muted-foreground mt-1">有効期限: {new Date(sh.expiresAt).toLocaleDateString("ja-JP")}</div>}
+                {sh.expiresAt && !expired && <div className="text-[10px] text-muted-foreground mt-1">{t("有効期限")}: {new Date(sh.expiresAt).toLocaleDateString("ja-JP")}</div>}
               </div>
             );
           })}
