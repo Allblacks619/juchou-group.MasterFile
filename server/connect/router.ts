@@ -526,6 +526,71 @@ const invoiceSubmissionRouter = router({
     }),
 
   /**
+   * 承認済み受領請求を自社請求書の明細行として取り込む（多段チェーン §2.4-4 / Phase 4）。
+   * 承認額をそのまま1行（税率0%）で追加し、税の再計算はしない（審議#10 の1円ズレ防止）。
+   * 同一 submission の同一請求書への二重取り込みは notes マーカーで拒否する。
+   */
+  importCostReference: connectManagerProcedure
+    .input(z.object({
+      submissionId: z.number().int().positive(),
+      invoiceId: z.number().int().positive(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sub = await connectDb.getInvoiceSubmissionById(input.submissionId);
+      if (!sub || sub.toCompanyId !== ctx.companyId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "受領請求が見つかりません" });
+      }
+      if (sub.status !== "approved") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "承認済みの受領請求のみ取り込めます" });
+      }
+      const invoice = await db.getInvoiceById(input.invoiceId);
+      if (!invoice || ((invoice as any).companyId != null && (invoice as any).companyId !== ctx.companyId)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+      }
+
+      const marker = `connect:costRef:${sub.id}`;
+      const items = await db.getInvoiceItemsByInvoice(input.invoiceId);
+      if ((items as any[]).some((i) => i.notes === marker)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "この受領請求は既にこの請求書へ取り込み済みです" });
+      }
+
+      const snap = sub.snapshotJson as unknown as InvoiceSnapshotDto;
+      const costAmount = sub.approvedAmount ?? sub.submittedAmount;
+      const maxSort = (items as any[]).reduce((m, i) => Math.max(m, Number(i.sortOrder ?? 0)), 0);
+      await db.createInvoiceItem({
+        invoiceId: input.invoiceId,
+        itemType: "normal",
+        description: `外注費 ${snap?.invoiceNumber ?? `受領請求#${sub.id}`}（承認額・税込参照）`,
+        quantity: 10, // 1.0式（×10表現）
+        unit: "式",
+        unitPrice: costAmount,
+        amount: costAmount,
+        itemTaxRate: 0, // 承認額（税込）をそのまま参照。税の再計算はしない
+        sortOrder: maxSort + 1,
+        notes: marker,
+      } as any);
+
+      // 合計再計算（routers.ts の recalcInvoiceTotals と同一ロジック。循環importを避けるため複製）
+      const after = await db.getInvoiceItemsByInvoice(input.invoiceId);
+      let subtotal = 0;
+      const taxByRate = new Map<number, number>();
+      for (const item of after as any[]) {
+        if (item.itemType === "text") continue;
+        subtotal += item.amount;
+        taxByRate.set(item.itemTaxRate, (taxByRate.get(item.itemTaxRate) || 0) + item.amount);
+      }
+      let totalTax = 0;
+      for (const [rate, base] of Array.from(taxByRate.entries())) {
+        totalTax += Math.round((base * rate) / 100);
+      }
+      await db.updateInvoice(input.invoiceId, { subtotal, taxAmount: totalTax, totalAmount: subtotal + totalTax } as any);
+
+      await safeConnectAuditLog(ctx.user.id, "connect.invoice.importCostReference",
+        `原価参照を取り込み: submission#${sub.id}（¥${costAmount.toLocaleString()}）→ invoice#${input.invoiceId}`);
+      return { success: true as const, costAmount };
+    }),
+
+  /**
    * 多段チェーンの原価参照（§2.4-4）: 承認済み受領請求の一覧。
    * 上位への請求に取り込む際は承認額をそのまま参照し、税の再計算はしない（1円ズレ防止）。
    */
