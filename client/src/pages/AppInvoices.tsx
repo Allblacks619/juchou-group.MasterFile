@@ -146,6 +146,21 @@ function InvoiceDetailDialog({
   onClose: () => void;
 }) {
   const detailQuery = trpc.invoice.get.useQuery({ id: invoiceId });
+  // 会社間連携（Phase 4）: 承認済み受領請求を外注費として取り込む（連携有効時のみ表示）
+  const connectStatus = trpc.connect.status.useQuery(undefined, { retry: false, staleTime: 5 * 60 * 1000 });
+  const costRefsQuery = trpc.connect.invoice.costReferences.useQuery(undefined, {
+    enabled: !!connectStatus.data?.enabled,
+    retry: false,
+  });
+  const [costRefId, setCostRefId] = useState<string>("");
+  const importCostRefMutation = trpc.connect.invoice.importCostReference.useMutation({
+    onSuccess: (d) => {
+      toast.success(`外注費として取り込みました（¥${d.costAmount.toLocaleString()}）`);
+      setCostRefId("");
+      detailQuery.refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
   const addItemMutation = trpc.invoice.addItem.useMutation({
     onSuccess: () => {
       toast.success("項目を追加しました");
@@ -1015,6 +1030,37 @@ function InvoiceDetailDialog({
                 閉じる
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 会社間連携: 承認済み受領請求からの原価取り込み（税再計算なし・承認額そのまま1行） */}
+      {!!connectStatus.data?.enabled && (costRefsQuery.data ?? []).length > 0 && (
+        <Card className="border-gold/30">
+          <CardContent className="pt-4 flex flex-wrap items-end gap-2">
+            <div className="space-y-1 min-w-64">
+              <Label className="text-xs">承認済み受領請求（外注費として取り込み）</Label>
+              <Select value={costRefId} onValueChange={setCostRefId}>
+                <SelectTrigger className="h-8"><SelectValue placeholder="受領請求を選択" /></SelectTrigger>
+                <SelectContent>
+                  {(costRefsQuery.data ?? []).map((r: any) => (
+                    <SelectItem key={r.submissionId} value={String(r.submissionId)}>
+                      {r.invoiceNumber || `受領請求#${r.submissionId}`} — ¥{Number(r.costAmount).toLocaleString()}（会社#{r.fromCompanyId}）
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!costRefId || importCostRefMutation.isPending}
+              onClick={() => importCostRefMutation.mutate({ submissionId: Number(costRefId), invoiceId })}
+            >
+              {importCostRefMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+              明細に取り込む
+            </Button>
+            <p className="text-xs text-muted-foreground w-full">承認額を税率0%の1行としてそのまま追加します（税の再計算はしません）。</p>
           </CardContent>
         </Card>
       )}

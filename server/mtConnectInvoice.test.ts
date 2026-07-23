@@ -53,6 +53,8 @@ const mockDb = vi.hoisted(() => ({
   getClientById: vi.fn(async (_id: number): Promise<any> => undefined),
   getInvoiceById: vi.fn(async (_id: number): Promise<any> => undefined),
   getInvoiceItemsByInvoice: vi.fn(async (_id: number): Promise<any[]> => []),
+  createInvoiceItem: vi.fn(async (d: any) => ({ id: 1, ...d })),
+  updateInvoice: vi.fn(async (_id: number, _d: any) => ({})),
   getAttendanceByDateRange: vi.fn(async (): Promise<any[]> => []),
   getAllEmployees: vi.fn(async (_c?: number): Promise<any[]> => []),
   getProjectById: vi.fn(async (_id: number): Promise<any> => undefined),
@@ -236,6 +238,62 @@ describe("connect.invoice: 多段チェーンの原価参照（P3）", () => {
       invoiceNumber: "INV-2025-02-001",
       costAmount: 564775 - 5000, // 承認額をそのまま参照。明細の税を再計算しない
     });
+  });
+
+  it("取り込み: 承認額が税率0%の外注費1行として自社請求書に追加され、二重取り込みは拒否", async () => {
+    const linkId = await establishLink();
+    const res = await submitInvoice(linkId);
+    await callerFor(KONO).connect.invoice.approve({
+      submissionId: res.submissionId, adjustments: [{ label: "協力会費", amount: 5000 }],
+    });
+
+    // 甲野の自社請求書（上位向け・既存明細1行 400,000円 @10%）
+    const KONO_INVOICE = { id: 901, companyId: KONO, invoiceNumber: "INV-KONO-001", subtotal: 400000, taxAmount: 40000, totalAmount: 440000 };
+    const existingItems: any[] = [
+      { id: 1, invoiceId: 901, itemType: "normal", description: "電気工事業A", amount: 400000, itemTaxRate: 10, sortOrder: 1, notes: null },
+    ];
+    mockDb.getInvoiceById.mockResolvedValue(KONO_INVOICE);
+    mockDb.getInvoiceItemsByInvoice.mockResolvedValue(existingItems);
+    mockDb.createInvoiceItem.mockImplementation(async (d: any) => { existingItems.push({ id: 2, ...d }); return { id: 2, ...d }; });
+
+    const imported = await callerFor(KONO).connect.invoice.importCostReference({ submissionId: res.submissionId, invoiceId: 901 });
+    expect(imported.costAmount).toBe(559775);
+
+    // 追加行: 承認額そのまま・税率0%・マーカー付き
+    const added = mockDb.createInvoiceItem.mock.calls[0][0];
+    expect(added).toMatchObject({
+      invoiceId: 901, itemType: "normal", amount: 559775, unitPrice: 559775, itemTaxRate: 0,
+      notes: `connect:costRef:${res.submissionId}`,
+    });
+    expect(added.description).toContain("外注費 INV-2025-02-001");
+
+    // 合計再計算: 400,000@10% + 559,775@0% → 小計959,775 / 税40,000 / 総額999,775（外注費に税を再計算しない）
+    expect(mockDb.updateInvoice).toHaveBeenCalledWith(901, { subtotal: 959775, taxAmount: 40000, totalAmount: 999775 });
+
+    // 二重取り込みは BAD_REQUEST
+    await expect(callerFor(KONO).connect.invoice.importCostReference({ submissionId: res.submissionId, invoiceId: 901 }))
+      .rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("取り込みの境界: 他社の受領請求は NOT_FOUND / 未承認は BAD_REQUEST / 他社の請求書は NOT_FOUND", async () => {
+    const linkId = await establishLink();
+    const res = await submitInvoice(linkId);
+
+    // 未承認（submitted のまま）
+    mockDb.getInvoiceById.mockResolvedValue({ id: 902, companyId: KONO, invoiceNumber: "X" });
+    await expect(callerFor(KONO).connect.invoice.importCostReference({ submissionId: res.submissionId, invoiceId: 902 }))
+      .rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    await callerFor(KONO).connect.invoice.approve({ submissionId: res.submissionId });
+
+    // 当事者でない丙田からは NOT_FOUND
+    await expect(callerFor(3).connect.invoice.importCostReference({ submissionId: res.submissionId, invoiceId: 902 }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    // 他社（乙島）の請求書への取り込みは NOT_FOUND
+    mockDb.getInvoiceById.mockResolvedValue({ id: 903, companyId: OTSU, invoiceNumber: "Y" });
+    await expect(callerFor(KONO).connect.invoice.importCostReference({ submissionId: res.submissionId, invoiceId: 903 }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
 
