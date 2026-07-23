@@ -1975,6 +1975,7 @@ export default function AppInvoices() {
                       ・{row?.project?.name || "不明案件"}（{row?.closing ? row.closing.status : "未初期化"}）
                     </div>
                   ))}
+                  <p>→ 月締め管理で該当現場の締めを完了（ready以上）にしてから作成できます。</p>
                 </div>
               )}
             </div>
