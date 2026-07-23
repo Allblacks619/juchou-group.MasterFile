@@ -219,7 +219,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-card border-r border-border transform transition-transform duration-200 lg:transform-none ${
+        className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-card/85 backdrop-blur-md border-r border-border transform transition-transform duration-200 lg:transform-none ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
@@ -250,7 +250,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     href={item.path}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors no-underline ${
                       isActive
-                        ? "bg-gold/10 text-gold"
+                        ? "bg-gold/10 text-gold shadow-[inset_2px_0_0_0_oklch(0.72_0.1_75),0_0_14px_-6px_oklch(0.72_0.1_75/35%)]"
                         : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                     }`}
                     onClick={() => setSidebarOpen(false)}
@@ -295,7 +295,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                             href={item.path}
                             className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors no-underline ${
                               isActive
-                                ? "bg-gold/10 text-gold"
+                                ? "bg-gold/10 text-gold shadow-[inset_2px_0_0_0_oklch(0.72_0.1_75),0_0_14px_-6px_oklch(0.72_0.1_75/35%)]"
                                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                             }`}
                             onClick={() => setSidebarOpen(false)}
@@ -322,7 +322,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     href={item.path}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors no-underline ${
                       isActive
-                        ? "bg-gold/10 text-gold"
+                        ? "bg-gold/10 text-gold shadow-[inset_2px_0_0_0_oklch(0.72_0.1_75),0_0_14px_-6px_oklch(0.72_0.1_75/35%)]"
                         : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                     }`}
                     onClick={() => setSidebarOpen(false)}
@@ -390,7 +390,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <header className="h-16 flex items-center px-4 border-b border-border lg:px-6">
+        <header className="h-16 flex items-center px-4 border-b border-border lg:px-6 sticky top-0 z-40 bg-background/80 backdrop-blur-md">
           <button
             className="lg:hidden mr-4 text-muted-foreground hover:text-foreground"
             onClick={() => setSidebarOpen(true)}

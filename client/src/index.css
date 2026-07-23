@@ -195,6 +195,19 @@
   }
 }
 
+/* ── 近未来的な視認性 (テーマ層・全画面波及) ── */
+
+/* 金額・件数の桁を全画面で揃える（数字のみに効く） */
+body {
+  font-variant-numeric: tabular-nums;
+}
+
+/* キーボード操作時のフォーカスを gold で明示（ring を持つ shadcn 部品は各自の指定が優先） */
+:focus-visible {
+  outline: 2px solid oklch(0.72 0.1 75 / 55%);
+  outline-offset: 2px;
+}
+
 /* Smooth scrolling */
 html {
   scroll-behavior: smooth;
