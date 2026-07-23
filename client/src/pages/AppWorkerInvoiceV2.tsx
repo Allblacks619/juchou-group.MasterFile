@@ -100,7 +100,7 @@ export default function AppWorkerInvoiceV2() {
     <div className="space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">作業員請求書（月締めV2）プレビュー</h1>
+          <h1 className="text-2xl font-bold">作業員請求書管理（月締め管理）プレビュー</h1>
           <p className="text-sm text-muted-foreground">
             月締め提出済みの作業員について、請求書と日報を確認できます（読み取り専用・DB保存なし）。
           </p>
