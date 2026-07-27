@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>充寵グループ｜電気工事施工のプロフェッショナル｜東京・神奈川・埼玉・千葉</title>
+<meta name="description" content="充寵グループ（JYUCHOU GROUP）は一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。低圧設備・幹線・配管・配線・盤据付まで、東京・神奈川・埼玉・千葉で確実な施工品質をお届けします。協力会社募集・未経験OKの採用情報も。">
+<meta property="og:title" content="充寵グループ｜電気工事施工のプロフェッショナル｜東京・神奈川・埼玉・千葉">
+<meta property="og:description" content="充寵グループ（JYUCHOU GROUP）は一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。東京・神奈川・埼玉・千葉で確実な施工品質をお届けします。">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:site_name" content="充寵グループ">
+<link rel="canonical" href="https://juchou-group.com/">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Electrician","name":"充寵グループ","alternateName":"JYUCHOU GROUP","url":"https://juchou-group.com/","telephone":"050-5873-4183","email":"info@juchou-group.com","address":{"@type":"PostalAddress","addressRegion":"神奈川県","addressLocality":"秦野市"},"areaServed":["東京都","神奈川県","埼玉県","千葉県"]}
+</script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"対応エリアはどこまでですか？","acceptedAnswer":{"@type":"Answer","text":"東京・神奈川を中心に、埼玉・千葉まで対応しています。その他エリアも出張のご相談を承ります。"}},
+{"@type":"Question","name":"どのような電気工事を依頼できますか？","acceptedAnswer":{"@type":"Answer","text":"低圧設備工事・幹線工事・配管/ラック据付・配線工事・盤据付/結線など、一般電気用工作物工事全般に対応しています。"}},
+{"@type":"Question","name":"未経験でも電気工事の仕事に応募できますか？","acceptedAnswer":{"@type":"Answer","text":"応募できます。未経験者は日当13,000円〜スタートし、できる作業に応じて随時アップ。資格取得のサポート制度もあります。"}},
+{"@type":"Question","name":"協力会社・元請けとしての取引は可能ですか？","acceptedAnswer":{"@type":"Answer","text":"可能です。お問い合わせフォームまたはお電話（050-5873-4183）からご相談ください。"}}
+]}
+</script>
+<style>
+:root{
+  --bg:#0d1014; --bg2:#0f1319; --ink:#eceae4; --mut:#9098a1; --line:#232830; --card:#141821;
+  --steel:#7f8892; --cable:#111317; --vvf:#b7b4ac; --red:#c4513f; --white:#dcd9d2; --blue:#3f6bb6;
+  --amber:#d69a4b; --green:#5fae7c; --yellow:#c9a227; --grid:#243244;
+  --padL:190px;
+  --ease:cubic-bezier(.22,.9,.28,1);
+  --sans:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","Noto Sans JP",Meiryo,sans-serif;
+  --en:"Avenir Next","Helvetica Neue",Futura,Arial,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+html,body{overflow-x:clip}
+body{position:relative;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.9;font-feature-settings:"palt"}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+::selection{background:#3f6bb6;color:#fff}
+
+/* ---------- nav ---------- */
+.nav{position:fixed;inset:0 0 auto 0;z-index:60;display:flex;align-items:center;justify-content:space-between;
+  padding:14px clamp(16px,4vw,44px);background:rgba(12,14,18,.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.nav .brand{font-weight:900;letter-spacing:.12em;font-size:16px;white-space:nowrap}
+.nav .brand small{display:block;font-family:var(--en);font-weight:600;font-size:8.5px;letter-spacing:.34em;color:var(--mut)}
+.nav ul{display:flex;align-items:center;gap:clamp(10px,2.4vw,30px);list-style:none;font-size:13px;letter-spacing:.08em}
+.nav ul a{color:#c9cdd3;transition:color .25s var(--ease);white-space:nowrap}
+.nav ul a:hover{color:#fff;text-shadow:0 0 12px rgba(174,182,192,.25)}
+.nav .navcta{border:1px solid #3d444d;border-radius:999px;padding:7px 16px;color:var(--ink)}
+.nav .navcta:hover{border-color:#8a929c}
+@media(max-width:719px){.nav .brand{font-size:13px}.nav .brand small{font-size:7px;letter-spacing:.22em}.nav ul{gap:10px;font-size:10.5px}.nav .navcta{padding:5px 10px}.nav li.hidem,.nav li.hidem2{display:none}}
+
+/* ---------- hero (single screen) ---------- */
+.stage{position:relative;background:#0b0e12}
+.hero{position:relative;height:100vh;height:100svh;overflow:clip;background:#0b0e12}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:1}
+.hero-grad{position:absolute;inset:0;z-index:3;pointer-events:none;
+  background:linear-gradient(90deg,rgba(10,12,16,.88) 0%,rgba(10,12,16,.55) 34%,rgba(10,12,16,.12) 60%,rgba(10,12,16,0) 80%),
+             linear-gradient(0deg,rgba(9,11,15,.7) 0%,rgba(9,11,15,0) 32%)}
+.hero-in{position:absolute;z-index:6;top:0;left:0;right:0;
+  padding:calc(88px + 5vh) clamp(20px,5vw,64px) 0 var(--padL);max-width:1120px}
+.eyebrow{display:flex;align-items:center;gap:14px;font-family:var(--en);font-weight:700;font-size:11px;letter-spacing:.4em;color:#8b939d;margin-bottom:20px}
+.eyebrow i{display:block;width:38px;height:1px;background:linear-gradient(90deg,#565d66,transparent)}
+.eyebrow b{font-weight:700;color:#c7ccd2}
+.logotype{font-weight:900;letter-spacing:.03em;line-height:1.0;font-size:clamp(46px,8.6vw,120px);
+  background:linear-gradient(176deg,#f6f3ec 38%,#c4c8ce 76%,#98a0a8 100%);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 6px 30px rgba(0,0,0,.55))}
+.logotype span{display:block;margin-top:14px;font-family:var(--en);font-weight:600;font-size:clamp(9px,1.1vw,12px);
+  letter-spacing:.46em;color:#828a94;-webkit-text-fill-color:#828a94}
+.hero-in h1{margin-top:3vh;font-size:clamp(19px,2.5vw,33px);font-weight:800;letter-spacing:.1em;color:#e9e6df;text-shadow:0 2px 22px rgba(0,0,0,.6)}
+.hero-in .lead{margin-top:15px;max-width:560px;font-size:clamp(12px,1.25vw,15px);color:#abb1b9;letter-spacing:.04em;line-height:2.05;text-shadow:0 1px 16px rgba(0,0,0,.5)}
+.cta-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:3.2vh}
+.btn{display:inline-flex;align-items:center;gap:10px;font-size:14px;font-weight:700;letter-spacing:.12em;border-radius:999px;padding:13px 28px;transition:transform .3s var(--ease),background .3s var(--ease),border-color .3s var(--ease)}
+.btn .dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.85}
+.btn.p{background:#ece9e3;color:#14171b}
+.btn.p:hover{transform:translateY(-2px)}
+.btn.s{border:1px solid #454c55;color:#dfe2e6;background:rgba(18,21,26,.35)}
+.btn.s:hover{border-color:#98a0a9;transform:translateY(-2px)}
+a:focus-visible,.btn:focus-visible{outline:1px solid #aeb6c0;outline-offset:3px;border-radius:6px}
+
+/* 工種インジケータ: PC=右縦固定 / SP=上部横ステッパー。ページ全体のスクロールに追従 */
+.rail{position:fixed;z-index:40;right:clamp(16px,3vw,40px);top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;gap:0;font-family:var(--en);pointer-events:none;
+  opacity:0;transition:opacity .5s var(--ease)}
+.rail.show{opacity:1}
+.rail .step{display:flex;align-items:center;gap:12px;padding:10px 0;opacity:.36;transition:opacity .4s var(--ease)}
+.rail .step.on{opacity:1}
+.rail .step .k{width:22px;text-align:right;font-size:11px;font-weight:700;letter-spacing:.1em;color:#aeb4bc;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.rail .step .dot{width:9px;height:9px;border-radius:50%;border:1.5px solid #565d66;background:transparent;position:relative;flex:none;transition:all .3s var(--ease)}
+.rail .step .dot::after{content:"";position:absolute;inset:-5px;border:1px solid transparent;border-radius:50%;transition:border-color .3s var(--ease)}
+.rail .step.on .dot{border-color:var(--sc,#c9cdd3);background:var(--sc,#c9cdd3);box-shadow:0 0 0 3px rgba(11,13,17,.9);transform:scale(1.1)}
+.rail .step.on .dot::after{border-color:rgba(174,182,192,.45)}
+.railpct{margin-top:10px;font-family:var(--en);font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:.18em;color:#6f7883;text-align:right;padding-right:2px}
+.rail .step .lab{font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.16em;color:#c3c8cd;white-space:nowrap}
+.rail .track{position:absolute;left:33px;top:12px;bottom:12px;width:1px;background:#2b323b;z-index:-1}
+.rail .track b{position:absolute;left:0;top:0;width:100%;background:linear-gradient(#dcd9d2,#7f8892);height:0%}
+@media(max-width:1100px){.rail .step .lab{display:none}.rail .track{left:10px}.rail .step .k{width:auto;font-size:10px}}
+@media(max-width:740px){
+  .rail{top:0;right:0;left:0;bottom:auto;transform:none;flex-direction:row;justify-content:space-between;gap:0;
+    padding:calc(52px + env(safe-area-inset-top)) 14px 9px;opacity:1;
+    background:linear-gradient(180deg,rgba(11,13,17,.97) 55%,rgba(11,13,17,.86) 82%,rgba(11,13,17,0));pointer-events:none}
+  .railpct{display:none}
+  .rail .step{flex:1;flex-direction:column;gap:6px;padding:0;position:relative;opacity:.4}
+  .rail .step.on{opacity:1}
+  .rail .step .k{display:none}
+  .rail .step .dot{width:8px;height:8px}
+  .rail .step .lab{display:block;font-size:9.5px;letter-spacing:.02em;color:#8b939d;text-align:center}
+  .rail .step.on .lab{color:#eceae4}
+  .rail .track{left:14px;right:14px;top:calc(52px + env(safe-area-inset-top) + 4px);bottom:auto;width:auto;height:1.5px}
+  .rail .track b{width:0%;height:100%;top:0;background:linear-gradient(90deg,#dcd9d2,#7f8892)}
+}
+
+/* ページ全体を貫く配線ルート(spine) */
+.spine{position:absolute;left:0;top:0;width:100%;height:100%;z-index:4;pointer-events:none;overflow:visible}
+.spine svg{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible}
+@media(max-width:740px){.spine{display:none}}
+
+.scroll-cue{position:absolute;z-index:6;left:var(--padL);bottom:26px;display:flex;align-items:center;gap:12px;
+  font-family:var(--en);font-size:9px;letter-spacing:.42em;color:#7c848e}
+.scroll-cue i{display:block;width:34px;height:1px;background:#3a414a;position:relative;overflow:hidden}
+.scroll-cue i::after{content:"";position:absolute;left:-40%;top:0;height:100%;width:40%;background:#c9cdd3;animation:cue 2.4s var(--ease) infinite}
+@keyframes cue{0%{left:-40%}100%{left:110%}}
+@media(max-width:740px){
+  .hero-in{padding:calc(96px + env(safe-area-inset-top)) 22px 0 22px;max-width:none}
+  .logotype span{letter-spacing:.30em;font-size:clamp(8px,2.2vw,12px)}
+  .scroll-cue{display:none}
+  .eyebrow{font-size:9.5px;letter-spacing:.24em;gap:9px;margin-bottom:14px}.eyebrow i{width:22px}
+  /* 上部=テキスト用スクリム / 下部=作画のなじみ。作画と競合させない */
+  .hero-grad{background:linear-gradient(180deg,rgba(9,11,15,.92) 0%,rgba(9,11,15,.72) 26%,rgba(9,11,15,.30) 44%,rgba(9,11,15,.10) 58%,rgba(9,11,15,.34) 100%)}
+  .hero-in h1{margin-top:20px}.hero-in .lead{margin-top:12px}}
+
+@media (prefers-reduced-motion: no-preference){
+  .eyebrow{animation:rise .7s var(--ease) .05s backwards}
+  .logotype{animation:lrev 1s var(--ease) .12s backwards}
+  .hero-in h1{animation:rise .7s var(--ease) .5s backwards}
+  .hero-in .lead{animation:rise .7s var(--ease) .62s backwards}
+  .hero-in .cta-row{animation:rise .6s var(--ease) .74s backwards}
+}
+@keyframes lrev{from{clip-path:inset(-8% 100% -8% 0);opacity:.3}to{clip-path:inset(-8% 0% -8% 0);opacity:1}}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}}
+
+/* ---------- sections ---------- */
+main{position:relative;z-index:2;background:var(--bg)}
+.sec{position:relative;padding:clamp(56px,9vh,104px) 0;scroll-margin-top:72px;overflow:clip}
+.sec:nth-of-type(even){background:var(--bg2)}
+.wrap{position:relative;z-index:2;padding-left:var(--padL);padding-right:clamp(20px,5vw,72px);max-width:1280px}
+@media(max-width:719px){:root{--padL:24px}}
+.kicker{font-family:var(--en);font-weight:700;font-size:11px;letter-spacing:.42em;color:var(--c,#9098a1);margin-bottom:14px}
+.kicker b{font-weight:700;opacity:.5;margin-right:10px}
+h2.bh{font-size:clamp(24px,3.6vw,42px);font-weight:900;letter-spacing:.06em;line-height:1.4;margin-bottom:28px}
+.body{max-width:680px;color:#c3c8cd;font-size:15px}
+.rv{opacity:0;transform:translateY(26px);transition:opacity .9s var(--ease),transform .9s var(--ease)}
+.rv.in{opacity:1;transform:none}
+
+/* 複線図 背景装飾 */
+.deco{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:.5}
+.deco svg{position:absolute;right:-3%;top:50%;transform:translateY(-50%);width:min(560px,56vw);height:auto;opacity:.9}
+@media(max-width:860px){.deco{opacity:.26}.deco svg{right:-18%}}
+
+/* stance list */
+.stance{display:grid;gap:0;max-width:760px}
+.stance li{list-style:none;display:grid;grid-template-columns:56px 168px 1fr;gap:18px;align-items:start;padding:22px 4px;border-top:1px solid var(--line)}
+.stance li:last-child{border-bottom:1px solid var(--line)}
+.stance .no{font-family:var(--en);font-weight:600;font-size:13px;letter-spacing:.18em;color:#5e666f}
+.stance h3{font-size:17px;font-weight:800;letter-spacing:.1em}
+.stance p{color:#aab0b7;font-size:13.5px}
+@media(max-width:719px){.stance li{grid-template-columns:44px 1fr;grid-template-rows:auto auto}.stance p{grid-column:2}}
+
+/* services */
+.svc{display:grid;grid-template-columns:repeat(auto-fit,minmax(275px,1fr));gap:14px;max-width:980px}
+.svc article{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 24px 26px;position:relative;overflow:hidden;transition:border-color .3s var(--ease),transform .3s var(--ease)}
+.svc article:hover{border-color:#39414b;transform:translateY(-3px)}
+.svc article::before{content:"";position:absolute;left:0;top:20px;bottom:20px;width:3px;border-radius:3px;background:var(--c)}
+.svc .ico{width:54px;height:54px;margin-bottom:14px;display:block}
+.svc .sno{font-family:var(--en);font-size:10px;font-weight:700;letter-spacing:.3em;color:#5e666f;position:absolute;top:22px;right:22px}
+.svc h3{font-size:16.5px;font-weight:800;letter-spacing:.08em;margin:0 0 10px}
+.svc p{font-size:13px;color:#a7adb5;line-height:1.95}
+/* カード内 施工ディテール(スクロール発火の1動作アニメ) */
+.svc .cardcv{display:block;width:100%;height:74px;margin-top:16px;border-top:1px solid var(--line);border-radius:0 0 8px 8px}
+.svc .cardtag{font-family:var(--en);font-size:9px;font-weight:700;letter-spacing:.20em;color:#8a929c;margin-top:12px;display:block}
+.svc .cardspec{display:block;margin-top:5px;font-family:var(--en);font-variant-numeric:tabular-nums;font-size:9.5px;letter-spacing:.12em;color:#79818b;border-left:2px solid var(--c);padding-left:8px}
+/* デスクトップは2列: 施工内容に縦尺を与え、工種ステッパーが1段ずつ前進する */
+@media(min-width:900px){
+  .svc{grid-template-columns:repeat(2,minmax(0,1fr));max-width:940px;gap:18px}
+  .svc article{min-height:300px}
+  .svc .cardcv{height:88px}
+}
+.svc article:focus-within{border-color:#5a636e}
+
+/* stance: 各項目に締結チェック */
+.stance li .tick{grid-column:1;justify-self:start;width:26px;height:26px;border-radius:50%;border:1.5px solid #3a4048;display:grid;place-items:center;position:relative}
+.stance li .tick svg{width:14px;height:14px}
+.stance li .tick svg path{stroke:var(--green);stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;transition:stroke-dashoffset .6s var(--ease) .1s}
+.stance li.in .tick{border-color:#4a5560}
+.stance li.in .tick svg path{stroke-dashoffset:0}
+@media(max-width:719px){.stance li{grid-template-columns:34px 1fr;grid-template-rows:auto auto}.stance li .tick{width:22px;height:22px}.stance li h3{grid-column:2}.stance p{grid-column:2}}
+
+/* deco 複線図: 入場で描き上がる */
+.deco svg path{stroke-dasharray:1;stroke-dashoffset:1;transition:stroke-dashoffset 1.5s var(--ease)}
+.deco svg circle,.deco svg rect{opacity:0;transition:opacity .5s var(--ease) 1.2s}
+.sec.decoin .deco svg path{stroke-dashoffset:0}
+.sec.decoin .deco svg circle,.sec.decoin .deco svg rect{opacity:1}
+
+/* area */
+.areas{display:flex;flex-wrap:wrap;gap:12px;margin:8px 0 22px}
+.areas span{font-size:clamp(20px,3vw,32px);font-weight:900;letter-spacing:.14em;border:1px solid var(--line);border-radius:12px;padding:14px 26px;background:var(--card);position:relative}
+.areas span::after{content:"";position:absolute;right:12px;top:12px;width:6px;height:6px;border-radius:50%;background:var(--white);opacity:.6}
+.area-note{color:var(--mut);font-size:13px;letter-spacing:.06em}
+
+/* recruit */
+.rec{display:grid;grid-template-columns:1.1fr .9fr;gap:44px;align-items:start;max-width:1020px}
+.rec ul{list-style:none;display:grid;gap:0}
+.rec li{padding:16px 2px;border-top:1px solid var(--line);display:flex;gap:14px;align-items:baseline;font-size:14px;color:#c3c8cd}
+.rec li:last-child{border-bottom:1px solid var(--line)}
+.rec li::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--yellow);flex:none;transform:translateY(-1px)}
+.rec .pay{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:30px 28px}
+.rec .pay .lab{font-family:var(--en);font-size:10px;letter-spacing:.34em;color:#5e666f;font-weight:700}
+.rec .pay .val{font-size:clamp(28px,3.4vw,40px);font-weight:900;letter-spacing:.04em;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.rec .pay .val small{font-size:14px;font-weight:700;color:var(--mut);letter-spacing:.1em}
+.rec .pay p{font-size:12.5px;color:var(--mut)}
+.rec .pay .btn{margin-top:20px}
+@media(max-width:860px){.rec{grid-template-columns:1fr}}
+
+/* faq */
+.faq{max-width:820px;display:grid;gap:12px}
+.faq .qa{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px}
+.faq .q{display:flex;gap:14px;font-weight:800;font-size:15px;letter-spacing:.06em}
+.faq .q i{font-style:normal;font-family:var(--en);font-weight:700;color:var(--blue);flex:none}
+.faq .a{display:flex;gap:14px;margin-top:10px;color:#aab0b7;font-size:13.5px}
+.faq .a i{font-style:normal;font-family:var(--en);font-weight:700;color:#5e666f;flex:none}
+.faq .a a{color:#d4d8dc;font-weight:700}
+.faq .a a:hover{color:#fff}
+.faq .a a[href^="tel"]{white-space:nowrap}
+
+/* company */
+.co{max-width:760px;border-top:1px solid var(--line)}
+.co div{display:grid;grid-template-columns:180px 1fr;gap:10px;padding:15px 4px;border-bottom:1px solid var(--line);font-size:13.5px}
+.co dt{color:#78808a;letter-spacing:.14em}
+.co dd{color:#d4d8dc;letter-spacing:.04em}
+@media(max-width:719px){.co div{grid-template-columns:104px 1fr}}
+
+/* contact */
+#contact{padding-bottom:70px}
+.qr-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:30px}
+.qr{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;gap:14px;align-items:center;transition:border-color .3s var(--ease)}
+.qr:hover{border-color:#39414b}
+.qr img{width:74px;height:74px;border-radius:6px;background:#fff}
+.qr .t{font-size:12.5px;font-weight:700;letter-spacing:.1em}
+.qr .t small{display:block;font-family:var(--en);font-weight:600;font-size:9px;letter-spacing:.22em;color:var(--mut);margin-top:4px}
+.tel-line{margin-top:26px;font-size:13px;color:var(--mut);letter-spacing:.06em}
+.tel-line a{color:#d4d8dc;font-weight:700}
+.tel-line a:hover{color:#fff}
+
+footer{border-top:1px solid var(--line);padding:30px clamp(20px,5vw,72px) calc(30px + env(safe-area-inset-bottom));display:flex;gap:18px;flex-wrap:wrap;align-items:center;justify-content:space-between;color:#6b737d;font-size:12px;letter-spacing:.12em}
+footer nav{display:flex;gap:20px;flex-wrap:wrap}
+footer a:hover{color:#c9cdd3}
+@media(max-width:740px){footer{padding-bottom:calc(76px + env(safe-area-inset-bottom))}}
+
+/* モバイル追従ボトムバー */
+.bbar{display:none}
+@media(max-width:740px){
+  .bbar{position:fixed;left:0;right:0;bottom:0;z-index:55;display:flex;gap:10px;
+    padding:11px 12px calc(11px + env(safe-area-inset-bottom));
+    background:rgba(12,14,18,.94);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    transform:translateY(110%);transition:transform .45s var(--ease)}
+  .bbar::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;
+    background:linear-gradient(90deg,var(--red) 0 33.3%,var(--white) 0 66.6%,var(--blue) 0 100%)}
+  .bbar.show{transform:none}
+  .bbar a{flex:1;text-align:center;font-size:12.5px;font-weight:800;letter-spacing:.04em;border-radius:10px;padding:11px 4px;line-height:1.5;white-space:nowrap}
+  .bbar .bb-l{border:1px solid #454c55;color:#dfe2e6}
+  .bbar .bb-r{background:#ece9e3;color:#14171b}
+  .bbar .bb-r b{font-weight:900}
+}
+
+@media (prefers-reduced-motion: reduce){
+  .rv{opacity:1;transform:none;transition:none}
+  .scroll-cue i::after{animation:none}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body id="top">
+
+<div class="spine" aria-hidden="true"><svg id="spineSvg" preserveAspectRatio="none"><path id="spineGuide" fill="none"/><path id="spineLive" fill="none"/><g id="spineNodes"></g></svg></div>
+
+<div class="rail show" id="rail" aria-hidden="true">
+  <span class="track"><b id="railfill"></b></span>
+  <div class="step" data-st="0" style="--sc:#8f97a1"><span class="k">図</span><span class="dot"></span><span class="lab">複線図・設計</span></div>
+  <div class="step" data-st="1" style="--sc:var(--steel)"><span class="k">01</span><span class="dot"></span><span class="lab">配管</span></div>
+  <div class="step" data-st="2" style="--sc:var(--blue)"><span class="k">02</span><span class="dot"></span><span class="lab">ラック・幹線</span></div>
+  <div class="step" data-st="3" style="--sc:var(--vvf)"><span class="k">03</span><span class="dot"></span><span class="lab">屋内配線</span></div>
+  <div class="step" data-st="4" style="--sc:var(--yellow)"><span class="k">04</span><span class="dot"></span><span class="lab">結線</span></div>
+  <span class="railpct" aria-hidden="true">00%</span>
+</div>
+
+<header class="nav">
+  <a class="brand" href="#top">充寵グループ<small>JYUCHOU GROUP</small></a>
+  <ul>
+    <li class="hidem"><a href="#top">ホーム</a></li>
+    <li><a href="#services">施工内容</a></li>
+    <li class="hidem2"><a href="#stance">施工スタンス</a></li>
+    <li><a href="#recruit">採用情報</a></li>
+    <li><a class="navcta" href="https://www.juchou-group.com/contact">お問い合わせ</a></li>
+  </ul>
+</header>
+
+<section class="stage" id="hero">
+  <div class="hero">
+    <canvas id="cv" aria-hidden="true"></canvas>
+    <div class="hero-grad" aria-hidden="true"></div>
+    <div class="hero-in">
+      <p class="eyebrow"><i></i><b>FROM DIAGRAM TO SITE</b>&nbsp;/&nbsp;複線図から現場へ</p>
+      <p class="logotype">充寵グループ<span>JYUCHOU GROUP — ELECTRICAL CONSTRUCTION</span></p>
+      <h1>未来をつなぐ、地図に残る仕事。</h1>
+      <p class="lead">一般電気用工作物工事を中心に、電気工事“施工”に特化したプロフェッショナルチーム。東京・神奈川・埼玉・千葉の現場で、確かな品質を積み重ねる。</p>
+      <div class="cta-row">
+        <a class="btn p" href="https://www.juchou-group.com/contact"><span class="dot"></span>工事のご相談</a>
+        <a class="btn s" href="#recruit"><span class="dot"></span>採用情報を見る</a>
+      </div>
+    </div>
+    <div class="scroll-cue">SCROLL<i></i></div>
+  </div>
+</section>
+
+<main>
+  <section class="sec" id="philosophy">
+    <div class="deco" aria-hidden="true"><svg viewBox="0 0 320 200" fill="none"></svg></div>
+    <div class="wrap">
+      <p class="kicker rv" style="--c:var(--red)"><b>01</b>PHILOSOPHY</p>
+      <h2 class="bh rv">仕事ではなく、“職”を持つ。</h2>
+      <p class="body rv">「仕事」はその日の作業を指す。だが「職」は、一生をかけて磨き上げる技能であり、自分自身の価値そのものだ。充寵グループでは、ただ働くのではなく、電気工事という“職”を身につけ、誇りを持って現場に立つことを大切にしている。日々の作業の積み重ねが、やがて揺るぎない技術と信頼になる。それが「職を持つ」ということだ。</p>
+    </div>
+  </section>
+
+  <section class="sec" id="stance">
+    <div class="wrap">
+      <p class="kicker rv" style="--c:var(--blue)"><b>02</b>STANCE</p>
+      <h2 class="bh rv">施工スタンス</h2>
+      <ul class="stance">
+        <li class="rv"><span class="tick"><svg viewBox="0 0 24 24"><path pathLength="1" d="M5 12.5 L10 17.5 L19 7"/></svg></span><h3>施工品質</h3><p>一つひとつの接続、一本一本の配線に妥協しない。現場で求められる品質を、確実に実現する。</p></li>
+        <li class="rv"><span class="tick"><svg viewBox="0 0 24 24"><path pathLength="1" d="M5 12.5 L10 17.5 L19 7"/></svg></span><h3>図面に忠実</h3><p>設計図面の意図を正確に読み取り、忠実に施工する。図面通りの仕上がりが、信頼の基盤となる。</p></li>
+        <li class="rv"><span class="tick"><svg viewBox="0 0 24 24"><path pathLength="1" d="M5 12.5 L10 17.5 L19 7"/></svg></span><h3>工程遵守</h3><p>決められた工程を守り、全体の進行に貢献する。遅延なく、確実に自分の工程を完了させる。</p></li>
+        <li class="rv"><span class="tick"><svg viewBox="0 0 24 24"><path pathLength="1" d="M5 12.5 L10 17.5 L19 7"/></svg></span><h3>安全最優先</h3><p>どんな状況でも安全を最優先とする。事故ゼロは、プロとしての最低限の責任である。</p></li>
+        <li class="rv"><span class="tick"><svg viewBox="0 0 24 24"><path pathLength="1" d="M5 12.5 L10 17.5 L19 7"/></svg></span><h3>確実な仕上がり</h3><p>引き渡し後に手直しが不要な施工を目指す。一度で確実に仕上げることが、職人の矜持である。</p></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec" id="services">
+    <div class="wrap">
+      <p class="kicker rv" style="--c:var(--green)"><b>03</b>SERVICES</p>
+      <h2 class="bh rv">施工内容</h2>
+      <div class="svc">
+        <article class="rv" style="--c:var(--red)"><span class="sno">SVC-01</span><span class="ico" data-ico="vvf"></span><h3>低圧設備工事</h3><p>照明器具・コンセント・スイッチなど、建物内の低圧電気設備の設置・配線工事。</p></article>
+        <article class="rv" style="--c:var(--steel)"><span class="sno">SVC-03</span><span class="ico" data-ico="rack"></span><h3>配管・ラック据付工事</h3><p>電線管やケーブルラックの据付・固定工事を行い、配線経路を確保。</p><span class="cardtag">ねじなしE管・90°ベンダー曲げ</span><span class="cardspec">E19 / 曲げ半径 R≧6D / サドル ≦2m</span><canvas class="cardcv" data-scene="haikan" aria-hidden="true"></canvas></article>
+        <article class="rv" style="--c:var(--cable)"><span class="sno">SVC-02</span><span class="ico" data-ico="cvt"></span><h3>幹線工事</h3><p>受変電設備から各分電盤への幹線ケーブルの敷設・接続工事。</p><span class="cardtag">黒CVT・相別テープ 赤白青</span><span class="cardspec">CVT / 相別テープ R・S・T＝赤・白・青</span><canvas class="cardcv" data-scene="kansen" aria-hidden="true"></canvas></article>
+        <article class="rv" style="--c:var(--blue)"><span class="sno">SVC-04</span><span class="ico" data-ico="sleeve"></span><h3>配線工事</h3><p>各種ケーブルの布設・結線工事。整線・結束まで丁寧に仕上げる。</p><span class="cardtag">灰色VVF・ステップル固定</span><span class="cardspec">VVF 1.6mm 2C・3C / ステップル固定</span><canvas class="cardcv" data-scene="okunai" aria-hidden="true"></canvas></article>
+        <article class="rv" style="--c:var(--yellow)"><span class="sno">SVC-05</span><span class="ico" data-ico="panel"></span><h3>盤据付・結線工事</h3><p>分電盤・制御盤の据付から内部結線まで一貫対応。</p><span class="cardtag">リングスリーブ／差込コネクタ</span><span class="cardspec">リングスリーブ E形 ○小/中/大 ／ 差込形コネクタ</span><canvas class="cardcv" data-scene="ketsuen" aria-hidden="true"></canvas></article>
+        <article class="rv" style="--c:#7a828c"><span class="sno">SVC-06</span><span class="ico" data-ico="diagram"></span><h3>一般電気用工作物工事</h3><p>上記を含む一般電気用工作物工事全般に対応。</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="area">
+    <div class="wrap">
+      <p class="kicker rv" style="--c:var(--white)"><b>04</b>AREA</p>
+      <h2 class="bh rv">対応エリア</h2>
+      <div class="areas rv">
+        <span>東京都</span><span>神奈川県</span><span>埼玉県</span><span>千葉県</span>
+      </div>
+      <p class="area-note rv">東京・神奈川中心／埼玉・千葉　※出張のご相談も承ります</p>
+    </div>
+  </section>
+
+  <section class="sec" id="partner">
+    <div class="deco" aria-hidden="true"><svg viewBox="0 0 320 200" fill="none"></svg></div>
+    <div class="wrap">
+      <p class="kicker rv" style="--c:#878c94"><b>05</b>PARTNERSHIP</p>
+      <h2 class="bh rv">協力体制</h2>
+      <p class="body rv">設計やコンサルティングが必要な案件については、信頼のおけるパートナー企業と連携し、プロジェクトごとに最適なチームを編成します。施工の専門家として、協力会社と共に高品質な成果を実現します。</p>
+    </div>
+  </section>
+
+  <section class="sec" id="recruit">
+    <div class="wrap">
+      <p class="kicker rv" style="--c:var(--yellow)"><b>06</b>RECRUIT</p>
+      <h2 class="bh rv">未来の設立メンバーを募集しています</h2>
+      <div class="rec">
+        <ul>
+          <li class="rv">18歳以上・学歴/性別不問。未経験者を積極採用</li>
+          <li class="rv">資格取得サポートあり（低圧電気取扱・高所作業車・職長安全衛生など）</li>
+          <li class="rv">工具は最大6ヶ月貸出可</li>
+          <li class="rv">経験者は要相談</li>
+        </ul>
+        <div class="pay rv">
+          <p class="lab">DAILY WAGE — 未経験</p>
+          <p class="val">¥<span id="wage" data-to="13000">13,000</span><small>〜 / 日</small></p>
+          <p>できる作業により随時アップ。経験者は要相談。</p>
+          <a class="btn p" href="https://www.juchou-group.com/recruit"><span class="dot"></span>採用情報を見る</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="faq">
+    <div class="wrap">
+      <p class="kicker rv" style="--c:#878c94"><b>07</b>FAQ</p>
+      <h2 class="bh rv">よくあるご質問</h2>
+      <div class="faq">
+        <div class="qa rv"><p class="q"><i>Q1</i>対応エリアはどこまでですか？</p><p class="a"><i>A</i>東京・神奈川を中心に、埼玉・千葉まで対応しています。その他エリアも出張のご相談を承ります。</p></div>
+        <div class="qa rv"><p class="q"><i>Q2</i>どのような電気工事を依頼できますか？</p><p class="a"><i>A</i>低圧設備工事・幹線工事・配管/ラック据付・配線工事・盤据付/結線など、一般電気用工作物工事全般に対応しています。</p></div>
+        <div class="qa rv"><p class="q"><i>Q3</i>未経験でも電気工事の仕事に応募できますか？</p><p class="a"><i>A</i>応募できます。未経験者は日当13,000円〜スタートし、できる作業に応じて随時アップ。資格取得のサポート制度もあります。</p></div>
+        <div class="qa rv"><p class="q"><i>Q4</i>協力会社・元請けとしての取引は可能ですか？</p><p class="a"><i>A</i><span>可能です。お問い合わせフォームまたはお電話<span style="white-space:nowrap">（<a href="tel:0508734183">050-5873-4183</a>）</span>からご相談ください。</span></p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="company">
+    <div class="wrap">
+      <p class="kicker rv" style="--c:#878c94"><b>08</b>COMPANY</p>
+      <h2 class="bh rv">会社概要</h2>
+      <dl class="co rv">
+        <div><dt>屋号</dt><dd>充寵グループ / JYUCHOU GROUP</dd></div>
+        <div><dt>所在地</dt><dd>神奈川県秦野市</dd></div>
+        <div><dt>事業内容</dt><dd>一般電気用工作物工事／電気工事施工</dd></div>
+        <div><dt>活動エリア</dt><dd>東京・神奈川中心（埼玉・千葉）</dd></div>
+        <div><dt>メール</dt><dd><a href="mailto:info@juchou-group.com">info@juchou-group.com</a></dd></div>
+        <div><dt>電話</dt><dd><a href="tel:0508734183">050-5873-4183</a></dd></div>
+        <div><dt>Instagram</dt><dd><a href="https://www.instagram.com/juchou.group">@juchou.group</a></dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="sec" id="contact">
+    <div class="wrap">
+      <p class="kicker rv" style="--c:var(--green)"><b>—</b>CONTACT</p>
+      <h2 class="bh rv">ご相談・ご応募はこちら</h2>
+      <p class="body rv" style="margin-bottom:26px">最後の一本まで、整えて締める。工事のご相談も、採用へのご応募も、下記からどうぞ。</p>
+      <div class="cta-row rv" style="margin-top:0">
+        <a class="btn p" href="https://www.juchou-group.com/recruit"><span class="dot"></span>採用情報を見る</a>
+        <a class="btn s" href="https://www.juchou-group.com/contact"><span class="dot"></span>お取引・工事のご相談</a>
+      </div>
+      <div class="qr-row rv">
+        <a class="qr" href="https://www.instagram.com/juchou.group">
+          <img src="img/QR_INSTAGRAM.png" alt="充寵グループ公式InstagramのQRコード" width="74" height="74">
+          <span class="t">Instagram<small>@juchou.group</small></span>
+        </a>
+        <a class="qr" href="https://works.do/GGOfZpH">
+          <img src="img/QR_LINEWORKS.png" alt="充寵グループLINE WORKSのQRコード" width="74" height="74">
+          <span class="t">LINE WORKS<small>ご相談はこちら</small></span>
+        </a>
+      </div>
+      <p class="tel-line rv">TEL <a href="tel:0508734183">050-5873-4183</a>　／　MAIL <a href="mailto:info@juchou-group.com">info@juchou-group.com</a></p>
+    </div>
+  </section>
+</main>
+
+<div class="bbar" id="bbar">
+  <a class="bb-l" href="https://www.juchou-group.com/contact">工事の相談</a>
+  <a class="bb-r" href="#recruit">応募する <b>¥13,000〜/日</b></a>
+</div>
+
+<footer>
+  <span>© 充寵グループ</span>
+  <nav>
+    <a href="#top">ホーム</a>
+    <a href="#services">施工内容</a>
+    <a href="#stance">施工スタンス</a>
+    <a href="https://www.juchou-group.com/recruit">採用情報</a>
+    <a href="https://www.juchou-group.com/contact">お問い合わせ</a>
+  </nav>
+</footer>
+
+<script>
+(() => {
+'use strict';
+const doc=document;
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const FINE=matchMedia('(pointer: fine)').matches;
+const cl=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const smooth=t=>{t=cl(t);return t*t*(3-2*t);};
+
+/* =========================================================
+   HERO : 複線図 → 現場 (FROM DIAGRAM TO SITE)
+   スクロール進捗 p(0..1) で 図面→配管→ラック/幹線→屋内配線→結線 を巡る
+   ========================================================= */
+const stage=doc.getElementById('hero');
+const hero=stage.querySelector('.hero');
+const cv=doc.getElementById('cv');
+const ctx=cv.getContext('2d');
+const rail=doc.getElementById('rail');
+const railfill=doc.getElementById('railfill');
+const railSteps=[...rail.querySelectorAll('.step')];
+let dpr=1,W=0,H=0,MB=false,box=null,routes=null,NZP=null,visible=true,running=false;
+
+function geom(){
+  W=hero.clientWidth; H=hero.clientHeight; MB=W<740;
+  box=MB?{x:W*0.03,y:H*0.30,w:W*0.94,h:H*0.66}   // モバイル: 中央に大きく
+        :{x:W*0.28,y:H*0.10,w:W*0.74,h:H*0.82};
+  buildRoutes();
+}
+// 正規化ルート(箱内 0..1) → キャンバス座標へ。90°曲げは round-join で表現。
+const RDEF_D={
+  A:[[0.00,0.30],[0.62,0.30],[0.62,0.76]],   // 主幹トランク＋立下げ
+  B:[[0.00,0.53],[0.36,0.53],[0.36,0.88]],   // 下段の並行＋立下げ
+  C:[[0.24,0.30],[0.24,0.09]]                // 立上り(riser)
+};
+const JUNC_D=[[0.24,0.30,'tee'],[0.62,0.30,'elbow'],[0.62,0.76,'box'],[0.36,0.53,'elbow']];
+const RDEF_M={
+  A:[[0.03,0.56],[0.97,0.56],[0.97,0.88]],   // 横断トランク(画面いっぱい)＋立下げ。CTA下に配置
+  B:[[0.03,0.75],[0.55,0.75],[0.55,0.98]],
+  C:[[0.34,0.56],[0.34,0.30]]
+};
+const JUNC_M=[[0.34,0.56,'tee'],[0.97,0.56,'elbow'],[0.97,0.88,'box'],[0.55,0.75,'elbow']];
+let RDEF=RDEF_D, JUNC=JUNC_D;
+function toXY(nx,ny){return {x:box.x+nx*box.w, y:box.y+ny*box.h};}
+function densify(verts){
+  const pts=[]; let d=0;
+  for(let i=0;i<verts.length-1;i++){
+    const a=verts[i],b=verts[i+1];
+    const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy),ux=dx/len,uy=dy/len;
+    const step=7,n=Math.max(1,Math.round(len/step));
+    for(let k=0;k<n;k++){const t=k/n;pts.push({x:a.x+dx*t,y:a.y+dy*t,ux,uy,d:d+len*t});}
+    d+=len;
+  }
+  const last=verts[verts.length-1],prev=verts[verts.length-2];
+  const ux=(last.x-prev.x),uy=(last.y-prev.y),l=Math.hypot(ux,uy)||1;
+  pts.push({x:last.x,y:last.y,ux:ux/l,uy:uy/l,d});
+  return {pts,L:d};
+}
+function buildRoutes(){
+  RDEF=MB?RDEF_M:RDEF_D; JUNC=MB?JUNC_M:JUNC_D;
+  routes={};
+  for(const k in RDEF){
+    const verts=RDEF[k].map(p=>toXY(p[0],p[1]));
+    const s=densify(verts);
+    routes[k]={verts,pts:s.pts,L:s.L};
+  }
+  routes._junc=JUNC.map(j=>({...toXY(j[0],j[1]),type:j[2]}));
+}
+function sampAt(r,d){
+  const p=r.pts; if(d<=0)return p[0]; if(d>=r.L)return p[p.length-1];
+  let lo=0,hi=p.length-1;
+  while(lo<hi){const m=(lo+hi)>>1; if(p[m].d<d)lo=m+1; else hi=m;}
+  return p[lo];
+}
+function pathVerts(v){ctx.beginPath();ctx.moveTo(v[0].x,v[0].y);for(let i=1;i<v.length;i++)ctx.lineTo(v[i].x,v[i].y);}
+
+function size(){
+  dpr=Math.min(2,devicePixelRatio||1);
+  geom();
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  buildNoise();
+}
+// film grain
+const NZ=doc.createElement('canvas');
+function buildNoise(){
+  NZ.width=NZ.height=136;
+  const n=NZ.getContext('2d'),id=n.createImageData(136,136);
+  for(let i=0;i<id.data.length;i+=4){const v=Math.random()*255|0;id.data[i]=id.data[i+1]=id.data[i+2]=v;id.data[i+3]=8;}
+  n.putImageData(id,0,0); NZP=ctx.createPattern(NZ,'repeat');
+}
+// pointer micro parallax
+let pmx=0,pmy=0,tpmx=0,tpmy=0;
+if(FINE&&!RM)addEventListener('pointermove',e=>{tpmx=(e.clientX/innerWidth-0.5);tpmy=(e.clientY/innerHeight-0.5);},{passive:true});
+
+/* ---------- 背景: 方眼(施工図面地) + 霞 ---------- */
+function drawGround(p,ox,oy){
+  const bg=ctx.createRadialGradient(box.x+box.w*0.5+ox, box.y+box.h*0.45, H*0.05, box.x+box.w*0.5, box.y+box.h*0.5, H*1.15);
+  bg.addColorStop(0,'#161b23'); bg.addColorStop(0.45,'#111620'); bg.addColorStop(1,'#0a0d11');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  // 方眼(青焼き風の薄いグリッド) — 施工が進むほど退場
+  const gA=cl(0.5-p*0.42,0,0.5);
+  if(gA>0.02){
+    const g=22, gx=(ox*0.5)%g, gy=(oy*0.5)%g;
+    ctx.lineWidth=1;
+    ctx.strokeStyle='rgba(70,96,130,'+(gA*0.5).toFixed(3)+')';
+    ctx.beginPath();
+    for(let x=box.x+gx;x<box.x+box.w;x+=g){ctx.moveTo(x,box.y);ctx.lineTo(x,box.y+box.h);}
+    for(let y=box.y+gy;y<box.y+box.h;y+=g){ctx.moveTo(box.x,y);ctx.lineTo(box.x+box.w,y);}
+    ctx.stroke();
+    // 主目盛り(濃いめ 5マスごと)
+    ctx.strokeStyle='rgba(84,116,156,'+(gA*0.7).toFixed(3)+')';
+    ctx.beginPath();
+    for(let x=box.x+gx,i=0;x<box.x+box.w;x+=g,i++){if(i%5)continue;ctx.moveTo(x,box.y);ctx.lineTo(x,box.y+box.h);}
+    for(let y=box.y+gy,i=0;y<box.y+box.h;y+=g,i++){if(i%5)continue;ctx.moveTo(box.x,y);ctx.lineTo(box.x+box.w,y);}
+    ctx.stroke();
+  }
+  // 施工側の空気(奥ほど霞) — 施工が進むと現れる
+  const hA=cl(p*0.5,0,0.4);
+  if(hA>0.01){
+    const hz=ctx.createLinearGradient(box.x,box.y,box.x+box.w,box.y+box.h);
+    hz.addColorStop(0,'rgba(40,48,60,'+hA.toFixed(3)+')');
+    hz.addColorStop(0.5,'rgba(26,32,42,'+(hA*0.4).toFixed(3)+')');
+    hz.addColorStop(1,'rgba(12,15,20,0)');
+    ctx.fillStyle=hz; ctx.fillRect(0,0,W,H);
+  }
+}
+
+/* ---------- Scene 0: 複線図 ---------- */
+function sceneDiagram(w){
+  const build=smooth(w);
+  const cols={A:'#dcd9d2',B:'#c4513f',C:'#8f97a1'}; // 白・赤・黒(=濃灰)線
+  ctx.save();
+  ctx.globalAlpha=w;
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  for(const k of ['A','B','C']){
+    const r=routes[k];
+    // 図面線: 芯を色線、外側に淡い縁で視認性
+    ctx.setLineDash([r.L*build,1e7]);
+    ctx.strokeStyle='rgba(8,11,15,0.7)'; ctx.lineWidth=MB?7:4.4; pathVerts(r.verts); ctx.stroke();
+    ctx.strokeStyle=cols[k]; ctx.lineWidth=MB?3.6:2.2; pathVerts(r.verts); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // 接続点記号(○=リングスリーブ / □=差込コネクタ) と 端子丸
+  routes._junc.forEach((j,i)=>{
+    const jb=cl((build-0.5-i*0.06)*3,0,1); if(jb<=0)return;
+    ctx.globalAlpha=w*jb;
+    if(j.type==='box'){ // 器具/接続箱
+      ctx.strokeStyle='#9aa2ac'; ctx.lineWidth=1.6; ctx.setLineDash([]);
+      ctx.strokeRect(j.x-11,j.y-11,22,22);
+      ctx.strokeStyle='#c4513f'; ctx.lineWidth=1.4; ctx.beginPath();ctx.arc(j.x,j.y,5,0,6.29);ctx.stroke();
+    }else if(j.type==='tee'){ // ○ リングスリーブ
+      ctx.strokeStyle='#aeb6c0'; ctx.lineWidth=1.8; ctx.beginPath();ctx.arc(j.x,j.y,7,0,6.29);ctx.stroke();
+      ctx.fillStyle='#aeb6c0'; ctx.beginPath();ctx.arc(j.x,j.y,2,0,6.29);ctx.fill();
+    }else{ // □ 差込コネクタ
+      ctx.strokeStyle='#aeb6c0'; ctx.lineWidth=1.6; ctx.strokeRect(j.x-6,j.y-6,12,12);
+    }
+  });
+  ctx.globalAlpha=w;
+  // 端末の黒点(電源/器具端子)
+  ctx.fillStyle='#6b727b';
+  [routes.A.pts[0],routes.B.pts[0],routes.C.pts[routes.C.pts.length-1]].forEach(p=>{
+    ctx.beginPath();ctx.arc(p.x,p.y,3,0,6.29);ctx.fill();
+  });
+  ctx.restore();
+}
+
+/* ---------- Hero 合成 : 複線図をロード時に一度だけ描き上げる(スクロール不要) ---------- */
+let heroBuild=0, buildStart=0;
+function drawHero(now){
+  pmx+=(tpmx-pmx)*0.05; pmy+=(tpmy-pmy)*0.05;
+  if(RM){heroBuild=1;}
+  else{ if(!buildStart)buildStart=now; heroBuild=cl((now-buildStart)/2000); } // 約2秒で描き上げ
+  const ox=pmx*(MB?0:20), oy=pmy*(MB?0:14);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  drawGround(0,ox,oy); // 青焼き方眼(施工図面地)は保持
+
+  ctx.save();
+  ctx.translate(ox,oy);
+  sceneDiagram(heroBuild); // 複線図のみを描き上げる(他工種は各セクションが担う)
+  ctx.restore();
+
+  // フィルムグレイン
+  if(NZP){ctx.globalAlpha=0.5;ctx.fillStyle=NZP;ctx.fillRect(0,0,W,H);ctx.globalAlpha=1;}
+  // 下端DOF + ビネット(モバイルは作画を暗くしすぎない)
+  const dofY=MB?0.9:0.82, dofA=MB?0.5:0.7;
+  const dof=ctx.createLinearGradient(0,H*dofY,0,H);
+  dof.addColorStop(0,'rgba(10,12,16,0)');dof.addColorStop(1,'rgba(9,11,14,'+dofA+')');
+  ctx.fillStyle=dof;ctx.fillRect(0,H*dofY,W,H*(1-dofY));
+  const vg=ctx.createRadialGradient(W*0.5,H*0.5,H*0.28,W*0.5,H*0.5,H*0.98);
+  vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(6,7,10,'+(MB?0.34:0.5)+')');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+}
+let raf=0;
+function loop(now){if(!running)return;drawHero(now);raf=requestAnimationFrame(loop);}
+function start(){if(running||!routes)return;running=true;raf=requestAnimationFrame(loop);}
+function stop(){running=false;cancelAnimationFrame(raf);}
+
+/* ===== ページ全体を貫く配線ルート(spine) ===== */
+const spineSvg=doc.getElementById('spineSvg');
+const spineGuide=doc.getElementById('spineGuide');
+const spineLive=doc.getElementById('spineLive');
+const spineNodes=doc.getElementById('spineNodes');
+let spineLen=0,spineTop=0,spineBot=0,spineNodesArr=[];
+function buildSpine(){
+  if(MB){spineLen=0;return;}
+  const secs=[...doc.querySelectorAll('main .sec .kicker')];
+  if(!secs.length){spineLen=0;return;}
+  const vw=innerWidth, docH=doc.documentElement.scrollHeight;
+  spineSvg.setAttribute('viewBox','0 0 '+vw+' '+docH);
+  const padL=parseFloat(getComputedStyle(doc.documentElement).getPropertyValue('--padL'))||190;
+  const tx=Math.max(46,Math.min(94,padL*0.4)), branchX=padL-16;
+  const ys=secs.map(k=>{const r=k.getBoundingClientRect();return Math.round(r.top+scrollY+9);});
+  spineTop=ys[0]-42; spineBot=ys[ys.length-1]+70;
+  let d='M '+tx+' '+spineTop;
+  ys.forEach(y=>{ d+=' L '+tx+' '+y+' L '+branchX+' '+y+' M '+tx+' '+y; });
+  d+=' L '+tx+' '+spineBot;
+  spineGuide.setAttribute('d',d); spineLive.setAttribute('d',d);
+  spineGuide.style.stroke='rgba(150,160,172,0.13)'; spineGuide.style.strokeWidth='1.4';
+  spineLive.style.stroke='#cdd2d8'; spineLive.style.strokeWidth='1.8';
+  spineLive.style.strokeLinecap='round'; spineLive.style.strokeLinejoin='round';
+  spineLen=spineLive.getTotalLength();
+  spineLive.style.strokeDasharray=spineLen; spineLive.style.strokeDashoffset=spineLen;
+  spineNodes.innerHTML='';
+  spineNodesArr=ys.map(y=>{
+    const el=doc.createElementNS('http://www.w3.org/2000/svg','circle');
+    el.setAttribute('cx',branchX);el.setAttribute('cy',y);el.setAttribute('r',3.4);
+    el.setAttribute('fill','#c4513f');el.style.opacity=0;el.style.transition='opacity .4s ease';
+    spineNodes.appendChild(el);
+    return {el,f:cl((y-spineTop)/(spineBot-spineTop))};
+  });
+}
+function updateSpine(){
+  if(!spineLen)return;
+  const dp=cl((scrollY+innerHeight*0.62-spineTop)/(spineBot-spineTop));
+  spineLive.style.strokeDashoffset=(spineLen*(1-dp)).toFixed(1);
+  spineNodesArr.forEach(n=>{n.el.style.opacity=dp>=n.f?1:0;});
+}
+
+/* ===== 進捗: 工種rail(画面内セクションに同期) + spine ===== */
+const svcSec=doc.getElementById('services');
+const areaSec=doc.getElementById('area');
+const railpct=doc.querySelector('.railpct');
+function setRail(step){railSteps.forEach((el,i)=>el.classList.toggle('on',i===step));}
+// 図(0)=設計フェーズ / 施工内容上端〜次セクション(#area)上端の実尺で 配管(1)→ラック・幹線(2)→屋内配線(3)→結線(4)
+function activeStep(){
+  const refY=innerHeight*0.5;
+  const sTop=svcSec.getBoundingClientRect().top;
+  const aTop=areaSec.getBoundingClientRect().top;   // 次セクション上端で掃引を締める
+  if(sTop>refY) return 0;                            // 施工内容にまだ達していない=設計
+  const span=Math.max(1,(aTop-sTop));                // 施工内容の実尺(可変)
+  const f=cl((refY-sTop)/span,0,1);
+  return 1+Math.min(3,Math.floor(f*4));              // 1..4 を実尺全体に均等配分
+}
+function updateProgress(){
+  const docH=(doc.documentElement.scrollHeight-innerHeight);
+  const gp=docH>0?cl(scrollY/docH):0;
+  if(MB){railfill.style.height='100%';railfill.style.width=(gp*100).toFixed(1)+'%';}
+  else{railfill.style.width='100%';railfill.style.height=(gp*100).toFixed(1)+'%';}
+  if(railpct)railpct.textContent=String(Math.round(gp*100)).padStart(2,'0')+'%';
+  setRail(activeStep());
+  // モバイル: 施工内容を過ぎたら工種レールをフェードし上部占有を軽くする
+  if(MB){rail.style.opacity=(scrollY<areaSec.offsetTop-innerHeight*0.3)?'':'0';}
+  else if(rail.style.opacity)rail.style.opacity='';
+  updateSpine();
+}
+function init(){
+  size(); buildSpine(); updateProgress();
+  if(RM){ heroBuild=1; drawHero(performance.now()); if(spineLen)spineLive.style.strokeDashoffset=0; spineNodesArr.forEach(n=>n.el.style.opacity=1); return; }
+  start();
+}
+let rzT=0;
+addEventListener('resize',()=>{size();clearTimeout(rzT);rzT=setTimeout(()=>{buildSpine();updateProgress();if(RM)drawHero(performance.now());},120);updateProgress();if(RM)drawHero(performance.now());},{passive:true});
+addEventListener('scroll',updateProgress,{passive:true});
+addEventListener('load',()=>{buildSpine();updateProgress();},{passive:true});
+if('IntersectionObserver' in window){
+  new IntersectionObserver(es=>{es.forEach(e=>{visible=e.isIntersecting;if(RM)return;if(visible)start();else stop();});},{threshold:0}).observe(stage);
+}
+init();
+
+/* ================= reveal on scroll ================= */
+if('IntersectionObserver' in window && !RM){
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:0.14,rootMargin:'0px 0px -8% 0px'});
+  doc.querySelectorAll('.rv').forEach((el,i)=>{el.style.transitionDelay=(Math.min(i%6,5)*0.05)+'s';io.observe(el);});
+}else{doc.querySelectorAll('.rv').forEach(el=>el.classList.add('in'));}
+
+/* ================= section deco : 複線図 ================= */
+function buildDiagram(){
+  const P=[];
+  const cols=['#c4513f','#dcd9d2','#7a828c'];
+  const paths=['M20 60 H120 Q140 60 140 90 V140','M20 92 H150 Q175 92 175 118 V150','M20 124 H180 Q210 124 210 96 V56 H300'];
+  paths.forEach((d,i)=>P.push('<path pathLength="1" d="'+d+'" stroke="'+cols[i]+'" stroke-width="2.4" fill="none" opacity="0.72"/>'));
+  P.push('<circle cx="140" cy="120" r="7" fill="none" stroke="#8f97a1" stroke-width="1.6"/>');
+  P.push('<rect x="168" y="112" width="16" height="16" rx="2" fill="none" stroke="#8f97a1" stroke-width="1.4"/>');
+  P.push('<circle cx="210" cy="76" r="6" fill="none" stroke="#8f97a1" stroke-width="1.6"/>');
+  ['20,60','20,92','20,124','300,56'].forEach(p=>{const [x,y]=p.split(',');P.push('<circle cx="'+x+'" cy="'+y+'" r="2.4" fill="#6b727b"/>');});
+  return P.join('');
+}
+doc.querySelectorAll('.deco svg').forEach(svg=>{svg.setAttribute('viewBox','0 0 320 200');svg.innerHTML=buildDiagram();});
+
+/* ================= service icons : 本物の材料 ================= */
+const ICON={
+  vvf:`<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="6" y="15" width="36" height="18" rx="9" fill="#b7b4ac" stroke="#8d8a82" stroke-width="1.4"/>
+    <rect x="6" y="15" width="36" height="6" rx="3" fill="#c9c6be" opacity="0.6"/>
+    <circle cx="17" cy="24" r="5.4" fill="#1b1c1f" stroke="#6f6d68" stroke-width="1"/>
+    <circle cx="31" cy="24" r="5.4" fill="#e7e4dd" stroke="#8d8a82" stroke-width="1"/>
+    <circle cx="17" cy="24" r="2" fill="#c98a4a"/><circle cx="31" cy="24" r="2" fill="#c98a4a"/>
+    <path d="M24 15 v18" stroke="#8d8a82" stroke-width="1" opacity="0.5"/></svg>`,
+  cvt:`<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="24" cy="18" r="9.5" fill="#17191c" stroke="#3a3f46" stroke-width="1.4"/>
+    <circle cx="16" cy="31" r="9.5" fill="#17191c" stroke="#3a3f46" stroke-width="1.4"/>
+    <circle cx="32" cy="31" r="9.5" fill="#17191c" stroke="#3a3f46" stroke-width="1.4"/>
+    <circle cx="24" cy="18" r="3.4" fill="#2c3037"/><circle cx="16" cy="31" r="3.4" fill="#2c3037"/><circle cx="32" cy="31" r="3.4" fill="#2c3037"/>
+    <path d="M22 10 a10 10 0 0 1 4 0" stroke="#6b727b" stroke-width="1.2" fill="none" opacity="0.7"/></svg>`,
+  rack:`<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M6 36 L40 12" stroke="#7f8892" stroke-width="2.4"/>
+    <path d="M12 40 L44 18" stroke="#565d67" stroke-width="2.4"/>
+    <path d="M8 37 L14 41 M15 30 L21 34 M23 24 L29 28 M31 18 L37 22 M38 13 L42 16" stroke="#9aa2ac" stroke-width="1.8"/></svg>`,
+  sleeve:`<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="19" y="8" width="10" height="15" rx="2.5" fill="#c98a2a" stroke="#8a5e18" stroke-width="1.2"/>
+    <rect x="20.5" y="21" width="7" height="9" rx="1.5" fill="#b7bcc2" stroke="#7a808a" stroke-width="1"/>
+    <circle cx="24" cy="35" r="7.5" fill="none" stroke="#c08a3a" stroke-width="2.6"/>
+    <circle cx="24" cy="35" r="3" fill="none" stroke="#e7e4dd" stroke-width="1.4"/>
+    <path d="M18 30 h12" stroke="#7a808a" stroke-width="1" opacity="0.6"/></svg>`,
+  panel:`<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="9" y="7" width="30" height="34" rx="3" fill="#1b1f25" stroke="#4a515a" stroke-width="1.6"/>
+    <rect x="14" y="12" width="20" height="6" rx="1.5" fill="#2c3037" stroke="#5a616b" stroke-width="1"/>
+    <rect x="14" y="22" width="8.5" height="5" rx="1" fill="#3a3f46"/><rect x="25.5" y="22" width="8.5" height="5" rx="1" fill="#3a3f46"/>
+    <rect x="14" y="30" width="8.5" height="5" rx="1" fill="#3a3f46"/><rect x="25.5" y="30" width="8.5" height="5" rx="1" fill="#3a3f46"/>
+    <path d="M16 24.5 h4 M27.5 24.5 h4 M16 32.5 h4 M27.5 32.5 h4" stroke="#c9a227" stroke-width="1.4"/></svg>`,
+  diagram:`<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M8 14 H26 Q30 14 30 18 V34" stroke="#c4513f" stroke-width="2" fill="none"/>
+    <path d="M8 22 H22 Q26 22 26 26 V34" stroke="#dcd9d2" stroke-width="2" fill="none"/>
+    <path d="M8 30 H18" stroke="#7a828c" stroke-width="2" fill="none"/>
+    <circle cx="30" cy="20" r="5.5" fill="none" stroke="#8f97a1" stroke-width="1.6"/>
+    <rect x="21" y="30" width="10" height="9" rx="1.5" fill="none" stroke="#8f97a1" stroke-width="1.4"/>
+    <circle cx="8" cy="14" r="2" fill="#6b727b"/><circle cx="8" cy="22" r="2" fill="#6b727b"/><circle cx="8" cy="30" r="2" fill="#6b727b"/></svg>`
+};
+doc.querySelectorAll('.ico[data-ico]').forEach(el=>{el.innerHTML=ICON[el.dataset.ico]||'';});
+
+/* ================= section deco 複線図: 入場で描き上がる ================= */
+if('IntersectionObserver' in window && !RM){
+  const dio=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('decoin');dio.unobserve(e.target);}});},{threshold:0.18});
+  doc.querySelectorAll('.sec .deco').forEach(d=>dio.observe(d.parentElement));
+}else{doc.querySelectorAll('.sec').forEach(s=>{if(s.querySelector('.deco'))s.classList.add('decoin');});}
+
+/* ================= 採用: 日当カウントアップ(一度だけ) ================= */
+const wageEl=doc.getElementById('wage');
+if(wageEl){
+  const to=+wageEl.dataset.to;
+  const run=()=>{ if(RM){wageEl.textContent=to.toLocaleString();return;}
+    const t0=performance.now(),dur=1100;
+    const tk=n=>{const k=cl((n-t0)/dur),e=1-Math.pow(1-k,3);wageEl.textContent=Math.round(to*e).toLocaleString();if(k<1)requestAnimationFrame(tk);};
+    requestAnimationFrame(tk);
+  };
+  if('IntersectionObserver' in window && !RM){
+    const wio=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){run();wio.disconnect();}});},{threshold:0.6});
+    wio.observe(wageEl);
+  } else run();
+}
+
+/* ================= 4工种 施工ディテール(カード内・スクロール発火) ================= */
+function pipeStroke(c,pts,th,p){
+  const path=new Path2D(); path.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++)path.lineTo(pts[i][0],pts[i][1]);
+  let L=0; for(let i=1;i<pts.length;i++)L+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
+  c.lineCap='round';c.lineJoin='round';c.save();c.setLineDash([L*p,1e5]);
+  c.strokeStyle='#2b3138';c.lineWidth=th;c.stroke(path);
+  c.strokeStyle='#6f7883';c.lineWidth=th*0.8;c.stroke(path);
+  c.strokeStyle='#9aa4af';c.lineWidth=th*0.44;c.stroke(path);
+  c.strokeStyle='rgba(214,222,232,0.8)';c.lineWidth=th*0.15;c.stroke(path);
+  c.restore();c.setLineDash([]);return L;
+}
+function drawCardHaikan(c,w,h,p){ // ねじなしE管: 90°曲げ + サドル + カップリング
+  const y=h*0.42, th=13, x0=10, xb=w-42, y2=h-9;
+  const L=pipeStroke(c,[[x0,y],[xb,y],[xb,y2]],th,p), rev=L*p, pitch=(xb-x0)/4;
+  for(let i=1;i<=3;i++){const sx=x0+pitch*i; if(sx-x0>rev)break;
+    c.strokeStyle='#575e68';c.lineWidth=4;c.beginPath();c.moveTo(sx,y-th*0.7);c.lineTo(sx,y+th*0.7);c.stroke();
+    c.fillStyle='#3a4048';c.beginPath();c.arc(sx,y+th*0.5,1.6,0,6.29);c.fill();}
+  const cxp=x0+(xb-x0)*0.55; if(cxp-x0<rev){c.strokeStyle='#aeb6c0';c.lineWidth=2.4;c.beginPath();c.moveTo(cxp,y-th*0.6);c.lineTo(cxp,y+th*0.6);c.stroke();}
+}
+function drawCardKansen(c,w,h,p){ // はしご形ラック + 黒CVT + 相別テープ 赤白青
+  const y=h*0.5, rh=Math.min(26,h*0.4), x0=10, x1=w-12, endX=x0+(x1-x0)*p;
+  c.lineCap='round';
+  [-1,1].forEach(sd=>{const yy=y+sd*rh;const g=c.createLinearGradient(0,yy-4,0,yy+4);g.addColorStop(0,'#aab3bd');g.addColorStop(.5,'#78808a');g.addColorStop(1,'#41474f');c.strokeStyle=g;c.lineWidth=6;c.beginPath();c.moveTo(x0,yy);c.lineTo(endX,yy);c.stroke();});
+  c.lineCap='butt';
+  for(let x=x0+14;x<endX;x+=18){const g=c.createLinearGradient(0,y-rh,0,y+rh);g.addColorStop(0,'#7c848e');g.addColorStop(.5,'#4c525b');g.addColorStop(1,'#333942');c.strokeStyle=g;c.lineWidth=3;c.beginPath();c.moveTo(x,y-rh+2);c.lineTo(x,y+rh-2);c.stroke();}
+  const offs=[-13,0,13],cw=11;c.lineCap='round';
+  offs.forEach(oy=>{const yy=y+oy;c.strokeStyle='#07080a';c.lineWidth=cw;c.beginPath();c.moveTo(x0,yy);c.lineTo(endX,yy);c.stroke();c.strokeStyle='rgba(140,150,164,0.45)';c.lineWidth=cw*0.16;c.beginPath();c.moveTo(x0,yy-cw*0.3);c.lineTo(endX,yy-cw*0.3);c.stroke();});
+  c.lineCap='butt';for(let x=x0+30;x<endX-4;x+=44){c.strokeStyle='rgba(6,8,11,0.95)';c.lineWidth=3;c.beginPath();c.moveTo(x,y-18);c.lineTo(x,y+18);c.stroke();}
+  if(p>0.82){const tx=endX-12,cols=['#c4513f','#dcd9d2','#3f6bb6'];offs.forEach((oy,i)=>{const yy=y+oy;c.fillStyle=cols[i];c.fillRect(tx-6,yy-cw*0.5,12,cw);});}
+}
+function drawCardOkunai(c,w,h,p){ // 灰色VVF + ステップル + 端末 黒白赤
+  const y=h*0.5, th=13, x0=10, xb=w-58, endX=x0+(xb-x0)*p;
+  c.lineCap='round';
+  c.strokeStyle='#8f8c84';c.lineWidth=th;c.beginPath();c.moveTo(x0,y);c.lineTo(endX,y);c.stroke();
+  c.strokeStyle='#b7b4ac';c.lineWidth=th*0.72;c.beginPath();c.moveTo(x0,y);c.lineTo(endX,y);c.stroke();
+  c.strokeStyle='#c7c4bc';c.lineWidth=th*0.28;c.beginPath();c.moveTo(x0,y);c.lineTo(endX,y);c.stroke();
+  c.strokeStyle='rgba(90,88,82,0.5)';c.lineWidth=1;c.beginPath();c.moveTo(x0,y);c.lineTo(endX,y);c.stroke();
+  c.strokeStyle='#8e959d';c.lineWidth=2.2;
+  for(let x=x0+22;x<endX-4;x+=40){c.beginPath();c.arc(x,y-th*0.55,th*0.6,Math.PI,0);c.stroke();}
+  if(p>0.88){const cols=['#1b1c1f','#e7e4dd','#c4513f'];cols.forEach((col,i)=>{const yy=y+(i-1)*6;c.strokeStyle=col;c.lineWidth=3.4;c.lineCap='round';c.beginPath();c.moveTo(endX,yy);c.lineTo(endX+24,yy);c.stroke();c.strokeStyle='#c98a4a';c.lineWidth=2.4;c.beginPath();c.moveTo(endX+24,yy);c.lineTo(endX+32,yy);c.stroke();});c.fillStyle='#7d7a72';c.beginPath();c.arc(endX,y,th*0.5,0,6.29);c.fill();}
+}
+function drawCardKetsuen(c,w,h,p){ // リングスリーブ○圧着 / 差込コネクタ
+  const cy=h*0.5, cols=['#1b1c1f','#e7e4dd','#c4513f'];
+  c.save();c.translate(w*0.30,cy);
+  cols.forEach((col,i)=>{const x=-14+i*14;c.strokeStyle=col;c.lineWidth=4;c.lineCap='round';c.beginPath();c.moveTo(x,26);c.lineTo(x,-6);c.stroke();});
+  c.fillStyle='rgba(206,214,222,0.22)';c.strokeStyle='rgba(150,162,176,0.7)';c.lineWidth=1.6;c.beginPath();c.roundRect(-24,-22,48,34,5);c.fill();c.stroke();
+  cols.forEach((col,i)=>{const x=-14+i*14;c.strokeStyle=col;c.lineWidth=3.4;c.beginPath();c.moveTo(x,12);c.lineTo(x,-8);c.stroke();});
+  c.restore();
+  c.save();c.translate(w*0.68,cy);
+  cols.forEach((col,i)=>{c.strokeStyle=col;c.lineWidth=3.6;c.lineCap='round';c.beginPath();c.moveTo(-34,-6+i*6);c.quadraticCurveTo(-14,-3+i*3,-2,-1);c.stroke();});
+  c.fillStyle='#b9744a';c.strokeStyle='#7d4d2e';c.lineWidth=1.4;c.beginPath();c.roundRect(-4,-9,16,18,3);c.fill();c.stroke();
+  const im=smooth(cl((p-0.4)/0.5));c.strokeStyle='#5f3b22';c.lineWidth=1.4+im;c.beginPath();c.arc(4,0,4,0,6.29);c.stroke();
+  c.restore();
+}
+const CARD={haikan:drawCardHaikan,kansen:drawCardKansen,okunai:drawCardOkunai,ketsuen:drawCardKetsuen};
+function setupCard(el){
+  const c=el.getContext('2d'),fn=CARD[el.dataset.scene]; if(!fn)return null;
+  let cw=0,ch=0,cdpr=1,played=false,raf2=0;
+  function fit(){cdpr=Math.min(2,devicePixelRatio||1);cw=el.clientWidth;ch=el.clientHeight;el.width=Math.round(cw*cdpr);el.height=Math.round(ch*cdpr);c.setTransform(cdpr,0,0,cdpr,0,0);}
+  function frame(p){c.clearRect(0,0,cw,ch);fn(c,cw,ch,p);}
+  function play(){if(played)return;played=true;fit();
+    if(RM){frame(1);return;}
+    const t0=performance.now(),dur=1300;
+    const tk=n=>{const p=cl((n-t0)/dur);frame(smooth(p));if(p<1)raf2=requestAnimationFrame(tk);};
+    raf2=requestAnimationFrame(tk);}
+  addEventListener('resize',()=>{if(played){fit();frame(1);}},{passive:true});
+  return play;
+}
+(function initCards(){
+  const cards=[...doc.querySelectorAll('.cardcv')],plays=new Map();
+  cards.forEach(el=>{const p=setupCard(el);if(p)plays.set(el,p);});
+  if('IntersectionObserver' in window && !RM){
+    const cio=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){
+      const pl=plays.get(e.target); if(pl)pl(); cio.unobserve(e.target);
+    }});},{threshold:0.45});
+    cards.forEach(el=>cio.observe(el));
+  }else{plays.forEach(p=>p());}
+})();
+
+/* ================= mobile bottom bar ================= */
+const bbar=doc.getElementById('bbar');
+if(bbar){addEventListener('scroll',()=>{if(scrollY>innerHeight*0.6)bbar.classList.add('show');else bbar.classList.remove('show');},{passive:true});}
+})();
+</script>
+</body>
+</html>
