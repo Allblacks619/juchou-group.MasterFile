@@ -25,5 +25,7 @@
   - 支払単価のみ → 許可
   - 両方あり → 許可
 
-## 最新の検証（2026-06-25）
-- `pnpm test`: 190 passed / 3 skipped（21 ファイル）。
+## 最新の検証（2026-07-27、main 最新版）
+- `pnpm check`: pass
+- `pnpm build`: pass（既存の非ブロッキング警告のみ。チャンクサイズ警告は index-*.js・GenbaShell-*.js など複数ファイルが対象）
+- `pnpm test`: 849 passed / 3 skipped（90 ファイル）。

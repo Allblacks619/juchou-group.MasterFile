@@ -2,6 +2,8 @@
 
 充寵グループ 業務管理システム。サーバーは Express + tRPC v11（`server/routers.ts` に単一 appRouter）、DB は MariaDB + drizzle-orm、フロントは React + Vite + wouter、テストは vitest（`pnpm test`）。
 
+**新しいセッション/別マシンで最初に読むもの**: 本ファイル → **`docs/引き継ぎ.md`**（決定理由・試してダメだったこと・検証済み/未検証の切り分け・承認待ちタスク・シークレット一覧・次のタスク）→ `docs/DEPLOYMENT.md`（デプロイ/インフラの実務リファレンス）。
+
 ## Claude 作業ポリシー（オーナー合意済み・毎回確認不要）
 オーナー(biguoki@gmail.com / ログインID: mitsuru)との合意。以降のセッションでも都度確認せずこのとおり進めること。
 - **言語**: オーナーへの回答は日本語。
