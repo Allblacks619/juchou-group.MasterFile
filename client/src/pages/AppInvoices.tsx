@@ -82,7 +82,9 @@ function isInternalRateMappingNote(note: string | null | undefined): boolean {
 }
 
 function externalItemNote(note: string | null | undefined): string {
-  return isInternalRateMappingNote(note) ? "" : (note || "");
+  if (!note || isInternalRateMappingNote(note)) return "";
+  // connect:costRef:N 等は取り込みの内部マーカー（二重取り込み判定用）。外部に出さない
+  return note.startsWith("connect:") ? "" : note;
 }
 
 interface InvoiceLineItem {
@@ -2021,6 +2023,7 @@ export default function AppInvoices() {
                       ・{row?.project?.name || "不明案件"}（{row?.closing ? row.closing.status : "未初期化"}）
                     </div>
                   ))}
+                  <p>→ 月締め管理で該当現場の締めを完了（ready以上）にしてから作成できます。</p>
                 </div>
               )}
             </div>

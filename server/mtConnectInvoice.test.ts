@@ -265,6 +265,9 @@ describe("connect.invoice: 多段チェーンの原価参照（P3）", () => {
       invoiceId: 901, itemType: "normal", amount: 559775, unitPrice: 559775, itemTaxRate: 0,
       notes: `connect:costRef:${res.submissionId}`,
     });
+    // 数量の×10表現は unit="日" のみ。"式" で quantity:10 にすると UI 編集時に amount が10倍になる
+    expect(added.quantity).toBe(1);
+    expect(added.unit).toBe("式");
     expect(added.description).toContain("外注費 INV-2025-02-001");
 
     // 合計再計算: 400,000@10% + 559,775@0% → 小計959,775 / 税40,000 / 総額999,775（外注費に税を再計算しない）
@@ -294,6 +297,20 @@ describe("connect.invoice: 多段チェーンの原価参照（P3）", () => {
     mockDb.getInvoiceById.mockResolvedValue({ id: 903, companyId: OTSU, invoiceNumber: "Y" });
     await expect(callerFor(KONO).connect.invoice.importCostReference({ submissionId: res.submissionId, invoiceId: 903 }))
       .rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("原価取り込みは billing 権限が要る: manager 既定（billing ブロック）は FORBIDDEN", async () => {
+    const linkId = await establishLink();
+    const res = await submitInvoice(linkId);
+    await callerFor(KONO).connect.invoice.approve({ submissionId: res.submissionId });
+    mockDb.getInvoiceById.mockResolvedValue({ id: 904, companyId: KONO, invoiceNumber: "Z" });
+
+    const managerCtx: TrpcContext = {
+      user: createUser({ id: 999, companyId: KONO, appRole: "manager" as any }), companyId: KONO,
+      req: { protocol: "https", headers: {} } as any, res: { clearCookie: vi.fn() } as any,
+    };
+    await expect(appRouter.createCaller(managerCtx).connect.invoice.importCostReference({ submissionId: res.submissionId, invoiceId: 904 }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
 

@@ -3,9 +3,11 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { protectedProcedure, router, isAdminLike, isManagerLike } from "../_core/trpc";
 import * as db from "../db";
+import { recalcInvoiceTotals } from "../invoiceTotals";
 import * as genbaDb from "../genba/db";
 import * as connectDb from "./db";
 import { isMultiTenantEnabled } from "../tenancy";
+import { resolveAreaPermission } from "../../shared/permissionAreas";
 import { buildRosterWorkerDto, matchRosterWorker, RosterWorkerDto } from "./roster";
 import { buildInvoiceSnapshotDto, compareAttendance, computeApprovedAmount, AttendanceRowDto, InvoiceSnapshotDto } from "./invoice";
 
@@ -41,6 +43,17 @@ const connectManagerProcedure = connectProcedure.use(({ ctx, next }) => {
   const role = (ctx.user as any).appRole;
   if (!isManagerLike(role) && !isAdminLike(role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "責任者以上の権限が必要です" });
+  }
+  return next({ ctx });
+});
+
+/**
+ * 取引先請求（billing エリア）に触れる操作。manager は既定ブロック（オーナー指示: 請求単価/請求額は admin 以上）。
+ * 既存の invoice.addItem 等（routers.ts の billingProcedure）と権限を揃えるため。
+ */
+const connectBillingProcedure = connectManagerProcedure.use(({ ctx, next }) => {
+  if (!resolveAreaPermission(ctx.user as any, "billing")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "この機能へのアクセス権限がありません（表示設定でブロックされています）" });
   }
   return next({ ctx });
 });
@@ -530,7 +543,7 @@ const invoiceSubmissionRouter = router({
    * 承認額をそのまま1行（税率0%）で追加し、税の再計算はしない（審議#10 の1円ズレ防止）。
    * 同一 submission の同一請求書への二重取り込みは notes マーカーで拒否する。
    */
-  importCostReference: connectManagerProcedure
+  importCostReference: connectBillingProcedure
     .input(z.object({
       submissionId: z.number().int().positive(),
       invoiceId: z.number().int().positive(),
@@ -561,7 +574,7 @@ const invoiceSubmissionRouter = router({
         invoiceId: input.invoiceId,
         itemType: "normal",
         description: `外注費 ${snap?.invoiceNumber ?? `受領請求#${sub.id}`}（承認額・税込参照）`,
-        quantity: 10, // 1.0式（×10表現）
+        quantity: 1, // ×10表現は unit="日" のみ（calcAmount/quantityDisplay）。"式" は素の数量
         unit: "式",
         unitPrice: costAmount,
         amount: costAmount,
@@ -570,20 +583,7 @@ const invoiceSubmissionRouter = router({
         notes: marker,
       } as any);
 
-      // 合計再計算（routers.ts の recalcInvoiceTotals と同一ロジック。循環importを避けるため複製）
-      const after = await db.getInvoiceItemsByInvoice(input.invoiceId);
-      let subtotal = 0;
-      const taxByRate = new Map<number, number>();
-      for (const item of after as any[]) {
-        if (item.itemType === "text") continue;
-        subtotal += item.amount;
-        taxByRate.set(item.itemTaxRate, (taxByRate.get(item.itemTaxRate) || 0) + item.amount);
-      }
-      let totalTax = 0;
-      for (const [rate, base] of Array.from(taxByRate.entries())) {
-        totalTax += Math.round((base * rate) / 100);
-      }
-      await db.updateInvoice(input.invoiceId, { subtotal, taxAmount: totalTax, totalAmount: subtotal + totalTax } as any);
+      await recalcInvoiceTotals(input.invoiceId);
 
       await safeConnectAuditLog(ctx.user.id, "connect.invoice.importCostReference",
         `原価参照を取り込み: submission#${sub.id}（¥${costAmount.toLocaleString()}）→ invoice#${input.invoiceId}`);
@@ -594,7 +594,7 @@ const invoiceSubmissionRouter = router({
    * 多段チェーンの原価参照（§2.4-4）: 承認済み受領請求の一覧。
    * 上位への請求に取り込む際は承認額をそのまま参照し、税の再計算はしない（1円ズレ防止）。
    */
-  costReferences: connectManagerProcedure.query(async ({ ctx }) => {
+  costReferences: connectBillingProcedure.query(async ({ ctx }) => {
     const subs = await connectDb.listApprovedInvoiceSubmissions(ctx.companyId);
     return subs.map((s) => {
       const snap = s.snapshotJson as unknown as InvoiceSnapshotDto;
