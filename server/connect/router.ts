@@ -3,9 +3,11 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { protectedProcedure, router, isAdminLike, isManagerLike } from "../_core/trpc";
 import * as db from "../db";
+import { recalcInvoiceTotals } from "../invoiceTotals";
 import * as genbaDb from "../genba/db";
 import * as connectDb from "./db";
 import { isMultiTenantEnabled } from "../tenancy";
+import { resolveAreaPermission } from "../../shared/permissionAreas";
 import { buildRosterWorkerDto, matchRosterWorker, RosterWorkerDto } from "./roster";
 import { buildInvoiceSnapshotDto, compareAttendance, computeApprovedAmount, AttendanceRowDto, InvoiceSnapshotDto } from "./invoice";
 
@@ -41,6 +43,17 @@ const connectManagerProcedure = connectProcedure.use(({ ctx, next }) => {
   const role = (ctx.user as any).appRole;
   if (!isManagerLike(role) && !isAdminLike(role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "責任者以上の権限が必要です" });
+  }
+  return next({ ctx });
+});
+
+/**
+ * 取引先請求（billing エリア）に触れる操作。manager は既定ブロック（オーナー指示: 請求単価/請求額は admin 以上）。
+ * 既存の invoice.addItem 等（routers.ts の billingProcedure）と権限を揃えるため。
+ */
+const connectBillingProcedure = connectManagerProcedure.use(({ ctx, next }) => {
+  if (!resolveAreaPermission(ctx.user as any, "billing")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "この機能へのアクセス権限がありません（表示設定でブロックされています）" });
   }
   return next({ ctx });
 });
@@ -526,10 +539,62 @@ const invoiceSubmissionRouter = router({
     }),
 
   /**
+   * 承認済み受領請求を自社請求書の明細行として取り込む（多段チェーン §2.4-4 / Phase 4）。
+   * 承認額をそのまま1行（税率0%）で追加し、税の再計算はしない（審議#10 の1円ズレ防止）。
+   * 同一 submission の同一請求書への二重取り込みは notes マーカーで拒否する。
+   */
+  importCostReference: connectBillingProcedure
+    .input(z.object({
+      submissionId: z.number().int().positive(),
+      invoiceId: z.number().int().positive(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sub = await connectDb.getInvoiceSubmissionById(input.submissionId);
+      if (!sub || sub.toCompanyId !== ctx.companyId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "受領請求が見つかりません" });
+      }
+      if (sub.status !== "approved") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "承認済みの受領請求のみ取り込めます" });
+      }
+      const invoice = await db.getInvoiceById(input.invoiceId);
+      if (!invoice || ((invoice as any).companyId != null && (invoice as any).companyId !== ctx.companyId)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "請求書が見つかりません" });
+      }
+
+      const marker = `connect:costRef:${sub.id}`;
+      const items = await db.getInvoiceItemsByInvoice(input.invoiceId);
+      if ((items as any[]).some((i) => i.notes === marker)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "この受領請求は既にこの請求書へ取り込み済みです" });
+      }
+
+      const snap = sub.snapshotJson as unknown as InvoiceSnapshotDto;
+      const costAmount = sub.approvedAmount ?? sub.submittedAmount;
+      const maxSort = (items as any[]).reduce((m, i) => Math.max(m, Number(i.sortOrder ?? 0)), 0);
+      await db.createInvoiceItem({
+        invoiceId: input.invoiceId,
+        itemType: "normal",
+        description: `外注費 ${snap?.invoiceNumber ?? `受領請求#${sub.id}`}（承認額・税込参照）`,
+        quantity: 1, // ×10表現は unit="日" のみ（calcAmount/quantityDisplay）。"式" は素の数量
+        unit: "式",
+        unitPrice: costAmount,
+        amount: costAmount,
+        itemTaxRate: 0, // 承認額（税込）をそのまま参照。税の再計算はしない
+        sortOrder: maxSort + 1,
+        notes: marker,
+      } as any);
+
+      await recalcInvoiceTotals(input.invoiceId);
+
+      await safeConnectAuditLog(ctx.user.id, "connect.invoice.importCostReference",
+        `原価参照を取り込み: submission#${sub.id}（¥${costAmount.toLocaleString()}）→ invoice#${input.invoiceId}`);
+      return { success: true as const, costAmount };
+    }),
+
+  /**
    * 多段チェーンの原価参照（§2.4-4）: 承認済み受領請求の一覧。
    * 上位への請求に取り込む際は承認額をそのまま参照し、税の再計算はしない（1円ズレ防止）。
    */
-  costReferences: connectManagerProcedure.query(async ({ ctx }) => {
+  costReferences: connectBillingProcedure.query(async ({ ctx }) => {
     const subs = await connectDb.listApprovedInvoiceSubmissions(ctx.companyId);
     return subs.map((s) => {
       const snap = s.snapshotJson as unknown as InvoiceSnapshotDto;

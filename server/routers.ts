@@ -7,6 +7,7 @@ import { nanoid } from "nanoid";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
 import * as db from "./db";
+import { recalcInvoiceTotals } from "./invoiceTotals";
 import { parseDateString, parseDateRange } from "./dateHelpers";
 import { isWorkedType, extractDateKey, workedDayValueTimes10 } from "@shared/attendanceStatus";
 import {
@@ -158,28 +159,6 @@ function assertEmployeeSelfOrManager(ctx: { user: { id: number; appRole?: string
   throw new TRPCError({ code: "FORBIDDEN", message: "アクセス権限がありません" });
 }
 
-/** Recalculate invoice totals from items */
-async function recalcInvoiceTotals(invoiceId: number) {
-  const items = await db.getInvoiceItemsByInvoice(invoiceId);
-  let subtotal = 0;
-  const taxByRate = new Map<number, number>();
-  for (const item of items) {
-    if (item.itemType === "text") continue;
-    subtotal += item.amount;
-    const rate = item.itemTaxRate;
-    const existing = taxByRate.get(rate) || 0;
-    taxByRate.set(rate, existing + item.amount);
-  }
-  let totalTax = 0;
-  for (const [rate, base] of Array.from(taxByRate.entries())) {
-    totalTax += Math.round(base * rate / 100);
-  }
-  await db.updateInvoice(invoiceId, {
-    subtotal,
-    taxAmount: totalTax,
-    totalAmount: subtotal + totalTax,
-  });
-}
 
 
 const CLIENT_INVOICE_ELIGIBLE_CLOSING_STATUSES = ["ready", "closed", "locked"] as const;
