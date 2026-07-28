@@ -71,6 +71,13 @@ describe("個人別 表示/ブロック設定のルーター実効", () => {
     await expect(caller.invoice.list()).resolves.toEqual([]);
   });
 
+  it("交通費の取引先請求サマリ(transportationBillingSummary)は billing ブロックの manager は FORBIDDEN", async () => {
+    const caller = appRouter.createCaller(createCtx(createUser({ appRole: "manager" } as any)));
+    await expect(
+      caller.monthlyClosingV2.transportationBillingSummary({ targetMonth: "2026-07" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   it("permission.my: manager の既定は billing=false / payments=true", async () => {
     const caller = appRouter.createCaller(createCtx(createUser({ appRole: "manager" } as any)));
     const result = await caller.permission.my();

@@ -3727,7 +3727,7 @@ export const appRouter = router({
         });
         return { receiptId: receipt.id, url, fileName: input.fileName };
       }),
-    transportationBillingSummary: monthlyClosingV2TransportationManagementProcedure
+    transportationBillingSummary: billingProcedure
       .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const [summaries, projects, clients] = await Promise.all([
