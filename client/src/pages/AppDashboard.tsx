@@ -309,7 +309,7 @@ function ActionRequiredPanel({ isManagerLike }: { isManagerLike: boolean }) {
 
   if (items.length === 0) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5 text-sm text-emerald-500 animate-in fade-in duration-500">
+      <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-4 py-2.5 text-sm text-success animate-in fade-in duration-500">
         <CheckCircle2 className="h-4 w-4 shrink-0" />
         {lang === "pt" ? "Nada pendente no momento" : "現時点で要対応はありません"}
       </div>
@@ -317,17 +317,17 @@ function ActionRequiredPanel({ isManagerLike }: { isManagerLike: boolean }) {
   }
 
   const SEVERITY_STYLES: Record<ActionItem["severity"], { card: string; icon: string }> = {
-    danger: { card: "border-red-500/40 bg-red-500/5 hover:bg-red-500/10", icon: "text-red-500 bg-red-500/10" },
-    warning: { card: "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10", icon: "text-amber-500 bg-amber-500/10" },
+    danger: { card: "border-destructive/40 bg-destructive/5 hover:bg-destructive/10", icon: "text-destructive bg-destructive/10" },
+    warning: { card: "border-warning/40 bg-warning/5 hover:bg-warning/10", icon: "text-warning bg-warning/10" },
     info: { card: "border-gold/40 bg-gold/5 hover:bg-gold/10", icon: "text-gold bg-gold/10" },
   };
 
   return (
     <section className="space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
       <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-        <AlertTriangle className="h-4 w-4 text-amber-500" />
+        <AlertTriangle className="h-4 w-4 text-warning" />
         {lang === "pt" ? "Requer atenção" : "要対応"}
-        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-bold text-amber-500">{items.length}</span>
+        <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-bold text-warning">{items.length}</span>
       </h2>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {items.map((item) => {
@@ -365,13 +365,13 @@ function ProfileCompletionAlert() {
 
   if (missingInfo && !missingInfo.hasProfile) {
     return (
-      <Card className="border-yellow-500/30 bg-yellow-500/5">
+      <Card className="border-warning/30 bg-warning/5">
         <CardContent className="py-4">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-yellow-500 shrink-0 mt-0.5" />
+              <AlertCircle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium text-yellow-500">
+                <p className="font-medium text-warning">
                   {lang === "pt" ? "Perfil não registrado" : "プロフィールが未登録です"}
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -396,13 +396,13 @@ function ProfileCompletionAlert() {
 
   if (missingInfo && missingInfo.missingFields.length > 0) {
     return (
-      <Card className="border-yellow-500/30 bg-yellow-500/5">
+      <Card className="border-warning/30 bg-warning/5">
         <CardContent className="py-4">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-yellow-500 shrink-0 mt-0.5" />
+              <AlertCircle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium text-yellow-500">
+                <p className="font-medium text-warning">
                   {lang === "pt"
                     ? `Há itens obrigatórios pendentes (${missingInfo.missingFields.length})`
                     : `未記入の必須項目があります（${missingInfo.missingFields.length}件）`}
