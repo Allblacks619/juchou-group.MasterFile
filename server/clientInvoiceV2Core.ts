@@ -23,10 +23,10 @@
  * - 残業代 (overtime) is computed PER 請求単価グループ (A/B/C) using the company rule
  *   (IMG_0293): 残業1時間単価 = 日単価 ÷ 標準時間(既定8) × 割増倍率(既定1.25=時間外). Hours are
  *   summed per rate over the month, then unit price (rounded) × hours (matches the real
- *   invoice: 25,000÷8×1.25=3,906 ×5h=19,530). 深夜割増(22:00–翌5:00, ×1.50) cannot be auto-
- *   detected (attendance has no hour-of-day), so it is NOT auto-applied — every 残業代 line
- *   carries a "verify, add 深夜 if applicable" warning. Multiplier/standard-hours are
- *   parameters, never silent hard-coded business rules.
+ *   invoice: 25,000÷8×1.25=3,906 ×5h=19,530). 深夜帯(×1.50) IS auto-applied, banded per day by
+ *   the company rule: 夜勤の残業は全て深夜／昼勤は6時間目以降(5時間超)が深夜（CLAUDE.md §請求ルール、
+ *   作業員請求書と同ルール）。時間外と深夜は別明細に分け、深夜が出た月は明細確認を促す warning を付ける。
+ *   Multiplier/standard-hours are parameters, never silent hard-coded business rules.
  * - 源泉徴収 (withholding) is a PAYER-side concept (worker invoice). It is NOT applied to
  *   the client invoice here (withholdingAmount is always 0).
  * - Quantities use 「日」/「時間」/「式」 — never 人工日.

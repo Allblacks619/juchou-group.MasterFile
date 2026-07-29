@@ -865,7 +865,8 @@ function InvoiceDetailDialog({
                             unit: item.unit || "式",
                             unitPrice: item.unitPrice || 0,
                             amount: item.amount || 0,
-                            itemTaxRate: item.itemTaxRate || 10,
+                            // 0% は正規の税率（交通費・免税事業者）。|| だと編集を開くだけで10%に化ける
+                            itemTaxRate: item.itemTaxRate ?? 10,
                             notes: externalItemNote(item.notes),
                             sortOrder: item.sortOrder || idx,
                           });

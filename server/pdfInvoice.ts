@@ -113,6 +113,21 @@ interface InvoicePdfData {
   showLogo?: boolean;
 }
 
+/**
+ * 税率ごとに税抜金額を集計する（内訳欄の正）。
+ * 0% は 0% のまま扱う（交通費・免税事業者）。合計側 invoiceTotals.ts と同じ集計。
+ */
+export function groupTaxByRate(items: Pick<InvoiceItem, "itemType" | "itemTaxRate" | "amount">[]): Map<number, number> {
+  const taxByRate = new Map<number, number>();
+  for (const item of items) {
+    if (item.itemType === "text") continue;
+    const rate = item.itemTaxRate;
+    const existing = taxByRate.get(rate) || 0;
+    taxByRate.set(rate, existing + item.amount);
+  }
+  return taxByRate;
+}
+
 export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
   const font = await ensureFont();
   const boldFont = await ensureBoldFont();
@@ -498,13 +513,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   const breakdownW = 220;
 
   // Group tax by rate
-  const taxByRate = new Map<number, number>();
-  for (const item of items) {
-    if (item.itemType === "text") continue;
-    const rate = item.itemTaxRate || 10;
-    const existing = taxByRate.get(rate) || 0;
-    taxByRate.set(rate, existing + item.amount);
-  }
+  const taxByRate = groupTaxByRate(items);
 
   // Draw breakdown box
   const breakdownEntries = Array.from(taxByRate.entries()).sort((a, b) => b[0] - a[0]).filter(([r]) => r > 0);
