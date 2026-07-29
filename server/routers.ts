@@ -4557,8 +4557,23 @@ export const appRouter = router({
         ]);
         const clientMap = new Map<number, any>(clients.map((c: any) => [c.id, c]));
 
-        const rows = await Promise.all(projects.map(async (project) => {
-          const closing = closings.find((c: any) => c.projectId === project.id && c.closingMonth === input.closingMonth) || null;
+        // N+1 回避: 現場ごとの closing を先に特定し、payments は closingId 一括で1クエリ取得して束ねる。
+        const projectClosings = projects.map((project) => ({
+          project,
+          closing: closings.find((c: any) => c.projectId === project.id && c.closingMonth === input.closingMonth) || null,
+        }));
+        const closingIds = Array.from(new Set(
+          projectClosings.map((pc) => pc.closing?.id).filter((id): id is number => id != null),
+        ));
+        const allPayments = await db.getEmployeePaymentsByClosingIds(closingIds);
+        const paymentsByClosing = new Map<number, any[]>();
+        for (const p of allPayments as any[]) {
+          const arr = paymentsByClosing.get(Number(p.closingId));
+          if (arr) arr.push(p);
+          else paymentsByClosing.set(Number(p.closingId), [p]);
+        }
+
+        const rows = projectClosings.map(({ project, closing }) => {
           if (!closing?.id) {
             return {
               project,
@@ -4567,7 +4582,7 @@ export const appRouter = router({
               summary: { targetCount: 0, paidCount: 0, confirmedCount: 0, unpaidCount: 0, totalAmount: 0 },
             };
           }
-          const payments = await db.getEmployeePaymentsByClosing(closing.id);
+          const payments = paymentsByClosing.get(Number(closing.id)) || [];
           const targetCount = payments.length;
           const paidCount = payments.filter((p: any) => p.status === "paid").length;
           const confirmedCount = payments.filter((p: any) => p.status === "confirmed").length;
@@ -4579,7 +4594,7 @@ export const appRouter = router({
             closing,
             summary: { targetCount, paidCount, confirmedCount, unpaidCount, totalAmount },
           };
-        }));
+        });
 
         return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
       }),
