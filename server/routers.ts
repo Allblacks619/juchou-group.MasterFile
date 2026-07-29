@@ -6236,7 +6236,7 @@ export const appRouter = router({
           throw error;
         }
       }),
-    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), employeeId: z.number().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional(), itemType: z.enum(["normal", "text"]).optional() })).optional() })).mutation(async ({ ctx, input }) => {
+    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), employeeId: z.number().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional(), itemType: z.enum(["normal", "text"]).optional(), taxRate: z.number().optional() })).optional() })).mutation(async ({ ctx, input }) => {
       const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
@@ -6256,6 +6256,8 @@ export const appRouter = router({
             amount: isText ? 0 : Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
             unit: isText ? "" : (item.unit || "式"),
             category: (item.category || undefined) as "labor" | "transport" | "expense" | "materials" | "misc" | undefined,
+            // 0% は正規の税率（交通費・インボイス未登録の労務費）。省略すると DB 既定の10%が入って化ける
+            taxRate: isText ? 0 : item.taxRate,
             sortOrder: index,
           };
         }));
