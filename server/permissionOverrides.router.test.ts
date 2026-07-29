@@ -7,6 +7,7 @@ vi.mock("./db", () => ({
   getUserById: vi.fn(),
   updateUserPermissionOverrides: vi.fn().mockResolvedValue(undefined),
   createAuditLog: vi.fn().mockResolvedValue({ id: 1 }),
+  removeProjectMember: vi.fn().mockResolvedValue(undefined),
 }));
 
 import * as db from "./db";
@@ -76,6 +77,20 @@ describe("個人別 表示/ブロック設定のルーター実効", () => {
     await expect(
       caller.monthlyClosingV2.transportationBillingSummary({ targetMonth: "2026-07" }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("出面メンバー削除(attendance.removeMember)は attendance エリアで判定される（worker は既定 FORBIDDEN、allow で可）", async () => {
+    const denied = appRouter.createCaller(createCtx(createUser({ appRole: "worker" } as any)));
+    await expect(
+      denied.attendance.removeMember({ projectId: 1, employeeId: 2 }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    const allowed = appRouter.createCaller(
+      createCtx(createUser({ appRole: "worker", permissionOverrides: '{"attendance":"allow"}' } as any)),
+    );
+    await expect(
+      allowed.attendance.removeMember({ projectId: 1, employeeId: 2 }),
+    ).resolves.toEqual({ success: true });
   });
 
   it("permission.my: manager の既定は billing=false / payments=true", async () => {
