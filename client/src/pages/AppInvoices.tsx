@@ -59,8 +59,8 @@ import { useLocation } from "wouter";
 const STATUS_LABELS: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   draft: { label: "下書き", color: "bg-gray-500/20 text-gray-400", icon: Clock },
   sent: { label: "送付済", color: "bg-blue-500/20 text-blue-400", icon: Send },
-  paid: { label: "入金済", color: "bg-emerald-500/20 text-emerald-400", icon: CheckCircle },
-  overdue: { label: "未入金", color: "bg-red-500/20 text-red-400", icon: AlertCircle },
+  paid: { label: "入金済", color: "bg-success/20 text-success", icon: CheckCircle },
+  overdue: { label: "未入金", color: "bg-destructive/20 text-destructive", icon: AlertCircle },
   cancelled: { label: "取消", color: "bg-gray-500/20 text-gray-500", icon: XCircle },
 };
 
