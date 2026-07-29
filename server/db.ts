@@ -1408,6 +1408,12 @@ export async function getEmployeePaymentsByClosing(closingId: number) {
   return db.select().from(employeePayments).where(eq(employeePayments.closingId, closingId));
 }
 
+export async function getEmployeePaymentsByClosingIds(closingIds: number[]) {
+  const db = await getDb();
+  if (!db || closingIds.length === 0) return [];
+  return db.select().from(employeePayments).where(inArray(employeePayments.closingId, closingIds));
+}
+
 export async function getEmployeePaymentById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
