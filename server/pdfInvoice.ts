@@ -13,6 +13,7 @@
 import PDFDocument from "pdfkit";
 import { Invoice, InvoiceItem, CompanyProfile } from "../drizzle/schema";
 import { resignStoredUrl } from "./storage";
+import { groupTaxByRate } from "./invoiceTotals";
 import https from "https";
 import http from "http";
 import fs from "fs";
@@ -111,21 +112,6 @@ interface InvoicePdfData {
   clientContactPerson?: string;
   showSeal?: boolean;
   showLogo?: boolean;
-}
-
-/**
- * 税率ごとに税抜金額を集計する（内訳欄の正）。
- * 0% は 0% のまま扱う（交通費・免税事業者）。合計側 invoiceTotals.ts と同じ集計。
- */
-export function groupTaxByRate(items: Pick<InvoiceItem, "itemType" | "itemTaxRate" | "amount">[]): Map<number, number> {
-  const taxByRate = new Map<number, number>();
-  for (const item of items) {
-    if (item.itemType === "text") continue;
-    const rate = item.itemTaxRate;
-    const existing = taxByRate.get(rate) || 0;
-    taxByRate.set(rate, existing + item.amount);
-  }
-  return taxByRate;
 }
 
 export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> {

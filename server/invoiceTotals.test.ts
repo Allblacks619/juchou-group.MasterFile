@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupTaxByRate } from "./pdfInvoice";
+import { groupTaxByRate } from "./invoiceTotals";
 
 describe("groupTaxByRate", () => {
   it("keeps 0% items in their own bucket instead of folding them into 10%", () => {
