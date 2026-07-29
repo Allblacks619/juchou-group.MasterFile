@@ -1,0 +1,153 @@
+# 引き継ぎ資料（2026-07-27 作成）
+
+## 1. プロジェクト概要
+
+**充寵グループ 業務管理システム** — 電気工事業の二次〜四次下請け間の業務管理（出面・請求・月締め・入金・現場管理）を一元化するWebアプリ。
+
+- **技術スタック**: Express + tRPC v11 / MariaDB + drizzle-orm / React + Vite + wouter / vitest
+- **本番**: ConoHa VPS (133.88.120.12) docker compose / https://www.juchou-group.com/app
+- **デプロイ**: main マージ → GHCR push → Watchtower 自動更新（5〜10分）
+- **完成の定義**: 建設業の二次⇔三次⇔四次間で請求書・出面・名簿をスマートにやり取りできるマルチテナントプラットフォーム
+
+## 2. 決定事項とその理由
+
+### マルチテナント設計
+- **フィーチャーフラグ方式** (`MULTI_TENANT` 環境変数、既定 off): 本番に影響を与えずに検証できる。flag off 時は全テーブルの companyId=1 固定で既存挙動と完全互換。
+- **既存テーブルに companyId 列追加** (DEFAULT 1): 新テーブル方式より確実にデータ整合性を保てる。19テーブルに追加済み。
+- **genba は最小限（4テーブルのみ）**: genbaSites がヒエラルキーのルートなので、子テーブルは siteId 経由で自動的にスコープされる。26テーブル全部に追加するのは過剰。
+- **公開トークン（作業員リンク/共有URL）に会社フィルタを入れない**: トークン自体がアクセス権の証明なので、companyId フィルタを追加すると正当なアクセスが壊れる。site.companyId で自動スコープされる。
+
+### Connect（会社間連携）層
+- **別スキーマファイル** (`drizzle/schema.connect.ts`): genba と同じ「加算のみ」パターンに従い、既存テーブルを変更しない。
+- **Whitelist DTOパターン**: 会社間でデータを共有する際、DBオブジェクトをそのまま spread しない。明示的にフィールドを列挙してコピーする（シークレット漏洩防止、テスト済み）。
+- **不変再提出（immutable resubmission）**: 差戻し後の修正は既存行の編集ではなく、`supersedesId` で新行を作る。承認済みは再提出不可。
+- **審議結果**: 申告額≠承認額が建設業の常態なので、`approvedAmount` + `adjustmentsJson`（協力会費等の控除明細）を設計。payable は承認額で自動作成。
+- **原価取り込みは税率0%**: 承認済みの受領請求を自社請求書に取り込む際、税の再計算をしない（1円ズレ防止）。
+
+### 請求ルール（オーナー確認済み）
+- 昼勤残業: 最初の5h=時間外(×1.25)、6h目以降=深夜帯(×1.50)
+- 夜勤残業: 全て深夜帯(×1.50)
+- 深夜帯割増は取引先にも請求（パターンB）
+- 単価 = 日単価 ÷ 8 × 倍率、四捨五入してから時間を掛ける
+
+## 3. 試したがダメだったこと / 確認済みの制約
+
+| 内容 | 理由 |
+|---|---|
+| genba 全26テーブルに companyId 追加 | 不要。サイトヒエラルキーのルート（genbaSites）だけで十分。子テーブルは siteId JOINで自動スコープ |
+| `[...out]` でSet展開 (resolveInputSiteIds) | TS2802エラー（targetがes2015未満）。`Array.from(out)` に変更で解決 |
+| genba db関数の引数にcompanyId追加後、既存テストがexact arg matchで失敗 | 末尾に `undefined` を追加して修正（例: `listGenbaMaterialPresets(SITE.id, undefined)`）|
+| PR のマイグレーション番号が main と衝突 | 0044 が genba_floor_annotations と被った。journal.json の idx を手動調整で解決 |
+| buildInvoiceSnapshotDto に hoursWorked を渡す | AttendanceRowDto は `hoursWorkedTimes10` を使う。型を統一して解決 |
+
+## 4. 環境の落とし穴
+
+- **Node.js**: v22 必須（v20以下では一部ES機能が使えない）
+- **pnpm**: v10系を使用（v9以前では lockfile 互換性なし）
+- **jszip**: package.json にあるが、main rebase 後にインストールが抜ける場合がある → `pnpm install` で解決
+- **認証の壊れやすい3点**: (1) Cookie `sameSite:"lax"` (cookies.ts) (2) `verifySession` は openId のみ必須、appId 空を許容 (sdk.ts) (3) `server/_core/vite.ts` は vite を動的 import（本番は vite 未インストール）。**この3つを壊すとログイン不能/起動クラッシュ**。
+- **CI が PR で発火しない場合**: 空コミット (`git commit --allow-empty -m "chore: trigger CI"`) をプッシュして強制トリガー。
+- **drizzle マイグレーション番号衝突**: 並行ブランチがあると `meta/_journal.json` の idx が衝突する。手動で連番を振り直す。
+
+## 5. 検証ステータス
+
+### (a) 実データ相当で動作確認済み（テスト合格）
+- マルチテナント基盤（tenancy flag on/off、companyId スタンプ、assertCompanyScope）: `mtTenancy.test.ts`, `mtHardening.test.ts`
+- ビジネスリスト（clients/projects/employees etc.）の companyId フィルタ: `mtBusinessTenancy.test.ts`
+- genba テナント境界: `mtGenbaTenancy.test.ts`, `mtSim.genbaRoster.test.ts`
+- Connect パートナーリンク + 名簿提出: `mtConnect.test.ts`（9テスト、SECRET漏洩チェック含む）
+- Connect 請求書提出 + 出面突合 + 審議 + payable + 原価取り込み: `mtConnectInvoice.test.ts`（9テスト）
+- 請求書シミュレーション（P1/P2/P3パターン計算検証）: `mtSimFixture.test.ts`
+- 検証シーダー: `mtSimVerifySeeder.test.ts`
+- 全テスト: **90ファイル / 851テスト合格 / 3スキップ**（2026-07-27時点）
+
+### (b) 実装したが未検証（UI/統合テストが必要なもの）
+- **AppConnect.tsx の5タブUI**: 実装済みだが、ブラウザでの手動操作テスト未実施（E2Eテストなし、UIはtRPCモックのテストのみ）
+- **AppInvoices.tsx の原価取り込みUI**: セレクタ+ボタン実装済み、手動テスト未実施
+- **AppLayout の連携ナビ**: Handshake アイコン + gold glow、手動テスト未実施
+- **検証シーダー (`scripts/seedMtSimVerify.ts`)**: ローカルDBでの実行テスト未実施（ユニットテストのみ）
+- **UIテーマ改良（近未来的視認性）**: カードシャドウ・テーブルスティッキーヘッダー・tabular-nums等。本番では適用済み（PR #178 マージ済み）だが、全画面での退行確認が必要
+- **PR #180 のCI**: 空コミットプッシュ済みだがCI結果未確認（check_runs=0だったため再トリガー）
+
+### (c) 未実装
+- **Phase 4 PR2**: 入金/支払の対称表示（submitterPaymentStatus 列 + migration + UI）
+- **Phase 4 PR3**: テナント別ルール設定（残業閾値・倍率・標準時間・税率を companies テーブルに移動）
+- **UIの残り改善**: ステータス色のトークン化、ハードコードHEXのテーマ変数化、モバイルタップ領域拡張、行密度トグル
+- **本番ロールアウト**: `MULTI_TENANT=true` の有効化（既存ユーザー=会社1の事前確認が必要。手順は `docs/multitenant/VERIFICATION.md` に記載）
+
+## 6. オーナーの承認待ち / 勝手に進めてはいけないもの
+
+- **`MULTI_TENANT` フラグの本番有効化**: 既存データの会社帰属確認と移行手順のレビューが必要（`docs/multitenant/VERIFICATION.md` §3 参照）
+- **Phase 4 PR2/PR3 の設計**: 設計書はあるが着手承認はまだ
+- **マルチテナント化の商用プラン（他社への販売・月額設定）**: オーナーが価値評価を依頼した段階で、具体的な販売戦略は未決定
+
+## 7. オーナーの好み / 却下されたもの
+
+- **UIテーマ**: Industrial × Craftsmanship（黒背景×金アクセント）。Zen Kaku Gothic New + Space Grotesk。変更不可。
+- **言語**: オーナーへの回答は必ず日本語
+- **途中経過報告禁止**: CI待ちなどの「待機中」メッセージは書かない。完了・要判断・失敗時のみ
+- **自動マージ**: CI green → draft を ready → 即マージ。確認不要
+- **自動デプロイ**: マージ後は Watchtower で自動。手動デプロイを依頼しない
+- **genba UI**: docs/genba/prototype/GenbaAppV18.jsx が正。CUD配色はテーマ不変
+- **月締め**: 「月締めを進む」=出面確定、改めての確認不要。交通費最重要。柔軟性最重要。
+
+## 8. 環境変数/シークレット一覧
+
+雛形は `.env.example`（`cp .env.example .env`）。**`pnpm test` / `npx tsc --noEmit` は `.env` なしで通る**（DBはモック）。`.env` が要るのは実際にアプリを起動する時だけ。
+
+| 名前 | 用途 | 再取得元 |
+|---|---|---|
+| `DATABASE_URL` | MariaDB接続 | VPS `/opt/juchou/.env`。ローカルは `mysql://juchou:pass@localhost:3306/juchou` |
+| `JWT_SECRET` | セッションCookie署名（64文字ランダム） | VPS `.env`。ローカルは任意の値でよい |
+| `DB_ROOT_PASSWORD` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | docker compose の MariaDB 起動用 | VPS `.env` |
+| `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | 画像・PDF保管（Cloudflare R2 の S3 互換API） | Cloudflare ダッシュボード（R2 → API トークン） |
+| `S3_REGION` / `S3_FORCE_PATH_STYLE` / `S3_SIGNED_URL_TTL_SEC` | 同上（既定値あり: auto / false / 3600） | 設定不要 |
+| `BUILT_IN_FORGE_API_URL` / `BUILT_IN_FORGE_API_KEY` | LLM API（OpenAI互換） | OpenAI ダッシュボード。未設定でも起動する |
+| `MULTI_TENANT` | マルチテナント機能フラグ (true/false) | 手動設定。本番は未設定(=off) |
+| `GENBA_ENABLED` | 現場ビジョン機能フラグ | 手動設定 |
+| `OWNER_LOGIN_ID` / `OWNER_PASSWORD` / `OWNER_OPEN_ID` / `OWNER_NAME` | 初期オーナー作成（`scripts/seed-owner.mjs`） | 初回セットアップ時のみ |
+| `PORT` / `NODE_ENV` / `DEPLOY_ENV` / `VITE_APP_ID` | 実行環境設定 | 既定値あり |
+| `APP_IMAGE` / `CLOUDFLARE_TUNNEL_TOKEN` | docker compose 用（アプリ本体は不使用） | GHCR / Cloudflare |
+
+⚠️ **値は記載しない。取得元のみ。**
+⚠️ 認証は自前JWT（`JWT_SECRET`）。**SuperTokens は使っていない**。Web Push の VAPID 鍵もコード上は未使用（`process.env` 参照が無い）。
+
+## 9. 次にやるべきこと（価値の高い順）
+
+1. **PR #180 のCI確認→マージ**: 空コミットでCIトリガー済み。green になったら draft → ready → merge
+2. **Phase 4 PR2（入金/支払対称表示）**: partner_invoice_submissions に submitterPaymentStatus 列追加 + migration + UI表示
+3. **Phase 4 PR3（テナント別ルール設定）**: companies テーブルに設定列追加。workerInvoiceV2Core.ts と clientInvoiceV2Builder.ts の定数をDB参照に切替
+4. **UI残り改善**: ステータス色トークン化、HEX→テーマ変数、モバイルタップ領域、行密度トグル
+5. **E2Eテスト**: Playwright で Connect UI の主要フロー（パートナーリンク→名簿提出→請求提出→承認）を自動化
+6. **本番ロールアウト準備**: VERIFICATION.md §3 の手順に沿い、既存データの会社帰属確認スクリプトを実行
+
+## 10. 主要ファイルマップ
+
+### マルチテナント基盤
+- `server/tenancy.ts` — フラグ判定、resolveCompanyId
+- `server/_core/context.ts` — ctx.companyId 注入
+- `server/db.ts` — companyId フィルタ付きCRUD
+- `server/routers.ts` — assertCompanyScope、companyId スタンプ、connectRouter マウント
+- `drizzle/schema.ts` — companies テーブル、19テーブルの companyId 列
+
+### Connect（会社間連携）
+- `drizzle/schema.connect.ts` — partner_links, roster/invoice submissions, payables
+- `server/connect/router.ts` — connectProcedure, partner/roster/invoice/payable ルーター
+- `server/connect/db.ts` — Connect CRUD
+- `server/connect/roster.ts` — Whitelist DTO, マッチング（CCUS > 名前）
+- `server/connect/invoice.ts` — 請求スナップショット, 出面突合, 審議計算
+- `client/src/pages/AppConnect.tsx` — 5タブUI
+
+### genba テナント
+- `drizzle/schema.genba.ts` — 4テーブルに companyId
+- `server/genba/router.ts` — assertUserCompanyScope
+- `server/genba/db.ts` — companyId フィルタ付きクエリ
+
+### テスト
+- `server/mt*.test.ts` — マルチテナント全テスト（6ファイル）
+- `server/mtSimFixture.ts` — 3社チェーンフィクスチャ
+- `scripts/seedMtSimVerify.ts` — 検証シーダー
+
+### 設計ドキュメント
+- `docs/multitenant/PLAN_v1.md` — マスタープラン（全フェーズ、審議15件、P1-P8パターン）
+- `docs/multitenant/VERIFICATION.md` — 検証手順 + 本番ロールアウト手順

@@ -7,6 +7,7 @@ import { nanoid } from "nanoid";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
 import * as db from "./db";
+import { recalcInvoiceTotals } from "./invoiceTotals";
 import { parseDateString, parseDateRange } from "./dateHelpers";
 import { isWorkedType, extractDateKey, workedDayValueTimes10 } from "@shared/attendanceStatus";
 import {
@@ -72,10 +73,6 @@ const monthlyClosingV2ParticipantStatuses = ["未確認", "出面確認済み", 
 const monthlyClosingV2TransportationStatuses = ["未入力", "入力済み", "確認待ち", "確認済み", "情報不足", "集計対象外"] as const;
 const monthlyClosingV2InvoiceInfoStatuses = ["確認待ち", "確認中", "確認済み", "情報不足", "集計対象外"] as const;
 const monthlyClosingV2PayerTypes = ["none", "worker_paid", "company_card_etc", "company_paid", "client_paid_direct"] as const;
-
-function canRemoveAttendanceMember(role: unknown) {
-  return role === "super_admin" || role === "admin" || role === "manager";
-}
 
 function removedGuestMarkerName(guestName: string) {
   return `${ATTENDANCE_REMOVED_GUEST_PREFIX}${createHash("sha256").update(guestName).digest("hex")}`;
@@ -158,28 +155,6 @@ function assertEmployeeSelfOrManager(ctx: { user: { id: number; appRole?: string
   throw new TRPCError({ code: "FORBIDDEN", message: "アクセス権限がありません" });
 }
 
-/** Recalculate invoice totals from items */
-async function recalcInvoiceTotals(invoiceId: number) {
-  const items = await db.getInvoiceItemsByInvoice(invoiceId);
-  let subtotal = 0;
-  const taxByRate = new Map<number, number>();
-  for (const item of items) {
-    if (item.itemType === "text") continue;
-    subtotal += item.amount;
-    const rate = item.itemTaxRate;
-    const existing = taxByRate.get(rate) || 0;
-    taxByRate.set(rate, existing + item.amount);
-  }
-  let totalTax = 0;
-  for (const [rate, base] of Array.from(taxByRate.entries())) {
-    totalTax += Math.round(base * rate / 100);
-  }
-  await db.updateInvoice(invoiceId, {
-    subtotal,
-    taxAmount: totalTax,
-    totalAmount: subtotal + totalTax,
-  });
-}
 
 
 const CLIENT_INVOICE_ELIGIBLE_CLOSING_STATUSES = ["ready", "closed", "locked"] as const;
@@ -1054,6 +1029,21 @@ function isDuplicateKeyError(error: any) {
   const code = String(error?.code || error?.errno || "");
   const message = String(error?.message || "");
   return code.includes("ER_DUP_ENTRY") || message.includes("Duplicate entry") || message.includes("duplicate");
+}
+
+// 取引先請求書の採番はロック無し（getNextInvoiceNumber の max+1）なので、同時作成で
+// invoice_number_unique に衝突しうる。作業員請求書と同じく重複キー時に採番からやり直す。
+export async function createInvoiceWithUniqueNumber(yearMonth: string, payload: any) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    payload.invoiceNumber = await db.getNextInvoiceNumber(yearMonth);
+    try {
+      return await db.createInvoice(payload);
+    } catch (error: any) {
+      if (isDuplicateKeyError(error)) continue;
+      throw error;
+    }
+  }
+  throw new TRPCError({ code: "CONFLICT", message: "請求書番号の採番に失敗しました。再試行してください。" });
 }
 
 async function generateWorkerInvoiceNumber(projectId: number, closingMonth: string) {
@@ -2877,16 +2867,13 @@ export const appRouter = router({
 
 
     /** Remove an active attendance member without deleting historical attendance data */
-    removeMember: protectedProcedure
+    removeMember: attendanceAdminProcedure
       .input(z.object({
         projectId: z.number(),
         employeeId: z.number().optional(),
         guestName: z.string().trim().min(1).max(128).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!canRemoveAttendanceMember((ctx.user as any).appRole)) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "管理者権限が必要です" });
-        }
         if (!!input.employeeId === !!input.guestName) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "従業員またはゲストを1人指定してください" });
         }
@@ -3748,7 +3735,7 @@ export const appRouter = router({
         });
         return { receiptId: receipt.id, url, fileName: input.fileName };
       }),
-    transportationBillingSummary: monthlyClosingV2TransportationManagementProcedure
+    transportationBillingSummary: billingProcedure
       .input(z.object({ targetMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ input }) => {
         const [summaries, projects, clients] = await Promise.all([
@@ -4389,9 +4376,7 @@ export const appRouter = router({
             message: "請求対象データがありません。空または0円の請求書ドラフトは作成できません。",
           });
         }
-        const invoiceNumber = await db.getNextInvoiceNumber(input.closingMonth);
-        const invoice = await db.createInvoice({
-          invoiceNumber,
+        const invoice = await createInvoiceWithUniqueNumber(input.closingMonth, {
           clientId: draft.clientId,
           projectId: draft.primaryProjectId,
           periodStart: draft.periodStart,
@@ -4585,8 +4570,23 @@ export const appRouter = router({
         ]);
         const clientMap = new Map<number, any>(clients.map((c: any) => [c.id, c]));
 
-        const rows = await Promise.all(projects.map(async (project) => {
-          const closing = closings.find((c: any) => c.projectId === project.id && c.closingMonth === input.closingMonth) || null;
+        // N+1 回避: 現場ごとの closing を先に特定し、payments は closingId 一括で1クエリ取得して束ねる。
+        const projectClosings = projects.map((project) => ({
+          project,
+          closing: closings.find((c: any) => c.projectId === project.id && c.closingMonth === input.closingMonth) || null,
+        }));
+        const closingIds = Array.from(new Set(
+          projectClosings.map((pc) => pc.closing?.id).filter((id): id is number => id != null),
+        ));
+        const allPayments = await db.getEmployeePaymentsByClosingIds(closingIds);
+        const paymentsByClosing = new Map<number, any[]>();
+        for (const p of allPayments as any[]) {
+          const arr = paymentsByClosing.get(Number(p.closingId));
+          if (arr) arr.push(p);
+          else paymentsByClosing.set(Number(p.closingId), [p]);
+        }
+
+        const rows = projectClosings.map(({ project, closing }) => {
           if (!closing?.id) {
             return {
               project,
@@ -4595,7 +4595,7 @@ export const appRouter = router({
               summary: { targetCount: 0, paidCount: 0, confirmedCount: 0, unpaidCount: 0, totalAmount: 0 },
             };
           }
-          const payments = await db.getEmployeePaymentsByClosing(closing.id);
+          const payments = paymentsByClosing.get(Number(closing.id)) || [];
           const targetCount = payments.length;
           const paidCount = payments.filter((p: any) => p.status === "paid").length;
           const confirmedCount = payments.filter((p: any) => p.status === "confirmed").length;
@@ -4607,7 +4607,7 @@ export const appRouter = router({
             closing,
             summary: { targetCount, paidCount, confirmedCount, unpaidCount, totalAmount },
           };
-        }));
+        });
 
         return rows.sort((a: any, b: any) => a.project.name.localeCompare(b.project.name, "ja"));
       }),
@@ -5303,114 +5303,6 @@ export const appRouter = router({
         }, {} as Record<string, number>);
         return { rows, summary: { total: rows.length, byEntity } };
       }),
-
-    /** Generate invoice draft for closing */
-    generateForClosing: leaderOrAdminProcedure
-      .input(z.object({
-        projectId: z.number().optional(),
-        projectIds: z.array(z.number()).optional(),
-        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        const selectedProjectIds = input.projectIds?.length
-          ? Array.from(new Set(input.projectIds.map(Number).filter(Boolean)))
-          : input.projectId ? [input.projectId] : [];
-        if (!selectedProjectIds.length) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "案件が選択されていません" });
-        }
-        // 月締めV2を主軸に: 締め完了現場をV2から、交通費はV2のクライアント請求対象集計から、
-        // 残業はV2の出面から。V1締めしか無い現場は自動でV1ブリッジ。
-        const draft = await buildClientInvoiceDraftFromV2({
-          projectIds: selectedProjectIds,
-          targetMonth: input.closingMonth,
-          includeProjectSectionHeaders: selectedProjectIds.length > 1,
-        });
-        const billableItems = draft.items.filter((item: any) => item.itemType !== "text");
-        if (!billableItems.length || Number(draft.totalAmount || 0) <= 0) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "請求対象データがありません。空または0円の請求書ドラフトは作成できません。",
-          });
-        }
-        const invoiceNumber = await db.getNextInvoiceNumber(input.closingMonth);
-        const invoice = await db.createInvoice({
-          invoiceNumber,
-          clientId: draft.clientId,
-          projectId: draft.primaryProjectId,
-          periodStart: draft.periodStart,
-          periodEnd: draft.periodEnd,
-          // 発行日の既定は月締め月の末日（オーナー指定）。請求書詳細のカレンダーで変更可能。
-          issueDate: draft.periodEnd,
-          dueDate: null,
-          subtotal: draft.subtotal,
-          taxAmount: draft.taxAmount,
-          totalAmount: draft.totalAmount,
-          taxRate: 10,
-          status: "draft",
-          notes: null,
-          internalMemo: [`closing draft / projectIds=${draft.projectIds.join(",")}`, draft.internalRateMemo].filter(Boolean).join("\n\n"),
-          pdfUrl: null,
-          receivedAmount: 0,
-          receivedAt: null,
-          receivedBy: null,
-          paymentMemo: null,
-          createdBy: ctx.user.id,
-          honorific: "御中",
-          subNumber: null,
-          paymentMethod: "口座振込",
-          subject: draft.subject,
-          showSeal: true,
-          showLogo: true,
-          withholding: !!draft.withholdingAmount,
-          withholdingAmount: draft.withholdingAmount,
-        } as any);
-        for (const item of draft.items) {
-          await db.createInvoiceItem({
-            invoiceId: invoice.id,
-            employeeId: item.employeeId,
-            itemType: item.itemType,
-            description: item.description,
-            quantity: item.quantity,
-            unit: item.unit,
-            unitPrice: item.unitPrice,
-            amount: item.amount,
-            itemTaxRate: item.itemTaxRate,
-            sortOrder: item.sortOrder,
-            notes: item.notes || null,
-          } as any);
-        }
-        await safeAuditLog(ctx.user.id, "invoice_draft_created_from_closing", "invoice", {
-          invoiceId: invoice.id,
-          projectId: draft.primaryProjectId,
-          note: "Created editable invoice draft from monthly closing. PDF not generated yet.",
-          payload: {
-            closingMonth: input.closingMonth,
-            projectIds: draft.projectIds,
-            subtotal: draft.subtotal,
-            taxAmount: draft.taxAmount,
-            totalAmount: draft.totalAmount,
-          },
-        });
-        return {
-          invoiceId: invoice.id,
-          invoiceNumber: invoice.invoiceNumber,
-          totalAmount: draft.totalAmount,
-          status: "draft",
-          editUrl: `/app/invoices?invoiceId=${invoice.id}`,
-          warnings: draft.warnings,
-          message: draft.warnings.length
-            ? `請求書ドラフトを作成しました（要確認 ${draft.warnings.length}件）。PDF出力前に内容を確認・編集してください。`
-            : "請求書ドラフトを作成しました。PDF出力前に内容を確認・編集してください。",
-        };
-      }),
-    sameClientInvoiceCandidates: leaderOrAdminProcedure
-      .input(z.object({
-        projectId: z.number(),
-        closingMonth: z.string().regex(/^\d{4}-\d{2}$/),
-      }))
-      .query(async ({ input }) => {
-        return buildSameClientInvoiceCandidates(input.projectId, input.closingMonth);
-      }),
   }),
   invoice: router({
     /** List all invoices */
@@ -5647,9 +5539,7 @@ export const appRouter = router({
           includeProjectSectionHeaders: input.projectIds.length > 1,
         });
 
-        const invoiceNumber = await db.getNextInvoiceNumber(closingMonth);
-        const invoice = await db.createInvoice({
-          invoiceNumber,
+        const invoice = await createInvoiceWithUniqueNumber(closingMonth, {
           clientId: draft.clientId,
           projectId: draft.primaryProjectId,
           periodStart: draft.periodStart,
@@ -5711,10 +5601,10 @@ export const appRouter = router({
           entityId: invoice.id,
           invoiceId: invoice.id,
           projectId: draft.primaryProjectId || input.projectIds[0],
-          note: `請求書自動作成 ${invoiceNumber}`,
+          note: `請求書自動作成 ${invoice.invoiceNumber}`,
           payload: { projectIds: input.projectIds, clientId: draft.clientId },
         });
-        return { id: invoice.id, invoiceNumber, totalAmount: draft.totalAmount, warnings: draft.warnings };
+        return { id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount: draft.totalAmount, warnings: draft.warnings };
       }),
 
     /** Generate PDF for an invoice（出面表・アップロード書類を1つのPDFに合体して添付できる） */
@@ -5886,11 +5776,9 @@ export const appRouter = router({
 
         const totalAmount = subtotal + totalTax;
         const yearMonth = input.periodStart.slice(0, 7);
-        const invoiceNumber = await db.getNextInvoiceNumber(yearMonth);
 
         const finalTotal = totalAmount - (input.withholdingAmount || 0);
-        const invoice = await db.createInvoice({
-          invoiceNumber,
+        const invoice = await createInvoiceWithUniqueNumber(yearMonth, {
           clientId: input.clientId,
           projectId: input.projectId || null,
           periodStart: parseDateString(input.periodStart),
@@ -5926,8 +5814,8 @@ export const appRouter = router({
           });
         }
 
-        await safeAuditLog(ctx.user.id, "invoice.createManual", "invoice", { entityId: invoice.id, invoiceId: invoice.id, projectId: input.projectId || null, note: `手動請求書作成 ${invoiceNumber}` });
-        return { id: invoice.id, invoiceNumber, totalAmount };
+        await safeAuditLog(ctx.user.id, "invoice.createManual", "invoice", { entityId: invoice.id, invoiceId: invoice.id, projectId: input.projectId || null, note: `手動請求書作成 ${invoice.invoiceNumber}` });
+        return { id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount };
       }),
 
     /** Add item to existing invoice */
@@ -6357,7 +6245,7 @@ export const appRouter = router({
           throw error;
         }
       }),
-    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), employeeId: z.number().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional(), itemType: z.enum(["normal", "text"]).optional() })).optional() })).mutation(async ({ ctx, input }) => {
+    saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), employeeId: z.number().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional(), itemType: z.enum(["normal", "text"]).optional(), taxRate: z.number().optional() })).optional() })).mutation(async ({ ctx, input }) => {
       const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
@@ -6377,6 +6265,8 @@ export const appRouter = router({
             amount: isText ? 0 : Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
             unit: isText ? "" : (item.unit || "式"),
             category: (item.category || undefined) as "labor" | "transport" | "expense" | "materials" | "misc" | undefined,
+            // 0% は正規の税率（交通費・インボイス未登録の労務費）。省略すると DB 既定の10%が入って化ける
+            taxRate: isText ? 0 : item.taxRate,
             sortOrder: index,
           };
         }));

@@ -59,8 +59,8 @@ import { useLocation } from "wouter";
 const STATUS_LABELS: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   draft: { label: "下書き", color: "bg-gray-500/20 text-gray-400", icon: Clock },
   sent: { label: "送付済", color: "bg-blue-500/20 text-blue-400", icon: Send },
-  paid: { label: "入金済", color: "bg-emerald-500/20 text-emerald-400", icon: CheckCircle },
-  overdue: { label: "未入金", color: "bg-red-500/20 text-red-400", icon: AlertCircle },
+  paid: { label: "入金済", color: "bg-success/20 text-success", icon: CheckCircle },
+  overdue: { label: "未入金", color: "bg-destructive/20 text-destructive", icon: AlertCircle },
   cancelled: { label: "取消", color: "bg-gray-500/20 text-gray-500", icon: XCircle },
 };
 
@@ -82,7 +82,9 @@ function isInternalRateMappingNote(note: string | null | undefined): boolean {
 }
 
 function externalItemNote(note: string | null | undefined): string {
-  return isInternalRateMappingNote(note) ? "" : (note || "");
+  if (!note || isInternalRateMappingNote(note)) return "";
+  // connect:costRef:N 等は取り込みの内部マーカー（二重取り込み判定用）。外部に出さない
+  return note.startsWith("connect:") ? "" : note;
 }
 
 interface InvoiceLineItem {
@@ -146,6 +148,21 @@ function InvoiceDetailDialog({
   onClose: () => void;
 }) {
   const detailQuery = trpc.invoice.get.useQuery({ id: invoiceId });
+  // 会社間連携（Phase 4）: 承認済み受領請求を外注費として取り込む（連携有効時のみ表示）
+  const connectStatus = trpc.connect.status.useQuery(undefined, { retry: false, staleTime: 5 * 60 * 1000 });
+  const costRefsQuery = trpc.connect.invoice.costReferences.useQuery(undefined, {
+    enabled: !!connectStatus.data?.enabled,
+    retry: false,
+  });
+  const [costRefId, setCostRefId] = useState<string>("");
+  const importCostRefMutation = trpc.connect.invoice.importCostReference.useMutation({
+    onSuccess: (d) => {
+      toast.success(`外注費として取り込みました（¥${d.costAmount.toLocaleString()}）`);
+      setCostRefId("");
+      detailQuery.refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
   const addItemMutation = trpc.invoice.addItem.useMutation({
     onSuccess: () => {
       toast.success("項目を追加しました");
@@ -848,7 +865,8 @@ function InvoiceDetailDialog({
                             unit: item.unit || "式",
                             unitPrice: item.unitPrice || 0,
                             amount: item.amount || 0,
-                            itemTaxRate: item.itemTaxRate || 10,
+                            // 0% は正規の税率（交通費・免税事業者）。|| だと編集を開くだけで10%に化ける
+                            itemTaxRate: item.itemTaxRate ?? 10,
                             notes: externalItemNote(item.notes),
                             sortOrder: item.sortOrder || idx,
                           });
@@ -1015,6 +1033,37 @@ function InvoiceDetailDialog({
                 閉じる
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 会社間連携: 承認済み受領請求からの原価取り込み（税再計算なし・承認額そのまま1行） */}
+      {!!connectStatus.data?.enabled && (costRefsQuery.data ?? []).length > 0 && (
+        <Card className="border-gold/30">
+          <CardContent className="pt-4 flex flex-wrap items-end gap-2">
+            <div className="space-y-1 min-w-64">
+              <Label className="text-xs">承認済み受領請求（外注費として取り込み）</Label>
+              <Select value={costRefId} onValueChange={setCostRefId}>
+                <SelectTrigger className="h-8"><SelectValue placeholder="受領請求を選択" /></SelectTrigger>
+                <SelectContent>
+                  {(costRefsQuery.data ?? []).map((r: any) => (
+                    <SelectItem key={r.submissionId} value={String(r.submissionId)}>
+                      {r.invoiceNumber || `受領請求#${r.submissionId}`} — ¥{Number(r.costAmount).toLocaleString()}（会社#{r.fromCompanyId}）
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!costRefId || importCostRefMutation.isPending}
+              onClick={() => importCostRefMutation.mutate({ submissionId: Number(costRefId), invoiceId })}
+            >
+              {importCostRefMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+              明細に取り込む
+            </Button>
+            <p className="text-xs text-muted-foreground w-full">承認額を税率0%の1行としてそのまま追加します（税の再計算はしません）。</p>
           </CardContent>
         </Card>
       )}
@@ -1975,6 +2024,7 @@ export default function AppInvoices() {
                       ・{row?.project?.name || "不明案件"}（{row?.closing ? row.closing.status : "未初期化"}）
                     </div>
                   ))}
+                  <p>→ 月締め管理で該当現場の締めを完了（ready以上）にしてから作成できます。</p>
                 </div>
               )}
             </div>

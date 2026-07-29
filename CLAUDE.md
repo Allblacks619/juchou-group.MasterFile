@@ -2,7 +2,7 @@
 
 充寵グループ 業務管理システム。サーバーは Express + tRPC v11（`server/routers.ts` に単一 appRouter）、DB は MariaDB + drizzle-orm、フロントは React + Vite + wouter、テストは vitest（`pnpm test`）。
 
-> **他マシンへの移行・引き継ぎで来た場合**は先に **`docs/引き継ぎ.md`** を読むこと（コードを読んでも分からない決定・却下・落とし穴・環境変数一覧・次にやるべきこと）。
+> **別マシンへ移行して初めて開くなら、まず `docs/引き継ぎ.md` を読むこと**（会話にしか無い決定・失敗・未検証・承認待ち・環境変数の一覧をまとめた正本）。`node_modules` と `.env` は未コミットなので、最初に `pnpm install --frozen-lockfile` と `.env`（`.env.example` 雛形）の用意が必要。
 
 ## Claude 作業ポリシー（オーナー合意済み・毎回確認不要）
 オーナー(biguoki@gmail.com / ログインID: mitsuru)との合意。以降のセッションでも都度確認せずこのとおり進めること。
@@ -32,6 +32,25 @@
 - 一連の正本は **`docs/monthly-closing-flow.md`**（オーナー確認済み）。月締め・請求・支払・入金・UI再構築の作業前に必ず参照。都度オーナーに流れを聞き直さない。
 - 大原則: 「月締めを進む」＝出面確定なので**改めての出面確認は不要**／**交通費が最重要**（維持）／**会社が作業員月締めで請求書確認する機能は不要**／**柔軟性最重要**（管理者代行・例外対応）。
 - 現状の財務7画面（請求書/月締めV2/作業員請求書V2/締め管理/確認表PDF/支払管理/入金管理）は分散しているので、フローに沿って統合していく。
+
+## マルチテナント / Connect（会社間連携）
+
+- **フィーチャーフラグ**: `MULTI_TENANT` 環境変数（既定 off）。off 時は companyId=1 固定で既存挙動と完全互換。
+- **テナント分離**: 19テーブルに `companyId INT NOT NULL DEFAULT 1` 列追加済み。ctx.companyId はセッションユーザーの user.companyId から解決（`server/tenancy.ts`）。
+- **assertCompanyScope(ctx, row)**: 他社IDへのアクセスは NOT_FOUND（存在を漏らさない）。`server/routers.ts`。
+- **Connect 層**: `drizzle/schema.connect.ts`（partner_links / roster / invoice submissions / payables）。ルーターは `server/connect/router.ts`。MULTI_TENANT=off 時は FORBIDDEN。
+- **Whitelist DTO**: 会社間データ共有は明示的フィールドコピーのみ。DB オブジェクトの spread 禁止（SECRET 漏洩テスト済み）。
+- **genba テナント**: genbaSites（ルート）のみ companyId。子テーブルは siteId 経由でスコープ。公開トークンには会社フィルタを入れない。
+- **テスト**: `server/mt*.test.ts`（6ファイル）。全 90ファイル 851テスト合格（2026-07-27時点）。
+- **設計正本**: `docs/multitenant/PLAN_v1.md`（全フェーズ・審議15件）、`docs/multitenant/VERIFICATION.md`（検証+ロールアウト手順）。
+- **引き継ぎ**: `docs/引き継ぎ-connect.md`（マルチテナント/Connect セッションの決定事項・失敗事例・検証ステータス・環境変数・次タスク）。全体の引き継ぎ正本は `docs/引き継ぎ.md`。
+
+## 権限モデル（ロール＋個人別 表示/ブロック設定）※正本は docs/permissions-audit.md
+- ロールは `super_admin / admin / manager / worker / guest`（DB enum の旧 `leader` はサーバー実効で worker 扱い。新規に使わない）。
+- ロールを土台に、**個人単位でエリア別の許可/ブロックを上書き**できる（`shared/permissionAreas.ts`, `users.permissionOverrides` JSON, migration 0042）。8エリア: `billing(取引先請求)/payments(作業員支払)/rates(単価管理)/employees/projects/attendance/closing/company`。
+- 既定: super_admin/admin は常に全可（override 対象外）。manager はエリア既定（`managerDefault`）に従い、**`billing` のみ manager 既定ブロック**（取引先請求単価・請求額は admin 以上のみ＝オーナー指示）。worker/guest は既定不可で `allow` 個別付与。
+- 実装: サーバーは `areaProcedure(area)` 系（`billingProcedure` 等）でガード。`rate` API は billing 権限が無いと `clientRate` を null マスク。クライアントは `RoleGuard` の `area` prop / `AppLayout` の `NAV_AREA_BY_LABEL` / 従業員管理の「表示設定」ダイアログ。判定は `resolveAreaPermission`。
+- **日数は出面日数（実働の重複なし日数）で数える。時間からは換算しない**（半日=0.5 はカテゴリ、時間÷8ではない）。`hoursWorked` は将来の労基記録用。実装: `shared/attendanceStatus.ts` `workedDayValueTimes10`。
 
 ## 現場ビジョン(genba)開発ルール
 - 設計正本: docs/genba/ 配下(migration_design_v1.1 / ROADMAP / prototype)

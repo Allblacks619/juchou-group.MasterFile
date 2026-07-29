@@ -13,6 +13,7 @@
 import PDFDocument from "pdfkit";
 import { Invoice, InvoiceItem, CompanyProfile } from "../drizzle/schema";
 import { resignStoredUrl } from "./storage";
+import { groupTaxByRate } from "./invoiceTotals";
 import https from "https";
 import http from "http";
 import fs from "fs";
@@ -498,13 +499,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   const breakdownW = 220;
 
   // Group tax by rate
-  const taxByRate = new Map<number, number>();
-  for (const item of items) {
-    if (item.itemType === "text") continue;
-    const rate = item.itemTaxRate || 10;
-    const existing = taxByRate.get(rate) || 0;
-    taxByRate.set(rate, existing + item.amount);
-  }
+  const taxByRate = groupTaxByRate(items);
 
   // Draw breakdown box
   const breakdownEntries = Array.from(taxByRate.entries()).sort((a, b) => b[0] - a[0]).filter(([r]) => r > 0);

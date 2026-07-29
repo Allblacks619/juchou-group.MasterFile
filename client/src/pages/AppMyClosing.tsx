@@ -47,6 +47,8 @@ type InvoiceLineItemDraft = {
   unit: string;
   category: string;
   itemType?: "normal" | "text";
+  /** サーバ(workerInvoice.getMyDraft)が明細ごとに返す税率(%)。インボイス未登録の作業員は労務費も0%。 */
+  taxRate?: number;
 };
 
 type NormalizedInvoiceLineItem = {
@@ -57,7 +59,12 @@ type NormalizedInvoiceLineItem = {
   category: string;
   amount: number;
   itemType: "normal" | "text";
+  taxRate: number;
 };
+
+// ponytail: taxRate 未指定行（手入力の新規行）の既定は worker_invoice_items.taxRate のDB既定値(10)に合わせる。
+// saveMyDraft へは明細ごとに taxRate を送るので、0%（交通費・インボイス未登録）はそのまま保存される。
+const DEFAULT_ITEM_TAX_RATE = 10;
 
 const DEFAULT_INVOICE_ITEM: InvoiceLineItemDraft = {
   label: "",
@@ -82,7 +89,7 @@ function toFiniteNumber(value: number | string | null | undefined) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function normalizeInvoiceItems(
+export function normalizeInvoiceItems(
   items: InvoiceLineItemDraft[]
 ): NormalizedInvoiceLineItem[] {
   return items
@@ -101,15 +108,24 @@ function normalizeInvoiceItems(
         category: String(item.category || "").trim(),
         amount,
         itemType: (isText ? "text" : "normal") as "normal" | "text",
+        taxRate: isText ? 0 : toFiniteNumber(item.taxRate ?? DEFAULT_ITEM_TAX_RATE),
       };
     })
     // テキスト行は摘要があれば残す。通常行は摘要かつ金額>0のもののみ。
     .filter(item => item.label && (item.itemType === "text" || item.amount > 0));
 }
 
-function calculateInvoiceTotals(items: NormalizedInvoiceLineItem[]) {
+/**
+ * 明細から 小計 / 消費税 / 合計 を求める。
+ * 発行される請求額（server/workerInvoiceV2Core.ts の subtotal/taxAmount/totalAmount）と
+ * 同じ式にすること。サーバは明細ごとに Math.round(amount * taxRate / 100) を積む。
+ */
+export function calculateInvoiceTotals(items: NormalizedInvoiceLineItem[]) {
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
-  const tax = 0;
+  const tax = items.reduce(
+    (sum, item) => sum + Math.round((item.amount * item.taxRate) / 100),
+    0
+  );
   return { subtotal, tax, total: subtotal + tax };
 }
 
@@ -318,6 +334,7 @@ export default function AppMyClosing() {
             unit: item.unit || "式",
             category: item.category || "",
             itemType: item.itemType === "text" ? "text" : "normal",
+            taxRate: item.taxRate,
           }))
         : [{ ...DEFAULT_INVOICE_ITEM }]
     );
@@ -470,6 +487,7 @@ export default function AppMyClosing() {
       unit: item.unit,
       category: item.category,
       itemType: item.itemType,
+      taxRate: item.taxRate,
     })),
   });
 
@@ -1161,7 +1179,7 @@ export default function AppMyClosing() {
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">消費税（現在は0円固定）</span>
+                      <span className="text-muted-foreground">消費税</span>
                       <span className="font-medium">
                         {formatYen(invoiceTotals.tax)}
                       </span>
@@ -1415,7 +1433,7 @@ export default function AppMyClosing() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">消費税（現在は0円固定）</span>
+                    <span className="text-muted-foreground">消費税</span>
                     <span className="font-medium">
                       {formatYen(invoiceTotals.tax)}
                     </span>
@@ -1771,10 +1789,8 @@ function WorkerInvoiceSection({ projectId, closingMonth, employeeId }: { project
   const canSubmitInvoice = canEdit;
   const docs = docsQuery.data || [];
 
-  // Calculate totals
-  const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
-  const tax = items.reduce((sum, i) => sum + Math.floor(i.quantity * i.unitPrice * i.taxRate / 100), 0);
-  const total = subtotal + tax;
+  // Calculate totals（サーバ workerInvoiceV2Core と同じ丸め: 行の金額を四捨五入 → 行ごとに税を四捨五入）
+  const { subtotal, tax, total } = calculateInvoiceTotals(normalizeInvoiceItems(items));
 
   const addItem = () => {
     setItems([...items, { category: "labor", label: "", quantity: 1, unit: "式", unitPrice: 0, taxRate: 10 }]);
