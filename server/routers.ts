@@ -74,10 +74,6 @@ const monthlyClosingV2TransportationStatuses = ["未入力", "入力済み", "�
 const monthlyClosingV2InvoiceInfoStatuses = ["確認待ち", "確認中", "確認済み", "情報不足", "集計対象外"] as const;
 const monthlyClosingV2PayerTypes = ["none", "worker_paid", "company_card_etc", "company_paid", "client_paid_direct"] as const;
 
-function canRemoveAttendanceMember(role: unknown) {
-  return role === "super_admin" || role === "admin" || role === "manager";
-}
-
 function removedGuestMarkerName(guestName: string) {
   return `${ATTENDANCE_REMOVED_GUEST_PREFIX}${createHash("sha256").update(guestName).digest("hex")}`;
 }
@@ -2856,16 +2852,13 @@ export const appRouter = router({
 
 
     /** Remove an active attendance member without deleting historical attendance data */
-    removeMember: protectedProcedure
+    removeMember: attendanceAdminProcedure
       .input(z.object({
         projectId: z.number(),
         employeeId: z.number().optional(),
         guestName: z.string().trim().min(1).max(128).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!canRemoveAttendanceMember((ctx.user as any).appRole)) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "管理者権限が必要です" });
-        }
         if (!!input.employeeId === !!input.guestName) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "従業員またはゲストを1人指定してください" });
         }
