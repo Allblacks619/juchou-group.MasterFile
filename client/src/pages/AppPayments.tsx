@@ -40,9 +40,9 @@ import {
 } from "lucide-react";
 
 const PAID_STATUS: Record<string, { label: string; className: string }> = {
-  unpaid: { label: "未払い", className: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
-  partial: { label: "一部", className: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
-  paid: { label: "支払済", className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
+  unpaid: { label: "未払い", className: "bg-warning/15 text-warning border-warning/30" },
+  partial: { label: "一部", className: "bg-info/15 text-info border-info/30" },
+  paid: { label: "支払済", className: "bg-success/15 text-success border-success/30" },
 };
 const ADVANCE_TYPE_LABELS: Record<string, string> = { advance: "前借り", repayment: "返済/相殺", adjustment: "調整" };
 
