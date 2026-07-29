@@ -1031,6 +1031,21 @@ function isDuplicateKeyError(error: any) {
   return code.includes("ER_DUP_ENTRY") || message.includes("Duplicate entry") || message.includes("duplicate");
 }
 
+// 取引先請求書の採番はロック無し（getNextInvoiceNumber の max+1）なので、同時作成で
+// invoice_number_unique に衝突しうる。作業員請求書と同じく重複キー時に採番からやり直す。
+export async function createInvoiceWithUniqueNumber(yearMonth: string, payload: any) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    payload.invoiceNumber = await db.getNextInvoiceNumber(yearMonth);
+    try {
+      return await db.createInvoice(payload);
+    } catch (error: any) {
+      if (isDuplicateKeyError(error)) continue;
+      throw error;
+    }
+  }
+  throw new TRPCError({ code: "CONFLICT", message: "請求書番号の採番に失敗しました。再試行してください。" });
+}
+
 async function generateWorkerInvoiceNumber(projectId: number, closingMonth: string) {
   const project = await db.getProjectById(projectId);
   const scopeClientId = project?.clientId ? `C${String(project.clientId).padStart(5, "0")}` : `P${String(projectId).padStart(5, "0")}`;
@@ -4361,9 +4376,7 @@ export const appRouter = router({
             message: "請求対象データがありません。空または0円の請求書ドラフトは作成できません。",
           });
         }
-        const invoiceNumber = await db.getNextInvoiceNumber(input.closingMonth);
-        const invoice = await db.createInvoice({
-          invoiceNumber,
+        const invoice = await createInvoiceWithUniqueNumber(input.closingMonth, {
           clientId: draft.clientId,
           projectId: draft.primaryProjectId,
           periodStart: draft.periodStart,
@@ -5526,9 +5539,7 @@ export const appRouter = router({
           includeProjectSectionHeaders: input.projectIds.length > 1,
         });
 
-        const invoiceNumber = await db.getNextInvoiceNumber(closingMonth);
-        const invoice = await db.createInvoice({
-          invoiceNumber,
+        const invoice = await createInvoiceWithUniqueNumber(closingMonth, {
           clientId: draft.clientId,
           projectId: draft.primaryProjectId,
           periodStart: draft.periodStart,
@@ -5590,10 +5601,10 @@ export const appRouter = router({
           entityId: invoice.id,
           invoiceId: invoice.id,
           projectId: draft.primaryProjectId || input.projectIds[0],
-          note: `請求書自動作成 ${invoiceNumber}`,
+          note: `請求書自動作成 ${invoice.invoiceNumber}`,
           payload: { projectIds: input.projectIds, clientId: draft.clientId },
         });
-        return { id: invoice.id, invoiceNumber, totalAmount: draft.totalAmount, warnings: draft.warnings };
+        return { id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount: draft.totalAmount, warnings: draft.warnings };
       }),
 
     /** Generate PDF for an invoice（出面表・アップロード書類を1つのPDFに合体して添付できる） */
@@ -5765,11 +5776,9 @@ export const appRouter = router({
 
         const totalAmount = subtotal + totalTax;
         const yearMonth = input.periodStart.slice(0, 7);
-        const invoiceNumber = await db.getNextInvoiceNumber(yearMonth);
 
         const finalTotal = totalAmount - (input.withholdingAmount || 0);
-        const invoice = await db.createInvoice({
-          invoiceNumber,
+        const invoice = await createInvoiceWithUniqueNumber(yearMonth, {
           clientId: input.clientId,
           projectId: input.projectId || null,
           periodStart: parseDateString(input.periodStart),
@@ -5805,8 +5814,8 @@ export const appRouter = router({
           });
         }
 
-        await safeAuditLog(ctx.user.id, "invoice.createManual", "invoice", { entityId: invoice.id, invoiceId: invoice.id, projectId: input.projectId || null, note: `手動請求書作成 ${invoiceNumber}` });
-        return { id: invoice.id, invoiceNumber, totalAmount };
+        await safeAuditLog(ctx.user.id, "invoice.createManual", "invoice", { entityId: invoice.id, invoiceId: invoice.id, projectId: input.projectId || null, note: `手動請求書作成 ${invoice.invoiceNumber}` });
+        return { id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount };
       }),
 
     /** Add item to existing invoice */
