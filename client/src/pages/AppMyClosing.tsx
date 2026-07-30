@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo } from "react";
-import { format } from "date-fns";
+import { format, subMonths } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -248,6 +248,8 @@ function canWorkerEdit(
 }
 
 export default function AppMyClosing() {
+  // iOS Safari は await を挟んだ後の window.open をブロックするため、PDFはアプリ内ビューアで開く。
+  const pdfViewer = usePdfViewer();
   const [location] = useLocation();
   // wouter の location はクエリ文字列を含まないため、URLパラメータは window.location.search から読む。
   // （ダッシュボードの「月締め提出」は ?projectId=..&month=.. を付けて遷移する）
@@ -255,8 +257,10 @@ export default function AppMyClosing() {
   const queryProjectId = Number(params.get("projectId") || 0) || null;
   const queryMonth = params.get("month") || null;
   const queryEmployeeId = Number(params.get("employeeId") || 0) || undefined;
+  // 月締めは月が終わってから行うので、月初(10日以前)に開いたときは先月を初期表示する。
+  // 今月のままだと「出面がありません」の空画面になり、記録が消えたと誤解される。
   const [closingMonth, setClosingMonth] = useState(
-    queryMonth || format(new Date(), "yyyy-MM")
+    queryMonth || format(new Date().getDate() <= 10 ? subMonths(new Date(), 1) : new Date(), "yyyy-MM")
   );
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
     queryProjectId
@@ -545,8 +549,22 @@ export default function AppMyClosing() {
     if (canEditInvoice) saveWorkerDraftMutation.mutate(buildWorkerDraftInput());
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedProjectId) return;
+    // 「保存」を押さずに提出すると、確認画面に出ている交通費・経費が保存されないまま
+    // 0円で締まってしまうため、提出前に必ず保存する。
+    try {
+      await saveMutation.mutateAsync({
+        projectId: selectedProjectId,
+        closingMonth,
+        transportAmount,
+        expenseAmount,
+        notes,
+        employeeId: queryEmployeeId,
+      });
+    } catch {
+      return; // 保存に失敗したら提出しない（エラーは saveMutation 側で通知済み）
+    }
     submitMutation.mutate({ projectId: selectedProjectId, closingMonth, employeeId: queryEmployeeId });
   };
 
@@ -588,7 +606,7 @@ export default function AppMyClosing() {
           const pdf = await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch({
             invoiceId,
           });
-          window.open(pdf.url, "_blank");
+          pdfViewer.open(pdf.url, "請求書.pdf", "請求書");
         } catch (pdfError: any) {
           toast.error(
             `請求書は作成済みですが、PDFを開けませんでした: ${pdfError.message}`
@@ -1298,7 +1316,7 @@ export default function AppMyClosing() {
                               await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch(
                                 { invoiceId: invoice.id }
                               );
-                            window.open(pdf.url, "_blank");
+                            pdfViewer.open(pdf.url, "請求書.pdf", "請求書");
                           }}
                         >
                           <FileDown className="h-4 w-4 mr-1" /> PDFダウンロード
@@ -1312,7 +1330,7 @@ export default function AppMyClosing() {
                                 { invoiceId: invoice.id }
                               );
                             if (data.invoicePdf?.url)
-                              window.open(data.invoicePdf.url, "_blank");
+                              pdfViewer.open(data.invoicePdf.url, "請求書.pdf", "請求書");
                             toast.success(
                               `エクスポート準備完了（添付資料 ${data.documents?.length || 0}件）`
                             );
@@ -1545,6 +1563,7 @@ export default function AppMyClosing() {
           </Dialog>
         </>
       )}
+      {pdfViewer.dialog}
     </div>
   );
 }
@@ -1735,6 +1754,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 const TAX_RATES = [0, 8, 10];
 
 function WorkerInvoiceSection({ projectId, closingMonth, employeeId }: { projectId: number; closingMonth: string; employeeId?: number }) {
+  const pdfViewer = usePdfViewer();
   const draftQuery = trpc.workerInvoice.getMyDraft.useQuery({ projectId, closingMonth, employeeId });
   const saveDraftMutation = trpc.workerInvoice.saveMyDraft.useMutation({
     onSuccess: () => { toast.success("下書きを保存しました"); draftQuery.refetch(); },
@@ -1745,7 +1765,7 @@ function WorkerInvoiceSection({ projectId, closingMonth, employeeId }: { project
     onError: (e) => toast.error(`提出エラー: ${e.message}`),
   });
   const downloadPdfMutation = trpc.workerInvoice.downloadPdf.useMutation({
-    onSuccess: (data) => { window.open(data.url, "_blank"); },
+    onSuccess: (data) => { pdfViewer.open(data.url, "請求書.pdf", "請求書"); },
     onError: (e) => toast.error(`PDFエラー: ${e.message}`),
   });
   const docsQuery = trpc.workerInvoice.getSupportingDocs.useQuery(
@@ -2041,6 +2061,7 @@ function WorkerInvoiceSection({ projectId, closingMonth, employeeId }: { project
             </Button>
           )}
         </div>
+        {pdfViewer.dialog}
       </CardContent>
     </Card>
   );
