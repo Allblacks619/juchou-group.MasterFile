@@ -6249,6 +6249,10 @@ export const appRouter = router({
       const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
+      // 締め確定済み(closed/locked)の月は編集不可。ready 中は差し戻し(rejected)された人のみ再編集可。
+      if (!canWorkerEditSubmission(closing.status, submission.status)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "この月の締めは確定済みのため、下書きを保存できません。修正が必要な場合は管理者に連絡してください。" });
+      }
       const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
       if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "Approved invoice is read-only" });
       const saved = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: existing?.status === "returned" ? "returned" : "draft", subject: input.subject, notes: input.notes });
@@ -6277,6 +6281,10 @@ export const appRouter = router({
       const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
       const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
+      // 締め確定済み(closed/locked)の月は提出不可。ready 中は差し戻し(rejected)された人のみ再提出可。
+      if (!canWorkerEditSubmission(closing.status, submission.status)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "この月の締めは確定済みのため、提出できません。修正が必要な場合は管理者に連絡してください。" });
+      }
       const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
       if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "Approved invoice is read-only" });
       let invoice: any = null;

@@ -5,6 +5,8 @@ import type { User } from '../drizzle/schema';
 const invoices: any[] = [];
 const snapshots: any[] = [];
 const storageState = vi.hoisted(() => ({ stored: new Set<string>(), putCalls: [] as string[], getCalls: [] as string[] }));
+// G3ガード検証用: 締め状態と提出状態を可変にする（既定は従来どおり open / submitted）
+const closingState = vi.hoisted(() => ({ status: 'open' as string, submissionStatus: 'submitted' as string }));
 
 function addInvoiceWithSnapshot(id: number, employeeId = 10, docs: any[] = [{ id: 1, fileKey: 'k1', originalFileName: 'receipt.pdf' }]) {
   const invoice = { id, closingId: 100, submissionId: employeeId === 10 ? 501 : 502, projectId: 1, employeeId, closingMonth: '2026-04', status: 'submitted', invoiceNumber: `WI-${id}`, subject: 'snapshot subject', subtotalAmount: 1500, taxAmount: 0, totalAmount: 1500, createdAt: new Date('2026-04-30') };
@@ -28,13 +30,13 @@ function addInvoiceWithSnapshot(id: number, employeeId = 10, docs: any[] = [{ id
 
 vi.mock('./db', () => ({
   getEmployeeByUserId: vi.fn(async (id:number)=> id===2?{id:10,userId:2}:id===3?{id:11,userId:3}:{id:12,userId:4}),
-  getProjectClosingByProjectMonth: vi.fn(async ()=>({id:100,projectId:1,closingMonth:'2026-04',status:'open'})),
+  getProjectClosingByProjectMonth: vi.fn(async ()=>({id:100,projectId:1,closingMonth:'2026-04',status:closingState.status})),
   createProjectClosing: vi.fn(async ()=>({id:100})),
   getProjectMembersByProject: vi.fn(async ()=>[{employeeId:10,isActive:true},{employeeId:11,isActive:true}]),
   getProjectMembers: vi.fn(async ()=>[{employeeId:10,isActive:true},{employeeId:11,isActive:true}]),
   getAttendanceByProject: vi.fn(async ()=>[]),
   getClosingSubmissionsByClosing: vi.fn(async ()=>[{id:501,closingId:100,employeeId:10,transportAmount:1000,expenseAmount:500,status:'submitted'},{id:502,closingId:100,employeeId:11,transportAmount:999,expenseAmount:1,status:'submitted'}]),
-  getClosingSubmissionByClosingEmployee: vi.fn(async (_:number,eid:number)=> eid===10?{id:501,closingId:100,employeeId:10,transportAmount:1000,expenseAmount:500,status:'submitted'}:{id:502,closingId:100,employeeId:11,transportAmount:999,expenseAmount:1,status:'submitted'}),
+  getClosingSubmissionByClosingEmployee: vi.fn(async (_:number,eid:number)=> eid===10?{id:501,closingId:100,employeeId:10,transportAmount:1000,expenseAmount:500,status:closingState.submissionStatus}:{id:502,closingId:100,employeeId:11,transportAmount:999,expenseAmount:1,status:closingState.submissionStatus}),
   updateClosingSubmission: vi.fn(async ()=>({})),
   getWorkerInvoiceByClosingEmployee: vi.fn(async (cid:number,eid:number)=>invoices.find(v=>v.closingId===cid&&v.employeeId===eid)),
   upsertWorkerInvoice: vi.fn(async (v:any)=>{ const dup=invoices.find(x=>x.invoiceNumber&&v.invoiceNumber&&x.invoiceNumber===v.invoiceNumber && !(x.closingId===v.closingId&&x.employeeId===v.employeeId)); if(dup){ const e:any=new Error('Duplicate entry'); e.code='ER_DUP_ENTRY'; throw e;} const i=invoices.findIndex(x=>x.closingId===v.closingId&&x.employeeId===v.employeeId); const nv={id:i>=0?invoices[i].id:invoices.length+1,...(i>=0?invoices[i]:{}),...v}; if(i>=0)invoices[i]=nv; else invoices.push(nv); return nv;}),
@@ -61,7 +63,7 @@ const ctx=(u:User)=>({user:u,req:{} as any,res:{} as any});
 const mkUser=(id:number,appRole:any,employeeId:number):User=>({id,openId:'o'+id,name:'u',email:'e',loginMethod:'manus',role:'user',appRole,loginId:'l'+id,mustChangePassword:false,employeeId,createdAt:new Date(),updatedAt:new Date(),lastSignedIn:new Date()});
 
 describe('worker invoice access/snapshot',()=>{
-  beforeEach(()=>{invoices.length=0;snapshots.length=0; storageState.stored.clear(); storageState.putCalls.length=0; storageState.getCalls.length=0; storageState.stored.add('k1'); storageState.stored.add('k2');});
+  beforeEach(()=>{invoices.length=0;snapshots.length=0; storageState.stored.clear(); storageState.putCalls.length=0; storageState.getCalls.length=0; storageState.stored.add('k1'); storageState.stored.add('k2'); closingState.status='open'; closingState.submissionStatus='submitted';});
   it('worker cannot see another worker invoices', async()=>{
     invoices.push({id:1,closingId:100,employeeId:11,status:'submitted'});
     const caller=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
@@ -89,6 +91,21 @@ describe('worker invoice access/snapshot',()=>{
     await worker.workerInvoice.saveMyDraft({projectId:1,closingMonth:'2026-04',subject:'x',notes:'y'});
     await admin.workerInvoice.approve({invoiceId:8});
     await expect(worker.workerInvoice.saveMyDraft({projectId:1,closingMonth:'2026-04',subject:'x',notes:'y'})).rejects.toThrow();
+  });
+  it('締め確定済み(locked/closed)の月は下書き保存・提出とも不可（G3ガード）', async()=>{
+    closingState.status='locked';
+    const worker=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
+    await expect(worker.workerInvoice.saveMyDraft({projectId:1,closingMonth:'2026-04',subject:'x'})).rejects.toMatchObject({code:'FORBIDDEN'});
+    await expect(worker.workerInvoice.submitMyInvoice({projectId:1,closingMonth:'2026-04'})).rejects.toMatchObject({code:'FORBIDDEN'});
+    closingState.status='closed';
+    await expect(worker.workerInvoice.saveMyDraft({projectId:1,closingMonth:'2026-04',subject:'x'})).rejects.toMatchObject({code:'FORBIDDEN'});
+  });
+  it('ready中は差し戻し(rejected)された作業員のみ編集できる', async()=>{
+    closingState.status='ready';
+    const worker=appRouter.createCaller(ctx(mkUser(2,'worker',10)));
+    await expect(worker.workerInvoice.saveMyDraft({projectId:1,closingMonth:'2026-04',subject:'x'})).rejects.toMatchObject({code:'FORBIDDEN'});
+    closingState.submissionStatus='rejected';
+    await worker.workerInvoice.saveMyDraft({projectId:1,closingMonth:'2026-04',subject:'x'});
   });
   it('downloadMyInvoicePdf returns real PDF metadata and generates when missing', async()=>{
     addInvoiceWithSnapshot(9);
