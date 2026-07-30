@@ -353,7 +353,12 @@ export async function computeWorkerInvoiceDraft(input: {
     const name = await projectName(projectId);
     const sampleDate = projectSampleDate.get(projectId) || new Date(`${targetMonth}-01T00:00:00.000Z`);
     const dayRate = await input.resolveRate({ projectId, shiftType: "day", workDate: sampleDate });
-    const dayRateNum = dayRate != null ? Number(dayRate) || 0 : null;
+    // 夜勤単価しか登録の無い作業員で残業代が¥0になるのを防ぐ:
+    // 昼勤単価が未解決の時だけ夜勤単価にフォールバック（オーナー承認 2026-07-29。取引先請求側も同残業を夜勤単価で計上済み）。
+    const baseRate = dayRate != null
+      ? dayRate
+      : await input.resolveRate({ projectId, shiftType: "night", workDate: sampleDate });
+    const dayRateNum = baseRate != null ? Number(baseRate) || 0 : null;
 
     const pushOvertime = (times10: number, multiplier: number, bandLabel: string) => {
       const hours = times10 / 10;
@@ -362,7 +367,7 @@ export async function computeWorkerInvoiceDraft(input: {
       const amount = Math.round(hours * otHourly);
       laborAmount += amount;
       if (otHourly === 0) {
-        warnings.push(`残業代の単価が算出できません（${name || `現場${projectId}`}：日勤単価が未解決）。単価設定後に再生成してください。`);
+        warnings.push(`残業代の単価が算出できません（${name || `現場${projectId}`}：昼勤・夜勤とも単価が未解決）。単価設定後に再生成してください。`);
       }
       items.push({
         category: "labor",
