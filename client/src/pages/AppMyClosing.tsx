@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo } from "react";
-import { format } from "date-fns";
+import { format, subMonths } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -248,6 +248,8 @@ function canWorkerEdit(
 }
 
 export default function AppMyClosing() {
+  // iOS Safari は await を挟んだ後の window.open をブロックするため、PDFはアプリ内ビューアで開く。
+  const pdfViewer = usePdfViewer();
   const [location] = useLocation();
   // wouter の location はクエリ文字列を含まないため、URLパラメータは window.location.search から読む。
   // （ダッシュボードの「月締め提出」は ?projectId=..&month=.. を付けて遷移する）
@@ -255,8 +257,13 @@ export default function AppMyClosing() {
   const queryProjectId = Number(params.get("projectId") || 0) || null;
   const queryMonth = params.get("month") || null;
   const queryEmployeeId = Number(params.get("employeeId") || 0) || undefined;
+  // 請求書は「月に1枚（全現場まとめ）」が正（オーナー確定）。作業員には月次請求書パネルだけを見せ、
+  // 現場ごとの請求書作成・提出UIは管理者が代理で作成/修正するとき（?employeeId= 付き）だけ表示する。
+  const isProxyByAdmin = queryEmployeeId != null;
+  // 月締めは月が終わってから行うので、月初(10日以前)に開いたときは先月を初期表示する。
+  // 今月のままだと「出面がありません」の空画面になり、記録が消えたと誤解される。
   const [closingMonth, setClosingMonth] = useState(
-    queryMonth || format(new Date(), "yyyy-MM")
+    queryMonth || format(new Date().getDate() <= 10 ? subMonths(new Date(), 1) : new Date(), "yyyy-MM")
   );
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
     queryProjectId
@@ -542,11 +549,26 @@ export default function AppMyClosing() {
       notes,
       employeeId: queryEmployeeId,
     });
-    if (canEditInvoice) saveWorkerDraftMutation.mutate(buildWorkerDraftInput());
+    // 現場ごとの請求書は管理者の代理作成時のみ。作業員側では画面に出さないので保存もしない。
+    if (isProxyByAdmin && canEditInvoice) saveWorkerDraftMutation.mutate(buildWorkerDraftInput());
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedProjectId) return;
+    // 「保存」を押さずに提出すると、確認画面に出ている交通費・経費が保存されないまま
+    // 0円で締まってしまうため、提出前に必ず保存する。
+    try {
+      await saveMutation.mutateAsync({
+        projectId: selectedProjectId,
+        closingMonth,
+        transportAmount,
+        expenseAmount,
+        notes,
+        employeeId: queryEmployeeId,
+      });
+    } catch {
+      return; // 保存に失敗したら提出しない（エラーは saveMutation 側で通知済み）
+    }
     submitMutation.mutate({ projectId: selectedProjectId, closingMonth, employeeId: queryEmployeeId });
   };
 
@@ -588,7 +610,7 @@ export default function AppMyClosing() {
           const pdf = await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch({
             invoiceId,
           });
-          window.open(pdf.url, "_blank");
+          pdfViewer.open(pdf.url, "請求書.pdf", "請求書");
         } catch (pdfError: any) {
           toast.error(
             `請求書は作成済みですが、PDFを開けませんでした: ${pdfError.message}`
@@ -930,9 +952,10 @@ export default function AppMyClosing() {
                 </div>
               </div>
 
+              {isProxyByAdmin && (
               <Card className="border-dashed">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">作業員請求書を作成</CardTitle>
+                  <CardTitle className="text-lg">作業員請求書を作成（管理者の代理作成）</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {currentWorkerInvoice?.status === "approved" && (
@@ -1204,6 +1227,7 @@ export default function AppMyClosing() {
                   </Button>
                 </CardContent>
               </Card>
+              )}
 
               <div className="flex flex-wrap gap-2 justify-end">
                 <Button
@@ -1298,7 +1322,7 @@ export default function AppMyClosing() {
                               await trpcUtils.workerInvoice.downloadMyInvoicePdf.fetch(
                                 { invoiceId: invoice.id }
                               );
-                            window.open(pdf.url, "_blank");
+                            pdfViewer.open(pdf.url, "請求書.pdf", "請求書");
                           }}
                         >
                           <FileDown className="h-4 w-4 mr-1" /> PDFダウンロード
@@ -1312,7 +1336,7 @@ export default function AppMyClosing() {
                                 { invoiceId: invoice.id }
                               );
                             if (data.invoicePdf?.url)
-                              window.open(data.invoicePdf.url, "_blank");
+                              pdfViewer.open(data.invoicePdf.url, "請求書.pdf", "請求書");
                             toast.success(
                               `エクスポート準備完了（添付資料 ${data.documents?.length || 0}件）`
                             );
@@ -1352,8 +1376,8 @@ export default function AppMyClosing() {
             </CardContent>
           </Card>
 
-          {/* ── Worker Invoice Section (post-submission view) ── */}
-          {detail?.submission?.status === "submitted" || detail?.submission?.status === "approved" ? (
+          {/* ── 現場単位の請求書（管理者の代理作成/修正時のみ。作業員は月次1枚に統一） ── */}
+          {isProxyByAdmin && (detail?.submission?.status === "submitted" || detail?.submission?.status === "approved") ? (
             <WorkerInvoiceSection projectId={selectedProjectId!} closingMonth={closingMonth} employeeId={queryEmployeeId} />
           ) : null}
 
@@ -1545,6 +1569,7 @@ export default function AppMyClosing() {
           </Dialog>
         </>
       )}
+      {pdfViewer.dialog}
     </div>
   );
 }
@@ -1592,7 +1617,20 @@ function MonthlyInvoicePanel({ closingMonth, employeeId }: { closingMonth: strin
       </Card>
     );
   }
-  if (!data || !Array.isArray(data.sites) || data.sites.length === 0) return null;
+  // 作業員にとってはこれが唯一の請求書UIなので、対象が無いときも無言で消さず理由を出す。
+  if (!data || !Array.isArray(data.sites) || data.sites.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>月次請求書（全現場まとめ）</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          この月はまだ請求書を作れません。出勤した記録がある月を選ぶと、その月の全部の現場をまとめた請求書が1枚できます。
+          月を切り替えても出てこないときは、会社（事務所）に連絡してください。
+        </CardContent>
+      </Card>
+    );
+  }
 
   const { sites, canIssue, pendingSites, draft } = data;
   const items: any[] = draft?.items || [];
@@ -1735,6 +1773,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 const TAX_RATES = [0, 8, 10];
 
 function WorkerInvoiceSection({ projectId, closingMonth, employeeId }: { projectId: number; closingMonth: string; employeeId?: number }) {
+  const pdfViewer = usePdfViewer();
   const draftQuery = trpc.workerInvoice.getMyDraft.useQuery({ projectId, closingMonth, employeeId });
   const saveDraftMutation = trpc.workerInvoice.saveMyDraft.useMutation({
     onSuccess: () => { toast.success("下書きを保存しました"); draftQuery.refetch(); },
@@ -1745,7 +1784,7 @@ function WorkerInvoiceSection({ projectId, closingMonth, employeeId }: { project
     onError: (e) => toast.error(`提出エラー: ${e.message}`),
   });
   const downloadPdfMutation = trpc.workerInvoice.downloadPdf.useMutation({
-    onSuccess: (data) => { window.open(data.url, "_blank"); },
+    onSuccess: (data) => { pdfViewer.open(data.url, "請求書.pdf", "請求書"); },
     onError: (e) => toast.error(`PDFエラー: ${e.message}`),
   });
   const docsQuery = trpc.workerInvoice.getSupportingDocs.useQuery(
@@ -2041,6 +2080,7 @@ function WorkerInvoiceSection({ projectId, closingMonth, employeeId }: { project
             </Button>
           )}
         </div>
+        {pdfViewer.dialog}
       </CardContent>
     </Card>
   );
