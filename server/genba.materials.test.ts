@@ -50,6 +50,23 @@ describe("genba.materials (M4-A)", () => {
     });
   });
 
+  describe("pendingCount (未対応バッジ)", () => {
+    it("依頼中(pending)だけを数える", async () => {
+      mockGenbaDb.listGenbaMaterialRequestsBySite.mockResolvedValue([
+        REQ({ id: "r1", status: "pending" }),
+        REQ({ id: "r2", status: "ordered" }),
+        REQ({ id: "r3", status: "pending" }),
+        REQ({ id: "r4", status: "delivered" }),
+      ]);
+      expect(await leader().genba.materials.pendingCount({ siteId: SITE.id })).toBe(2);
+    });
+
+    it("依頼が無ければ0", async () => {
+      mockGenbaDb.listGenbaMaterialRequestsBySite.mockResolvedValue([]);
+      expect(await leader().genba.materials.pendingCount({ siteId: SITE.id })).toBe(0);
+    });
+  });
+
   describe("createRequest (worker 可)", () => {
     it("worker が依頼を作成でき、item にid付与・unit既定=個", async () => {
       mockGenbaDb.getGenbaSiteById.mockResolvedValue(SITE);

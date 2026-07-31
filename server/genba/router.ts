@@ -1891,6 +1891,12 @@ const materialsRouter = router({
     }));
   }),
 
+  /** 未対応(依頼中)の件数。管理側が気づくためのバッジ用 (指示の unreadCount と同方針) */
+  pendingCount: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const requests = await genbaDb.listGenbaMaterialRequestsBySite(input.siteId);
+    return requests.filter((r) => r.status === "pending").length;
+  }),
+
   /** 現場入力: 資材依頼は worker も可 */
   createRequest: genbaProcedure
     .input(z.object({
