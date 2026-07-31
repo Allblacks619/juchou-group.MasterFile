@@ -6,6 +6,7 @@ import type { User } from "../drizzle/schema";
 const mockGenbaDb = vi.hoisted(() => ({
   getGenbaSiteById: vi.fn(),
   listGenbaMaterialRequestsBySite: vi.fn(),
+  countPendingMaterialRequestsBySite: vi.fn(),
   listGenbaMaterialRequestItems: vi.fn(),
   createGenbaMaterialRequest: vi.fn(),
   getGenbaMaterialRequestById: vi.fn(),
@@ -64,6 +65,24 @@ describe("genba.materials (M4-A)", () => {
     it("依頼が無ければ0", async () => {
       mockGenbaDb.listGenbaMaterialRequestsBySite.mockResolvedValue([]);
       expect(await leader().genba.materials.pendingCount({ siteId: SITE.id })).toBe(0);
+    });
+  });
+
+  describe("pendingAcrossSites (ダッシュボード用・現場横断)", () => {
+    it("現場ごとの未対応件数を返す", async () => {
+      mockGenbaDb.countPendingMaterialRequestsBySite.mockResolvedValue([
+        { siteId: "Genba_Beta_Site_01", siteName: "現場A", count: 3 },
+        { siteId: "Genba_Beta_Site_02", siteName: "現場B", count: 1 },
+      ]);
+      const res = await leader().genba.materials.pendingAcrossSites();
+      expect(res).toEqual([
+        { siteId: "Genba_Beta_Site_01", siteName: "現場A", count: 3 },
+        { siteId: "Genba_Beta_Site_02", siteName: "現場B", count: 1 },
+      ]);
+    });
+
+    it("worker は取得できない (管理側のみ)", async () => {
+      await expect(worker().genba.materials.pendingAcrossSites()).rejects.toThrow();
     });
   });
 
