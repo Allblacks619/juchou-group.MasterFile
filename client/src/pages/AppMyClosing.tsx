@@ -257,6 +257,9 @@ export default function AppMyClosing() {
   const queryProjectId = Number(params.get("projectId") || 0) || null;
   const queryMonth = params.get("month") || null;
   const queryEmployeeId = Number(params.get("employeeId") || 0) || undefined;
+  // 請求書は「月に1枚（全現場まとめ）」が正（オーナー確定）。作業員には月次請求書パネルだけを見せ、
+  // 現場ごとの請求書作成・提出UIは管理者が代理で作成/修正するとき（?employeeId= 付き）だけ表示する。
+  const isProxyByAdmin = queryEmployeeId != null;
   // 月締めは月が終わってから行うので、月初(10日以前)に開いたときは先月を初期表示する。
   // 今月のままだと「出面がありません」の空画面になり、記録が消えたと誤解される。
   const [closingMonth, setClosingMonth] = useState(
@@ -546,7 +549,8 @@ export default function AppMyClosing() {
       notes,
       employeeId: queryEmployeeId,
     });
-    if (canEditInvoice) saveWorkerDraftMutation.mutate(buildWorkerDraftInput());
+    // 現場ごとの請求書は管理者の代理作成時のみ。作業員側では画面に出さないので保存もしない。
+    if (isProxyByAdmin && canEditInvoice) saveWorkerDraftMutation.mutate(buildWorkerDraftInput());
   };
 
   const handleSubmit = async () => {
@@ -948,9 +952,10 @@ export default function AppMyClosing() {
                 </div>
               </div>
 
+              {isProxyByAdmin && (
               <Card className="border-dashed">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">作業員請求書を作成</CardTitle>
+                  <CardTitle className="text-lg">作業員請求書を作成（管理者の代理作成）</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {currentWorkerInvoice?.status === "approved" && (
@@ -1222,6 +1227,7 @@ export default function AppMyClosing() {
                   </Button>
                 </CardContent>
               </Card>
+              )}
 
               <div className="flex flex-wrap gap-2 justify-end">
                 <Button
@@ -1370,8 +1376,8 @@ export default function AppMyClosing() {
             </CardContent>
           </Card>
 
-          {/* ── Worker Invoice Section (post-submission view) ── */}
-          {detail?.submission?.status === "submitted" || detail?.submission?.status === "approved" ? (
+          {/* ── 現場単位の請求書（管理者の代理作成/修正時のみ。作業員は月次1枚に統一） ── */}
+          {isProxyByAdmin && (detail?.submission?.status === "submitted" || detail?.submission?.status === "approved") ? (
             <WorkerInvoiceSection projectId={selectedProjectId!} closingMonth={closingMonth} employeeId={queryEmployeeId} />
           ) : null}
 
@@ -1611,7 +1617,20 @@ function MonthlyInvoicePanel({ closingMonth, employeeId }: { closingMonth: strin
       </Card>
     );
   }
-  if (!data || !Array.isArray(data.sites) || data.sites.length === 0) return null;
+  // 作業員にとってはこれが唯一の請求書UIなので、対象が無いときも無言で消さず理由を出す。
+  if (!data || !Array.isArray(data.sites) || data.sites.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>月次請求書（全現場まとめ）</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          この月はまだ請求書を作れません。出勤した記録がある月を選ぶと、その月の全部の現場をまとめた請求書が1枚できます。
+          月を切り替えても出てこないときは、会社（事務所）に連絡してください。
+        </CardContent>
+      </Card>
+    );
+  }
 
   const { sites, canIssue, pendingSites, draft } = data;
   const items: any[] = draft?.items || [];
