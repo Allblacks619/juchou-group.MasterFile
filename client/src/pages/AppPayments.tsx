@@ -352,7 +352,16 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
                 </span>
                 <span className="flex items-center gap-2">
                   <span className={`tabular-nums ${e.amount < 0 ? "text-emerald-400" : "text-amber-400"}`}>{yen(e.amount)}</span>
-                  <button className="text-muted-foreground hover:text-red-400" onClick={() => deleteMutation.mutate({ id: e.id })}>
+                  <button
+                    className="text-muted-foreground hover:text-red-400"
+                    title="この記録を削除"
+                    onClick={() => {
+                      // 前借り台帳は金銭記録。誤タップで消えると残高が狂うため、内容を出して確認する。
+                      const label = `${e.createdAt ? format(new Date(e.createdAt), "M/d") : ""} ${ADVANCE_TYPE_LABELS[e.entryType] || e.entryType} ${yen(e.amount)}`;
+                      if (!confirm(`この前借り記録（${label}）を消します。元に戻せません。よろしいですか？`)) return;
+                      deleteMutation.mutate({ id: e.id });
+                    }}
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </span>

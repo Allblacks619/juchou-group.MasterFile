@@ -213,7 +213,14 @@ export default function AppReceivables() {
                               <Button
                                 size="sm" className="h-8 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
                                 disabled={markReceivedMutation.isPending}
-                                onClick={() => markReceivedMutation.mutate({ id: row.invoice.id, receivedAmount: Number(row.invoice.totalAmount) })}
+                                onClick={() => {
+                                  // 一部入金済みの行でも請求総額で上書きするため、金額を出して確認する。
+                                  const already = Number(row.receivedAmount || 0);
+                                  const total = Number(row.invoice.totalAmount);
+                                  const extra = already > 0 ? `\n今記録されている入金額（${yen(already)}）は上書きされます。` : "";
+                                  if (!confirm(`${row.client?.name || "この取引先"} の請求 ${yen(total)} を「全額入金された」として記録します。${extra}\nよろしいですか？`)) return;
+                                  markReceivedMutation.mutate({ id: row.invoice.id, receivedAmount: total });
+                                }}
                               >
                                 <CheckCircle2 className="h-3.5 w-3.5" />入金済に
                               </Button>

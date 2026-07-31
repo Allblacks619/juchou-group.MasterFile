@@ -307,6 +307,31 @@ function ActionRequiredPanel({ isManagerLike }: { isManagerLike: boolean }) {
 
   if (isLoading) return null;
 
+  // 取得に失敗しているときに「要対応はありません」と出すと、通信エラーを「0件」と誤解して
+  // 締め・請求・入金を取りこぼす。0件と区別できる案内を出す。
+  const hasError = isManagerLike
+    ? closingQuery.isError || receivableQuery.isError || paymentQuery.isError || advanceQuery.isError
+    : myOverviewQuery.isError;
+  if (hasError) {
+    const refetchAll = () => {
+      if (isManagerLike) {
+        closingQuery.refetch();
+        receivableQuery.refetch();
+        paymentQuery.refetch();
+        advanceQuery.refetch();
+      } else {
+        myOverviewQuery.refetch();
+      }
+    };
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-warning">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        <span>データを読み込めませんでした（0件ではありません）。通信を確認して、もう一度読み込んでください。</span>
+        <Button size="sm" variant="outline" className="ml-auto" onClick={refetchAll}>もう一度読み込む</Button>
+      </div>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-4 py-2.5 text-sm text-success animate-in fade-in duration-500">
