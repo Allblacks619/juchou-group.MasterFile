@@ -326,6 +326,11 @@ export default function AppMonthlyCloseV2() {
           .filter((p: any) => p.participantKey !== participant.participantKey)
           .every((p: any) => (PARTICIPANT_OK_STATUSES as readonly string[]).includes(p.individualStatus));
         if (active.length > 0 && othersAllOk && row.closingStatus !== "締め完了") {
+          // 「1人承認しただけ」のつもりで現場全体が確定するのを防ぐため、確定前に必ず確認する。
+          if (!confirm(`${row.projectName} の全員が承認になりました。この現場を「締め完了」にします。\n締め完了にすると出面・交通費は変更できなくなります。よろしいですか？`)) {
+            toast.success(`${participant.workerName} を承認しました（現場はまだ締め完了にしていません）`);
+            return;
+          }
           await completeProjectCore(row);
           toast.success(`全員承認 — ${row.projectName} を締め完了にしました`);
         } else {
@@ -384,6 +389,7 @@ export default function AppMonthlyCloseV2() {
         toast.error("未承認の作業員がいます。全員を承認してから締め完了できます。");
         return;
       }
+      if (!confirm(`${row.projectName} を「締め完了」にします。\n締め完了にすると出面・交通費は変更できなくなります。よろしいですか？`)) return;
       try {
         await completeProjectCore(row);
         toast.success(`${row.projectName} を締め完了にしました`);
