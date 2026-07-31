@@ -541,7 +541,7 @@ export default function AppClosings() {
                     disabled={!detailClosing || !detailSummary.canMarkReady || markReadyMutation.isPending}
                   >
                     <FileCheck className="h-3.5 w-3.5 mr-1" />
-                    ready
+                    準備完了にする
                   </Button>
                   <Button
                     size="sm"
@@ -600,7 +600,7 @@ export default function AppClosings() {
                     <div>
                       <p className="text-sm font-medium text-blue-300">同一取引先・同月の締め準備済み現場をまとめて請求します</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        選択中: {invoiceProjectIds.length}件。同一取引先・同月で ready / closed / locked の案件を初期選択しています。
+                        選択中: {invoiceProjectIds.length}件。同一取引先・同月で「準備完了」以上（準備完了・締め完了・ロック）の案件を初期選択しています。
                       </p>
                     </div>
                     <div className="grid gap-2 grid-cols-1 md:grid-cols-2">
@@ -669,7 +669,7 @@ export default function AppClosings() {
 
                 {!detailSummary.canMarkReady && (
                   <div className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3">
-                    未提出または領収書不足があるため、まだ ready にできません。
+                    まだ提出していない人、または領収書が足りない人がいます。全員そろうと「準備完了」にできます。
                   </div>
                 )}
               </>

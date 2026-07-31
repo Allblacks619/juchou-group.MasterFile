@@ -104,8 +104,10 @@ function getNavGroups(): NavGroup[] {
     {
       groupKey: "nav_basicInfo",
       icon: Building2,
-      items: navItems.filter(item => 
-        ["nav_invitations", "nav_company", "nav_employees"].includes(item.labelKey)
+      // 監査ログ・パスワード再発行はどのグループにも入っておらず、ナビから到達できなかった
+      // （財務3画面のようにナビから外す方針の対象ではなく、単なる登録漏れ）。
+      items: navItems.filter(item =>
+        ["nav_invitations", "nav_company", "nav_employees", "nav_audit", "nav_passwordResets"].includes(item.labelKey)
       ),
     },
     {
