@@ -737,7 +737,7 @@ function RatesTab() {
                       <td className="py-2 px-3">
                         <div className="flex gap-1">
                           <Input type="date" className="w-32 text-xs" value={editForm.effectiveFrom} onChange={(e) => setEditForm(p => ({ ...p, effectiveFrom: e.target.value }))} />
-                          <span className="self-center text-muted-foreground">\u301C</span>
+                          <span className="self-center text-muted-foreground">〜</span>
                           <Input type="date" className="w-32 text-xs" value={editForm.effectiveUntil} onChange={(e) => setEditForm(p => ({ ...p, effectiveUntil: e.target.value }))} />
                         </div>
                       </td>
@@ -768,7 +768,7 @@ function RatesTab() {
                         {hasRate(r.clientRate) && hasRate(r.workerRate) ? formatYen(r.clientRate - r.workerRate) : "未設定"}
                       </td>
                       <td className="py-2 px-3 text-xs text-muted-foreground">
-                        {r.effectiveFrom ? toDateStr(r.effectiveFrom) : "\u2014"} \u301C {r.effectiveUntil ? toDateStr(r.effectiveUntil) : "現在"}
+                        {r.effectiveFrom ? toDateStr(r.effectiveFrom) : "\u2014"} 〜 {r.effectiveUntil ? toDateStr(r.effectiveUntil) : "現在"}
                       </td>
                       <td className="py-2 px-3">
                         {r.hasOverlapWarning && <div className="text-[10px] text-amber-500 mb-1">⚠️重複あり</div>}

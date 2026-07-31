@@ -56,6 +56,15 @@ import { format, startOfMonth, endOfMonth } from "date-fns";
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 
+// 現場の月締め状態を日本語で見せる（画面に open/ready などの英語コードを出さない）。
+const CLOSING_STATUS_JA: Record<string, string> = {
+  open: "受付中（まだ締めていません）",
+  reopened: "やり直し中",
+  ready: "準備完了",
+  closed: "締め完了",
+  locked: "ロック",
+};
+
 const STATUS_LABELS: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   draft: { label: "下書き", color: "bg-gray-500/20 text-gray-400", icon: Clock },
   sent: { label: "送付済", color: "bg-blue-500/20 text-blue-400", icon: Send },
@@ -2018,13 +2027,15 @@ export default function AppInvoices() {
               <Input type="month" value={autoPeriodMonth} onChange={(e) => setAutoPeriodMonth(e.target.value)} />
               {blockingClosings.length > 0 && (
                 <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300 space-y-1">
-                  <p>以下の案件はまだ締めが完了していないため請求作成できません。</p>
+                  <p>下の現場はまだ月締めが終わっていないため、請求書を作れません。</p>
                   {blockingClosings.map((row: any, index: number) => (
                     <div key={row?.project?.id || index}>
-                      ・{row?.project?.name || "不明案件"}（{row?.closing ? row.closing.status : "未初期化"}）
+                      ・{row?.project?.name || "現場名不明"}：{CLOSING_STATUS_JA[row?.closing?.status] ?? "まだ月締めを始めていません"}
                     </div>
                   ))}
-                  <p>→ 月締め管理で該当現場の締めを完了（ready以上）にしてから作成できます。</p>
+                  <Button size="sm" variant="outline" className="mt-1" onClick={() => setLocation("/app/monthly-close-v2")}>
+                    月締め管理をひらく
+                  </Button>
                 </div>
               )}
             </div>
