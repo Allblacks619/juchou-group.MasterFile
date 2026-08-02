@@ -4,6 +4,9 @@
 --
 -- invoice_items: unit='日' の行は既に ×10 なのでそのまま。それ以外(NULL含む)を ×10 にする。
 UPDATE `invoice_items` SET `quantity` = `quantity` * 10 WHERE `unit` IS NULL OR `unit` <> '日';
--- worker_invoice_items: 全単位が素の値だったので一律 ×10 にする。既定値 1(=1式) も 10 に合わせる。
+--> statement-breakpoint
+-- worker_invoice_items: 全単位が素の値だったので一律 ×10 にする。
 UPDATE `worker_invoice_items` SET `quantity` = `quantity` * 10;
+--> statement-breakpoint
+-- 既定値 1(=1式) も ×10 表現の 10 に合わせる。
 ALTER TABLE `worker_invoice_items` MODIFY `quantity` int NOT NULL DEFAULT 10;
