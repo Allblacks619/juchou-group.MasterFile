@@ -1,8 +1,12 @@
 /**
- * InvoicePreview — freee-style invoice preview rendered in the browser.
- * Mirrors the layout of pdfInvoice.ts so users can check before generating PDF.
+ * InvoicePreview — 請求書PDF(server/pdfInvoice.ts)の 1:1 プレビュー。
+ *
+ * PDF と同じ A4 絶対座標(595.28×841.89pt)をそのまま HTML の絶対配置で描き、
+ * 表示時にコンテナ幅へ transform: scale する。以前はプレビューだけ独自の
+ * flex レイアウト（サマリと振込先が明細の下、6列テーブル）だったため、
+ * 「プレビューと出力が別物」になっていた。**座標・順序・列は pdfInvoice.ts に合わせること。**
  */
-import { format } from "date-fns";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 interface InvoiceData {
   invoiceNumber: string;
@@ -28,6 +32,7 @@ interface InvoiceData {
 interface InvoiceItemData {
   itemType: string;
   description: string;
+  /** 人間単位の数量（1.5 = 1.5時間）。×10保存は server/db.ts の内部事情。 */
   quantity: number;
   unit?: string | null;
   unitPrice: number;
@@ -59,6 +64,7 @@ interface CompanyData {
   accountHolder?: string | null;
   logoUrl?: string | null;
   sealUrl?: string | null;
+  watermarkUrl?: string | null;
 }
 
 /** 社印・ロゴのレイアウト調整（PDFと同じ座標系: A4=595.28×841.89pt、社印基準40pt/ロゴ基準50pt）。 */
@@ -74,313 +80,370 @@ interface InvoicePreviewProps {
   company?: CompanyData | null;
   /** 未指定時は company.sealSettings / logoSettings を使う。プレビュー調整のライブ反映用。 */
   layout?: InvoiceLayoutSettings;
+  /** PDF が印字する発行者名（server の OWNER_NAME）。 */
+  ownerName?: string | null;
 }
 
+// ── pdfInvoice.ts と同じ定数（変更するときは両方そろえること） ──
 const A4_W = 595.28;
 const A4_H = 841.89;
+const M_L = 40;
+const M_R = 40;
+const CONTENT_W = A4_W - M_L - M_R;
 const SEAL_BASE = 40;
 const SEAL_DEFAULT_X = 480;
 const SEAL_DEFAULT_Y = 110;
+const ROW_H = 18;
+const MIN_ROWS = 12;
 
-function toJaDate(d: Date | string | null | undefined): string {
+function toJaDateStr(d: Date | string | null | undefined): string {
   if (!d) return "";
   const date = typeof d === "string" ? new Date(d) : d;
+  if (isNaN(date.getTime())) return "";
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
 function formatYen(amount: number): string {
-  return `¥${amount.toLocaleString("ja-JP")}`;
+  return amount.toLocaleString("ja-JP");
 }
 
-function quantityDisplay(quantity: number, unit: string): string {
-  if (unit === "日") return (quantity / 10).toFixed(1);
-  return String(quantity);
+/** 絶対配置のテキスト。PDFKit の doc.text(text, x, y, {width, align}) と同じ引数の並び。 */
+function Txt({
+  children, x, y, size = 8, width, align = "left", color = "#333", bold = false, lineGap = 0,
+}: {
+  children: React.ReactNode; x: number; y: number; size?: number; width?: number;
+  align?: "left" | "center" | "right"; color?: string; bold?: boolean; lineGap?: number;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute", left: x, top: y, width, color, textAlign: align,
+        fontSize: size, lineHeight: `${size + 2 + lineGap}px`, fontWeight: bold ? 700 : 400,
+        whiteSpace: "pre-wrap", wordBreak: "break-word",
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
-export default function InvoicePreview({ invoice, items, client, company, layout }: InvoicePreviewProps) {
+/** 絶対配置の矩形（PDFKit の doc.rect(...).stroke() / .fillAndStroke(...) 相当）。 */
+function Box({
+  x, y, w, h, fill, stroke = "#999",
+}: { x: number; y: number; w: number; h: number; fill?: string; stroke?: string }) {
+  return (
+    <div
+      style={{
+        position: "absolute", left: x, top: y, width: w, height: h,
+        background: fill ?? "transparent", border: `0.5px solid ${stroke}`, boxSizing: "border-box",
+      }}
+    />
+  );
+}
+
+export default function InvoicePreview({ invoice, items, client, company, layout, ownerName }: InvoicePreviewProps) {
+  // A4 の実寸 div を親幅に合わせて縮小表示する（座標をPDFと共有するため実寸を崩さない）。
+  // スマホ幅では 7pt の文字が潰れるので、原寸(100%)に切り替えて横スクロールで読めるようにする。
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [fitScale, setFitScale] = useState(1);
+  const [actualSize, setActualSize] = useState(false);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => setFitScale(entry.contentRect.width / A4_W));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const scale = actualSize ? 1 : fitScale;
+
   const honorific = invoice.honorific || "御中";
   const showSeal = invoice.showSeal !== false;
   const showLogo = invoice.showLogo !== false;
 
-  // 社印: PDFと同じ絶対座標で重ねる（会社設定 or ライブ調整値）。
   const sealRaw = layout?.seal ?? ((company as any)?.sealSettings || {});
   const sealX = Number(sealRaw?.x) > 0 ? Number(sealRaw.x) : SEAL_DEFAULT_X;
   const sealY = Number(sealRaw?.y) > 0 ? Number(sealRaw.y) : SEAL_DEFAULT_Y;
   const sealScale = Number(sealRaw?.scale) > 0 ? Number(sealRaw.scale) : 1;
   const sealOpacity = sealRaw?.opacity != null && sealRaw?.opacity !== "" ? Number(sealRaw.opacity) : 0.85;
-  // ロゴ: 大きさ・位置補正（基準50pt相当=40px表示）。
   const logoRaw = layout?.logo ?? ((company as any)?.logoSettings || {});
   const logoScale = Number(logoRaw?.scale) > 0 ? Number(logoRaw.scale) : 1;
   const logoOffsetX = Number(logoRaw?.offsetX) || 0;
   const logoOffsetY = Number(logoRaw?.offsetY) || 0;
-
-  // Tax breakdown by rate
-  const taxByRate = new Map<number, number>();
-  for (const item of items) {
-    if (item.itemType === "text") continue;
-    const existing = taxByRate.get(item.itemTaxRate) || 0;
-    taxByRate.set(item.itemTaxRate, existing + item.amount);
-  }
+  const logoSize = 50 * logoScale;
 
   const sortedItems = [...items].sort((a, b) => a.sortOrder - b.sortOrder);
+  const nodes: React.ReactNode[] = [];
+  let key = 0;
+  const push = (n: React.ReactNode) => nodes.push(<Fragment key={key++}>{n}</Fragment>);
+
+  // ── 左: 取引先 ──
+  let y = 35;
+  push(<Txt x={M_L} y={y} width={CONTENT_W} align="center" size={18} bold>請求書</Txt>);
+  y += 35;
+
+  const clientStartY = y;
+  push(<Txt x={M_L} y={y} size={12} bold width={260}>{`${client?.name || "取引先"} ${honorific}`}</Txt>);
+  y += 20;
+  for (const line of [
+    client?.postalCode ? `〒${client.postalCode}` : null,
+    client?.address || null,
+    client?.contactPerson ? `${client.contactPerson} 様` : null,
+  ]) {
+    if (!line) continue;
+    push(<Txt x={M_L} y={y} width={220} color="#555">{line}</Txt>);
+    y += 12;
+  }
+
+  // ── 右: 請求メタ ──
+  const metaX = A4_W - M_R - 200;
+  let metaY = clientStartY;
+  const metaRows: [string, string][] = [
+    ["請求日", toJaDateStr(invoice.issueDate)],
+    ["請求書番号", `${invoice.invoiceNumber}${invoice.subNumber ? `-${invoice.subNumber}` : ""}`],
+  ];
+  if (company?.invoiceIssuerNumber) metaRows.push(["登録番号", company.invoiceIssuerNumber]);
+  for (const [label, value] of metaRows) {
+    push(<Txt x={metaX} y={metaY} width={70} color="#555">{label}</Txt>);
+    push(<Txt x={metaX + 70} y={metaY} width={130} align="right" color="#555">{value}</Txt>);
+    metaY += 14;
+  }
+  metaY += 10;
+
+  if (showLogo && company?.logoUrl) {
+    push(
+      <img
+        src={company.logoUrl}
+        alt="Logo"
+        style={{
+          position: "absolute", left: metaX + 140 + logoOffsetX, top: metaY - 5 + logoOffsetY,
+          width: logoSize, height: logoSize, objectFit: "contain",
+        }}
+      />
+    );
+  }
+  if (company?.companyName) {
+    push(
+      <Txt x={metaX} y={metaY} size={10} bold align="right" width={showLogo && company?.logoUrl ? 130 : 200}>
+        {company.companyName}
+      </Txt>
+    );
+    metaY += 16;
+  }
+  for (const line of [ownerName || null, company?.postalCode ? `〒${company.postalCode}` : null, company?.address || null]) {
+    if (!line) continue;
+    push(<Txt x={metaX} y={metaY} size={7} align="right" width={200} color="#555">{line}</Txt>);
+    metaY += 11;
+  }
+
+  y = Math.max(y + 10, metaY + 10);
+
+  push(<Txt x={M_L} y={y} width={CONTENT_W}>下記の通りご請求申し上げます。</Txt>);
+  y += 16;
+  if (invoice.subject) {
+    push(<Txt x={M_L} y={y} size={9} bold width={CONTENT_W}>{`件名　${invoice.subject}`}</Txt>);
+    y += 16;
+  }
+
+  // ── サマリ枠（小計 / 消費税 / 源泉徴収 / 請求金額） ──
+  const hasWithholding = !!invoice.withholding && (invoice.withholdingAmount || 0) > 0;
+  const summaryW = hasWithholding ? 370 : 280;
+  const col1W = hasWithholding ? 80 : 90;
+  const col2W = hasWithholding ? 80 : 90;
+  const colWHW = hasWithholding ? 90 : 0;
+  const col3W = hasWithholding ? 120 : 100;
+  push(<Box x={M_L} y={y} w={summaryW} h={36} />);
+  push(<Box x={M_L} y={y} w={summaryW} h={14} fill="#f0ebe0" />);
+  push(<Txt x={M_L} y={y + 3} size={7} width={col1W} align="center">小計</Txt>);
+  push(<Txt x={M_L + col1W} y={y + 3} size={7} width={col2W} align="center">消費税</Txt>);
+  if (hasWithholding) push(<Txt x={M_L + col1W + col2W} y={y + 3} size={7} width={colWHW} align="center">源泉徴収</Txt>);
+  push(<Txt x={M_L + col1W + col2W + colWHW} y={y + 3} size={7} width={col3W} align="center">請求金額</Txt>);
+  push(<Txt x={M_L} y={y + 18} width={col1W} align="center">{`${formatYen(invoice.subtotal)}円`}</Txt>);
+  push(<Txt x={M_L + col1W} y={y + 18} width={col2W} align="center">{`${formatYen(invoice.taxAmount)}円`}</Txt>);
+  if (hasWithholding) {
+    push(<Txt x={M_L + col1W + col2W} y={y + 18} width={colWHW} align="center" color="#c00">{`-${formatYen(invoice.withholdingAmount || 0)}円`}</Txt>);
+  }
+  push(<Txt x={M_L + col1W + col2W + colWHW} y={y + 16} size={11} bold width={col3W} align="center">{`${formatYen(invoice.totalAmount)}円`}</Txt>);
+  y += 46;
+
+  // ── 入金期日 / 振込先 ──
+  if (invoice.dueDate || company?.bankName) {
+    const payW = 280;
+    const payH = company?.bankName ? 44 : 22;
+    const dueW = 80;
+    push(<Box x={M_L} y={y} w={payW} h={payH} />);
+    push(<Box x={M_L} y={y} w={dueW} h={22} fill="#f0ebe0" />);
+    push(<Txt x={M_L} y={y + 6} size={7} width={dueW} align="center">入金期日</Txt>);
+    push(<Txt x={M_L} y={y + 28} width={dueW} align="center">{invoice.dueDate ? toJaDateStr(invoice.dueDate) : "-"}</Txt>);
+    if (company?.bankName) {
+      const accType = company.accountType === "ordinary" ? "普通" : company.accountType === "checking" ? "当座" : "";
+      push(<Box x={M_L + dueW} y={y} w={payW - dueW} h={22} fill="#f0ebe0" />);
+      push(<Txt x={M_L + dueW} y={y + 6} size={7} width={payW - dueW} align="center">振込先</Txt>);
+      push(
+        <Txt x={M_L + dueW + 6} y={y + 24} size={7} width={payW - dueW - 12} lineGap={1}>
+          {`${company.bankName} ${company.branchName || ""}\n${accType}口座 ${company.accountNumber || ""}\n口座名義 ${company.accountHolder || ""}`}
+        </Txt>
+      );
+    }
+    y += payH + 12;
+  }
+
+  // ── 明細表（品目・摘要 / 数量 / 単価 / 明細金額） ──
+  const amountColW = 75;
+  const qtyColW = 55;
+  const priceColW = 60;
+  const descColW = CONTENT_W - qtyColW - priceColW - amountColW;
+  const cols: { w: number; label: string; align: "left" | "right" }[] = [
+    { w: descColW, label: "品目・摘要", align: "left" },
+    { w: qtyColW, label: "数量", align: "right" },
+    { w: priceColW, label: "単価", align: "right" },
+    { w: amountColW, label: "明細金額", align: "right" },
+  ];
+  let hx = M_L;
+  for (const col of cols) {
+    push(<Box x={hx} y={y} w={col.w} h={18} fill="#e8e0d0" />);
+    push(<Txt x={hx + 3} y={y + 4} size={7} width={col.w - 6} align="center">{col.label}</Txt>);
+    hx += col.w;
+  }
+  y += 18;
+
+  const totalRows = Math.max(sortedItems.filter((i) => i.itemType !== "text").length, MIN_ROWS);
+  let itemIdx = 0;
+  for (let rowNum = 0; rowNum < totalRows; rowNum++) {
+    const item = itemIdx < sortedItems.length ? sortedItems[itemIdx] : null;
+    if (item?.itemType === "text") {
+      push(<Box x={M_L} y={y} w={CONTENT_W} h={ROW_H} fill="#f9f9f5" stroke="#ddd" />);
+      push(<Txt x={M_L + 3} y={y + 4} size={6.5} width={CONTENT_W - 10} color="#666">{item.description || ""}</Txt>);
+      y += ROW_H;
+      itemIdx++;
+      continue; // pdfInvoice.ts と同じく text 行も 1 行ぶんを消費する
+    }
+    const bg = rowNum % 2 === 0 ? "#ffffff" : "#fafaf5";
+    const values = item
+      ? [
+          item.description + (item.itemTaxRate === 8 ? " ※" : ""),
+          `${item.quantity} ${item.unit || "式"}`,
+          formatYen(item.unitPrice),
+          formatYen(item.amount),
+        ]
+      : ["", "", "", ""];
+    let cx = M_L;
+    for (let j = 0; j < cols.length; j++) {
+      push(<Box x={cx} y={y} w={cols[j].w} h={ROW_H} fill={bg} stroke="#ddd" />);
+      if (values[j]) push(<Txt x={cx + 3} y={y + 4} size={7} width={cols[j].w - 6} align={cols[j].align}>{values[j]}</Txt>);
+      cx += cols[j].w;
+    }
+    if (item) itemIdx++;
+    y += ROW_H;
+  }
+  while (itemIdx < sortedItems.length) {
+    const item = sortedItems[itemIdx];
+    if (item.itemType === "text") {
+      push(<Box x={M_L} y={y} w={CONTENT_W} h={ROW_H} fill="#f9f9f5" stroke="#ddd" />);
+      push(<Txt x={M_L + 3} y={y + 4} size={6.5} width={CONTENT_W - 10} color="#666">{item.description || ""}</Txt>);
+      y += ROW_H;
+    }
+    itemIdx++;
+  }
+  y += 8;
+
+  if (sortedItems.some((i) => i.itemTaxRate === 8 && i.itemType === "normal")) {
+    push(<Txt x={M_L} y={y} size={6.5} color="#666" width={CONTENT_W}>※印は軽減税率対象です。</Txt>);
+    y += 12;
+  }
+
+  // ── 税率別内訳 ──
+  const taxByRate = new Map<number, number>();
+  for (const item of sortedItems) {
+    if (item.itemType === "text") continue;
+    taxByRate.set(item.itemTaxRate, (taxByRate.get(item.itemTaxRate) || 0) + item.amount);
+  }
+  const breakdown = Array.from(taxByRate.entries()).sort((a, b) => b[0] - a[0]).filter(([r]) => r > 0);
+  if (breakdown.length > 0) {
+    const bdX = M_L + CONTENT_W - 220;
+    const bdW = 220;
+    const bdH = 14 + breakdown.length * 28;
+    push(<Box x={bdX} y={y} w={bdW} h={bdH} />);
+    push(<Box x={bdX} y={y} w={bdW} h={14} fill="#f0ebe0" />);
+    push(<Txt x={bdX + 4} y={y + 3} size={7}>内訳</Txt>);
+    let bdY = y + 14;
+    for (const [rate, base] of breakdown) {
+      const taxAmt = Math.round((base * rate) / 100);
+      push(<Txt x={bdX + 8} y={bdY + 3} size={7} width={130}>{rate === 8 ? `軽減税率${rate}%対象(税抜)` : `${rate}%対象(税抜)`}</Txt>);
+      push(<Txt x={bdX + 138} y={bdY + 3} size={7} width={76} align="right">{`${formatYen(base)}円`}</Txt>);
+      bdY += 14;
+      push(<Txt x={bdX + 16} y={bdY + 2} size={6.5} width={122} color="#666">{rate === 8 ? `軽減税率${rate}%消費税` : `${rate}%消費税`}</Txt>);
+      push(<Txt x={bdX + 138} y={bdY + 2} size={6.5} width={76} align="right" color="#666">{`${formatYen(taxAmt)}円`}</Txt>);
+      bdY += 14;
+    }
+    y += bdH + 8;
+  }
+
+  if (invoice.notes) {
+    push(<Box x={M_L} y={y} w={CONTENT_W} h={50} />);
+    push(<Txt x={M_L + 6} y={y + 4} size={7} color="#666">備考</Txt>);
+    push(<Txt x={M_L + 6} y={y + 16} size={7} width={CONTENT_W - 12} lineGap={2}>{invoice.notes}</Txt>);
+    y += 58;
+  }
+
+  // ponytail: 用紙は1枚の縦長キャンバスとして描く。PDF の改ページ（y>720で addPage）は再現しない。
+  // 明細が1枚に収まらない案件が出たらページ分割を入れる。
+  const pageH = Math.max(A4_H, y + 40);
 
   return (
-    <div className="bg-white text-black font-sans text-[11px] leading-relaxed w-full max-w-[210mm] mx-auto shadow-lg" style={{ fontFamily: "'Noto Sans JP', sans-serif" }}>
-      {/* A4 page container */}
-      <div className="relative p-8 min-h-[297mm]">
-        {/* 社印オーバーレイ — PDF(pdfInvoice.ts)と同じA4絶対座標・大きさ・透明度で表示 */}
+    <div className="w-full">
+      <button
+        type="button"
+        onClick={() => setActualSize((v) => !v)}
+        className="mb-1 rounded border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+      >
+        {actualSize ? "画面幅に合わせる" : `原寸で見る（${Math.round(fitScale * 100)}%表示中）`}
+      </button>
+      <div
+        ref={wrapRef}
+        className={`w-full bg-white ${actualSize ? "overflow-auto" : "overflow-hidden"}`}
+        style={{ height: pageH * scale }}
+      >
+      <div
+        className="relative bg-white text-black shadow-lg"
+        style={{
+          width: A4_W, height: pageH, transform: `scale(${scale})`, transformOrigin: "top left",
+          fontFamily: "'Noto Sans JP', sans-serif",
+        }}
+      >
+        {/* 透かし — PDFと同じ（画像が無ければ社名テキストを -35° で薄く） */}
+        {company?.watermarkUrl ? (
+          <img
+            src={company.watermarkUrl}
+            alt=""
+            style={{ position: "absolute", left: (A4_W - 300) / 2, top: 421 - 150, width: 300, height: 300, objectFit: "contain", opacity: 0.05 }}
+          />
+        ) : (
+          <div
+            style={{
+              position: "absolute", left: A4_W / 2 - 200, top: 421 - 30, width: 400, textAlign: "center",
+              fontSize: 80, color: "#c8a96e", opacity: 0.03, transform: "rotate(-35deg)", whiteSpace: "nowrap",
+            }}
+          >
+            充寵グループ
+          </div>
+        )}
+
+        {nodes}
+
+        {/* 社印 — PDFと同じA4絶対座標・大きさ・透明度 */}
         {showSeal && company?.sealUrl && (
           <img
             src={company.sealUrl}
             alt="社印"
-            className="pointer-events-none absolute object-contain"
             style={{
-              left: `${(sealX / A4_W) * 100}%`,
-              top: `${(sealY / A4_H) * 100}%`,
-              width: `${((SEAL_BASE * sealScale) / A4_W) * 100}%`,
-              opacity: sealOpacity,
+              position: "absolute", left: sealX, top: sealY,
+              width: SEAL_BASE * sealScale, height: SEAL_BASE * sealScale,
+              objectFit: "contain", opacity: sealOpacity, pointerEvents: "none",
             }}
           />
         )}
-        {/* ── Title ── */}
-        <h1 className="text-center text-xl font-bold tracking-widest mb-6 border-b-2 border-black pb-2">
-          請 求 書
-        </h1>
 
-        {/* ── Top Section: Client left, Meta right ── */}
-        <div className="flex justify-between mb-6">
-          {/* Client info (left) */}
-          <div className="w-[55%]">
-            {client?.postalCode && (
-              <p className="text-[10px] text-gray-600">〒{client.postalCode}</p>
-            )}
-            {client?.address && (
-              <p className="text-[10px] text-gray-600 mb-1">{client.address}</p>
-            )}
-            {client?.contactPerson && (
-              <p className="text-[10px] text-gray-600 mb-1">{client.contactPerson} 様</p>
-            )}
-            <p className="text-base font-bold border-b border-black pb-1 inline-block">
-              {client?.name || "取引先"} {honorific}
-            </p>
-
-            {/* Subject */}
-            {invoice.subject && (
-              <div className="mt-4">
-                <p className="text-[10px] text-gray-500">件名</p>
-                <p className="text-sm font-medium">{invoice.subject}</p>
-              </div>
-            )}
-
-            {/* Summary box */}
-            <div className="mt-4 border border-gray-400 p-3 bg-gray-50">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] text-gray-500">ご請求金額</span>
-                <span className="text-lg font-bold">{formatYen(invoice.totalAmount)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Meta info (right) */}
-          <div className="w-[40%] text-right">
-            <table className="ml-auto text-[10px]">
-              <tbody>
-                <tr>
-                  <td className="text-gray-500 pr-3 py-0.5 text-left">請求書番号</td>
-                  <td className="font-mono">{invoice.invoiceNumber}{invoice.subNumber ? `-${invoice.subNumber}` : ""}</td>
-                </tr>
-                <tr>
-                  <td className="text-gray-500 pr-3 py-0.5 text-left">発行日</td>
-                  <td>{toJaDate(invoice.issueDate)}</td>
-                </tr>
-                {invoice.dueDate && (
-                  <tr>
-                    <td className="text-gray-500 pr-3 py-0.5 text-left">お支払期限</td>
-                    <td>{toJaDate(invoice.dueDate)}</td>
-                  </tr>
-                )}
-                <tr>
-                  <td className="text-gray-500 pr-3 py-0.5 text-left">対象期間</td>
-                  <td>{toJaDate(invoice.periodStart)} 〜 {toJaDate(invoice.periodEnd)}</td>
-                </tr>
-              </tbody>
-            </table>
-
-            {/* Company info */}
-            {company && (
-              <div className="mt-4 text-[10px] text-left border-t pt-3">
-                {showLogo && company.logoUrl && (
-                  <div className="flex justify-end mb-2">
-                    <img
-                      src={company.logoUrl}
-                      alt="Logo"
-                      className="object-contain"
-                      style={{
-                        height: `${40 * logoScale}px`,
-                        transform: `translate(${logoOffsetX}px, ${logoOffsetY}px)`,
-                      }}
-                    />
-                  </div>
-                )}
-                <p className="font-bold text-sm">{company.companyName}</p>
-                {company.postalCode && <p className="text-gray-600">〒{company.postalCode}</p>}
-                {company.address && <p className="text-gray-600">{company.address}</p>}
-                {company.phone && <p className="text-gray-600">TEL: {company.phone}</p>}
-                {company.email && <p className="text-gray-600">Email: {company.email}</p>}
-                {company.invoiceIssuerNumber && (
-                  <p className="text-gray-600 mt-1">
-                    登録番号: {company.invoiceIssuerNumber}
-                  </p>
-                )}
-
-                {/* 社印はPDFと同じ絶対座標で下のオーバーレイに描画する（ここには置かない） */}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Items Table ── */}
-        <table className="w-full border-collapse mb-4">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="border border-gray-300 px-2 py-1.5 text-left text-[10px] w-8">No.</th>
-              <th className="border border-gray-300 px-2 py-1.5 text-left text-[10px]">摘要</th>
-              <th className="border border-gray-300 px-2 py-1.5 text-right text-[10px] w-16">数量</th>
-              <th className="border border-gray-300 px-2 py-1.5 text-center text-[10px] w-10">単位</th>
-              <th className="border border-gray-300 px-2 py-1.5 text-right text-[10px] w-20">単価</th>
-              <th className="border border-gray-300 px-2 py-1.5 text-right text-[10px] w-20">金額</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedItems.map((item, idx) => (
-              <tr key={idx} className={item.itemType === "text" ? "bg-gray-50" : ""}>
-                <td className="border border-gray-300 px-2 py-1 text-[10px] text-gray-500">{idx + 1}</td>
-                <td className="border border-gray-300 px-2 py-1 text-[10px]">
-                  {item.description}
-                  {item.itemTaxRate === 8 && item.itemType === "normal" && (
-                    <span className="text-[9px] ml-1">※</span>
-                  )}
-                  {item.notes && (
-                    <span className="text-[9px] text-gray-500 ml-1">({item.notes})</span>
-                  )}
-                </td>
-                <td className="border border-gray-300 px-2 py-1 text-[10px] text-right">
-                  {item.itemType === "normal" ? quantityDisplay(item.quantity, item.unit || "式") : ""}
-                </td>
-                <td className="border border-gray-300 px-2 py-1 text-[10px] text-center">
-                  {item.itemType === "normal" ? (item.unit || "式") : ""}
-                </td>
-                <td className="border border-gray-300 px-2 py-1 text-[10px] text-right">
-                  {item.itemType === "normal" ? formatYen(item.unitPrice) : ""}
-                </td>
-                <td className="border border-gray-300 px-2 py-1 text-[10px] text-right font-medium">
-                  {item.itemType === "normal" ? formatYen(item.amount) : ""}
-                </td>
-              </tr>
-            ))}
-            {/* Empty rows to fill space */}
-            {sortedItems.length < 10 && Array.from({ length: 10 - sortedItems.length }).map((_, i) => (
-              <tr key={`empty-${i}`}>
-                <td className="border border-gray-300 px-2 py-1 text-[10px]">&nbsp;</td>
-                <td className="border border-gray-300 px-2 py-1"></td>
-                <td className="border border-gray-300 px-2 py-1"></td>
-                <td className="border border-gray-300 px-2 py-1"></td>
-                <td className="border border-gray-300 px-2 py-1"></td>
-                <td className="border border-gray-300 px-2 py-1"></td>
-                <td className="border border-gray-300 px-2 py-1"></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* ── Reduced tax note ── */}
-        {items.some(i => i.itemTaxRate === 8 && i.itemType === "normal") && (
-          <p className="text-[9px] text-gray-500 mb-3">※印は軽減税率（8%）対象です。</p>
-        )}
-
-        {/* ── Summary Section ── */}
-        <div className="flex justify-end mb-4">
-          <table className="border-collapse w-[45%]">
-            <tbody>
-              <tr>
-                <td className="border border-gray-300 bg-gray-100 px-3 py-1.5 text-[10px] font-medium">小計</td>
-                <td className="border border-gray-300 px-3 py-1.5 text-right text-[10px]">{formatYen(invoice.subtotal)}</td>
-              </tr>
-              {Array.from(taxByRate.entries()).sort((a, b) => b[0] - a[0]).map(([rate, base]) => {
-                if (rate === 0) return null;
-                const tax = Math.round((base * rate) / 100);
-                return (
-                  <tr key={rate}>
-                    <td className="border border-gray-300 bg-gray-100 px-3 py-1.5 text-[10px] font-medium">
-                      消費税（{rate}%）
-                    </td>
-                    <td className="border border-gray-300 px-3 py-1.5 text-right text-[10px]">{formatYen(tax)}</td>
-                  </tr>
-                );
-              })}
-              {invoice.withholding && invoice.withholdingAmount ? (
-                <tr>
-                  <td className="border border-gray-300 bg-gray-100 px-3 py-1.5 text-[10px] font-medium">源泉徴収税</td>
-                  <td className="border border-gray-300 px-3 py-1.5 text-right text-[10px]">-{formatYen(invoice.withholdingAmount)}</td>
-                </tr>
-              ) : null}
-              <tr>
-                <td className="border border-gray-300 bg-gray-800 text-white px-3 py-2 text-[11px] font-bold">合計金額</td>
-                <td className="border border-gray-300 bg-gray-800 text-white px-3 py-2 text-right text-[11px] font-bold">{formatYen(invoice.totalAmount)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* ── Bank Info ── */}
-        {company && company.bankName && (
-          <div className="border border-gray-300 p-3 mb-4 bg-gray-50">
-            <p className="text-[10px] font-bold mb-1">お振込先</p>
-            <table className="text-[10px]">
-              <tbody>
-                <tr>
-                  <td className="text-gray-500 pr-3 py-0.5">銀行名</td>
-                  <td>{company.bankName}</td>
-                </tr>
-                {company.branchName && (
-                  <tr>
-                    <td className="text-gray-500 pr-3 py-0.5">支店名</td>
-                    <td>{company.branchName}</td>
-                  </tr>
-                )}
-                <tr>
-                  <td className="text-gray-500 pr-3 py-0.5">口座種別</td>
-                  <td>{company.accountType === "checking" ? "当座" : "普通"}</td>
-                </tr>
-                {company.accountNumber && (
-                  <tr>
-                    <td className="text-gray-500 pr-3 py-0.5">口座番号</td>
-                    <td>{company.accountNumber}</td>
-                  </tr>
-                )}
-                {company.accountHolder && (
-                  <tr>
-                    <td className="text-gray-500 pr-3 py-0.5">口座名義</td>
-                    <td>{company.accountHolder}</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* ── Payment method ── */}
-        {invoice.paymentMethod && (
-          <p className="text-[10px] text-gray-600 mb-2">お支払方法: {invoice.paymentMethod}</p>
-        )}
-
-        {/* ── Notes ── */}
-        {invoice.notes && (
-          <div className="border-t pt-2 mt-2">
-            <p className="text-[10px] font-bold mb-1">備考</p>
-            <p className="text-[10px] text-gray-600 whitespace-pre-wrap">{invoice.notes}</p>
-          </div>
-        )}
+      </div>
       </div>
     </div>
   );

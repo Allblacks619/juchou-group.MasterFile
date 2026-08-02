@@ -228,7 +228,7 @@ export function InvoiceInboxTab() {
                     {(snap.items ?? []).map((i: any, idx: number) => (
                       <TableRow key={idx}>
                         <TableCell>{i.description}</TableCell>
-                        <TableCell className="text-sm">{i.itemType === "normal" ? `${i.quantity / 10}${i.unit ?? ""}` : ""}</TableCell>
+                        <TableCell className="text-sm">{i.itemType === "normal" ? `${i.quantity}${i.unit ?? ""}` : ""}</TableCell>
                         <TableCell className="text-sm">{i.itemType === "normal" ? yen(i.unitPrice) : ""}</TableCell>
                         <TableCell className="text-sm">{i.itemType === "normal" ? yen(i.amount) : ""}</TableCell>
                         <TableCell className="text-sm">{i.itemType === "normal" ? `${i.itemTaxRate}%` : ""}</TableCell>

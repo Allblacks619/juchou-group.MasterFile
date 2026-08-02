@@ -191,7 +191,7 @@ async function main() {
   });
   for (const it of client.items) {
     if (it.itemType === "text") { console.log(`\n  ${it.description}`); continue; }
-    const q = it.unit === "日" ? it.quantity / 10 : it.quantity; // 日は×10保存
+    const q = it.quantity;
     console.log(`   ${it.description.padEnd(16)}  ${String(q).padStart(5)}${it.unit} × ${yen(it.unitPrice).padStart(9)} = ${yen(it.amount).padStart(11)}  (税${it.itemTaxRate}%)`);
   }
   line();

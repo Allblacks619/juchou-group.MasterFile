@@ -625,7 +625,7 @@ export const invoiceItems = mysqlTable("invoice_items", {
   itemType: mysqlEnum("itemType", ["normal", "text"]).default("normal").notNull(),
   /** Description (e.g. worker name + project, or free text) */
   description: text("description").notNull(),
-  /** Quantity (e.g. number of days * 10, so 200 = 20.0 days) */
+  /** Quantity × 10, whatever the unit (200 = 20.0日, 15 = 1.5時間). shared/invoiceQuantity.ts */
   quantity: int("quantity").default(0).notNull(),
   /** Unit label */
   unit: varchar("unit", { length: 32 }).default("日"),
@@ -838,7 +838,8 @@ export const workerInvoiceItems = mysqlTable("worker_invoice_items", {
   itemType: mysqlEnum("workerInvoiceItemType", ["normal", "text"]).default("normal").notNull(),
   category: mysqlEnum("workerInvoiceItemCategory", ["labor", "transport", "expense", "materials", "misc"]).default("labor").notNull(),
   label: text("label").notNull(),
-  quantity: int("quantity").default(1).notNull(),
+  /** Quantity × 10, whatever the unit (15 = 1.5時間, 215 = 21.5日). shared/invoiceQuantity.ts */
+  quantity: int("quantity").default(10).notNull(),
   unit: varchar("unit", { length: 32 }).default("式").notNull(),
   unitPrice: int("unitPrice").default(0).notNull(),
   amount: int("amount").default(0).notNull(),
