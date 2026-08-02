@@ -183,10 +183,10 @@ describe("same-client same-month consolidated client invoice", () => {
     expect(itemCalls).toHaveLength(5);
     expect(itemCalls).toEqual([
       expect.objectContaining({ itemType: "text", description: "【品川A現場】", amount: 0, sortOrder: 0 }),
-      expect.objectContaining({ itemType: "normal", description: "電気工事業A", unitPrice: 15000, quantity: 10, amount: 15000, sortOrder: 1 }),
-      expect.objectContaining({ itemType: "normal", description: "電気工事業B", unitPrice: 10000, quantity: 10, amount: 10000, sortOrder: 2 }),
+      expect.objectContaining({ itemType: "normal", description: "電気工事業A", unitPrice: 15000, quantity: 1, amount: 15000, sortOrder: 1 }),
+      expect.objectContaining({ itemType: "normal", description: "電気工事業B", unitPrice: 10000, quantity: 1, amount: 10000, sortOrder: 2 }),
       expect.objectContaining({ itemType: "text", description: "【品川B現場】", amount: 0, sortOrder: 3 }),
-      expect.objectContaining({ itemType: "normal", description: "電気工事業A", unitPrice: 12000, quantity: 20, amount: 24000, sortOrder: 4 }),
+      expect.objectContaining({ itemType: "normal", description: "電気工事業A", unitPrice: 12000, quantity: 2, amount: 24000, sortOrder: 4 }),
     ]);
     expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(expect.any(Date), expect.any(Date), 1);
     expect(db.getAttendanceByDateRange).toHaveBeenCalledWith(expect.any(Date), expect.any(Date), 2);

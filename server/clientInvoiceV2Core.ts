@@ -36,7 +36,7 @@ export type ClientInvoiceItem = {
   employeeId: number | null;
   itemType: "normal" | "text";
   description: string;
-  /** days (labor) / hours (overtime) / 1 (aggregated transport). NOT ×10 here. */
+  /** 人間が読む数量: 14 = 14日、1.5 = 1.5時間。DBへは shared/invoiceQuantity.ts で ×10 して保存する。 */
   quantity: number;
   unit: string;
   unitPrice: number;
@@ -145,15 +145,6 @@ function bucketLetter(index: number): string {
 
 function shiftLabel(shiftType: string): string {
   return shiftType === "night" ? "夜勤" : "日勤";
-}
-
-/**
- * Convert a human value (days / hours / 1) into the stored `invoice_items.quantity`,
- * matching the existing renderer convention: unit「日」is stored ×10 (140 = 14.0 日),
- * every other unit (式 / 時間 …) is stored literally.
- */
-function storedQuantity(value: number, unit: string): number {
-  return unit === "日" ? Math.round(value * 10) : value;
 }
 
 /**
@@ -292,7 +283,7 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
         employeeId: null,
         itemType: "normal",
         description,
-        quantity: storedQuantity(days, units.labor),
+        quantity: days,
         unit: units.labor,
         unitPrice,
         amount,
@@ -321,7 +312,7 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
           employeeId: null,
           itemType: "normal",
           description: `残業代（${band}${groupSuffix}）`,
-          quantity: storedQuantity(hours, units.overtime),
+          quantity: hours,
           unit: units.overtime,
           unitPrice: otHourly,
           amount,
@@ -352,7 +343,7 @@ export function computeClientInvoiceDraft(input: ClientInvoiceComputeInput): Cli
         employeeId: null,
         itemType: "normal",
         description: "交通費",
-        quantity: storedQuantity(1, units.transport),
+        quantity: 1,
         unit: units.transport,
         unitPrice: transportTotal,
         amount: transportTotal,

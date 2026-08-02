@@ -136,16 +136,16 @@ function emptyTextItem(sortOrder: number): InvoiceLineItem {
   };
 }
 
-/** Calculate quantity display string based on unit */
+/**
+ * 数量は単位に関係なく人間が読む値（14 = 14日、1.5 = 1.5時間）。
+ * DBの ×10 保存はサーバー(server/db.ts)の内部事情なので、画面はそのまま表示・計算してよい。
+ */
 function quantityDisplay(quantity: number, unit: string): string {
-  if (unit === "日") return `${(quantity / 10).toFixed(1)} ${unit}`;
   return `${quantity} ${unit}`;
 }
 
-/** Calculate amount based on quantity, unit, and unitPrice */
-function calcAmount(quantity: number, unit: string, unitPrice: number): number {
-  if (unit === "日") return Math.round((quantity / 10) * unitPrice);
-  return quantity * unitPrice;
+function calcAmount(quantity: number, unitPrice: number): number {
+  return Math.round(quantity * unitPrice);
 }
 
 // ── Invoice Detail Dialog ──
@@ -308,7 +308,7 @@ function InvoiceDetailDialog({
     );
   }
 
-  const { invoice, items, client, company } = detailQuery.data || { invoice: null, items: [], client: null, company: null };
+  const { invoice, items, client, company, ownerName } = (detailQuery.data || { invoice: null, items: [], client: null, company: null }) as any;
   if (!invoice) return <p className="text-muted-foreground">請求書が見つかりません</p>;
   const previewItems = items.map((item: any) => ({ ...item, notes: externalItemNote(item.notes) }));
 
@@ -317,7 +317,7 @@ function InvoiceDetailDialog({
       toast.error("摘要を入力してください");
       return;
     }
-    const amount = newItem.itemType === "normal" ? calcAmount(newItem.quantity, newItem.unit, newItem.unitPrice) : 0;
+    const amount = newItem.itemType === "normal" ? calcAmount(newItem.quantity, newItem.unitPrice) : 0;
     addItemMutation.mutate({
       invoiceId: invoice.id,
       itemType: newItem.itemType,
@@ -341,7 +341,7 @@ function InvoiceDetailDialog({
       return;
     }
     const amount = editItem.itemType === "normal"
-      ? calcAmount(editItem.quantity, editItem.unit, editItem.unitPrice)
+      ? calcAmount(editItem.quantity, editItem.unitPrice)
       : 0;
     updateItemMutation.mutate({
       id: editItemId,
@@ -384,6 +384,37 @@ function InvoiceDetailDialog({
 
       {activeTab === "preview" ? (
         <div className="max-h-[70vh] overflow-y-auto space-y-4">
+          {/* 入金期日・振込先が空だと請求書のその枠ごと消える。なぜ出ないかをここで伝えて、期日はその場で設定できるようにする。 */}
+          <div className="rounded-md border border-border p-3 space-y-2">
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">入金期日（請求書に印字されます）</Label>
+                <Input
+                  type="date"
+                  className="h-9 w-[170px] mt-1"
+                  value={dueDateDraft ?? ((invoice as any).dueDate ? format(new Date((invoice as any).dueDate), "yyyy-MM-dd") : "")}
+                  onChange={(e) => setDueDateDraft(e.target.value)}
+                />
+              </div>
+              {dueDateDraft !== null && dueDateDraft !== ((invoice as any).dueDate ? format(new Date((invoice as any).dueDate), "yyyy-MM-dd") : "") && (
+                <Button
+                  size="sm"
+                  className="h-9 gap-1 shrink-0"
+                  disabled={updateInvoiceMutation.isPending}
+                  onClick={() => updateInvoiceMutation.mutate({ id: invoice.id, dueDate: dueDateDraft || undefined })}
+                >
+                  {updateInvoiceMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                  保存
+                </Button>
+              )}
+            </div>
+            {!(company as any)?.bankName && (
+              <p className="text-xs text-amber-500">
+                振込先が未登録のため、請求書に「振込先」欄が出ません。会社設定 → 振込先情報（銀行名・支店名・口座種別・口座番号・口座名義）を登録してください。
+              </p>
+            )}
+          </div>
+
           {/* 社印・ロゴの調整（プレビューに即時反映。保存で会社設定として全請求書PDFに適用） */}
           {(() => {
             const cs = ((company as any)?.sealSettings || {}) as any;
@@ -467,9 +498,10 @@ function InvoiceDetailDialog({
                     </div>
                     <div className="space-y-1.5">
                       <p className="text-xs font-semibold text-gold">ロゴ</p>
-                      {slider("大きさ", current.logo.scale, 0.5, 2.5, 0.05, (v) => set({ scale: v } as any, "logo"), `×${current.logo.scale.toFixed(2)}`)}
-                      {slider("位置 X", current.logo.offsetX, -140, 140, 2, (v) => set({ offsetX: v } as any, "logo"))}
-                      {slider("位置 Y", current.logo.offsetY, -60, 200, 2, (v) => set({ offsetY: v } as any, "logo"))}
+                      {/* 基準50pt。A4幅515ptに収まる範囲まで拡大でき、左右は用紙の端まで動かせる。 */}
+                      {slider("大きさ", current.logo.scale, 0.3, 8, 0.05, (v) => set({ scale: v } as any, "logo"), `×${current.logo.scale.toFixed(2)}`)}
+                      {slider("位置 X", current.logo.offsetX, -460, 100, 2, (v) => set({ offsetX: v } as any, "logo"))}
+                      {slider("位置 Y", current.logo.offsetY, -140, 620, 2, (v) => set({ offsetY: v } as any, "logo"))}
                     </div>
                   </div>
                 )}
@@ -483,6 +515,7 @@ function InvoiceDetailDialog({
               client={client}
               company={company}
               layout={layoutDraft ?? undefined}
+              ownerName={ownerName}
             />
           </div>
 
@@ -813,27 +846,16 @@ function InvoiceDetailDialog({
                     </div>
                   </TableCell>
                   <TableCell className="text-sm">
-                    {item.itemType === "normal"
-                      ? ((item.unit || "式") === "日" ? (item.quantity / 10).toFixed(1) : String(item.quantity))
-                      : "-"}
+                    {item.itemType === "normal" ? String(item.quantity) : "-"}
                   </TableCell>
                   <TableCell>
                     {item.itemType === "normal" ? (
-                      // その場で単位を切替（「日」は内部×10保存のため数量を換算して金額を維持）
+                      // 単位を切り替えても数量はそのまま（数量は単位に依存しない人間単位）
                       <Select
                         value={item.unit || "式"}
                         onValueChange={(v) => {
-                          const oldUnit = item.unit || "式";
-                          if (v === oldUnit) return;
-                          let quantity = item.quantity || 0;
-                          if (oldUnit === "日" && v !== "日") quantity = Math.round(quantity / 10);
-                          else if (oldUnit !== "日" && v === "日") quantity = quantity * 10;
-                          updateItemMutation.mutate({
-                            id: item.id,
-                            quantity,
-                            unit: v,
-                            amount: calcAmount(quantity, v, item.unitPrice || 0),
-                          });
+                          if (v === (item.unit || "式")) return;
+                          updateItemMutation.mutate({ id: item.id, unit: v });
                         }}
                         disabled={updateItemMutation.isPending}
                       >
@@ -935,16 +957,17 @@ function InvoiceDetailDialog({
             {editItem.itemType === "normal" && (
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">数量{editItem.unit === "日" ? "（×10）" : ""}</Label>
+                  <Label className="text-xs">数量</Label>
                   <Input
                     type="number"
+                    step={0.5}
                     value={editItem.quantity}
                     onChange={(e) => {
                       const qty = Number(e.target.value);
                       setEditItem((prev) => prev ? ({
                         ...prev,
                         quantity: qty,
-                        amount: calcAmount(qty, prev.unit, prev.unitPrice),
+                        amount: calcAmount(qty, prev.unitPrice),
                       }) : prev);
                     }}
                   />
@@ -953,21 +976,7 @@ function InvoiceDetailDialog({
                   <Label className="text-xs">単位</Label>
                   <Select
                     value={editItem.unit}
-                    onValueChange={(v) => {
-                      setEditItem((prev) => {
-                        if (!prev) return prev;
-                        // 「日」は内部×10保存のため、単位切替時に数量を換算して表示値を保つ。
-                        let quantity = prev.quantity;
-                        if (prev.unit === "日" && v !== "日") quantity = Math.round(quantity / 10);
-                        else if (prev.unit !== "日" && v === "日") quantity = quantity * 10;
-                        return {
-                          ...prev,
-                          unit: v,
-                          quantity,
-                          amount: calcAmount(quantity, v, prev.unitPrice),
-                        };
-                      });
-                    }}
+                    onValueChange={(v) => setEditItem((prev) => prev ? ({ ...prev, unit: v }) : prev)}
                   >
                     <SelectTrigger className="h-8">
                       <SelectValue />
@@ -989,7 +998,7 @@ function InvoiceDetailDialog({
                       setEditItem((prev) => prev ? ({
                         ...prev,
                         unitPrice: price,
-                        amount: calcAmount(prev.quantity, prev.unit, price),
+                        amount: calcAmount(prev.quantity, price),
                       }) : prev);
                     }}
                   />
@@ -1114,42 +1123,27 @@ function InvoiceDetailDialog({
             {newItem.itemType === "normal" && (
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">数量{newItem.unit === "日" ? "（×10）" : ""}</Label>
+                  <Label className="text-xs">数量</Label>
                   <Input
                     type="number"
+                    step={0.5}
                     value={newItem.quantity}
                     onChange={(e) => {
                       const qty = Number(e.target.value);
                       setNewItem((prev) => ({
                         ...prev,
                         quantity: qty,
-                        amount: calcAmount(qty, prev.unit, prev.unitPrice),
+                        amount: calcAmount(qty, prev.unitPrice),
                       }));
                     }}
-                    placeholder={newItem.unit === "日" ? "200=20.0日" : "数量"}
+                    placeholder="数量（例: 1.5）"
                   />
-                  {newItem.unit === "日" && newItem.quantity > 0 && (
-                    <span className="text-[10px] text-muted-foreground">{(newItem.quantity / 10).toFixed(1)}日</span>
-                  )}
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">単位</Label>
                   <Select
                     value={newItem.unit}
-                    onValueChange={(v) => {
-                      setNewItem((prev) => {
-                        // 「日」は内部×10保存のため、単位切替時に数量を換算して表示値を保つ。
-                        let quantity = prev.quantity;
-                        if (prev.unit === "日" && v !== "日") quantity = Math.round(quantity / 10);
-                        else if (prev.unit !== "日" && v === "日") quantity = quantity * 10;
-                        return {
-                          ...prev,
-                          unit: v,
-                          quantity,
-                          amount: calcAmount(quantity, v, prev.unitPrice),
-                        };
-                      });
-                    }}
+                    onValueChange={(v) => setNewItem((prev) => ({ ...prev, unit: v }))}
                   >
                     <SelectTrigger className="h-8">
                       <SelectValue />
@@ -1171,7 +1165,7 @@ function InvoiceDetailDialog({
                       setNewItem((prev) => ({
                         ...prev,
                         unitPrice: price,
-                        amount: calcAmount(prev.quantity, prev.unit, price),
+                        amount: calcAmount(prev.quantity, price),
                       }));
                     }}
                   />
@@ -1347,7 +1341,7 @@ function ManualCreateDialog({
         const updated = { ...item, ...updates };
         // Auto-calc amount for normal items
         if (updated.itemType === "normal" && (updates.quantity !== undefined || updates.unitPrice !== undefined || updates.unit !== undefined)) {
-          updated.amount = calcAmount(updated.quantity, updated.unit, updated.unitPrice);
+          updated.amount = calcAmount(updated.quantity, updated.unitPrice);
         }
         return updated;
       })
@@ -1632,17 +1626,15 @@ function ManualCreateDialog({
                   {item.itemType === "normal" && (
                     <div className="grid grid-cols-5 gap-2">
                       <div>
-                        <Label className="text-[10px] text-muted-foreground">数量{item.unit === "日" ? "（×10）" : ""}</Label>
+                        <Label className="text-[10px] text-muted-foreground">数量</Label>
                         <Input
                           type="number"
+                          step={0.5}
                           value={item.quantity}
                           onChange={(e) => updateItem(idx, { quantity: Number(e.target.value) })}
                           className="h-7 text-sm"
-                          placeholder={item.unit === "日" ? "200=20.0日" : "数量"}
+                          placeholder="数量（例: 1.5）"
                         />
-                        {item.unit === "日" && item.quantity > 0 && (
-                          <span className="text-[10px] text-muted-foreground">{(item.quantity / 10).toFixed(1)}日</span>
-                        )}
                       </div>
                       <div>
                         <Label className="text-[10px] text-muted-foreground">単位</Label>

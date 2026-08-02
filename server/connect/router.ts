@@ -574,7 +574,7 @@ const invoiceSubmissionRouter = router({
         invoiceId: input.invoiceId,
         itemType: "normal",
         description: `外注費 ${snap?.invoiceNumber ?? `受領請求#${sub.id}`}（承認額・税込参照）`,
-        quantity: 1, // ×10表現は unit="日" のみ（calcAmount/quantityDisplay）。"式" は素の数量
+        quantity: 1, // 人間単位。DB保存時の×10変換は server/db.ts が行う
         unit: "式",
         unitPrice: costAmount,
         amount: costAmount,

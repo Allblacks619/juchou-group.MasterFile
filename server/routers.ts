@@ -5323,7 +5323,8 @@ export const appRouter = router({
           client = await db.getClientById(invoice.clientId);
         }
         const company = await db.getCompanyProfile();
-        return { invoice, items, client, company };
+        // ownerName は PDF(pdfInvoice.ts)が会社名の下に印字する。プレビューを出力と一致させるため一緒に返す。
+        return { invoice, items, client, company, ownerName: process.env.OWNER_NAME || null };
       }),
 
     /**

@@ -299,7 +299,7 @@ function ReceivableDrilldown({ row }: { row: any }) {
               ) : items.map((item: any) => (
                 <tr key={item.id} className="border-b border-border/50 last:border-0">
                   <td className="px-2 py-1.5">{item.description}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{(item.quantity / 10).toLocaleString("ja-JP")}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{item.quantity.toLocaleString("ja-JP")}</td>
                   <td className="px-2 py-1.5">{item.unit || "-"}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{yen(item.unitPrice)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums font-medium">{yen(item.amount)}</td>

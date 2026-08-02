@@ -134,9 +134,9 @@ describe("P2: 乙島電業 → 甲野電設 請求計算（管理代行現場・
     // A/B/C は請求単価が高い順（A=夜勤32,000 / B=昼24,000 / C=昼21,000）。数量は×10（20=2.0日）
     const gyo = normal.filter((i) => i.description.startsWith("電気工事業"));
     expect(gyo.map((i) => [i.description, i.quantity, i.unitPrice, i.amount])).toEqual([
-      ["電気工事業A", 20, 32000, 64000],
-      ["電気工事業B", 100, 24000, 240000],
-      ["電気工事業C", 80, 21000, 168000],
+      ["電気工事業A", 2, 32000, 64000],
+      ["電気工事業B", 10, 24000, 240000],
+      ["電気工事業C", 8, 21000, 168000],
     ]);
 
     // 昼勤6h残業 → 5h時間外(24,000/8×1.25=3,750) + 1h深夜(24,000/8×1.5=4,500)
@@ -172,7 +172,7 @@ describe("P1: 丙田工業 → 乙島電業 請求計算（免税事業者・多
     // 同単価（18,000）は1バケット = 電気工事業A に集約（12日+8日=20.0日）
     const gyo = normal.filter((i) => i.description.startsWith("電気工事業"));
     expect(gyo.map((i) => [i.description, i.quantity, i.unitPrice, i.amount])).toEqual([
-      ["電気工事業A", 200, 18000, 360000],
+      ["電気工事業A", 20, 18000, 360000],
     ]);
 
     // 免税 → 全行0%・税0円
