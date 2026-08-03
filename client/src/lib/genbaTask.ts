@@ -58,8 +58,13 @@ export function rootTasks(tasks: GenbaTaskDto[]): GenbaTaskDto[] {
   return tasks.filter((t) => !t.parentTaskId).sort((a, b) => a.sortOrder - b.sortOrder || 0);
 }
 
+/**
+ * 端末のローカル日付 (YYYY-MM-DD)。toISOString() は UTC を返すため、
+ * 日本時間の朝9時前が前日になってしまう (朝礼時の手配が前日扱いになる) のを避ける。
+ */
 export function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export function fmtDate(iso: string | null): string {
