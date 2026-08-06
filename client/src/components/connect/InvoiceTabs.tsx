@@ -39,6 +39,12 @@ const PAYABLE_STATUS: Record<string, { label: string; variant: "default" | "seco
   paid: { label: "支払済み", variant: "default" },
 };
 
+/** 提出側の入金状況（受領箱に表示のみ・強制同期しない）。Phase 4 PR2 */
+const SUBMITTER_PAYMENT: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  partial: { label: "一部入金", variant: "outline" },
+  paid: { label: "入金済み", variant: "default" },
+};
+
 const CMP_RESULT: Record<string, { label: string; className: string }> = {
   match: { label: "一致", className: "text-muted-foreground" },
   hours_mismatch: { label: "時間不一致", className: "text-destructive font-medium" },
@@ -210,6 +216,12 @@ export function InvoiceInboxTab() {
                     )}
                   </p>
                 )}
+                {s.submitterPaymentStatus && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    相手の入金: <Status map={SUBMITTER_PAYMENT} status={s.submitterPaymentStatus} />
+                    {s.submitterPaidAt && <span className="ml-1">（{format(new Date(s.submitterPaidAt), "yyyy/MM/dd")}）</span>}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <Status map={INV_STATUS} status={s.status} />
@@ -228,7 +240,8 @@ export function InvoiceInboxTab() {
                     {(snap.items ?? []).map((i: any, idx: number) => (
                       <TableRow key={idx}>
                         <TableCell>{i.description}</TableCell>
-                        <TableCell className="text-sm">{i.itemType === "normal" ? `${i.quantity / 10}${i.unit ?? ""}` : ""}</TableCell>
+                        {/* ×10表現は unit="日" のみ。"式"等は素の数量（/10すると交通費1式が0.1式になる） */}
+                        <TableCell className="text-sm">{i.itemType === "normal" ? (i.unit === "日" ? `${t10(i.quantity)}日` : `${i.quantity}${i.unit ?? ""}`) : ""}</TableCell>
                         <TableCell className="text-sm">{i.itemType === "normal" ? yen(i.unitPrice) : ""}</TableCell>
                         <TableCell className="text-sm">{i.itemType === "normal" ? yen(i.amount) : ""}</TableCell>
                         <TableCell className="text-sm">{i.itemType === "normal" ? `${i.itemTaxRate}%` : ""}</TableCell>

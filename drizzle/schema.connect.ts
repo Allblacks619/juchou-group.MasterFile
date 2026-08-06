@@ -161,6 +161,9 @@ export const partnerInvoiceSubmissions = mysqlTable("partner_invoice_submissions
   /** 名簿PDF等の R2 キー配列 */
   pdfKeysJson: json("pdfKeysJson"),
   returnReason: text("returnReason"),
+  /** 提出側の入金状況（Phase 4 PR2・入金/支払の対称表示）。提出側の receivable 操作で更新され、受領側に表示のみ（強制同期しない） */
+  submitterPaymentStatus: mysqlEnum("submitterPaymentStatus", ["partial", "paid"]),
+  submitterPaidAt: timestamp("submitterPaidAt"),
   submittedBy: int("submittedBy"),
   reviewedBy: int("reviewedBy"),
   reviewedAt: timestamp("reviewedAt"),

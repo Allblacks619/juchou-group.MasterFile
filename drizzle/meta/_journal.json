@@ -344,6 +344,13 @@
       "when": 1786100000000,
       "tag": "0046_genba_multitenant_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "5",
+      "when": 1786200000000,
+      "tag": "0047_connect_payment_symmetry",
+      "breakpoints": true
     }
   ]
 }

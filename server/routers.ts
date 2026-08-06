@@ -36,6 +36,7 @@ import { computeAdvanceBalance, computeAppliedOffset, computeMaxOffset, signedDe
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 import { genbaRouter } from "./genba/router";
 import { connectRouter } from "./connect/router";
+import { reflectSubmitterPaymentStatus } from "./connect/paymentSync";
 
 const BCRYPT_ROUNDS = 12;
 const RESET_LINK_TTL_MS = 60 * 60 * 1000;
@@ -5179,6 +5180,9 @@ export const appRouter = router({
           status,
         } as any);
         await safeAuditLog(ctx.user.id, "receivable.update", "receivable", { entityId: input.id, invoiceId: input.id, note: `入金情報更新: ${receivedAmount}円` });
+        // 入金/支払の対称表示（Phase 4 PR2）: 連携先に提出済みの請求なら入金状況を反映（表示のみ・強制同期しない）
+        await reflectSubmitterPaymentStatus(ctx.companyId, input.id,
+          expected > 0 && receivedAmount >= expected ? "paid" : receivedAmount > 0 ? "partial" : null);
         return { success: true };
       }),
 
@@ -5195,6 +5199,7 @@ export const appRouter = router({
           receivedBy: ctx.user.id,
         } as any);
         await safeAuditLog(ctx.user.id, "receivable.markReceived", "receivable", { entityId: input.id, invoiceId: input.id, note: `入金済みに変更: ${receivedAmount}円` });
+        await reflectSubmitterPaymentStatus(ctx.companyId, input.id, "paid");
         return { success: true };
       }),
 
@@ -5218,6 +5223,7 @@ export const appRouter = router({
           receivedBy: null,
         } as any);
         await safeAuditLog(ctx.user.id, "receivable.markUnreceived", "receivable", { entityId: input.id, invoiceId: input.id, note: "入金済み解除" });
+        await reflectSubmitterPaymentStatus(ctx.companyId, input.id, null);
         return { success: true };
       }),
 
