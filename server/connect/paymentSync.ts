@@ -1,8 +1,6 @@
 import * as connectDb from "./db";
 import { isMultiTenantEnabled } from "../tenancy";
 
-export type SubmitterPaymentStatus = "partial" | "paid" | null;
-
 /**
  * 提出側の入金操作（receivable.update / markReceived / markUnreceived）を
  * partner_invoice_submissions へ反映する（Phase 4 PR2・入金/支払の対称表示）。
@@ -12,7 +10,7 @@ export type SubmitterPaymentStatus = "partial" | "paid" | null;
 export async function reflectSubmitterPaymentStatus(
   companyId: number | undefined,
   invoiceId: number,
-  status: SubmitterPaymentStatus,
+  status: "partial" | "paid" | null,
 ): Promise<void> {
   if (!isMultiTenantEnabled() || companyId == null) return;
   try {
