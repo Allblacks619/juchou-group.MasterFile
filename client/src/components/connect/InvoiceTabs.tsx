@@ -39,6 +39,12 @@ const PAYABLE_STATUS: Record<string, { label: string; variant: "default" | "seco
   paid: { label: "支払済み", variant: "default" },
 };
 
+/** 提出側の入金状況（受領箱に表示のみ・強制同期しない）。Phase 4 PR2 */
+const SUBMITTER_PAYMENT: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  partial: { label: "一部入金", variant: "outline" },
+  paid: { label: "入金済み", variant: "default" },
+};
+
 const CMP_RESULT: Record<string, { label: string; className: string }> = {
   match: { label: "一致", className: "text-muted-foreground" },
   hours_mismatch: { label: "時間不一致", className: "text-destructive font-medium" },
@@ -208,6 +214,12 @@ export function InvoiceInboxTab() {
                     {Array.isArray(s.adjustmentsJson) && s.adjustmentsJson.length > 0 && (
                       <span className="text-muted-foreground">（控除: {s.adjustmentsJson.map((a: any) => `${a.label} ${yen(a.amount)}`).join(" / ")}）</span>
                     )}
+                  </p>
+                )}
+                {s.submitterPaymentStatus && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    相手の入金: <Status map={SUBMITTER_PAYMENT} status={s.submitterPaymentStatus} />
+                    {s.submitterPaidAt && <span className="ml-1">（{format(new Date(s.submitterPaidAt), "yyyy/MM/dd")}）</span>}
                   </p>
                 )}
               </div>
