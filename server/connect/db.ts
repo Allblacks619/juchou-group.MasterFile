@@ -171,6 +171,16 @@ export async function updateInvoiceSubmission(id: number, data: Partial<InsertPa
   await db.update(partnerInvoiceSubmissions).set(data).where(eq(partnerInvoiceSubmissions.id, id));
 }
 
+/** 提出元の請求書IDから submission を引く（入金対称表示: 提出側の入金操作の反映先を特定する） */
+export async function listInvoiceSubmissionsByInvoiceRef(fromCompanyId: number, invoiceRef: number): Promise<PartnerInvoiceSubmission[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(partnerInvoiceSubmissions).where(and(
+    eq(partnerInvoiceSubmissions.fromCompanyId, fromCompanyId),
+    eq(partnerInvoiceSubmissions.invoiceRef, invoiceRef),
+  ));
+}
+
 export async function listInvoiceInbox(toCompanyId: number): Promise<PartnerInvoiceSubmission[]> {
   const db = await getDb();
   if (!db) return [];

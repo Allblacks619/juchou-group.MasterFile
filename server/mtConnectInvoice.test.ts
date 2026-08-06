@@ -38,6 +38,7 @@ vi.mock("./connect/db", () => ({
   // invoice submissions
   createInvoiceSubmission: vi.fn(async (d: any) => { const row = { id: ++mem.seq, approvedAmount: null, adjustmentsJson: null, returnReason: null, createdAt: new Date(), ...d }; mem.invSubs.push(row); return row; }),
   getInvoiceSubmissionById: vi.fn(async (id: number) => mem.invSubs.find((s) => s.id === id)),
+  listInvoiceSubmissionsByInvoiceRef: vi.fn(async (fromCompanyId: number, invoiceRef: number) => mem.invSubs.filter((s) => s.fromCompanyId === fromCompanyId && s.invoiceRef === invoiceRef)),
   updateInvoiceSubmission: vi.fn(async (id: number, d: any) => { Object.assign(mem.invSubs.find((s) => s.id === id)!, d); }),
   listInvoiceInbox: vi.fn(async (c: number) => mem.invSubs.filter((s) => s.toCompanyId === c)),
   listInvoiceOutbox: vi.fn(async (c: number) => mem.invSubs.filter((s) => s.fromCompanyId === c)),
@@ -297,6 +298,45 @@ describe("connect.invoice: 多段チェーンの原価参照（P3）", () => {
     mockDb.getInvoiceById.mockResolvedValue({ id: 903, companyId: OTSU, invoiceNumber: "Y" });
     await expect(callerFor(KONO).connect.invoice.importCostReference({ submissionId: res.submissionId, invoiceId: 903 }))
       .rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("入金対称表示: 提出側の入金済み操作が submission に反映され、受領側の受領箱に見える", async () => {
+    const linkId = await establishLink();
+    const res = await submitInvoice(linkId);
+
+    await callerFor(OTSU).receivable.markReceived({ id: 701 });
+
+    const sub = mem.invSubs.find((s) => s.id === res.submissionId)!;
+    expect(sub.submitterPaymentStatus).toBe("paid");
+    expect(sub.submitterPaidAt).toBeInstanceOf(Date);
+
+    const inbox = await callerFor(KONO).connect.invoice.inbox();
+    expect(inbox.find((s: any) => s.id === res.submissionId)?.submitterPaymentStatus).toBe("paid");
+  });
+
+  it("入金対称表示: 一部入金は partial、入金解除で null に戻る（強制同期はしない・表示のみ）", async () => {
+    const linkId = await establishLink();
+    const res = await submitInvoice(linkId);
+
+    await callerFor(OTSU).receivable.update({ id: 701, receivedAmount: 100000 });
+    expect(mem.invSubs.find((s) => s.id === res.submissionId)!.submitterPaymentStatus).toBe("partial");
+
+    await callerFor(OTSU).receivable.markUnreceived({ id: 701 });
+    const sub = mem.invSubs.find((s) => s.id === res.submissionId)!;
+    expect(sub.submitterPaymentStatus).toBeNull();
+    expect(sub.submitterPaidAt).toBeNull();
+    // 受領側の status（承認フロー）は入金操作で変わらない
+    expect(sub.status).toBe("submitted");
+  });
+
+  it("入金対称表示: MULTI_TENANT off では submission に一切触らない", async () => {
+    const linkId = await establishLink();
+    const res = await submitInvoice(linkId);
+    delete process.env.MULTI_TENANT;
+
+    await callerFor(OTSU).receivable.markReceived({ id: 701 });
+
+    expect(mem.invSubs.find((s) => s.id === res.submissionId)!.submitterPaymentStatus ?? null).toBeNull();
   });
 
   it("原価取り込みは billing 権限が要る: manager 既定（billing ブロック）は FORBIDDEN", async () => {

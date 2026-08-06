@@ -70,7 +70,7 @@
 - **PR #180 のCI**: 空コミットプッシュ済みだがCI結果未確認（check_runs=0だったため再トリガー）
 
 ### (c) 未実装
-- **Phase 4 PR2**: 入金/支払の対称表示（submitterPaymentStatus 列 + migration + UI）
+- ~~**Phase 4 PR2**: 入金/支払の対称表示~~ → **実装済み（2026-07-29）**: `partner_invoice_submissions.submitterPaymentStatus`/`submitterPaidAt`（migration 0047 / journal idx 49）。提出側の `receivable.update / markReceived / markUnreceived` が `server/connect/paymentSync.ts` の `reflectSubmitterPaymentStatus` を呼び、受領側の受領箱に「相手の入金」バッジ表示（表示のみ・強制同期しない）。フラグoff時は完全no-op
 - **Phase 4 PR3**: テナント別ルール設定（残業閾値・倍率・標準時間・税率を companies テーブルに移動）
 - **UIの残り改善**: ステータス色のトークン化、ハードコードHEXのテーマ変数化、モバイルタップ領域拡張、行密度トグル
 - **本番ロールアウト**: `MULTI_TENANT=true` の有効化（既存ユーザー=会社1の事前確認が必要。手順は `docs/multitenant/VERIFICATION.md` に記載）
@@ -78,6 +78,7 @@
 ## 6. オーナーの承認待ち / 勝手に進めてはいけないもの
 
 - **`MULTI_TENANT` フラグの本番有効化**: 既存データの会社帰属確認と移行手順のレビューが必要（`docs/multitenant/VERIFICATION.md` §3 参照）
+  - **【追加ブロッカー 2026-07-31・genba 報告】以下3件が塞がるまで有効化禁止**（多社間でデータが混ざる）: ① genba workerLinks.*/shares.revoke が siteWorkerId/id を resolveInputSiteIds の解決対象に含めず他社現場の作業員リンクを発行可能 ② replaceGenbaTaskTemplates の delete に WHERE companyId が無く保存時に全社のテンプレートが消える（createGenbaMaterialPreset / addGenbaActivityLog も companyId 無し） ③ リンクセッション（user=null）の resolveCompanyId が常に会社1を返し、会社2の現場リンクが会社1のテンプレ/プリセット/名簿を引く。**→ 3件とも PR #205（fix/genba-mt-blockers・回帰テスト7件付き）で修正済み・オーナー承認待ち（2026-07-31）**。③は tenancy.ts 不変更で genbaProcedure のリンク分岐が site.companyId を ctx に上書きする方式（当セッションと合意済み）。#205 マージ後にこの項を「解消済み」へ更新すること
 - **Phase 4 PR2/PR3 の設計**: 設計書はあるが着手承認はまだ
 - **マルチテナント化の商用プラン（他社への販売・月額設定）**: オーナーが価値評価を依頼した段階で、具体的な販売戦略は未決定
 
@@ -114,9 +115,9 @@
 
 ## 9. 次にやるべきこと（価値の高い順）
 
-1. **PR #180 のCI確認→マージ**: 空コミットでCIトリガー済み。green になったら draft → ready → merge
-2. **Phase 4 PR2（入金/支払対称表示）**: partner_invoice_submissions に submitterPaymentStatus 列追加 + migration + UI表示
-3. **Phase 4 PR3（テナント別ルール設定）**: companies テーブルに設定列追加。workerInvoiceV2Core.ts と clientInvoiceV2Builder.ts の定数をDB参照に切替
+1. ~~PR #180 のCI確認→マージ~~ **完了（2026-07-29, 4d1c320）**
+2. ~~Phase 4 PR2（入金/支払対称表示）~~ **完了（2026-07-29）**: §5(c) 参照
+3. **Phase 4 PR3（テナント別ルール設定）**: companies テーブルに設定列追加。workerInvoiceV2Core.ts と clientInvoiceV2Builder.ts の定数をDB参照に切替（`DAY_OT_REGULAR_CAP_TIMES10` の2ファイル重複定義の統合もここで。本丸セッションと合意済みの当方担当）
 4. **UI残り改善**: ステータス色トークン化、HEX→テーマ変数、モバイルタップ領域、行密度トグル
 5. **E2Eテスト**: Playwright で Connect UI の主要フロー（パートナーリンク→名簿提出→請求提出→承認）を自動化
 6. **本番ロールアウト準備**: VERIFICATION.md §3 の手順に沿い、既存データの会社帰属確認スクリプトを実行
