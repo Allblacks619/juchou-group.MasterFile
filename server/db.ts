@@ -35,6 +35,7 @@ import {
   companies, InsertCompany,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { toStoredQuantity, fromStoredQuantity } from "@shared/invoiceQuantity";
 
 export type UserRecord = User;
 
@@ -1127,17 +1128,30 @@ export async function deleteInvoice(id: number) {
 
 // ── Invoice Items ──
 
+/**
+ * 数量の単位変換はこの層だけで行う。アプリ側（ルーター・PDF・画面）は常に人間単位(1.5)、
+ * DBは常に ×10 の int(15)。以前は「単位が日のときだけ×10」を各所で書いていたため、
+ * 残業1.5時間が int 丸めで 2 になっていた。shared/invoiceQuantity.ts
+ */
+function withStoredQuantity<T extends { quantity?: number | null }>(data: T): T {
+  return data.quantity == null ? data : { ...data, quantity: toStoredQuantity(data.quantity) };
+}
+function withHumanQuantity<T extends { quantity: number }>(row: T): T {
+  return { ...row, quantity: fromStoredQuantity(row.quantity) };
+}
+
 export async function createInvoiceItem(data: InsertInvoiceItem) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(invoiceItems).values(data);
+  const result = await db.insert(invoiceItems).values(withStoredQuantity(data));
   return { id: result[0].insertId, ...data };
 }
 
 export async function getInvoiceItemsByInvoice(invoiceId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(invoiceItems).where(eq(invoiceItems.invoiceId, invoiceId));
+  const rows = await db.select().from(invoiceItems).where(eq(invoiceItems.invoiceId, invoiceId));
+  return rows.map(withHumanQuantity);
 }
 
 export async function deleteInvoiceItemsByInvoice(invoiceId: number) {
@@ -1222,13 +1236,13 @@ export async function getInvoiceItemById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(invoiceItems).where(eq(invoiceItems.id, id)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  return result.length > 0 ? withHumanQuantity(result[0]) : undefined;
 }
 
 export async function updateInvoiceItem(id: number, data: Partial<InsertInvoiceItem>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(invoiceItems).set(data).where(eq(invoiceItems.id, id));
+  await db.update(invoiceItems).set(withStoredQuantity(data)).where(eq(invoiceItems.id, id));
   return getInvoiceItemById(id);
 }
 
@@ -1558,13 +1572,14 @@ export async function replaceWorkerInvoiceItems(workerInvoiceId: number, items: 
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(workerInvoiceItems).where(eq(workerInvoiceItems.workerInvoiceId, workerInvoiceId));
-  if (items.length > 0) await db.insert(workerInvoiceItems).values(items);
+  if (items.length > 0) await db.insert(workerInvoiceItems).values(items.map(withStoredQuantity));
 }
 
 export async function getWorkerInvoiceItems(workerInvoiceId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(workerInvoiceItems).where(eq(workerInvoiceItems.workerInvoiceId, workerInvoiceId));
+  const rows = await db.select().from(workerInvoiceItems).where(eq(workerInvoiceItems.workerInvoiceId, workerInvoiceId));
+  return rows.map(withHumanQuantity);
 }
 
 export async function createWorkerInvoiceSnapshot(data: InsertWorkerInvoiceSnapshot) { const db = await getDb(); if (!db) throw new Error("Database not available"); const r = await db.insert(workerInvoiceSnapshots).values(data); return { id: r[0].insertId, ...data }; }

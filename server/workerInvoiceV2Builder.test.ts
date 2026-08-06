@@ -27,6 +27,7 @@ vi.mock("./rateResolver", () => ({
   resolveWorkerPaymentRate: vi.fn(async ({ projectId, shiftType }: any) => {
     if (projectId === 1 && shiftType === "day") return { rate: 15000, source: "project_variable" };
     if (projectId === 1 && shiftType === "night") return { rate: 18000, source: "project_variable" };
+    if (projectId === 3 && shiftType === "night") return { rate: 20000, source: "project_variable" }; // 夜勤単価のみの現場
     throw new Error("作業員支払単価が未設定です");
   }),
 }));
@@ -246,6 +247,21 @@ describe("buildWorkerInvoiceDraftFromV2", () => {
     expect(ot[0].quantity).toBe(3); // 3h 全て深夜帯
     expect(ot[0].unitPrice).toBe(2813); // 日勤単価 15000/8*1.5
     expect(ot[0].amount).toBe(8439); // 2813 × 3h
+  });
+
+  it("夜勤単価しか無い現場では残業単価を夜勤単価にフォールバックする（¥0にならない）", async () => {
+    // 旧実装: 残業単価は常に昼勤単価で解決していたため、夜勤単価のみの現場では
+    // 解決失敗→残業代¥0（取引先へは夜勤単価で請求済み＝支払漏れ）だった。
+    state.attendance = [
+      { employeeId: 10, projectId: 3, shiftType: "night", workDate: "2026-04-03", hoursWorked: 80, overtimeHours: 20, workType: "normal" },
+    ];
+    state.expenseLines = [];
+    const draft = await build();
+    const ot = draft.items.filter((i: any) => i.label.startsWith("残業代"));
+    expect(ot).toHaveLength(1);
+    expect(ot[0].unitPrice).toBe(3750); // 夜勤単価 20000/8*1.5（0ではない）
+    expect(ot[0].amount).toBe(7500); // 3750 × 2h
+    expect(draft.warnings.some((w: string) => w.includes("算出できません"))).toBe(false);
   });
 
   it("includeProjectSectionHeaders=trueで現場ごとに【現場名】見出し行を差し込む", async () => {

@@ -5329,7 +5329,8 @@ export const appRouter = router({
           client = await db.getClientById(invoice.clientId);
         }
         const company = await db.getCompanyProfile();
-        return { invoice, items, client, company };
+        // ownerName は PDF(pdfInvoice.ts)が会社名の下に印字する。プレビューを出力と一致させるため一緒に返す。
+        return { invoice, items, client, company, ownerName: process.env.OWNER_NAME || null };
       }),
 
     /**
@@ -6254,9 +6255,13 @@ export const appRouter = router({
     saveMyDraft: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), subject: z.string().optional(), notes: z.string().optional(), employeeId: z.number().optional(), items: z.array(z.object({ label: z.string(), quantity: z.number(), unitPrice: z.number(), unit: z.string().optional(), category: z.string().optional(), itemType: z.enum(["normal", "text"]).optional(), taxRate: z.number().optional() })).optional() })).mutation(async ({ ctx, input }) => {
       const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
-      const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
+      const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND", message: "この現場のこの月は、まだ月締めの対象になっていません。先に出面（出勤日）を入力してください。分からないときは会社に連絡してください。" });
+      // 締め確定済み(closed/locked)の月は編集不可。ready 中は差し戻し(rejected)された人のみ再編集可。
+      if (!canWorkerEditSubmission(closing.status, submission.status)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "この月の締めは確定済みのため、下書きを保存できません。修正が必要な場合は管理者に連絡してください。" });
+      }
       const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
-      if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "Approved invoice is read-only" });
+      if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "この請求書は会社が確認済みのため、もう変更できません。直したいときは会社に連絡してください。" });
       const saved = await db.upsertWorkerInvoice({ closingId: closing.id!, submissionId: submission.id!, projectId: input.projectId, employeeId: me.id, closingMonth: input.closingMonth, status: existing?.status === "returned" ? "returned" : "draft", subject: input.subject, notes: input.notes });
       if (saved?.id && input.items) {
         await db.replaceWorkerInvoiceItems(saved.id, input.items.map((item, index) => {
@@ -6282,9 +6287,13 @@ export const appRouter = router({
     submitMyInvoice: protectedProcedure.input(z.object({ projectId: z.number(), closingMonth: z.string(), employeeId: z.number().optional() })).mutation(async ({ ctx, input }) => {
       const me = await resolveWorkerTargetEmployee(ctx, input.employeeId);
       const closing = await ensureClosingInitializedForProjectMonth(input.projectId, input.closingMonth);
-      const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND" });
+      const submission = await db.getClosingSubmissionByClosingEmployee(closing.id!, me.id); if (!submission) throw new TRPCError({ code: "NOT_FOUND", message: "この現場のこの月は、まだ月締めの対象になっていません。先に出面（出勤日）を入力してください。分からないときは会社に連絡してください。" });
+      // 締め確定済み(closed/locked)の月は提出不可。ready 中は差し戻し(rejected)された人のみ再提出可。
+      if (!canWorkerEditSubmission(closing.status, submission.status)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "この月の締めは確定済みのため、提出できません。修正が必要な場合は管理者に連絡してください。" });
+      }
       const existing = await db.getWorkerInvoiceByClosingEmployee(closing.id!, me.id);
-      if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "Approved invoice is read-only" });
+      if (existing?.status === "approved") throw new TRPCError({ code: "FORBIDDEN", message: "この請求書は会社が確認済みのため、もう変更できません。直したいときは会社に連絡してください。" });
       let invoice: any = null;
       const fixedInvoiceNumber = existing?.invoiceNumber || null;
       for (let attempt = 0; attempt < 5; attempt++) {

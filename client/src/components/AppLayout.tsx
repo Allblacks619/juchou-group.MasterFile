@@ -104,8 +104,10 @@ function getNavGroups(): NavGroup[] {
     {
       groupKey: "nav_basicInfo",
       icon: Building2,
-      items: navItems.filter(item => 
-        ["nav_invitations", "nav_company", "nav_employees"].includes(item.labelKey)
+      // 監査ログ・パスワード再発行はどのグループにも入っておらず、ナビから到達できなかった
+      // （財務3画面のようにナビから外す方針の対象ではなく、単なる登録漏れ）。
+      items: navItems.filter(item =>
+        ["nav_invitations", "nav_company", "nav_employees", "nav_audit", "nav_passwordResets"].includes(item.labelKey)
       ),
     },
     {
@@ -133,24 +135,28 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["nav_basicInfo", "nav_siteManagement", "nav_finance"]));
   const { lang, toggleLang, t } = useAppLang();
+  // 機能無効(FORBIDDEN)は再試行しても無駄なので即あきらめる。一方、現場の電波が悪い等の
+  // 一時的な通信エラーで再試行しないと、メニュー項目が消えて「アプリが壊れた」ように見える。
+  const retryUnlessForbidden = (failureCount: number, error: any) =>
+    error?.data?.code !== "FORBIDDEN" && failureCount < 2;
   // 現場ビジョン: GENBA_ENABLED=false のときサーバーが FORBIDDEN を返すため、成功時のみナビに表示
   const genbaMe = trpc.genba.me.useQuery(undefined, {
     enabled: isAuthenticated,
-    retry: false,
+    retry: retryUnlessForbidden,
     staleTime: 5 * 60 * 1000,
   });
   const genbaAvailable = !!genbaMe.data;
   // 会社間連携 (Phase 2): MULTI_TENANT フラグ on の環境でのみメニュー表示
   const connectStatus = trpc.connect.status.useQuery(undefined, {
     enabled: isAuthenticated,
-    retry: false,
+    retry: retryUnlessForbidden,
     staleTime: 5 * 60 * 1000,
   });
   const connectAvailable = !!connectStatus.data?.enabled;
   // 個人別 表示/ブロック設定の実効権限。未ログイン・未ロード時は null（従来の manager 判定にフォールバック）
   const permMy = trpc.permission.my.useQuery(undefined, {
     enabled: isAuthenticated,
-    retry: false,
+    retry: retryUnlessForbidden,
     staleTime: 5 * 60 * 1000,
   });
   const areaPerms = permMy.data?.areas ?? null;

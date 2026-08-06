@@ -37,11 +37,11 @@ describe("computeClientInvoiceDraft", () => {
     const out = computeClientInvoiceDraft(input);
     const normal = out.items.filter((i) => i.itemType === "normal");
 
-    // quantity is stored ×10 for unit「日」(140 = 14.0 日); 「式」is literal.
+    // quantity は人間単位（14 = 14日）。DB保存時に shared/invoiceQuantity で ×10 される。
     expect(normal.map((i) => [i.description, i.quantity, i.unit, i.unitPrice, i.amount, i.itemTaxRate])).toEqual([
-      ["電気工事業A", 140, "日", 25000, 350000, 10],
-      ["電気工事業B", 20, "日", 21000, 42000, 10],
-      ["電気工事業C", 70, "日", 18000, 126000, 10],
+      ["電気工事業A", 14, "日", 25000, 350000, 10],
+      ["電気工事業B", 2, "日", 21000, 42000, 10],
+      ["電気工事業C", 7, "日", 18000, 126000, 10],
       ["交通費", 1, "式", 37510, 37510, 0],
     ]);
     // labor 518,000 @10% = 51,800 ; transport 37,510 @0% = 0
@@ -102,6 +102,22 @@ describe("computeClientInvoiceDraft", () => {
     expect(ot.unitPrice).toBe(3906);
     expect(ot.amount).toBe(19530);
     expect(out.warnings.some((w) => w.includes("残業代") && w.includes("時間外"))).toBe(true);
+  });
+
+  it("30分刻み(0.5h)の残業を丸めずに数量へ載せる（1.5h が 2h にならない）", () => {
+    const out = computeClientInvoiceDraft({
+      targetMonth: "2026-07",
+      projectOrder: [1],
+      projects: [{ projectId: 1, projectName: "読売ランド新南山水族館", transportTotal: 0 }],
+      labor: [labor({ projectId: 1, daysTimes10: 220, clientRate: 25000, overtimeHoursTimes10: 15 })],
+      includeProjectSectionHeaders: false,
+    });
+    const ot = out.items.find((i) => i.description === "残業代（時間外）")!;
+    // 25000/8*1.25 = 3906 ; × 1.5h = 5,859（表の「数量 × 単価 = 金額」が一致すること）
+    expect(ot.quantity).toBe(1.5);
+    expect(ot.unitPrice).toBe(3906);
+    expect(ot.amount).toBe(5859);
+    expect(Math.round(ot.quantity * ot.unitPrice)).toBe(ot.amount);
   });
 
   it("深夜帯残業を自動判定して時間外/深夜を別明細で計上する（作業員請求書と同ルール）", () => {

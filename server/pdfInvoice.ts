@@ -440,9 +440,8 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
     const bgColor = rowNum % 2 === 0 ? "#ffffff" : "#fafaf5";
 
     if (item && item.itemType === "normal") {
-      const quantityStr = item.unit === "日"
-        ? `${(item.quantity / 10).toFixed(1)} ${item.unit}`
-        : `${item.quantity} ${item.unit || "式"}`;
+      // 数量は人間単位（1.5 = 1.5時間）で届く。×10保存の変換は server/db.ts の責務。
+      const quantityStr = `${item.quantity} ${item.unit || "式"}`;
 
       // Mark reduced tax rate items with ※
       const descText = item.description + (item.itemTaxRate === 8 ? " ※" : "");

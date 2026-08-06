@@ -349,7 +349,14 @@
       "idx": 49,
       "version": "5",
       "when": 1786200000000,
-      "tag": "0047_connect_payment_symmetry",
+      "tag": "0047_invoice_quantity_times10",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "5",
+      "when": 1786300000000,
+      "tag": "0048_connect_payment_symmetry",
       "breakpoints": true
     }
   ]

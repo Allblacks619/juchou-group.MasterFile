@@ -275,6 +275,8 @@ export default function AppEmployees() {
     if (!isSuperAdmin) return;
     const ids = Array.from(selectedIds);
     if (!ids.length) return toast.error("対象を選択してください");
+    // 何人消えるかを見せてから実行する（DELETE と打つだけで即実行されていた）。
+    if (!confirm(`選択した ${ids.length}名 の従業員データを完全に削除します。出面・請求の履歴も参照できなくなります。元に戻せません。よろしいですか？`)) return;
     bulkDeleteMutation.mutate({ employeeIds: ids, confirmText: confirmDeleteText });
   };
 
