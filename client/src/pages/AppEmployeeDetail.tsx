@@ -45,6 +45,13 @@ function RosterPdfButton({ employeeId }: { employeeId: number }) {
       // 起きないように見える（実際はPDF自体は生成済み）。アプリ内ダイアログで確実に見せる。
       pdfViewer.open(data.url, data.fileName, "作業員名簿");
       toast.success("名簿PDFを生成しました");
+      // 空欄のまま客先へ出すと差し戻しになるため、発行できたうえで漏れを知らせる。
+      if (data.warnings.length) {
+        toast.warning(`名簿に未入力の項目があります（${data.warnings.length}件）`, {
+          description: `${data.warnings.join("\n")}\n客先へ出す前にご確認ください。`,
+          duration: 15000,
+        });
+      }
     },
     onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
   });

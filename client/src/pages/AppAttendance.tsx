@@ -32,6 +32,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { toast } from "sonner";
+import { downloadFile } from "@/lib/downloadFile";
 import {
   ChevronLeft,
   ChevronRight,
@@ -319,7 +320,7 @@ export default function AppAttendance() {
   const generateExcelMutation = trpc.attendance.generateExcel.useMutation({
     onSuccess: (data) => {
       toast.success("Excel生成完了");
-      window.open(data.url, "_blank");
+      downloadFile(data.url, "出面表.xlsx");
     },
     onError: (e) => toast.error(`Excel生成エラー: ${e.message}`),
   });

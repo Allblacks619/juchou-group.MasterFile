@@ -673,3 +673,44 @@ async function generateMultiPageRosterPdf(
     doc.on("end", () => resolve(Buffer.concat(buffers)));
   });
 }
+
+/**
+ * 客先へ提出する前に気づきたい記載漏れを洗い出す。
+ * 名簿は取引先へ出す書類なので、空欄のまま発行すると差し戻しになる。
+ * 在留情報は外国籍の場合のみ必須扱い（日本国籍では常に空欄のため）。
+ */
+export function findRosterWarnings(e: Employee): string[] {
+  const warnings: string[] = [];
+  const requireField = (value: unknown, label: string) => {
+    if (!value) warnings.push(`${label}が未入力です`);
+  };
+
+  requireField(e.nameKana, "フリガナ");
+  requireField(e.dateOfBirth, "生年月日");
+  requireField(e.phone, "電話番号");
+  requireField(e.address, "住所");
+  requireField(e.emergencyPhone, "緊急連絡先の電話番号");
+  requireField(e.healthCheckDate, "健康診断日");
+
+  if (e.nationality && e.nationality !== "日本") {
+    requireField(e.residenceStatus, "在留資格");
+    requireField(e.residenceCardNumber, "在留カード番号");
+    requireField(e.residenceCardExpiry, "在留期限");
+    if (e.residenceCardExpiry) {
+      const expiry = new Date(e.residenceCardExpiry);
+      if (!Number.isNaN(expiry.getTime()) && expiry.getTime() < Date.now()) {
+        warnings.push(`在留期限が切れています（${toDateStr(e.residenceCardExpiry)}）`);
+      }
+    }
+  }
+
+  return warnings;
+}
+
+/** 複数人まとめて発行するとき用。「誰の」何が漏れているか分かる形にする。 */
+export function collectRosterWarnings(workers: { employee: Employee }[]): string[] {
+  return workers.flatMap(({ employee }) => {
+    const name = employee.nameKanji || employee.nameRomaji || `ID:${employee.id}`;
+    return findRosterWarnings(employee).map((w) => `${name}: ${w}`);
+  });
+}

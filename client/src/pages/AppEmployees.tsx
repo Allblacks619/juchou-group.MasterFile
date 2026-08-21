@@ -203,6 +203,12 @@ export default function AppEmployees() {
     onSuccess: (data) => {
       pdfViewer.open(data.url, data.fileName, "作業員名簿一覧");
       toast.success("名簿一覧PDF（リスト型）を生成しました");
+      if (data.warnings.length) {
+        toast.warning(`名簿に未入力の項目があります（${data.warnings.length}件）`, {
+          description: `${data.warnings.join("\n")}\n客先へ出す前にご確認ください。`,
+          duration: 15000,
+        });
+      }
       setShowPdfDialog(false);
     },
     onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
@@ -212,6 +218,12 @@ export default function AppEmployees() {
     onSuccess: (data) => {
       pdfViewer.open(data.url, data.fileName, "作業員名簿");
       toast.success("名簿PDF（個別型）を生成しました");
+      if (data.warnings.length) {
+        toast.warning(`名簿に未入力の項目があります（${data.warnings.length}件）`, {
+          description: `${data.warnings.join("\n")}\n客先へ出す前にご確認ください。`,
+          duration: 15000,
+        });
+      }
       setShowPdfDialog(false);
     },
     onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
