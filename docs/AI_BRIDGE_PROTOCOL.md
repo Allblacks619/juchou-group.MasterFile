@@ -1,6 +1,6 @@
 # AI Bridge Operating Protocol
 
-Purpose: reduce owner bridge work, token waste, and stop/go churn while preventing Claude/ChatGPT/Codex from overreaching.
+Purpose: reduce owner bridge work, token waste, stop/go churn, and unnecessary GitHub Actions spend while preventing Claude/ChatGPT/Codex from overreaching.
 
 This protocol applies to the business/operations system by default unless the Owner explicitly overrides it.
 
@@ -17,6 +17,7 @@ This protocol applies to the business/operations system by default unless the Ow
 10. End each work session with one compact CHECKPOINT block.
 11. Results and the next handoff prompt must be delivered as a single copy-ready block when Owner bridging is needed.
 12. Minimize Owner effort and token consumption by referencing PRs, SHAs, file paths, checkpoints, and durable docs instead of repeating project history.
+13. Preserve CI quality while minimizing GitHub Actions minutes according to `docs/CI_COST_POLICY.md`; optimize duplicate/stale/irrelevant work, never meaningful verification.
 
 ## Roles
 - Owner: bridge only when unavoidable; approves irreversible, credential, permission, financial, or externally consequential production actions.
@@ -33,6 +34,14 @@ This protocol applies to the business/operations system by default unless the Ow
 - External/guest worker links, user roles, and admin permissions must fail closed when identity or authorization is ambiguous.
 - New automation/readiness does not grant approval authority by itself.
 - State, provenance, identity and approval records must survive restart/sync without silently changing meaning.
+
+## GitHub Actions cost discipline
+Follow `docs/CI_COST_POLICY.md` on every work packet.
+- Save minutes by removing duplicate, stale, irrelevant, or repeated CI work, never by weakening meaningful verification.
+- Prefer cancellation of superseded runs, path-aware jobs, lockfile-aware caches, and a primary-PR/extended-nightly matrix split where safe.
+- For stacked PRs, avoid repeatedly exercising identical parent code when the effective diff and required checks can be proven safely.
+- Infrastructure failures before runner assignment get one confirming rerun, then become an external blocker instead of a retry loop.
+- Required CI remains mandatory before merge.
 
 ## Work packet format
 Each bridge prompt should contain only what is needed to resume safely:
@@ -62,6 +71,17 @@ safe_next_step:
 external_production_effect: NO/YES
 financial_or_business_record_mutation: NO/YES
 irreversible_change: NO/YES
+
+CI_COST
+policy_present: YES/NO
+concurrency_cancel: YES/NO/N_A
+path_filters: YES/NO/N_A
+dependency_cache: YES/NO/N_A
+matrix_policy:
+rerun_policy:
+stack_policy:
+known_waste:
+estimated_saving:
 ```
 
 The next agent must use this checkpoint instead of reconstructing history from chat unless evidence is missing or contradictory.
