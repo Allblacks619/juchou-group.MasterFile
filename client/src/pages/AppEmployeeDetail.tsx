@@ -30,6 +30,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { usePdfViewer } from "@/components/PdfViewer";
 import { ArrowLeft, Upload, Plus, Trash2, User, Shield, Heart, Banknote, Award, FileText, FileDown, Loader2, DollarSign, KeyRound, Copy } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation, useParams } from "wouter";
@@ -37,25 +38,31 @@ import { format } from "date-fns";
 
 /** PDF Roster download button */
 function RosterPdfButton({ employeeId }: { employeeId: number }) {
+  const pdfViewer = usePdfViewer();
   const generatePdf = trpc.pdf.rosterSingle.useMutation({
     onSuccess: (data) => {
-      window.open(data.url, "_blank");
+      // window.open(after await) はポップアップブロックの対象になり、押しても何も
+      // 起きないように見える（実際はPDF自体は生成済み）。アプリ内ダイアログで確実に見せる。
+      pdfViewer.open(data.url, data.fileName, "作業員名簿");
       toast.success("名簿PDFを生成しました");
     },
     onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
   });
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      disabled={generatePdf.isPending}
-      onClick={() => generatePdf.mutate({ employeeId })}
-      className="gap-1.5"
-    >
-      {generatePdf.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-      名簿PDF
-    </Button>
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={generatePdf.isPending}
+        onClick={() => generatePdf.mutate({ employeeId })}
+        className="gap-1.5"
+      >
+        {generatePdf.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+        名簿PDF
+      </Button>
+      {pdfViewer.dialog}
+    </>
   );
 }
 
