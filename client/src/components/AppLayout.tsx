@@ -35,7 +35,7 @@ type NavAudience = "super_admin" | "manager" | "worker";
 type NavItem = { path: string; labelKey: TranslationKey; icon: any; roles: NavAudience[] };
 
 interface NavGroup {
-  groupKey: string;
+  groupKey: TranslationKey;
   items: NavItem[];
   icon: any;
 }
@@ -284,7 +284,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   >
                     <div className="flex items-center gap-3">
                       <group.icon className="h-4 w-4" />
-                      <span>{t(group.groupKey as TranslationKey)}</span>
+                      <span>{t(group.groupKey)}</span>
                     </div>
                     <ChevronDown
                       className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
