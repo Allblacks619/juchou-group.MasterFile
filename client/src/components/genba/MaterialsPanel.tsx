@@ -54,6 +54,7 @@ export default function MaterialsPanel({
   const invalidate = () => {
     utils.genba.materials.listRequests.invalidate({ siteId });
     utils.genba.materials.aggregate.invalidate({ siteId });
+    utils.genba.materials.pendingCount.invalidate({ siteId });
   };
   const create = trpc.genba.materials.createRequest.useMutation({
     onSuccess: () => { invalidate(); setCart([]); setNote(""); toast.success(t("材料の発注依頼を送信しました 📦")); },
