@@ -501,7 +501,8 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   const taxByRate = groupTaxByRate(items);
 
   // Draw breakdown box
-  const breakdownEntries = Array.from(taxByRate.entries()).sort((a, b) => b[0] - a[0]).filter(([r]) => r > 0);
+  // 0% も印字する（交通費・インボイス未登録の免税事業者。全行0%でも内訳ボックスを出す）
+  const breakdownEntries = Array.from(taxByRate.entries()).sort((a, b) => b[0] - a[0]);
   if (breakdownEntries.length > 0) {
     const bdBoxH = 14 + breakdownEntries.length * 28;
     doc.rect(breakdownX, y, breakdownW, bdBoxH).lineWidth(0.5).strokeColor("#999").stroke();

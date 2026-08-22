@@ -62,7 +62,8 @@ type NormalizedInvoiceLineItem = {
   taxRate: number;
 };
 
-// ponytail: taxRate 未指定行（手入力の新規行）の既定は worker_invoice_items.taxRate のDB既定値(10)に合わせる。
+// taxRate 未指定行（手入力の新規行）の既定。サーバ(getMyDraft)の effectiveLaborTax を優先し
+// （インボイス未登録の免税事業者は0%）、未取得時のみDB既定値(10)にフォールバックする。
 // saveMyDraft へは明細ごとに taxRate を送るので、0%（交通費・インボイス未登録）はそのまま保存される。
 const DEFAULT_ITEM_TAX_RATE = 10;
 
@@ -90,7 +91,8 @@ function toFiniteNumber(value: number | string | null | undefined) {
 }
 
 export function normalizeInvoiceItems(
-  items: InvoiceLineItemDraft[]
+  items: InvoiceLineItemDraft[],
+  defaultTaxRate: number = DEFAULT_ITEM_TAX_RATE
 ): NormalizedInvoiceLineItem[] {
   return items
     .map(item => {
@@ -108,7 +110,7 @@ export function normalizeInvoiceItems(
         category: String(item.category || "").trim(),
         amount,
         itemType: (isText ? "text" : "normal") as "normal" | "text",
-        taxRate: isText ? 0 : toFiniteNumber(item.taxRate ?? DEFAULT_ITEM_TAX_RATE),
+        taxRate: isText ? 0 : toFiniteNumber(item.taxRate ?? defaultTaxRate),
       };
     })
     // テキスト行は摘要があれば残す。通常行は摘要かつ金額>0のもののみ。
@@ -435,9 +437,11 @@ export default function AppMyClosing() {
     isCreatingInvoice ||
     saveWorkerDraftMutation.isPending ||
     submitWorkerInvoiceMutation.isPending;
+  // 手入力行の既定税率: サーバの effectiveLaborTax（インボイス未登録の免税事業者は0%）
+  const defaultItemTaxRate = workerInvoiceDraftQuery.data?.effectiveLaborTax ?? DEFAULT_ITEM_TAX_RATE;
   const normalizedInvoiceItems = useMemo(
-    () => normalizeInvoiceItems(invoiceItems),
-    [invoiceItems]
+    () => normalizeInvoiceItems(invoiceItems, defaultItemTaxRate),
+    [invoiceItems, defaultItemTaxRate]
   );
   const invoiceTotals = useMemo(
     () => calculateInvoiceTotals(normalizedInvoiceItems),
@@ -1810,7 +1814,7 @@ function WorkerInvoiceSection({ projectId, closingMonth, employeeId }: { project
           quantity: i.quantity || 1,
           unit: i.unit || "式",
           unitPrice: i.unitPrice || 0,
-          taxRate: i.taxRate ?? 10,
+          taxRate: i.taxRate ?? invoice.effectiveLaborTax ?? 10,
         })));
       }
       setInitialized(true);
@@ -1829,10 +1833,11 @@ function WorkerInvoiceSection({ projectId, closingMonth, employeeId }: { project
   const docs = docsQuery.data || [];
 
   // Calculate totals（サーバ workerInvoiceV2Core と同じ丸め: 行の金額を四捨五入 → 行ごとに税を四捨五入）
-  const { subtotal, tax, total } = calculateInvoiceTotals(normalizeInvoiceItems(items));
+  const defaultTaxRate = invoice.effectiveLaborTax ?? 10;
+  const { subtotal, tax, total } = calculateInvoiceTotals(normalizeInvoiceItems(items, defaultTaxRate));
 
   const addItem = () => {
-    setItems([...items, { category: "labor", label: "", quantity: 1, unit: "式", unitPrice: 0, taxRate: 10 }]);
+    setItems([...items, { category: "labor", label: "", quantity: 1, unit: "式", unitPrice: 0, taxRate: defaultTaxRate }]);
   };
 
   const removeItem = (idx: number) => {

@@ -22,6 +22,14 @@ export function hasQualifiedInvoiceNumber(value: unknown): boolean {
 }
 
 /**
+ * 作業員（発行者）の労務費の実効税率(%)。インボイス対応事業者かつ登録番号あり=10、それ以外（免税事業者）=0。
+ * getMyDraft が返し、画面の手入力明細の既定税率に使う（10%固定だと免税事業者で誤るため）。
+ */
+export function resolveEffectiveLaborTax(worker: { isInvoiceIssuer?: unknown; invoiceIssuerNumber?: unknown } | null | undefined): number {
+  return worker && Boolean(worker.isInvoiceIssuer) && hasQualifiedInvoiceNumber(worker.invoiceIssuerNumber) ? 10 : 0;
+}
+
+/**
  * Build an editable worker-invoice draft for a single worker + month.
  *
  * Primary source is Monthly Closing V2 (`monthly_closing_v2_*`). During the V1→V2 transition,
