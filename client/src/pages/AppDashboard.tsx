@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { usePdfViewer } from "@/components/PdfViewer";
 import {
   Users,
   UserPlus,
@@ -615,9 +616,11 @@ function AttendanceCalendar() {
     onError: (e) => toast.error(`${lang === "pt" ? "Erro ao remover" : "削除エラー"}: ${e.message}`),
   });
 
+  const pdfViewer = usePdfViewer();
   const pdfMutation = trpc.attendance.generatePdf.useMutation({
     onSuccess: (data) => {
-      window.open(data.url, "_blank");
+      // window.open は mutation 完了後だとポップアップブロックに掛かるため、アプリ内ビューアで開く。
+      pdfViewer.open(data.url, "出面表.pdf", lang === "pt" ? "Presença" : "出面表");
       toast.success(lang === "pt" ? "PDF gerado com sucesso" : "PDFを生成しました");
     },
     onError: (e) => toast.error(`${lang === "pt" ? "Erro ao gerar PDF" : "PDF生成エラー"}: ${e.message}`),
@@ -1343,6 +1346,8 @@ function AttendanceCalendar() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {pdfViewer.dialog}
     </>
   );
 }

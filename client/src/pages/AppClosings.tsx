@@ -23,6 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
+import { usePdfViewer } from "@/components/PdfViewer";
 import { Loader2, Lock, LockOpen, FileCheck, Upload, Link as LinkIcon, Trash2, FileDown, Clock, CheckCircle, AlertCircle, XCircle, Receipt, Send, RotateCcw } from "lucide-react";
 import {
   Dialog,
@@ -706,8 +707,10 @@ function WorkerInvoiceReviewSection() {
     onSuccess: () => { toast.success("請求書を差戻しました"); reviewQuery.refetch(); setReturnDialogOpen(false); setReturnReason(""); },
     onError: (e: any) => toast.error(`差戻しエラー: ${e.message}`),
   });
+  const pdfViewer = usePdfViewer();
   const downloadPdfMutation = trpc.workerInvoice.downloadPdf.useMutation({
-    onSuccess: (data) => { window.open(data.url, "_blank"); },
+    // window.open は mutation 完了後だとポップアップブロックに掛かるため、アプリ内ビューアで開く。
+    onSuccess: (data) => { pdfViewer.open(data.url, "作業員請求書.pdf", "作業員請求書"); },
     onError: (e: any) => toast.error(`PDFエラー: ${e.message}`),
   });
 
@@ -787,6 +790,8 @@ function WorkerInvoiceReviewSection() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {pdfViewer.dialog}
       </CardContent>
     </Card>
   );

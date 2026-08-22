@@ -36,6 +36,9 @@ const dict = {
   address: { ja: "住所", pt: "Endereço" },
 
   // ── Navigation / Sidebar ──
+  nav_basicInfo: { ja: "基本情報", pt: "Informações básicas" },
+  nav_siteManagement: { ja: "現場・出面", pt: "Obras e presença" },
+  nav_finance: { ja: "財務", pt: "Financeiro" },
   nav_dashboard: { ja: "ダッシュボード", pt: "Painel" },
   nav_genba: { ja: "現場ビジョン", pt: "Visão do Canteiro" },
   nav_connect: { ja: "会社間連携", pt: "Conexão entre Empresas" },

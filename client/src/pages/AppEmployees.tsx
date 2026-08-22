@@ -53,6 +53,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { usePdfViewer } from "@/components/PdfViewer";
 import { useLocation } from "wouter";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -195,10 +196,19 @@ export default function AppEmployees() {
   };
 
   // PDF mutations
+  // window.open(mutation の onSuccess 内) はポップアップブロックの対象になり、押しても
+  // 何も起きないように見える（PDF自体は生成済み）。アプリ内ダイアログで確実に見せる。
+  const pdfViewer = usePdfViewer();
   const generateRosterList = trpc.pdf.rosterList.useMutation({
     onSuccess: (data) => {
-      window.open(data.url, "_blank");
+      pdfViewer.open(data.url, data.fileName, "作業員名簿一覧");
       toast.success("名簿一覧PDF（リスト型）を生成しました");
+      if (data.warnings.length) {
+        toast.warning(`名簿に未入力の項目があります（${data.warnings.length}件）`, {
+          description: `${data.warnings.join("\n")}\n客先へ出す前にご確認ください。`,
+          duration: 15000,
+        });
+      }
       setShowPdfDialog(false);
     },
     onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
@@ -206,8 +216,14 @@ export default function AppEmployees() {
 
   const generateRosterMulti = trpc.pdf.rosterMulti.useMutation({
     onSuccess: (data) => {
-      window.open(data.url, "_blank");
+      pdfViewer.open(data.url, data.fileName, "作業員名簿");
       toast.success("名簿PDF（個別型）を生成しました");
+      if (data.warnings.length) {
+        toast.warning(`名簿に未入力の項目があります（${data.warnings.length}件）`, {
+          description: `${data.warnings.join("\n")}\n客先へ出す前にご確認ください。`,
+          duration: 15000,
+        });
+      }
       setShowPdfDialog(false);
     },
     onError: (e) => toast.error(`PDF生成エラー: ${e.message}`),
@@ -724,6 +740,8 @@ export default function AppEmployees() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {pdfViewer.dialog}
     </div>
   );
 }

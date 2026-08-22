@@ -23,7 +23,7 @@ import { validateFile, ALLOWED_MIME_TYPES, MAX_IMAGE_SIZE, MAX_PDF_SIZE } from "
 import * as schema from "../drizzle/schema";
 import { eq, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf } from "./pdfRoster";
+import { generateRosterPdf, generateRosterListPdf, generateMultiRosterPdf, findRosterWarnings, collectRosterWarnings } from "./pdfRoster";
 import { generateInvoicePdf } from "./pdfInvoice";
 import { buildClientInvoiceDraftFromV2 } from "./clientInvoiceV2Builder";
 import { buildWorkerInvoicePdfRenderPayload, generateWorkerInvoicePdf } from "./workerInvoicePdf";
@@ -2685,7 +2685,8 @@ export const appRouter = router({
         const fileKey = `rosters/${fileName}`;
         const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
 
-        return { url, fileName };
+        // 客先へ出す書類なので、空欄のまま発行したことに気づけるよう記載漏れを返す。
+        return { url, fileName, warnings: findRosterWarnings(employee) };
       }),
 
     /** Generate multi-worker roster list PDF (table format) */
@@ -2714,7 +2715,8 @@ export const appRouter = router({
         const fileKey = `rosters/${fileName}`;
         const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
 
-        return { url, fileName };
+        // 誰に記載漏れがあるか分かる形で返す（客先提出前の確認用）。
+        return { url, fileName, warnings: collectRosterWarnings(workers) };
       }),
 
     /** Generate multiple individual roster PDFs (one page per worker) */
@@ -2740,7 +2742,7 @@ export const appRouter = router({
         const fileKey = `rosters/${fileName}`;
         const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
 
-        return { url, fileName };
+        return { url, fileName, warnings: collectRosterWarnings(workers) };
       }),
   }),
 

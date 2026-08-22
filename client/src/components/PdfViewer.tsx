@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { FileDown, ExternalLink, X, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { downloadFile } from "@/lib/downloadFile";
 
 /**
  * 生成したPDFを見せるための共通ビューア。
@@ -27,22 +27,7 @@ function PdfViewerDialog({
   const handleDownload = useCallback(async () => {
     setDownloading(true);
     try {
-      // 署名付きURL(R2/S3)を blob で取得して確実にダウンロードさせる。
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(String(res.status));
-      const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
-    } catch {
-      // CORS等で取得できない場合は新しいタブで開く（ブラウザの保存機能を使ってもらう）。
-      window.open(url, "_blank", "noopener,noreferrer");
-      toast.info("ダウンロードできない場合は、開いたPDFから保存してください。");
+      await downloadFile(url, name);
     } finally {
       setDownloading(false);
     }
