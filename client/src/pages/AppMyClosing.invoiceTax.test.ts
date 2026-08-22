@@ -46,6 +46,20 @@ describe("作業員請求書プレビューの消費税", () => {
     expect(totals.total).toBe(2212);
   });
 
+  test("taxRate 未指定の手入力行は defaultTaxRate（サーバの effectiveLaborTax）に従う", () => {
+    // インボイス未登録の作業員: 既定0% → 手入力行にも消費税を計上しない
+    const untaxed = calculateInvoiceTotals(
+      normalizeInvoiceItems([{ label: "手入力の作業費", quantity: 1, unitPrice: 10000, unit: "式", category: "labor" }], 0)
+    );
+    expect(untaxed.tax).toBe(0);
+
+    // 既定引数（未取得時のフォールバック）は従来どおり10%
+    const taxed = calculateInvoiceTotals(
+      normalizeInvoiceItems([{ label: "手入力の作業費", quantity: 1, unitPrice: 10000, unit: "式", category: "labor" }])
+    );
+    expect(taxed.tax).toBe(1000);
+  });
+
   test("テキスト行（現場見出し）は税額に影響しない", () => {
     const totals = calculateInvoiceTotals(
       normalizeInvoiceItems([
