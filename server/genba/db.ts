@@ -685,11 +685,15 @@ export async function listGenbaTaskTemplates(companyId?: number): Promise<GenbaT
   return db.select().from(genbaTaskTemplates).orderBy(asc(genbaTaskTemplates.sortOrder));
 }
 
-/** テンプレートツリーを丸ごと置き換える (全削除 → 一括挿入) */
-export async function replaceGenbaTaskTemplates(rows: InsertGenbaTaskTemplate[]): Promise<void> {
+/**
+ * テンプレートツリーを丸ごと置き換える (全削除 → 一括挿入)。
+ * companyId 指定時はその会社の行だけを入れ替える (他社のテンプレートを消さない)。
+ */
+export async function replaceGenbaTaskTemplates(rows: InsertGenbaTaskTemplate[], companyId?: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(genbaTaskTemplates);
+  if (companyId != null) await db.delete(genbaTaskTemplates).where(eq(genbaTaskTemplates.companyId, companyId));
+  else await db.delete(genbaTaskTemplates);
   if (rows.length) await db.insert(genbaTaskTemplates).values(rows);
 }
 
@@ -1031,11 +1035,12 @@ export async function collectSiteGraph(siteId: string): Promise<{ floors: GenbaF
 // ── genba_activity_logs (学習・改善提案の元データ) ──
 
 /** payload を JSON 文字列で保存 (高頻度追記・autoincrement PK) */
-export async function addGenbaActivityLog(type: string, byUserId: number | null, payload: unknown): Promise<void> {
+export async function addGenbaActivityLog(type: string, byUserId: number | null, payload: unknown, companyId?: number): Promise<void> {
   const db = await getDb();
   if (!db) return; // ログは失敗しても本処理を止めない (呼び出し側で握り潰す)
   // json 列には生の値を渡す (drizzle が直列化)。二重 stringify しないこと (polygon 等と同方針)
-  await db.insert(genbaActivityLogs).values({ type, byUserId, payload } as InsertGenbaActivityLog);
+  // companyId を入れないと listGenbaActivityLogs の会社フィルタから漏れて他社に見える
+  await db.insert(genbaActivityLogs).values({ type, byUserId, payload, ...(companyId != null ? { companyId } : {}) } as InsertGenbaActivityLog);
 }
 
 /** payload を parse した利用ログを新しい順に取得 (直近 limit 件) */
