@@ -1430,10 +1430,19 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const task = await genbaDb.getGenbaTaskById(input.taskId);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      await assertLinkTaskScope(ctx, task);
       if (input.toUserId === uid(ctx)) throw new TRPCError({ code: "BAD_REQUEST", message: "自分自身には引き継げません" });
 
       const meId = uid(ctx);
       if (meId == null) throw new TRPCError({ code: "FORBIDDEN", message: "ゲストリンクからは引き継ぎできません" });
+      // 引き継ぎは「自分の担当を渡す」操作。担当でない作業員が他人の作業を付け替えられないようにする
+      // (leader/admin は assignUser と同じく代理での付け替えを許可)
+      if (ctx.genbaRole === "worker") {
+        const mine = await genbaDb.listTaskIdsAssignedToUser([input.taskId], meId);
+        if (!mine.has(input.taskId)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "この作業はあなたの担当ではありません" });
+        }
+      }
       // 担当の付け替え: 相手を追加し、自分を外す
       await genbaDb.addTaskAssignee({ id: nanoid(21), taskId: input.taskId, userId: input.toUserId });
       await genbaDb.removeTaskAssignee(input.taskId, meId);
