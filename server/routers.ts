@@ -32,7 +32,7 @@ import { seedBetaFixture, BETA_TEST_MONTH } from "./betaFixture";
 import { seedSimulationFixture } from "./simulationFixture";
 import { buildAccountingCsv, accountingCsvFilename, type AccountingCsvInvoice } from "./accountingCsv";
 import { buildWorkerWorkReport } from "./workReport";
-import { computeAdvanceBalance, computeAppliedOffset, computeMaxOffset, signedDelta } from "./workerAdvance";
+import { computeAdvanceBalance, computeAdvanceCharge, computeAppliedOffset, computeMaxOffset, signedDelta } from "./workerAdvance";
 import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./rateResolver";
 import { genbaRouter } from "./genba/router";
 import { connectRouter } from "./connect/router";
@@ -4865,16 +4865,24 @@ export const appRouter = router({
         employeeId: z.number().int().positive(),
         entryType: z.enum(["advance", "repayment", "adjustment"]),
         amount: z.number().int().positive(),
+        feePercent: z.number().int().min(0).max(100).optional().default(10),
         increase: z.boolean().optional().default(true),
         reason: z.string().max(255).optional().default(""),
       }))
       .mutation(async ({ ctx, input }) => {
-        const delta = signedDelta(input.entryType, input.amount, input.increase);
+        // 前借りは「会社 → 作業員」の先払い。元金＋手数料を作業員の会社への返済残高として記録する。
+        const charge = input.entryType === "advance" ? computeAdvanceCharge(input.amount, input.feePercent) : null;
+        const effectiveAmount = charge ? charge.total : input.amount;
+        const delta = signedDelta(input.entryType, effectiveAmount, input.increase);
+        const reasonText = input.reason.trim();
+        const storedReason = charge
+          ? `元金 ${charge.principal}円 / 手数料 ${charge.feePercent}% (${charge.feeAmount}円) / 控除対象 ${charge.total}円${reasonText ? ` / ${reasonText}` : ""}`
+          : (reasonText || null);
         const created = await db.createWorkerAdvance({
           employeeId: input.employeeId,
           entryType: input.entryType,
           amount: delta,
-          reason: input.reason.trim() || null,
+          reason: storedReason,
           createdBy: ctx.user.id,
         } as any);
         const balance = computeAdvanceBalance(await db.getWorkerAdvancesByEmployee(input.employeeId) as any[]);

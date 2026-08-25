@@ -5,6 +5,7 @@
  */
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
+import { paymentMonthToClosingMonth } from "@shared/paymentMonth";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,8 @@ const PAID_STATUS: Record<string, { label: string; className: string }> = {
   partial: { label: "一部", className: "bg-info/15 text-info border-info/30" },
   paid: { label: "支払済", className: "bg-success/15 text-success border-success/30" },
 };
-const ADVANCE_TYPE_LABELS: Record<string, string> = { advance: "前借り", repayment: "返済/相殺", adjustment: "調整" };
+const ADVANCE_TYPE_LABELS: Record<string, string> = { advance: "会社からの前借り", repayment: "会社への返済/支払相殺", adjustment: "調整" };
+const DEFAULT_ADVANCE_FEE_PERCENT = 10;
 
 function yen(n: number) {
   return `¥${Number(n || 0).toLocaleString("ja-JP")}`;
@@ -55,7 +57,9 @@ function monthLabel(m: string) {
 }
 
 export default function AppPayments() {
-  const [closingMonth, setClosingMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [paymentMonth, setPaymentMonth] = useState(format(new Date(), "yyyy-MM"));
+  // 支払は2か月前に締めた出面を根拠にする（例: 10月支払 = 8月締め）。
+  const closingMonth = paymentMonthToClosingMonth(paymentMonth);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
 
@@ -76,13 +80,14 @@ export default function AppPayments() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">支払管理</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            年月を選ぶと対象作業員が一覧表示されます。行をタップで内訳（検算）を確認できます。
+            支払月を選ぶと、2か月前に締めた出面から外注費を算出します。例：10月支払＝8月締め。行をタップで内訳（検算）を確認できます。
           </p>
         </div>
         <div className="flex items-end gap-2">
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">対象月</Label>
-            <Input type="month" value={closingMonth} onChange={(e) => { setClosingMonth(e.target.value); setExpanded(null); }} className="w-[160px]" />
+            <Label className="text-xs text-muted-foreground">支払月</Label>
+            <Input type="month" value={paymentMonth} onChange={(e) => { setPaymentMonth(e.target.value); setExpanded(null); }} className="w-[160px]" />
+            <div className="text-[10px] text-muted-foreground mt-0.5">{monthLabel(closingMonth)}締め出面</div>
           </div>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -117,7 +122,7 @@ export default function AppPayments() {
             <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
           ) : filtered.length === 0 ? (
             <div className="py-16 text-center text-sm text-muted-foreground">
-              {workers.length === 0 ? `${monthLabel(closingMonth)} の支払対象がありません（月締めを進めると作成されます）` : "該当する作業員がいません"}
+              {workers.length === 0 ? `${monthLabel(paymentMonth)} 支払の対象がありません（参照: ${monthLabel(closingMonth)}締め出面）` : "該当する作業員がいません"}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -127,7 +132,7 @@ export default function AppPayments() {
                     <th className="text-left font-medium px-3 py-2.5 w-8"></th>
                     <th className="text-left font-medium px-2 py-2.5">作業員</th>
                     <th className="text-right font-medium px-2 py-2.5">総支給</th>
-                    <th className="text-right font-medium px-2 py-2.5">前借り残高</th>
+                    <th className="text-right font-medium px-2 py-2.5">会社への返済残高</th>
                     <th className="text-right font-medium px-2 py-2.5">相殺</th>
                     <th className="text-right font-medium px-2 py-2.5">差引支払</th>
                     <th className="text-center font-medium px-2 py-2.5">状況</th>
@@ -316,7 +321,7 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm">
             <PiggyBank className="h-4 w-4 text-gold" />
-            前借り残高 <span className={`font-bold ${worker.advanceBalance > 0 ? "text-amber-400" : ""}`}>{yen(worker.advanceBalance)}</span>
+            会社への返済残高 <span className={`font-bold ${worker.advanceBalance > 0 ? "text-amber-400" : ""}`}>{yen(worker.advanceBalance)}</span>
             {worker.appliedOffset > 0 && <span className="text-xs text-emerald-400">（相殺済 {yen(worker.appliedOffset)}）</span>}
           </div>
           <AdvanceAddButton employeeId={worker.employeeId} onDone={invalidate} open={advanceOpen} setOpen={setAdvanceOpen} />
@@ -377,6 +382,7 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
 function AdvanceAddButton({ employeeId, onDone, open, setOpen }: { employeeId: number; onDone: () => void; open: boolean; setOpen: (v: boolean) => void }) {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
+  const [feePercent, setFeePercent] = useState(DEFAULT_ADVANCE_FEE_PERCENT);
   const [entryType, setEntryType] = useState<"advance" | "adjustment">("advance");
   const addMutation = trpc.advance.addEntry.useMutation({
     onSuccess: () => { toast.success("前借り台帳に追加しました"); setOpen(false); setAmount(""); setReason(""); onDone(); },
@@ -385,11 +391,11 @@ function AdvanceAddButton({ employeeId, onDone, open, setOpen }: { employeeId: n
   return (
     <>
       <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => setOpen(true)}>
-        <Plus className="h-3.5 w-3.5" />前借り追加
+        <Plus className="h-3.5 w-3.5" />作業員の前借りを記録
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>前借り／調整の追加</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>会社から作業員への前借り／調整</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">種別</Label>
@@ -402,12 +408,24 @@ function AdvanceAddButton({ employeeId, onDone, open, setOpen }: { employeeId: n
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">金額（円）</Label>
+              <Label className="text-xs">{entryType === "advance" ? "会社が作業員へ渡す元金（円）" : "調整額（円）"}</Label>
               <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000" />
             </div>
+            {entryType === "advance" && (
+              <div className="space-y-1">
+                <Label className="text-xs">手数料（1%刻み・既定10%）</Label>
+                <div className="flex items-center gap-2">
+                  <Input type="number" min={0} max={100} step={1} value={feePercent} onChange={(e) => setFeePercent(Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0))))} />
+                  <span className="text-sm text-muted-foreground">%</span>
+                </div>
+                {Number(amount) > 0 && (
+                  <div className="text-xs text-muted-foreground">控除対象: {yen(Math.round(Number(amount) * (1 + feePercent / 100)))}（元金 {yen(Number(amount))} + 手数料 {yen(Math.round(Number(amount) * feePercent / 100))}）</div>
+                )}
+              </div>
+            )}
             <div className="space-y-1">
               <Label className="text-xs">理由（任意）</Label>
-              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="前借り・立替の理由" />
+              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="用途・理由" />
             </div>
           </div>
           <DialogFooter>
@@ -415,7 +433,7 @@ function AdvanceAddButton({ employeeId, onDone, open, setOpen }: { employeeId: n
             <Button disabled={addMutation.isPending} onClick={() => {
               const n = Number(amount);
               if (!n || n <= 0) { toast.error("金額を入力してください"); return; }
-              addMutation.mutate({ employeeId, entryType, amount: n, reason });
+              addMutation.mutate({ employeeId, entryType, amount: n, feePercent: entryType === "advance" ? feePercent : 0, reason });
             }}>追加</Button>
           </DialogFooter>
         </DialogContent>
