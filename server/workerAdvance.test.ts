@@ -1,10 +1,34 @@
 import { describe, it, expect } from "vitest";
 import {
+  DEFAULT_ADVANCE_FEE_PERCENT,
   computeAdvanceBalance,
+  computeAdvanceCharge,
   computeAppliedOffset,
   computeMaxOffset,
   signedDelta,
 } from "./workerAdvance";
+
+describe("computeAdvanceCharge", () => {
+  it("前借り手数料は既定10%で、元金＋手数料を返済対象総額にする", () => {
+    expect(DEFAULT_ADVANCE_FEE_PERCENT).toBe(10);
+    expect(computeAdvanceCharge(100000)).toEqual({
+      principal: 100000,
+      feePercent: 10,
+      feeAmount: 10000,
+      total: 110000,
+    });
+  });
+
+  it("手数料率を1%単位で変更でき、円未満は四捨五入する", () => {
+    expect(computeAdvanceCharge(12345, 1)).toEqual({
+      principal: 12345,
+      feePercent: 1,
+      feeAmount: 123,
+      total: 12468,
+    });
+    expect(computeAdvanceCharge(10000, 11).total).toBe(11100);
+  });
+});
 
 describe("computeAdvanceBalance", () => {
   it("符号付きデルタの合計＝残高", () => {
@@ -24,11 +48,8 @@ describe("computeAppliedOffset", () => {
 
 describe("computeMaxOffset", () => {
   it("残高と支払残額の小さい方を返す", () => {
-    // 残高20000 / 支払50000 / 既適用0 → 20000
     expect(computeMaxOffset(20000, 50000, 0)).toBe(20000);
-    // 残高80000 / 支払50000 / 既適用0 → 50000（支払額まで）
     expect(computeMaxOffset(80000, 50000, 0)).toBe(50000);
-    // 既適用10000 → 支払残40000, 残高80000 → 40000
     expect(computeMaxOffset(80000, 50000, 10000)).toBe(40000);
   });
 
@@ -45,7 +66,6 @@ describe("signedDelta", () => {
     expect(signedDelta("repayment", 10000)).toBe(-10000);
     expect(signedDelta("adjustment", 10000, true)).toBe(10000);
     expect(signedDelta("adjustment", 10000, false)).toBe(-10000);
-    // 入力が負でも絶対値で処理
     expect(signedDelta("repayment", -10000)).toBe(-10000);
   });
 });
