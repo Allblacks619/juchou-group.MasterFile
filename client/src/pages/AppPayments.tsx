@@ -1,7 +1,7 @@
 /*
  * AppPayments — 支払管理（作業員単位・一覧＋検算ドリルダウン）
  * 年月を選ぶだけで対象作業員を「行」で一覧表示。各行をタップすると現場別内訳＋
- * 前借り台帳を展開して金額の根拠を確認（検算）できる。
+ * 早期支払台帳を展開して金額の根拠を確認（検算）できる。
  */
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
@@ -45,7 +45,7 @@ const PAID_STATUS: Record<string, { label: string; className: string }> = {
   partial: { label: "一部", className: "bg-info/15 text-info border-info/30" },
   paid: { label: "支払済", className: "bg-success/15 text-success border-success/30" },
 };
-const ADVANCE_TYPE_LABELS: Record<string, string> = { advance: "会社からの前借り", repayment: "会社への返済/支払相殺", adjustment: "調整" };
+const ADVANCE_TYPE_LABELS: Record<string, string> = { advance: "外注費の早期支払", repayment: "支払時の精算", adjustment: "調整" };
 const DEFAULT_ADVANCE_FEE_PERCENT = 10;
 
 function yen(n: number) {
@@ -132,7 +132,7 @@ export default function AppPayments() {
                     <th className="text-left font-medium px-3 py-2.5 w-8"></th>
                     <th className="text-left font-medium px-2 py-2.5">作業員</th>
                     <th className="text-right font-medium px-2 py-2.5">総支給</th>
-                    <th className="text-right font-medium px-2 py-2.5">会社への返済残高</th>
+                    <th className="text-right font-medium px-2 py-2.5">早期支払精算残高</th>
                     <th className="text-right font-medium px-2 py-2.5">相殺</th>
                     <th className="text-right font-medium px-2 py-2.5">差引支払</th>
                     <th className="text-center font-medium px-2 py-2.5">状況</th>
@@ -234,7 +234,7 @@ function WorkerPaidToggle({ worker, closingMonth }: { worker: any; closingMonth:
   );
 }
 
-/** 検算ドリルダウン: 現場別内訳＋前借り台帳（残高・履歴・相殺・追加）。 */
+/** 検算ドリルダウン: 現場別内訳＋早期支払台帳（残高・履歴・精算・追加）。 */
 function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: string }) {
   const utils = trpc.useUtils();
   const [offsetInput, setOffsetInput] = useState<string>("");
@@ -246,7 +246,7 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
     utils.advance.ledger.invalidate({ employeeId: worker.employeeId });
   };
   const offsetMutation = trpc.advance.offsetWorkerMonth.useMutation({
-    onSuccess: (r) => { toast.success(`前借りを ${yen(r.applied)} 相殺しました（残高 ${yen(r.balance)}）`); setOffsetInput(""); invalidate(); },
+    onSuccess: (r) => { toast.success(`早期支払分を ${yen(r.applied)} 精算しました（残高 ${yen(r.balance)}）`); setOffsetInput(""); invalidate(); },
     onError: (e) => toast.error(e.message),
   });
   const deleteMutation = trpc.advance.deleteEntry.useMutation({
@@ -316,19 +316,19 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
         )}
       </div>
 
-      {/* 前借り／相殺 */}
+      {/* 早期支払／精算 */}
       <div className="rounded-md border border-border p-3 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm">
             <PiggyBank className="h-4 w-4 text-gold" />
-            会社への返済残高 <span className={`font-bold ${worker.advanceBalance > 0 ? "text-amber-400" : ""}`}>{yen(worker.advanceBalance)}</span>
+            早期支払精算残高 <span className={`font-bold ${worker.advanceBalance > 0 ? "text-amber-400" : ""}`}>{yen(worker.advanceBalance)}</span>
             {worker.appliedOffset > 0 && <span className="text-xs text-emerald-400">（相殺済 {yen(worker.appliedOffset)}）</span>}
           </div>
           <AdvanceAddButton employeeId={worker.employeeId} onDone={invalidate} open={advanceOpen} setOpen={setAdvanceOpen} />
         </div>
         {worker.maxOffset > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">相殺額</span>
+            <span className="text-xs text-muted-foreground">精算額</span>
             <Input
               type="number"
               className="h-8 w-28 text-right"
@@ -339,10 +339,10 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
             <Button size="sm" variant="outline" className="h-8 gap-1" disabled={offsetMutation.isPending}
               onClick={() => {
                 const amount = Number(offsetInput || worker.maxOffset);
-                if (!amount || amount <= 0) { toast.error("相殺額を入力してください"); return; }
+                if (!amount || amount <= 0) { toast.error("精算額を入力してください"); return; }
                 offsetMutation.mutate({ closingMonth, employeeId: worker.employeeId, amount });
               }}>
-              <ArrowLeftRight className="h-3.5 w-3.5" />相殺（最大 {yen(worker.maxOffset)}）
+              <ArrowLeftRight className="h-3.5 w-3.5" />精算（最大 {yen(worker.maxOffset)}）
             </Button>
           </div>
         )}
@@ -361,9 +361,9 @@ function WorkerDrilldown({ worker, closingMonth }: { worker: any; closingMonth: 
                     className="text-muted-foreground hover:text-red-400"
                     title="この記録を削除"
                     onClick={() => {
-                      // 前借り台帳は金銭記録。誤タップで消えると残高が狂うため、内容を出して確認する。
+                      // 早期支払台帳は金銭記録。誤タップで消えると残高が狂うため、内容を出して確認する。
                       const label = `${e.createdAt ? format(new Date(e.createdAt), "M/d") : ""} ${ADVANCE_TYPE_LABELS[e.entryType] || e.entryType} ${yen(e.amount)}`;
-                      if (!confirm(`この前借り記録（${label}）を消します。元に戻せません。よろしいですか？`)) return;
+                      if (!confirm(`この早期支払記録（${label}）を消します。元に戻せません。よろしいですか？`)) return;
                       deleteMutation.mutate({ id: e.id });
                     }}
                   >
@@ -385,47 +385,47 @@ function AdvanceAddButton({ employeeId, onDone, open, setOpen }: { employeeId: n
   const [feePercent, setFeePercent] = useState(DEFAULT_ADVANCE_FEE_PERCENT);
   const [entryType, setEntryType] = useState<"advance" | "adjustment">("advance");
   const addMutation = trpc.advance.addEntry.useMutation({
-    onSuccess: () => { toast.success("前借り台帳に追加しました"); setOpen(false); setAmount(""); setReason(""); onDone(); },
+    onSuccess: () => { toast.success("早期支払台帳に追加しました"); setOpen(false); setAmount(""); setReason(""); onDone(); },
     onError: (e) => toast.error(e.message),
   });
   return (
     <>
       <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => setOpen(true)}>
-        <Plus className="h-3.5 w-3.5" />作業員の前借りを記録
+        <Plus className="h-3.5 w-3.5" />早期支払を記録
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>会社から作業員への前借り／調整</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>外注費の早期支払／調整</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">種別</Label>
               <Select value={entryType} onValueChange={(v) => setEntryType(v as any)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="advance">前借り（残高が増える）</SelectItem>
+                  <SelectItem value="advance">早期支払（精算残高が増える）</SelectItem>
                   <SelectItem value="adjustment">調整（残高が増える）</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">{entryType === "advance" ? "会社が作業員へ渡す元金（円）" : "調整額（円）"}</Label>
+              <Label className="text-xs">{entryType === "advance" ? "先に支払う外注費（円）" : "調整額（円）"}</Label>
               <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000" />
             </div>
             {entryType === "advance" && (
               <div className="space-y-1">
-                <Label className="text-xs">手数料（1%刻み・既定10%）</Label>
+                <Label className="text-xs">早期支払手数料（1%刻み・既定10%）</Label>
                 <div className="flex items-center gap-2">
                   <Input type="number" min={0} max={100} step={1} value={feePercent} onChange={(e) => setFeePercent(Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0))))} />
                   <span className="text-sm text-muted-foreground">%</span>
                 </div>
                 {Number(amount) > 0 && (
-                  <div className="text-xs text-muted-foreground">控除対象: {yen(Math.round(Number(amount) * (1 + feePercent / 100)))}（元金 {yen(Number(amount))} + 手数料 {yen(Math.round(Number(amount) * feePercent / 100))}）</div>
+                  <div className="text-xs text-muted-foreground">精算対象: {yen(Math.round(Number(amount) * (1 + feePercent / 100)))}（元金 {yen(Number(amount))} + 手数料 {yen(Math.round(Number(amount) * feePercent / 100))}）</div>
                 )}
               </div>
             )}
             <div className="space-y-1">
               <Label className="text-xs">理由（任意）</Label>
-              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="用途・理由" />
+              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="早期支払の理由・メモ" />
             </div>
           </div>
           <DialogFooter>
