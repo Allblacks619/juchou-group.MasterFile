@@ -358,6 +358,13 @@
       "when": 1786300000000,
       "tag": "0048_connect_payment_symmetry",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "5",
+      "when": 1787700000000,
+      "tag": "0049_user_guide_state",
+      "breakpoints": true
     }
   ]
 }

@@ -37,6 +37,7 @@ import { resolveProjectMemberRatesForMonth, resolveWorkerPaymentRate } from "./r
 import { genbaRouter } from "./genba/router";
 import { connectRouter } from "./connect/router";
 import { reflectSubmitterPaymentStatus } from "./connect/paymentSync";
+import { mergeGuideState, ONBOARDING_VERSION, parseGuideState } from "./guideState";
 
 const BCRYPT_ROUNDS = 12;
 const RESET_LINK_TTL_MS = 60 * 60 * 1000;
@@ -1230,6 +1231,43 @@ async function collectInvoiceAttachableDocuments(invoice: any) {
 
 export const appRouter = router({
   system: systemRouter,
+
+  // ── 初回ガイド / 新機能・仕様変更のお知らせ ──
+  guide: router({
+    state: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      if (!database) return { ...parseGuideState(null), onboardingVersion: ONBOARDING_VERSION };
+      const rows = await database
+        .select({ guideState: schema.users.guideState })
+        .from(schema.users)
+        .where(eq(schema.users.id, Number(ctx.user.id)))
+        .limit(1);
+      return { ...parseGuideState(rows[0]?.guideState), onboardingVersion: ONBOARDING_VERSION };
+    }),
+
+    saveState: protectedProcedure
+      .input(z.object({
+        onboardingSeenVersion: z.number().int().min(0).optional(),
+        onboardingAutoShow: z.boolean().optional(),
+        updatesAutoShow: z.boolean().optional(),
+        lastSeenUpdateId: z.string().max(64).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const database = await db.getDb();
+        if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        const rows = await database
+          .select({ guideState: schema.users.guideState })
+          .from(schema.users)
+          .where(eq(schema.users.id, Number(ctx.user.id)))
+          .limit(1);
+        const next = mergeGuideState(parseGuideState(rows[0]?.guideState), input);
+        await database
+          .update(schema.users)
+          .set({ guideState: JSON.stringify(next) })
+          .where(eq(schema.users.id, Number(ctx.user.id)));
+        return { ...next, onboardingVersion: ONBOARDING_VERSION };
+      }),
+  }),
 
   /**
    * 現場ビジョン (genba) — M1基盤。加算専用の独立ルーター (server/genba/router.ts)。

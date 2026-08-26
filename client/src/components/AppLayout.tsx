@@ -30,6 +30,7 @@ import { isManagerLikeAppRole } from "@/lib/appRoles";
 import { trpc } from "@/lib/trpc";
 import type { TranslationKey } from "@/lib/appTranslations";
 import type { PermissionArea } from "@shared/permissionAreas";
+import AppGuideCenter from "./AppGuideCenter";
 
 type NavAudience = "super_admin" | "manager" | "worker";
 type NavItem = { path: string; labelKey: TranslationKey; icon: any; roles: NavAudience[] };
@@ -404,6 +405,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex-1" />
+          <AppGuideCenter appRole={appRole} />
         </header>
 
         {/* Page content */}

@@ -128,3 +128,16 @@
 ---
 
 **この指針が効いているサイン:** diff の不要な変更が減る、複雑化による書き直しが減る、ミスの後ではなく実装前に確認の質問が来る。
+
+
+## In-app onboarding / change guide (MANDATORY)
+
+The authenticated business app has a role-based onboarding and change-notification system. This is part of the product contract, not optional documentation.
+
+Whenever a user-facing feature, specification, navigation item, calculation meaning, or workflow changes:
+
+1. Update the affected manager/worker explanation in `client/src/components/AppGuideCenter.tsx` when the normal workflow or feature usage changed. Do this proactively; do not wait for an owner request.
+2. Bump `ONBOARDING_VERSION` in `shared/appGuide.ts` only when the onboarding content/workflow materially changed and existing users should be shown the refreshed guide once.
+3. Keep Japanese and Portuguese guide copy aligned.
+4. Do not rename/remove the automatic feed files `scripts/update-app-guide-feed.mjs`, `.github/workflows/app-guide-feed.yml`, or `client/src/generated/appUpdates.ts` without replacing their behavior. The workflow automatically publishes a concise in-app change notice after qualifying main-branch changes.
+5. Internal refactors/tests/docs-only changes should not create user-facing announcements.

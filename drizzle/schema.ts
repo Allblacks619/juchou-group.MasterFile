@@ -46,6 +46,8 @@ export const users = mysqlTable("users", {
    * null/未設定キー=ロール既定。super_admin/admin には適用されない（設定する側のため）。
    */
   permissionOverrides: text("permissionOverrides"),
+  /** 初回ガイド・新機能通知の個人別既読/自動表示設定(JSON) */
+  guideState: text("guideState"),
   /** テナント(会社)ID。マルチテナント化 Phase 1a — 既存データは既定会社=1 */
   companyId: int("companyId").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

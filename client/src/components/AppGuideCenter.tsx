@@ -30,8 +30,7 @@ import { trpc } from "@/lib/trpc";
 import { useAppLang } from "@/contexts/AppLanguageContext";
 import { isManagerLikeAppRole } from "@/lib/appRoles";
 import { APP_UPDATES, type AppUpdate } from "@/generated/appUpdates";
-
-const ONBOARDING_VERSION = 1;
+import { ONBOARDING_VERSION } from "@shared/appGuide";
 type GuideAudience = "manager" | "worker";
 type GuideMode = "onboarding" | "updates" | null;
 
@@ -213,6 +212,7 @@ export default function AppGuideCenter({ appRole }: { appRole: string }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [disableAutoGuide, setDisableAutoGuide] = useState(false);
   const [disableAutoUpdates, setDisableAutoUpdates] = useState(false);
+  const [autoHandled, setAutoHandled] = useState(false);
 
   const relevantUpdates = useMemo(() => updatesForAudience(audience), [audience]);
   const unseenUpdates = useMemo(() => {
@@ -224,18 +224,20 @@ export default function AppGuideCenter({ appRole }: { appRole: string }) {
 
   useEffect(() => {
     const state = stateQuery.data;
-    if (!state || mode) return;
+    if (!state || mode || autoHandled) return;
     if (state.onboardingAutoShow && state.onboardingSeenVersion < ONBOARDING_VERSION) {
+      setAutoHandled(true);
       setStepIndex(0);
       setDisableAutoGuide(false);
       setMode("onboarding");
       return;
     }
     if (state.updatesAutoShow && unseenUpdates.length > 0) {
+      setAutoHandled(true);
       setDisableAutoUpdates(false);
       setMode("updates");
     }
-  }, [stateQuery.data, unseenUpdates.length, mode]);
+  }, [stateQuery.data, unseenUpdates.length, mode, autoHandled]);
 
   const latestRelevantId = relevantUpdates[0]?.id ?? null;
 

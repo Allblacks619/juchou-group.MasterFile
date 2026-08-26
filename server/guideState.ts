@@ -1,4 +1,4 @@
-export const ONBOARDING_VERSION = 1;
+export { ONBOARDING_VERSION } from "@shared/appGuide";
 
 export type GuideState = {
   onboardingSeenVersion: number;
