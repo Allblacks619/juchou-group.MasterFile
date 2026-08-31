@@ -14,13 +14,14 @@ export type AppUpdate = {
 /** 新しい順。main のユーザー向け変更時に自動更新される。 */
 export const APP_UPDATES: AppUpdate[] = [
   {
-    id: "onboarding-guide-v1",
-    date: "2026-08-26",
+    id: "d08b6947f778",
+    date: "2026-08-31",
     audience: "all",
-    titleJa: "初回ガイドと変更通知を追加しました",
-    titlePt: "Novo guia inicial e avisos de atualização",
-    detailJa: "管理者・作業員それぞれに合わせた使い方ガイドと、新機能・仕様変更を知らせるアプリ内通知を追加しました。",
-    detailPt: "Adicionamos um guia de uso específico para administradores e trabalhadores, além de avisos internos sobre novas funções e mudanças de fluxo.",
-    areas: ["使い方ガイド", "お知らせ"],
+    titleJa: "アプリ機能を更新しました",
+    titlePt: "Atualização: Funções do aplicativo",
+    detailJa: "HOTFIX: 作業員名簿PDFの Unknown font format を修正",
+    detailPt: "Funções, especificações ou fluxo de uso desta área foram atualizados.",
+    areas: ["アプリ機能"],
   },
+
 ];
