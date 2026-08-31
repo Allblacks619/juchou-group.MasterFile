@@ -23,37 +23,149 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
+// Keep roster on the same Noto Sans JP asset already used by the attendance PDF.
+// The cache filename is versioned so a previously corrupted /tmp font is never reused.
 const FONT_URL =
-  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Regular_e41d65c6.ttf";
+  "https://d2xsxph8kpxj0f.cloudfront.net/310519663330554130/Zmx5PsySMYEq8fnTQEF9bk/NotoSansJP-Variable_0e3524c3.ttf";
+const FONT_CACHE_FILENAME = "NotoSansJP-Roster-v2.ttf";
 
 let fontPath: string | null = null;
+let fontPromise: Promise<string> | null = null;
+
+function isValidFontFile(filePath: string): boolean {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile() || stat.size < 100_000) return false;
+
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const header = Buffer.alloc(4);
+      const bytesRead = fs.readSync(fd, header, 0, 4, 0);
+      if (bytesRead !== 4) return false;
+      const signature = header.toString("ascii");
+      return (
+        header.equals(Buffer.from([0x00, 0x01, 0x00, 0x00])) ||
+        signature === "OTTO" ||
+        signature === "ttcf" ||
+        signature === "true" ||
+        signature === "typ1"
+      );
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
+function removeIfExists(filePath: string) {
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch {
+    // Best effort cleanup only.
+  }
+}
+
+function downloadFont(url: string, dest: string, redirects = 0): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (redirects > 5) {
+      reject(new Error("Font download failed: too many redirects"));
+      return;
+    }
+
+    const get = url.startsWith("https") ? https.get : http.get;
+    const req = get(url, (res) => {
+      const status = res.statusCode || 0;
+
+      if ([301, 302, 303, 307, 308].includes(status)) {
+        const loc = res.headers.location;
+        res.resume();
+        if (!loc) {
+          reject(new Error("Font download failed: redirect without location"));
+          return;
+        }
+        const nextUrl = new URL(loc, url).toString();
+        downloadFont(nextUrl, dest, redirects + 1).then(resolve, reject);
+        return;
+      }
+
+      if (status !== 200) {
+        res.resume();
+        reject(new Error(`Font download failed: HTTP ${status}`));
+        return;
+      }
+
+      const tmp = `${dest}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.part`;
+      const file = fs.createWriteStream(tmp);
+      let settled = false;
+
+      const fail = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        file.destroy();
+        removeIfExists(tmp);
+        reject(err);
+      };
+
+      res.on("error", (err) => fail(err));
+      file.on("error", (err) => fail(err));
+      file.on("finish", () => {
+        file.close(() => {
+          if (settled) return;
+          if (!isValidFontFile(tmp)) {
+            settled = true;
+            removeIfExists(tmp);
+            reject(new Error("Font download failed: invalid font data"));
+            return;
+          }
+
+          try {
+            removeIfExists(dest);
+            fs.renameSync(tmp, dest);
+            settled = true;
+            resolve();
+          } catch (err) {
+            fail(err instanceof Error ? err : new Error(String(err)));
+          }
+        });
+      });
+
+      res.pipe(file);
+    });
+
+    req.on("error", reject);
+    req.setTimeout(15_000, () => req.destroy(new Error("Font download timed out")));
+  });
+}
 
 async function ensureFont(): Promise<string> {
-  if (fontPath && fs.existsSync(fontPath)) return fontPath;
-  const tmpDir = os.tmpdir();
-  const dest = path.join(tmpDir, "NotoSansJP-Regular.ttf");
-  if (fs.existsSync(dest)) {
+  if (fontPath && isValidFontFile(fontPath)) return fontPath;
+
+  const dest = path.join(os.tmpdir(), FONT_CACHE_FILENAME);
+  if (isValidFontFile(dest)) {
     fontPath = dest;
     return dest;
   }
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
-    const get = FONT_URL.startsWith("https") ? https.get : http.get;
-    get(FONT_URL, (res) => {
-      if (res.statusCode === 301 || res.statusCode === 302) {
-        const loc = res.headers.location;
-        if (!loc) return reject(new Error("Redirect without location"));
-        const get2 = loc.startsWith("https") ? https.get : http.get;
-        get2(loc, (res2) => {
-          res2.pipe(file);
-          file.on("finish", () => { file.close(); fontPath = dest; resolve(dest); });
-        }).on("error", reject);
-        return;
-      }
-      res.pipe(file);
-      file.on("finish", () => { file.close(); fontPath = dest; resolve(dest); });
-    }).on("error", reject);
-  });
+
+  // Purge stale HTML/partial/corrupt downloads that PDFKit/fontkit would otherwise
+  // surface as "Unknown font format".
+  removeIfExists(dest);
+
+  if (!fontPromise) {
+    fontPromise = downloadFont(FONT_URL, dest)
+      .then(() => {
+        if (!isValidFontFile(dest)) {
+          throw new Error("Font download failed validation");
+        }
+        fontPath = dest;
+        return dest;
+      })
+      .finally(() => {
+        fontPromise = null;
+      });
+  }
+
+  return fontPromise;
 }
 
 async function downloadImage(url: string): Promise<string | null> {
