@@ -19,14 +19,20 @@ FROM node:20-bookworm-slim AS runtime
 
 WORKDIR /app
 
-# Roster PDF must not depend on an external font CDN at runtime.
-# Install a Japanese TrueType font in the image and seed the exact cache path
-# used by server/pdfRoster.ts so ensureFont() succeeds locally even if the
-# external CDN is blocked (HTTP 403) or the server has no outbound network.
+# PDF generation must not depend on the external Japanese-font CDN at runtime.
+# The app's PDF generators currently expect these exact /tmp cache filenames:
+# - pdfRoster.ts     -> NotoSansJP-Roster-v2.ttf
+# - pdfAttendance.ts -> NotoSansJP-Regular.ttf / NotoSansJP-Bold.ttf
+# - pdfWorkReport.ts -> NotoSansJP-Regular.ttf
+# Seed every cache path from the locally installed IPA Gothic font so PDFKit
+# always receives a real TrueType font even when the CDN is blocked (HTTP 403)
+# or outbound network access is unavailable.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends fonts-ipafont-gothic \
   && cp /usr/share/fonts/opentype/ipafont-gothic/ipag.ttf /tmp/NotoSansJP-Roster-v2.ttf \
-  && chmod 0644 /tmp/NotoSansJP-Roster-v2.ttf \
+  && cp /usr/share/fonts/opentype/ipafont-gothic/ipag.ttf /tmp/NotoSansJP-Regular.ttf \
+  && cp /usr/share/fonts/opentype/ipafont-gothic/ipag.ttf /tmp/NotoSansJP-Bold.ttf \
+  && chmod 0644 /tmp/NotoSansJP-Roster-v2.ttf /tmp/NotoSansJP-Regular.ttf /tmp/NotoSansJP-Bold.ttf \
   && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
