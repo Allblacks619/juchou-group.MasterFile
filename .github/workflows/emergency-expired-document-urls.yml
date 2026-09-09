@@ -1,0 +1,103 @@
+name: Emergency Fix Expired Document URLs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/emergency-expired-document-urls.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch stale presigned document URLs
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("server/db.ts")
+          source = path.read_text()
+          old = '''export async function getDocumentsByEmployee(employeeId: number) {
+            const db = await getDb();
+            if (!db) return [];
+            return db.select().from(documents).where(eq(documents.employeeId, employeeId));
+          }'''
+          new = '''export async function getDocumentsByEmployee(employeeId: number) {
+            const db = await getDb();
+            if (!db) return [];
+            const rows = await db.select().from(documents).where(eq(documents.employeeId, employeeId));
+            // fileUrl is a stored presigned URL and therefore expires. Refresh it every time
+            // documents are read so existing uploads keep working without re-uploading files.
+            const { resignStoredUrl } = await import("./storage");
+            return Promise.all(rows.map(async (doc) => ({
+              ...doc,
+              fileUrl: (await resignStoredUrl(doc.fileUrl)) ?? doc.fileUrl,
+            })));
+          }'''
+          if old not in source:
+              raise SystemExit("Expected getDocumentsByEmployee block not found; refusing unsafe patch")
+          if source.count(old) != 1:
+              raise SystemExit("Expected exactly one getDocumentsByEmployee block; refusing unsafe patch")
+          path.write_text(source.replace(old, new, 1))
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: pnpm check
+
+      - name: Verify patch diff
+        run: |
+          git diff --check
+          git diff -- server/db.ts
+          grep -q 'resignStoredUrl(doc.fileUrl)' server/db.ts
+
+      - name: Commit hotfix to main
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/db.ts
+          git commit -m "fix(storage): refresh expired employee document URLs"
+          git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for pre-hotfix image build to finish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Waiting for build.yml run for original SHA $GITHUB_SHA so it cannot overwrite the fixed :latest image later."
+          for i in $(seq 1 120); do
+            status=$(gh run list --workflow build.yml --commit "$GITHUB_SHA" --event push --limit 1 --json status --jq '.[0].status // "missing"')
+            echo "pre-hotfix build status: $status"
+            if [ "$status" = "completed" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for pre-hotfix build" >&2
+          exit 1
+
+      - name: Dispatch fixed production image build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run build.yml --ref main
+          echo "Dispatched build.yml for fixed main SHA ${{ steps.commit.outputs.sha }}"
