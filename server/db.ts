@@ -781,7 +781,14 @@ export async function deleteQualification(id: number) {
 export async function getDocumentsByEmployee(employeeId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(documents).where(eq(documents.employeeId, employeeId));
+  const rows = await db.select().from(documents).where(eq(documents.employeeId, employeeId));
+  // fileUrl is a stored presigned URL and therefore expires. Refresh it every time
+  // documents are read so existing uploads keep working without re-uploading files.
+  const { resignStoredUrl } = await import("./storage");
+  return Promise.all(rows.map(async (doc) => ({
+    ...doc,
+    fileUrl: (await resignStoredUrl(doc.fileUrl)) ?? doc.fileUrl,
+  })));
 }
 
 export async function createDocument(data: InsertDocument) {
