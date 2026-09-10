@@ -42,7 +42,7 @@ RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/drizzle ./drizzle
-COPY scripts/migrate.mjs scripts/seed-owner.mjs ./scripts/
+COPY scripts/migrate.mjs scripts/seed-owner.mjs scripts/rescue-employee-documents.mjs ./scripts/
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
