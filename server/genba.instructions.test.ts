@@ -17,6 +17,7 @@ const mockGenbaDb = vi.hoisted(() => ({
   addTaskAssignee: vi.fn(),
   removeTaskAssignee: vi.fn(),
   createGenbaTaskEvent: vi.fn(),
+  listTaskIdsAssignedToUser: vi.fn(),
 }));
 const mockDb = vi.hoisted(() => ({ createAuditLog: vi.fn() }));
 vi.mock("./genba/db", async () => ({ ...(await vi.importActual<any>("./genba/db")), ...mockGenbaDb }));
@@ -102,6 +103,8 @@ describe("genba.instructions / handover (M3-B)", () => {
       mockGenbaDb.getGenbaTaskById.mockResolvedValue(TASK);
       mockGenbaDb.getGenbaZoneById.mockResolvedValue({ id: "z1", floorId: "f1", parentZoneId: null, name: "1工区", polygon: [], priority: null, workStatus: null, createdAt: new Date(), updatedAt: new Date() });
       mockGenbaDb.getGenbaFloorById.mockResolvedValue({ id: "f1", siteId: SITE, name: "1F", imageKey: null, w: 1, h: 1, sortOrder: 0, createdAt: new Date(), updatedAt: new Date() });
+      // 引き継ぎ元(worker 1)は自分の担当を渡す = 担当済み。未担当のケースは genba.handover.test.ts
+      mockGenbaDb.listTaskIdsAssignedToUser.mockResolvedValue(new Set([TASK.id]));
     });
 
     it("worker も可: 担当付替 + handoverイベント + 相手宛て指示を自動生成", async () => {
