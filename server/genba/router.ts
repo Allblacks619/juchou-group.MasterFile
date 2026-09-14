@@ -1891,6 +1891,20 @@ const materialsRouter = router({
     }));
   }),
 
+  /** 未対応(依頼中)の件数。管理側が気づくためのバッジ用 (指示の unreadCount と同方針) */
+  pendingCount: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ input }) => {
+    const requests = await genbaDb.listGenbaMaterialRequestsBySite(input.siteId);
+    return requests.filter((r) => r.status === "pending").length;
+  }),
+
+  /**
+   * 未対応(依頼中)の資材依頼を現場横断で返す。本体ダッシュボードの「要対応」用。
+   * 現場を開かないと依頼に気づけない問題を塞ぐのが目的。管理側のみ (リンクは自現場に閉じるため不可)。
+   */
+  pendingAcrossSites: genbaStaffFieldProcedure.query(async ({ ctx }) => {
+    return genbaDb.countPendingMaterialRequestsBySite(ctx.companyId);
+  }),
+
   /** 現場入力: 資材依頼は worker も可 */
   createRequest: genbaProcedure
     .input(z.object({

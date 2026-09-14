@@ -84,6 +84,11 @@ export default function GenbaShell({
     { siteId: site?.id ?? "" },
     { retry: false, staleTime: 30_000, enabled: !!site },
   );
+  // 材料発注の未対応件数。作業員の依頼に管理側が気づくためのバッジ (自分で出す作業員には不要)
+  const { data: pendingMaterials } = trpc.genba.materials.pendingCount.useQuery(
+    { siteId: site?.id ?? "" },
+    { retry: false, staleTime: 30_000, enabled: !!site && canEdit },
+  );
   const settingsMut = trpc.genba.settings.update.useMutation({ onSuccess: () => utils.genba.me.invalidate() });
 
   // 初回ガイド (ゲストは端末保存の既読フラグ)
@@ -112,7 +117,10 @@ export default function GenbaShell({
     return base;
   }, [isAdmin]);
 
-  const instBadge = (unreadCount || 0);
+  const matBadge = (pendingMaterials || 0);
+  // 指示タブのバッジは「未読の指示 + 未対応の材料依頼」。材料はタブ内のボタン奥にあるため、
+  // ここで合算しないとどのタブからも気づけない
+  const instBadge = (unreadCount || 0) + matBadge;
 
   if (!site) return null;
 
@@ -217,6 +225,11 @@ export default function GenbaShell({
               </button>
               <button onClick={() => setShowMaterials(true)} className="inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 border border-border font-medium">
                 <Package className="h-4 w-4" /> {tr("材料発注")}
+                {matBadge > 0 && (
+                  <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#FF4B00] text-white text-[9px] font-bold flex items-center justify-center">
+                    {matBadge}
+                  </span>
+                )}
               </button>
             </div>
             <InstructionsPanel

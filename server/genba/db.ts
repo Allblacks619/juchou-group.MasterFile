@@ -788,6 +788,31 @@ export async function listGenbaMaterialRequestsBySite(siteId: string): Promise<G
     .orderBy(desc(genbaMaterialRequests.createdAt));
 }
 
+/**
+ * 未対応(依頼中)の資材依頼を現場横断で集計する。ダッシュボードの「要対応」用。
+ * 現場を開かなくても依頼に気づけるようにするのが目的なので、現場ごとの件数だけを返す。
+ */
+export async function countPendingMaterialRequestsBySite(
+  companyId?: number,
+): Promise<{ siteId: string; siteName: string; count: number }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [eq(genbaMaterialRequests.status, "pending"), eq(genbaSites.archived, false)];
+  if (companyId != null) conds.push(eq(genbaSites.companyId, companyId));
+  const rows = await db
+    .select({
+      siteId: genbaSites.id,
+      siteName: genbaSites.name,
+      count: sql<number>`COUNT(${genbaMaterialRequests.id})`,
+    })
+    .from(genbaMaterialRequests)
+    .innerJoin(genbaSites, eq(genbaMaterialRequests.siteId, genbaSites.id))
+    .where(and(...conds))
+    .groupBy(genbaSites.id, genbaSites.name)
+    .orderBy(desc(sql`COUNT(${genbaMaterialRequests.id})`));
+  return rows.map((r) => ({ siteId: r.siteId, siteName: r.siteName, count: Number(r.count) }));
+}
+
 export async function getGenbaMaterialRequestById(id: string): Promise<GenbaMaterialRequest | null> {
   const db = await getDb();
   if (!db) return null;
