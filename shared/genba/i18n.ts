@@ -969,6 +969,30 @@ export const GENBA_PT_PANELS: Record<string, string> = {
 };
 Object.assign(GENBA_PT, GENBA_PT_PANELS);
 
+/**
+ * 作業員リンク・共有リンクの入口 (ログイン前) で出る文言。
+ * ここはリンクが開けない時に表示される画面で、日本語しか出ないと
+ * ポルトガル語話者の作業員が何をすればよいか分からなくなるため必ず訳す。
+ * サーバーが返すエラーメッセージ (原文が日本語) もキーとして登録する。
+ */
+const GENBA_PT_LINK_ENTRY: Record<string, string> = {
+  "このリンクは利用できません": "Este link não está disponível",
+  "通信環境を確認して、もう一度開いてください。": "Verifique sua conexão e abra novamente.",
+  "現場が見つかりません": "Obra não encontrada",
+  "この現場は削除されたか、非公開になっています。管理者に確認してください。":
+    "Esta obra foi excluída ou não está mais disponível. Fale com o encarregado.",
+  // サーバー (server/genba/router.ts) が返すリンク認証エラー
+  "このリンクは無効化されています。管理者に確認してください。":
+    "Este link foi desativado. Fale com o encarregado.",
+  "このリンクは有効期限が切れています。管理者に再発行を依頼してください。":
+    "Este link expirou. Peça um novo ao encarregado.",
+  "リンクが無効です。URLを確認するか、管理者に問い合わせてください。":
+    "Link inválido. Confira o endereço ou fale com o encarregado.",
+  "ログインが必要です": "É necessário fazer login",
+  "現場ビジョンは無効化されています": "O Genba Vision está desativado",
+};
+Object.assign(GENBA_PT, GENBA_PT_LINK_ENTRY);
+
 
 /** key(日本語) を lang に応じて翻訳。未登録は原文フォールバック */
 export function genbaTr(key: string, lang: GenbaLang): string {

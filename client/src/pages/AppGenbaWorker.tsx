@@ -2,7 +2,8 @@ import { useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Loader2 } from "lucide-react";
 import GenbaShell from "@/components/genba/GenbaShell";
-import { setGenbaLinkToken } from "@/lib/genbaLinkToken";
+import { setGenbaLinkToken, getGenbaLinkPrefs } from "@/lib/genbaLinkToken";
+import { genbaTr, type GenbaLang } from "@shared/genba/i18n";
 
 /**
  * 作業員専用リンクのエントリ (G-full)。ログイン不要 (トークン認証)。
@@ -15,6 +16,11 @@ export default function AppGenbaWorker() {
   const token = params?.token ?? "";
   // クエリ発火前にトークンを確定させる (main.tsx が毎リクエスト x-genba-link を付与)
   if (token) setGenbaLinkToken(token);
+
+  // GenbaShell を出す前 (エラー・読込) は Provider が無いので、端末保存の言語で直接訳す。
+  // リンクが開けない場面こそ読めないと困るため、ここを日本語固定にしない
+  const lang = (getGenbaLinkPrefs().lang === "pt" ? "pt" : "ja") as GenbaLang;
+  const tr = (s: string) => genbaTr(s, lang);
 
   const utils = trpc.useUtils();
   const { data: me, isLoading: meLoading, error: meError } = trpc.genba.me.useQuery(undefined, {
@@ -30,12 +36,12 @@ export default function AppGenbaWorker() {
   }
   const err = meError || sitesError;
   if (err || !me) {
-    return <CenterMessage title="このリンクは利用できません" body={err?.message || "通信環境を確認して、もう一度開いてください。"} />;
+    return <CenterMessage title={tr("このリンクは利用できません")} body={tr(err?.message || "通信環境を確認して、もう一度開いてください。")} />;
   }
 
   const list = (sites || []) as { id: string; name: string; driveUrl: string | null; projectId: number | null }[];
   if (list.length === 0) {
-    return <CenterMessage title="現場が見つかりません" body="この現場は削除されたか、非公開になっています。管理者に確認してください。" />;
+    return <CenterMessage title={tr("現場が見つかりません")} body={tr("この現場は削除されたか、非公開になっています。管理者に確認してください。")} />;
   }
 
   return (
