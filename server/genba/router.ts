@@ -41,8 +41,8 @@ function instantiateTemplateTasks(
 }
 
 /** 現在のテンプレート (DB) を取得。無ければ既定テンプレートにフォールバック */
-async function currentTemplateForInstantiation(): Promise<(TemplateTreeNode | TemplateNode)[]> {
-  const rows = await genbaDb.listGenbaTaskTemplates();
+async function currentTemplateForInstantiation(companyId?: number): Promise<(TemplateTreeNode | TemplateNode)[]> {
+  const rows = await genbaDb.listGenbaTaskTemplates(companyId);
   if (rows.length === 0) return DEFAULT_TEMPLATE_DATA;
   return buildTemplateTree(rows.map((r) => ({ id: r.id, parentId: r.parentId, name: r.name, romaji: r.romaji, sortOrder: r.sortOrder })));
 }
@@ -100,49 +100,67 @@ function uid(ctx: { user: { id: number } | null; genbaLink?: GenbaLinkCtx | null
 }
 
 /**
- * 入力の参照ID群 (siteId/floorId/zoneId/parentZoneId/taskId/teamId/instructionId) を
+ * 入力の参照ID群 (siteId/floorId/zoneId/parentZoneId/taskId/parentTaskId/teamId/instructionId) を
  * 現場ID(siteId) の集合へ解決する。リンク照合 (assertLinkRefScope) と
  * テナント照合 (assertUserCompanyScope) で共用。
  */
-async function resolveInputSiteIds(raw: Record<string, unknown>): Promise<string[]> {
-  const s = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+async function resolveInputSiteIds(raw: Record<string, unknown>, requireResolved = false): Promise<string[]> {
+  // getRawInput は Zod の trim 前。照合もハンドラーと同じIDで行う。
+  const s = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
   const out = new Set<string>();
+  const addSite = (siteId: string | null | undefined) => {
+    if (!siteId && requireResolved) throw new TRPCError({ code: "NOT_FOUND", message: "参照先の現場が見つかりません" });
+    if (siteId) out.add(siteId);
+  };
   const siteId = s(raw.siteId);
-  if (siteId) out.add(siteId);
+  if (siteId) addSite(siteId);
   const floorId = s(raw.floorId);
   if (floorId) {
     const f = await genbaDb.getGenbaFloorById(floorId);
-    if (f) out.add(f.siteId);
+    addSite(f?.siteId);
   }
   const zoneId = s(raw.zoneId) ?? s(raw.parentZoneId);
   if (zoneId) {
     const z = await genbaDb.getGenbaZoneById(zoneId);
     const f = z ? await genbaDb.getGenbaFloorById(z.floorId) : null;
-    if (f) out.add(f.siteId);
+    addSite(f?.siteId);
   }
   const taskId = s(raw.taskId);
   if (taskId) {
     const t = await genbaDb.getGenbaTaskById(taskId);
     const z = t ? await genbaDb.getGenbaZoneById(t.zoneId) : null;
     const f = z ? await genbaDb.getGenbaFloorById(z.floorId) : null;
-    if (f) out.add(f.siteId);
+    addSite(f?.siteId);
+  }
+  const parentTaskId = s(raw.parentTaskId);
+  if (parentTaskId) {
+    const t = await genbaDb.getGenbaTaskById(parentTaskId);
+    const z = t ? await genbaDb.getGenbaZoneById(t.zoneId) : null;
+    const f = z ? await genbaDb.getGenbaFloorById(z.floorId) : null;
+    addSite(f?.siteId);
   }
   const teamId = s(raw.teamId);
   if (teamId) {
     const t = await genbaDb.getGenbaTeamById(teamId);
-    if (t) out.add(t.siteId);
+    addSite(t?.siteId);
   }
   const instructionId = s(raw.instructionId);
   if (instructionId) {
     const i = await genbaDb.getGenbaInstructionById(instructionId);
-    if (i) out.add(i.siteId);
+    addSite(i?.siteId);
+  }
+  // 名簿ID: 作業員リンクの発行/改名/権限変更はこれを鍵に取るため、解決しないと会社境界が効かない
+  const siteWorkerId = s(raw.siteWorkerId);
+  if (siteWorkerId) {
+    const w = await genbaDb.getGenbaSiteWorkerById(siteWorkerId);
+    addSite(w?.siteId);
   }
   return Array.from(out);
 }
 
 /** 参照ID群 (siteId/floorId/zoneId/taskId/teamId/instructionId) から現場を解決してリンクの現場と照合 */
 async function assertLinkRefScope(link: GenbaLinkCtx, raw: Record<string, unknown>): Promise<void> {
-  const siteIds = await resolveInputSiteIds(raw);
+  const siteIds = await resolveInputSiteIds(raw, isMultiTenantEnabled());
   for (const sid of siteIds) {
     if (sid !== link.siteId) {
       throw new TRPCError({ code: "FORBIDDEN", message: "この現場のリンクでは操作できません" });
@@ -157,28 +175,73 @@ async function assertLinkRefScope(link: GenbaLinkCtx, raw: Record<string, unknow
  */
 async function assertUserCompanyScope(companyId: number | undefined, raw: Record<string, unknown>): Promise<void> {
   if (!isMultiTenantEnabled() || companyId == null) return;
-  const siteIds = await resolveInputSiteIds(raw);
-  for (const sid of siteIds) {
-    const site = await genbaDb.getGenbaSiteById(sid);
-    if (site && (site as any).companyId != null && (site as any).companyId !== companyId) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "この現場にはアクセスできません" });
-    }
+  for (const sid of await resolveInputSiteIds(raw, true)) {
+    await assertSiteCompanyScope(companyId, sid);
   }
 }
 
-/** リンクセッションで id 系入力しか無い手続き用: 取得済みエンティティの現場と照合 */
-function assertLinkSiteId(ctx: { genbaLink?: GenbaLinkCtx | null }, siteId: string | null | undefined): void {
+/**
+ * `id` だけを鍵に取る手続き (共有リンクの失効・作業員リンクの有効/無効など) 用。
+ * 取得済みエンティティの現場IDを渡して会社境界を照合する。
+ * resolveInputSiteIds は `id` の指す型を判別できないため、こちらを明示的に呼ぶ。
+ */
+async function assertSiteCompanyScope(companyId: number | undefined, siteId: string | null | undefined): Promise<void> {
+  if (!isMultiTenantEnabled() || companyId == null) return;
+  if (!siteId) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+  const site = await genbaDb.getGenbaSiteById(siteId);
+  if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+  if (site && (site as any).companyId != null && (site as any).companyId !== companyId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "この現場にはアクセスできません" });
+  }
+}
+
+/** 共通プリセット(siteId=null)も会社内共通。入力ではなく取得済み行の所属で照合する。 */
+async function assertMaterialPresetCompanyScope(
+  companyId: number | undefined,
+  preset: { companyId?: number | null; siteId: string | null },
+): Promise<void> {
+  if (!isMultiTenantEnabled() || companyId == null) return;
+  if (preset.companyId != null && preset.companyId !== companyId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "プリセットが見つかりません" });
+  }
+  if (preset.siteId != null) await assertSiteCompanyScope(companyId, preset.siteId);
+}
+
+/** 取得済みエンティティの現場で、リンクの範囲と認証ユーザーの会社を照合する。 */
+async function assertSiteScope(ctx: { companyId?: number; genbaLink?: GenbaLinkCtx | null }, siteId: string | null | undefined): Promise<void> {
   if (ctx.genbaLink && siteId !== ctx.genbaLink.siteId) {
     throw new TRPCError({ code: "FORBIDDEN", message: "この現場のリンクでは操作できません" });
   }
+  await assertSiteCompanyScope(ctx.companyId, siteId);
 }
 
-/** タスク→ゾーン→フロアから現場を解決してリンクスコープを照合 */
-async function assertLinkTaskScope(ctx: { genbaLink?: GenbaLinkCtx | null }, task: { zoneId: string }): Promise<void> {
-  if (!ctx.genbaLink) return;
+/** タスク→ゾーン→フロアから現場を解決し、リンクの範囲と会社を照合する。 */
+async function assertTaskScope(ctx: { companyId?: number; genbaLink?: GenbaLinkCtx | null }, task: { zoneId: string } | null | undefined): Promise<void> {
+  if (!ctx.genbaLink && (!isMultiTenantEnabled() || ctx.companyId == null)) return;
+  if (!task) {
+    if (isMultiTenantEnabled() && ctx.companyId != null) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+    return;
+  }
   const z = await genbaDb.getGenbaZoneById(task.zoneId);
   const f = z ? await genbaDb.getGenbaFloorById(z.floorId) : null;
-  assertLinkSiteId(ctx, f?.siteId ?? null);
+  await assertSiteScope(ctx, f?.siteId ?? null);
+}
+
+/** 会社間のユーザー共有はConnect名簿経由。正式ユーザーIDを他社へ直接割り当てない。 */
+async function assertUserCompanyReference(companyId: number | undefined, userId: number): Promise<void> {
+  if (!isMultiTenantEnabled() || companyId == null) return;
+  const user = Number.isSafeInteger(userId) && userId > 0 ? await db.getUserById(userId) : undefined;
+  if (!user || user.companyId !== companyId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "作業員が見つかりません" });
+  }
+}
+
+async function assertProjectCompanyReference(companyId: number | undefined, projectId: number | null | undefined): Promise<void> {
+  if (!isMultiTenantEnabled() || companyId == null || projectId == null) return;
+  const project = await db.getProjectById(projectId);
+  if (!project || project.companyId !== companyId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "工事案件が見つかりません" });
+  }
 }
 
 /**
@@ -225,7 +288,13 @@ const genbaProcedure = publicProcedure.use(async ({ ctx, next, path, getRawInput
   genbaDb.touchGenbaWorkerLinkAccess(link.linkId).catch(() => { /* 打刻失敗は無視 */ });
   const raw = (await getRawInput()) as Record<string, unknown> | undefined;
   if (raw && typeof raw === "object") await assertLinkRefScope(link, raw);
-  return next({ ctx: { ...ctx, user: null as typeof ctx.user | null, genbaRole: link.role, genbaLink: link } });
+  // リンクセッションは user が無いため resolveCompanyId が既定会社(1)を返してしまう。
+  // 会社の正本はアクセス先の現場なので、site.companyId で上書きする
+  // (tenancy.ts は connect/本体の全セッション解決に波及するため触らない)。
+  const linkCompanyId = isMultiTenantEnabled()
+    ? ((resolved.site as any).companyId ?? ctx.companyId)
+    : ctx.companyId;
+  return next({ ctx: { ...ctx, companyId: linkCompanyId, user: null as typeof ctx.user | null, genbaRole: link.role, genbaLink: link } });
 });
 
 /** 現場の編集操作 (admin / leader)。worker は閲覧・現場入力のみ */
@@ -270,9 +339,9 @@ async function safeGenbaAuditLog(userId: number | null | undefined, action: stri
 }
 
 /** 学習・改善提案用の利用ログ (genba_activity_logs)。失敗しても本処理は落とさない */
-async function safeGenbaActivity(type: string, userId: number | null | undefined, payload: unknown) {
+async function safeGenbaActivity(type: string, userId: number | null | undefined, payload: unknown, companyId?: number) {
   try {
-    await genbaDb.addGenbaActivityLog(type, userId ?? null, payload);
+    await genbaDb.addGenbaActivityLog(type, userId ?? null, payload, companyId);
   } catch (error) {
     console.warn("[GenbaActivity] failed:", error);
   }
@@ -318,6 +387,7 @@ const sitesRouter = router({
       driveUrl: driveUrlSchema.optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertProjectCompanyReference(ctx.companyId, input.projectId);
       const id = input.id ?? nanoid(21);
       const site = await genbaDb.createGenbaSite({
         id,
@@ -335,6 +405,7 @@ const sitesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaSiteById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      await assertSiteScope(ctx, existing.id);
       const site = await genbaDb.updateGenbaSite(input.id, { name: input.name });
       await safeGenbaAuditLog(uid(ctx), "genba.sites.rename", { entityId: input.id, note: `現場名を変更: ${existing.name} → ${input.name}` });
       return site;
@@ -346,6 +417,7 @@ const sitesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaSiteById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      await assertSiteScope(ctx, existing.id);
       const site = await genbaDb.updateGenbaSite(input.id, { archived: input.archived });
       await safeGenbaAuditLog(uid(ctx), "genba.sites.archive", { entityId: input.id, note: `${existing.name} を${input.archived ? "アーカイブ" : "アーカイブ解除"}` });
       return site;
@@ -356,6 +428,7 @@ const sitesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaSiteById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      await assertSiteScope(ctx, existing.id);
       const site = await genbaDb.updateGenbaSite(input.id, { driveUrl: input.driveUrl || null });
       await safeGenbaAuditLog(uid(ctx), "genba.sites.setDriveUrl", { entityId: input.id, note: `${existing.name} のDriveリンクを更新` });
       return site;
@@ -373,7 +446,9 @@ const sitesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaSiteById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "現場が見つかりません" });
+      await assertSiteScope(ctx, existing.id);
       if (input.projectId != null) {
+        await assertProjectCompanyReference(ctx.companyId, input.projectId);
         const project = await genbaDb.getProjectPeriod(input.projectId);
         if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "工事案件が見つかりません" });
       }
@@ -494,7 +569,7 @@ const floorsRouter = router({
   getImageBytes: genbaProcedure.input(z.object({ floorId: genbaIdSchema })).query(async ({ ctx, input }) => {
     const floor = await genbaDb.getGenbaFloorById(input.floorId);
     if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "図面が見つかりません" });
-    assertLinkSiteId(ctx, floor.siteId);
+    await assertSiteScope(ctx, floor.siteId);
     if (!floor.imageKey) throw new TRPCError({ code: "BAD_REQUEST", message: "この図面には画像がありません" });
     const bytes = await storageGetBytes(floor.imageKey);
     return { base64: bytes.toString("base64"), mimeType: "image/jpeg", fileName: `${floor.name || "floor"}.jpg` };
@@ -545,7 +620,7 @@ const floorsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaFloorById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "フロアが見つかりません" });
-      assertLinkSiteId(ctx, existing.siteId);
+      await assertSiteScope(ctx, existing.siteId);
       const patch: { name?: string; sortOrder?: number } = {};
       if (input.name !== undefined) patch.name = input.name;
       if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder;
@@ -561,7 +636,7 @@ const floorsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaFloorById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "フロアが見つかりません" });
-      assertLinkSiteId(ctx, existing.siteId);
+      await assertSiteScope(ctx, existing.siteId);
       await genbaDb.deleteGenbaFloor(input.id);
       await safeGenbaAuditLog(uid(ctx), "genba.floors.remove", { entityId: input.id, note: `図面を削除: ${existing.name}` });
       return { success: true as const };
@@ -577,7 +652,7 @@ const floorsRouter = router({
       const zone = await genbaDb.getGenbaZoneById(input.zoneId);
       if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
       const floor = await genbaDb.getGenbaFloorById(zone.floorId);
-      assertLinkSiteId(ctx, floor?.siteId ?? null);
+      await assertSiteScope(ctx, floor?.siteId ?? null);
       const files = await genbaDb.listGenbaFloorFiles(zone.floorId);
       return Promise.all(files.map(async (f) => {
         let url = f.url;
@@ -592,7 +667,7 @@ const floorsRouter = router({
       const file = await genbaDb.getGenbaFloorFileById(input.id);
       if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "ファイルが見つかりません" });
       const floor = await genbaDb.getGenbaFloorById(file.floorId);
-      assertLinkSiteId(ctx, floor?.siteId ?? null);
+      await assertSiteScope(ctx, floor?.siteId ?? null);
       if (file.kind !== "upload" || !file.storageKey) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "このファイルは端末保存できません（外部リンク）" });
       }
@@ -607,7 +682,7 @@ const floorsRouter = router({
         const zone = await genbaDb.getGenbaZoneById(input.zoneId);
         if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
         const floor = await genbaDb.getGenbaFloorById(zone.floorId);
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         const file = await genbaDb.createGenbaFloorFile({
           id: nanoid(21), floorId: zone.floorId, kind: "link",
           title: input.title || null, url: input.url, createdByUserId: uid(ctx),
@@ -622,7 +697,7 @@ const floorsRouter = router({
         const zone = await genbaDb.getGenbaZoneById(input.zoneId);
         if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
         const floor = await genbaDb.getGenbaFloorById(zone.floorId);
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         const buffer = Buffer.from(input.base64, "base64");
         const err = validateFile(input.fileName, input.mimeType, buffer.length);
         if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
@@ -643,7 +718,7 @@ const floorsRouter = router({
         const file = await genbaDb.getGenbaFloorFileById(input.id);
         if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "ファイルが見つかりません" });
         const floor = await genbaDb.getGenbaFloorById(file.floorId);
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         await genbaDb.deleteGenbaFloorFile(input.id);
         await safeGenbaAuditLog(uid(ctx), "genba.floors.files.remove", { entityId: file.floorId, note: `全エリア共通削除: ${file.title || file.fileName || file.url}` });
         return { success: true as const };
@@ -656,7 +731,7 @@ const floorsRouter = router({
         const file = await genbaDb.getGenbaFloorFileById(input.id);
         if (!file || file.kind !== "link" || !file.url) throw new TRPCError({ code: "BAD_REQUEST", message: "取り込めるリンクがありません" });
         const floor = await genbaDb.getGenbaFloorById(file.floorId);
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         const { buffer, mimeType, fileName } = await fetchExternalFile(file.url);
         const storageKey = `genba/floor-${file.floorId}/file-${nanoid(8)}-${safeKeyPart(fileName)}`;
         await storagePut(storageKey, buffer, mimeType);
@@ -678,7 +753,7 @@ const floorsRouter = router({
     list: genbaProcedure.input(z.object({ floorId: genbaIdSchema })).query(async ({ ctx, input }) => {
       const floor = await genbaDb.getGenbaFloorById(input.floorId);
       if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "図面が見つかりません" });
-      assertLinkSiteId(ctx, floor.siteId);
+      await assertSiteScope(ctx, floor.siteId);
       const pins = await genbaDb.listGenbaFloorPinsByFloor(input.floorId);
       const names = await genbaDb.listUserNamesByIds(Array.from(new Set(pins.map((p) => p.byUserId).filter((x): x is number => x != null))));
       return Promise.all(pins.map(async (p) => {
@@ -705,7 +780,7 @@ const floorsRouter = router({
       .mutation(async ({ ctx, input }) => {
         const floor = await genbaDb.getGenbaFloorById(input.floorId);
         if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "図面が見つかりません" });
-        assertLinkSiteId(ctx, floor.siteId);
+        await assertSiteScope(ctx, floor.siteId);
         const id = nanoid(21);
         const photoKeys: string[] = [];
         for (const p of input.photos ?? []) {
@@ -731,7 +806,7 @@ const floorsRouter = router({
         const pin = await genbaDb.getGenbaFloorPinById(input.id);
         if (!pin) throw new TRPCError({ code: "NOT_FOUND", message: "報告が見つかりません" });
         const floor = await genbaDb.getGenbaFloorById(pin.floorId);
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         const updated = await genbaDb.updateGenbaFloorPin(input.id, { status: input.resolved ? "resolved" : "open", resolvedByUserId: input.resolved ? uid(ctx) : null });
         await safeGenbaAuditLog(uid(ctx), "genba.floors.pins.resolve", { entityId: pin.floorId, note: input.resolved ? "問題を解決済みに" : "問題を未解決に戻す" });
         return updated;
@@ -743,7 +818,7 @@ const floorsRouter = router({
         const pin = await genbaDb.getGenbaFloorPinById(input.id);
         if (!pin) throw new TRPCError({ code: "NOT_FOUND", message: "報告が見つかりません" });
         const floor = await genbaDb.getGenbaFloorById(pin.floorId);
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         await genbaDb.deleteGenbaFloorPin(input.id);
         await safeGenbaAuditLog(uid(ctx), "genba.floors.pins.remove", { entityId: pin.floorId, note: "問題報告を削除" });
         return { success: true as const };
@@ -758,7 +833,7 @@ const floorsRouter = router({
     list: genbaProcedure.input(z.object({ floorId: genbaIdSchema })).query(async ({ ctx, input }) => {
       const floor = await genbaDb.getGenbaFloorById(input.floorId);
       if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "図面が見つかりません" });
-      assertLinkSiteId(ctx, floor.siteId);
+      await assertSiteScope(ctx, floor.siteId);
       const rows = await genbaDb.listGenbaFloorAnnotations(input.floorId);
       return rows.map((a) => ({
         id: a.id, floorId: a.floorId, kind: a.kind,
@@ -779,7 +854,7 @@ const floorsRouter = router({
       .mutation(async ({ ctx, input }) => {
         const floor = await genbaDb.getGenbaFloorById(input.floorId);
         if (!floor) throw new TRPCError({ code: "NOT_FOUND", message: "図面が見つかりません" });
-        assertLinkSiteId(ctx, floor.siteId);
+        await assertSiteScope(ctx, floor.siteId);
         const ann = await genbaDb.createGenbaFloorAnnotation({
           id: nanoid(21), floorId: input.floorId, kind: input.kind,
           points: input.points, color: input.color ?? "#FF4B00", strokeWidth: input.strokeWidth ?? 3,
@@ -795,7 +870,7 @@ const floorsRouter = router({
         const ann = await genbaDb.getGenbaFloorAnnotationById(input.id);
         if (!ann) throw new TRPCError({ code: "NOT_FOUND", message: "マーキングが見つかりません" });
         const floor = await genbaDb.getGenbaFloorById(ann.floorId);
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         await genbaDb.deleteGenbaFloorAnnotation(input.id);
         await safeGenbaAuditLog(uid(ctx), "genba.floors.annotations.remove", { entityId: ann.floorId, note: "マーキング削除" });
         return { success: true as const };
@@ -863,7 +938,7 @@ const zonesRouter = router({
       });
       // 作業テンプレートを自動適用 (プロトタイプ準拠: エリア作成時に標準作業ツリーを展開)
       if (input.applyTemplate !== false) {
-        const tree = await currentTemplateForInstantiation();
+        const tree = await currentTemplateForInstantiation(ctx.companyId);
         const tasks = instantiateTemplateTasks(tree, id, null);
         if (tasks.length) await genbaDb.createGenbaTasksBulk(tasks);
       }
@@ -885,9 +960,9 @@ const zonesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaZoneById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
-      if (ctx.genbaLink) {
+      if (ctx.genbaLink || (isMultiTenantEnabled() && ctx.companyId != null)) {
         const f = await genbaDb.getGenbaFloorById(existing.floorId);
-        assertLinkSiteId(ctx, f?.siteId ?? null);
+        await assertSiteScope(ctx, f?.siteId ?? null);
       }
       const patch: { name?: string; polygon?: { x: number; y: number }[]; priority?: number | null; workStatus?: "paused" | null; color?: string | null; fillOpacity?: number | null } = {};
       if (input.name !== undefined) patch.name = input.name;
@@ -907,9 +982,9 @@ const zonesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaZoneById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
-      if (ctx.genbaLink) {
+      if (ctx.genbaLink || (isMultiTenantEnabled() && ctx.companyId != null)) {
         const f = await genbaDb.getGenbaFloorById(existing.floorId);
-        assertLinkSiteId(ctx, f?.siteId ?? null);
+        await assertSiteScope(ctx, f?.siteId ?? null);
       }
       await genbaDb.deleteGenbaZoneCascade(input.id);
       await safeGenbaAuditLog(uid(ctx), "genba.zones.remove", { entityId: input.id, note: `エリアを削除: ${existing.name}` });
@@ -925,7 +1000,7 @@ const zonesRouter = router({
       const zone = await genbaDb.getGenbaZoneById(input.zoneId);
       if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
       const floor = await genbaDb.getGenbaFloorById(zone.floorId);
-      assertLinkSiteId(ctx, floor?.siteId ?? null);
+      await assertSiteScope(ctx, floor?.siteId ?? null);
       const files = await genbaDb.listGenbaZoneFiles(input.zoneId);
       return Promise.all(files.map(async (f) => {
         let url = f.url;
@@ -941,7 +1016,7 @@ const zonesRouter = router({
       if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "ファイルが見つかりません" });
       const zone = await genbaDb.getGenbaZoneById(file.zoneId);
       const floor = zone ? await genbaDb.getGenbaFloorById(zone.floorId) : null;
-      assertLinkSiteId(ctx, floor?.siteId ?? null);
+      await assertSiteScope(ctx, floor?.siteId ?? null);
       if (file.kind !== "upload" || !file.storageKey) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "このファイルは端末保存できません（外部リンク）" });
       }
@@ -956,7 +1031,7 @@ const zonesRouter = router({
         const zone = await genbaDb.getGenbaZoneById(input.zoneId);
         if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
         const floor = await genbaDb.getGenbaFloorById(zone.floorId);
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         const file = await genbaDb.createGenbaZoneFile({
           id: nanoid(21), zoneId: input.zoneId, kind: "link",
           title: input.title || null, url: input.url, createdByUserId: uid(ctx),
@@ -971,7 +1046,7 @@ const zonesRouter = router({
         const zone = await genbaDb.getGenbaZoneById(input.zoneId);
         if (!zone) throw new TRPCError({ code: "NOT_FOUND", message: "エリアが見つかりません" });
         const floor = await genbaDb.getGenbaFloorById(zone.floorId);
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         const buffer = Buffer.from(input.base64, "base64");
         const err = validateFile(input.fileName, input.mimeType, buffer.length);
         if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
@@ -993,7 +1068,7 @@ const zonesRouter = router({
         if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "ファイルが見つかりません" });
         const zone = await genbaDb.getGenbaZoneById(file.zoneId);
         const floor = zone ? await genbaDb.getGenbaFloorById(zone.floorId) : null;
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         await genbaDb.deleteGenbaZoneFile(input.id);
         await safeGenbaAuditLog(uid(ctx), "genba.zones.files.remove", { entityId: file.zoneId, note: `エリア図面削除: ${file.title || file.fileName || file.url}` });
         return { success: true as const };
@@ -1006,7 +1081,7 @@ const zonesRouter = router({
         if (!file || file.kind !== "link" || !file.url) throw new TRPCError({ code: "BAD_REQUEST", message: "取り込めるリンクがありません" });
         const zone = await genbaDb.getGenbaZoneById(file.zoneId);
         const floor = zone ? await genbaDb.getGenbaFloorById(zone.floorId) : null;
-        assertLinkSiteId(ctx, floor?.siteId ?? null);
+        await assertSiteScope(ctx, floor?.siteId ?? null);
         const { buffer, mimeType, fileName } = await fetchExternalFile(file.url);
         const storageKey = `genba/zone-${file.zoneId}/file-${nanoid(8)}-${safeKeyPart(fileName)}`;
         await storagePut(storageKey, buffer, mimeType);
@@ -1066,7 +1141,7 @@ const tasksRouter = router({
    * クライアントはこれを使って「エリア一覧」「作業名一覧」を作り、選択に応じた taskId を bulkAssign へ渡す。
    */
   listBySite: genbaProcedure.input(z.object({ siteId: genbaIdSchema })).query(async ({ ctx, input }) => {
-    assertLinkSiteId(ctx, input.siteId);
+    await assertSiteScope(ctx, input.siteId);
     const { floors, tasks, zoneById } = await loadSiteTaskContext(input.siteId);
     const floorName = new Map(floors.map((f) => [f.id, f.name]));
     const hasChild = new Set(tasks.map((t) => t.parentTaskId).filter((x): x is string => !!x));
@@ -1139,7 +1214,7 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTaskById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
-      await assertLinkTaskScope(ctx, existing);
+      await assertTaskScope(ctx, existing);
       const patch: Record<string, unknown> = {};
       for (const k of ["name", "romaji", "memo", "memoVisible", "linkUrl", "startDate", "dueDate", "priority", "sortOrder"] as const) {
         if (input[k] !== undefined) patch[k] = input[k];
@@ -1158,7 +1233,7 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTaskById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
-      await assertLinkTaskScope(ctx, existing);
+      await assertTaskScope(ctx, existing);
       const newParentId = input.parentTaskId ?? null;
       if (newParentId === existing.id) throw new TRPCError({ code: "BAD_REQUEST", message: "自分自身の下には移動できません" });
 
@@ -1199,7 +1274,7 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTaskById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
-      await assertLinkTaskScope(ctx, existing);
+      await assertTaskScope(ctx, existing);
 
       // 作業員リンク (非leader) は自分の担当のみ更新可 (直接/ゲスト割当/班経由)
       if (ctx.genbaLink && ctx.genbaRole !== "leader") {
@@ -1253,9 +1328,9 @@ const tasksRouter = router({
       await safeGenbaAuditLog(uid(ctx), "genba.tasks.setStatus", { entityId: input.id, note: `${existing.name}: ${input.status}` });
       // 学習ログ: 完了/問題を記録 (ゾーン単位で現場に紐づく)
       if (input.status === "issue") {
-        await safeGenbaActivity("issue", uid(ctx), { taskId: input.id, taskName: existing.name, zoneId: existing.zoneId });
+        await safeGenbaActivity("issue", uid(ctx), { taskId: input.id, taskName: existing.name, zoneId: existing.zoneId }, ctx.companyId);
       } else {
-        await safeGenbaActivity("status", uid(ctx), { taskId: input.id, taskName: existing.name, zoneId: existing.zoneId, status: input.status });
+        await safeGenbaActivity("status", uid(ctx), { taskId: input.id, taskName: existing.name, zoneId: existing.zoneId, status: input.status }, ctx.companyId);
       }
       return task;
     }),
@@ -1277,7 +1352,7 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTaskById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
-      await assertLinkTaskScope(ctx, existing);
+      await assertTaskScope(ctx, existing);
       await genbaDb.deleteGenbaTaskCascade(input.id);
       await safeGenbaAuditLog(uid(ctx), "genba.tasks.remove", { entityId: input.id, note: `作業を削除: ${existing.name}` });
       return { success: true as const };
@@ -1295,6 +1370,7 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const task = await genbaDb.getGenbaTaskById(input.taskId);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      await assertUserCompanyReference(ctx.companyId, input.userId);
       if (input.on) await genbaDb.addTaskAssignee({ id: nanoid(21), taskId: input.taskId, userId: input.userId });
       else await genbaDb.removeTaskAssignee(input.taskId, input.userId);
 
@@ -1384,7 +1460,7 @@ const tasksRouter = router({
         tasks.push(task);
       }
       // リンクセッションは自現場のみ
-      assertLinkSiteId(ctx, siteId);
+      await assertSiteScope(ctx, siteId);
 
       // 割当対象の妥当性 (現場一致) を検証しつつ、監査ログ用ラベルを作る
       let label: string;
@@ -1398,6 +1474,7 @@ const tasksRouter = router({
         if (!team || team.siteId !== siteId) throw new TRPCError({ code: "BAD_REQUEST", message: "この現場の班ではありません" });
         label = `班 ${team.name}`;
       } else {
+        await assertUserCompanyReference(ctx.companyId, input.userId!);
         label = `user#${input.userId}`;
       }
 
@@ -1430,6 +1507,7 @@ const tasksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const task = await genbaDb.getGenbaTaskById(input.taskId);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
+      await assertUserCompanyReference(ctx.companyId, input.toUserId);
       if (input.toUserId === uid(ctx)) throw new TRPCError({ code: "BAD_REQUEST", message: "自分自身には引き継げません" });
 
       const meId = uid(ctx);
@@ -1467,7 +1545,7 @@ const tasksRouter = router({
     list: genbaProcedure.input(z.object({ taskId: genbaIdSchema })).query(async ({ ctx, input }) => {
       const task = await genbaDb.getGenbaTaskById(input.taskId);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
-      await assertLinkTaskScope(ctx, task);
+      await assertTaskScope(ctx, task);
       const files = await genbaDb.listGenbaTaskFiles(input.taskId);
       return Promise.all(files.map(async (f) => {
         let url = f.url;
@@ -1490,7 +1568,7 @@ const tasksRouter = router({
       const file = await genbaDb.getGenbaTaskFileById(input.id);
       if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "ファイルが見つかりません" });
       const task = await genbaDb.getGenbaTaskById(file.taskId);
-      if (task) await assertLinkTaskScope(ctx, task);
+      await assertTaskScope(ctx, task);
       if (file.kind !== "upload" || !file.storageKey) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "このファイルは端末保存できません（外部リンク）" });
       }
@@ -1504,7 +1582,7 @@ const tasksRouter = router({
         if (!/^https?:\/\//i.test(input.url)) throw new TRPCError({ code: "BAD_REQUEST", message: "URLは https:// から入力してください" });
         const task = await genbaDb.getGenbaTaskById(input.taskId);
         if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
-        await assertLinkTaskScope(ctx, task);
+        await assertTaskScope(ctx, task);
         const file = await genbaDb.createGenbaTaskFile({
           id: nanoid(21), taskId: input.taskId, kind: "link",
           title: input.title || null, url: input.url, createdByUserId: uid(ctx),
@@ -1524,7 +1602,7 @@ const tasksRouter = router({
       .mutation(async ({ ctx, input }) => {
         const task = await genbaDb.getGenbaTaskById(input.taskId);
         if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
-        await assertLinkTaskScope(ctx, task);
+        await assertTaskScope(ctx, task);
         const buffer = Buffer.from(input.base64, "base64");
         const err = validateFile(input.fileName, input.mimeType, buffer.length);
         if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
@@ -1545,7 +1623,7 @@ const tasksRouter = router({
         const file = await genbaDb.getGenbaTaskFileById(input.id);
         if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "ファイルが見つかりません" });
         const task = await genbaDb.getGenbaTaskById(file.taskId);
-        if (task) await assertLinkTaskScope(ctx, task);
+        await assertTaskScope(ctx, task);
         await genbaDb.deleteGenbaTaskFile(input.id);
         await safeGenbaAuditLog(uid(ctx), "genba.tasks.files.remove", { entityId: file.taskId, note: `ファイル削除: ${file.title || file.fileName || file.url}` });
         return { success: true as const };
@@ -1557,7 +1635,7 @@ const tasksRouter = router({
         const file = await genbaDb.getGenbaTaskFileById(input.id);
         if (!file || file.kind !== "link" || !file.url) throw new TRPCError({ code: "BAD_REQUEST", message: "取り込めるリンクがありません" });
         const task = await genbaDb.getGenbaTaskById(file.taskId);
-        if (task) await assertLinkTaskScope(ctx, task);
+        await assertTaskScope(ctx, task);
         const { buffer, mimeType, fileName } = await fetchExternalFile(file.url);
         const storageKey = `genba/task-${file.taskId}/file-${nanoid(8)}-${safeKeyPart(fileName)}`;
         await storagePut(storageKey, buffer, mimeType);
@@ -1600,7 +1678,7 @@ const teamsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTeamById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "班が見つかりません" });
-      assertLinkSiteId(ctx, existing.siteId);
+      await assertSiteScope(ctx, existing.siteId);
       const team = await genbaDb.updateGenbaTeam(input.id, { name: input.name });
       await safeGenbaAuditLog(uid(ctx), "genba.teams.rename", { entityId: input.id, note: `班名を変更: ${existing.name} → ${input.name}` });
       return team;
@@ -1611,7 +1689,7 @@ const teamsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaTeamById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "班が見つかりません" });
-      assertLinkSiteId(ctx, existing.siteId);
+      await assertSiteScope(ctx, existing.siteId);
       await genbaDb.deleteGenbaTeamCascade(input.id);
       await safeGenbaAuditLog(uid(ctx), "genba.teams.remove", { entityId: input.id, note: `班を削除: ${existing.name}` });
       return { success: true as const };
@@ -1623,6 +1701,7 @@ const teamsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const team = await genbaDb.getGenbaTeamById(input.teamId);
       if (!team) throw new TRPCError({ code: "NOT_FOUND", message: "班が見つかりません" });
+      await assertUserCompanyReference(ctx.companyId, input.userId);
       if (input.on) await genbaDb.addGenbaTeamMember({ id: nanoid(21), teamId: input.teamId, userId: input.userId });
       else await genbaDb.removeGenbaTeamMember(input.teamId, input.userId);
       await safeGenbaAuditLog(uid(ctx), "genba.teams.setMember", { entityId: input.teamId, note: `メンバー ${input.on ? "追加" : "解除"}: user#${input.userId}` });
@@ -1718,6 +1797,7 @@ const usersRouter = router({
   setGenbaRole: genbaAdminProcedure
     .input(z.object({ userId: z.number().int().positive(), role: z.enum(["admin", "leader", "worker"]).nullable() }))
     .mutation(async ({ ctx, input }) => {
+      await assertUserCompanyReference(ctx.companyId, input.userId);
       // オーナー(appRole=super_admin)の権限は誰からも変更・消去できない
       const targetAppRole = await genbaDb.getUserAppRoleById(input.userId);
       if (targetAppRole === "super_admin") {
@@ -1848,6 +1928,14 @@ const instructionsRouter = router({
       if ((input.targetKind === "team" || input.targetKind === "worker") && !input.targetId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "対象を指定してください" });
       }
+      if (input.targetKind === "worker" && input.targetId) {
+        await assertUserCompanyReference(ctx.companyId, Number(input.targetId));
+      }
+      if (isMultiTenantEnabled() && ctx.companyId != null && input.targetKind === "team" && input.targetId) {
+        const team = await genbaDb.getGenbaTeamById(input.targetId);
+        if (!team) throw new TRPCError({ code: "NOT_FOUND", message: "班が見つかりません" });
+        await assertSiteScope(ctx, team.siteId);
+      }
       const id = input.id ?? nanoid(21);
       const inst = await genbaDb.createGenbaInstruction({
         id, siteId: input.siteId, text: input.text,
@@ -1921,7 +2009,7 @@ const materialsRouter = router({
       await safeGenbaAuditLog(uid(ctx), "genba.materials.createRequest", { entityId: id, note: `資材依頼 (${items.length}品目, ${site.name})` });
       // 学習ログ: カタログ外(自由入力)判定して記録
       for (const it of items) {
-        await safeGenbaActivity("material", uid(ctx), { siteId: input.siteId, name: it.name, qty: it.qty, unit: it.unit, freeInput: !CATALOG_LABELS.has(it.name) });
+        await safeGenbaActivity("material", uid(ctx), { siteId: input.siteId, name: it.name, qty: it.qty, unit: it.unit, freeInput: !CATALOG_LABELS.has(it.name) }, ctx.companyId);
       }
       return request ? { ...request, items: items.map((it) => ({ id: it.id, name: it.name, qty: it.qty, unit: it.unit })) } : null;
     }),
@@ -1932,7 +2020,7 @@ const materialsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaMaterialRequestById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "依頼が見つかりません" });
-      assertLinkSiteId(ctx, existing.siteId);
+      await assertSiteScope(ctx, existing.siteId);
       const now = new Date();
       const patch: { status: "pending" | "ordered" | "delivered"; orderedAt?: Date; deliveredAt?: Date } = { status: input.status };
       if (input.status === "ordered" && !existing.orderedAt) patch.orderedAt = now;
@@ -1948,7 +2036,7 @@ const materialsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaMaterialRequestById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "依頼が見つかりません" });
-      assertLinkSiteId(ctx, existing.siteId);
+      await assertSiteScope(ctx, existing.siteId);
       const isField = ctx.genbaRole !== "worker";
       const meId = uid(ctx);
       if (!isField && !(meId != null && existing.byUserId === meId && existing.status === "pending")) {
@@ -1984,7 +2072,8 @@ const materialsRouter = router({
       if (input.id) {
         const existing = await genbaDb.getGenbaMaterialPresetById(input.id);
         if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "プリセットが見つかりません" });
-        assertLinkSiteId(ctx, existing.siteId);
+        await assertMaterialPresetCompanyScope(ctx.companyId, existing);
+        if (ctx.genbaLink || existing.siteId != null) await assertSiteScope(ctx, existing.siteId);
         const preset = await genbaDb.updateGenbaMaterialPreset(input.id, { workName: input.workName, parts: input.parts });
         await safeGenbaAuditLog(uid(ctx), "genba.materials.savePreset", { entityId: input.id, note: `プリセットを更新: ${input.workName}` });
         return preset;
@@ -1993,7 +2082,7 @@ const materialsRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "この現場のリンクでは操作できません" });
       }
       const id = nanoid(21);
-      const preset = await genbaDb.createGenbaMaterialPreset({ id, siteId: input.siteId ?? null, workName: input.workName, parts: input.parts });
+      const preset = await genbaDb.createGenbaMaterialPreset({ id, siteId: input.siteId ?? null, workName: input.workName, parts: input.parts, companyId: ctx.companyId });
       await safeGenbaAuditLog(uid(ctx), "genba.materials.savePreset", { entityId: id, note: `プリセットを作成: ${input.workName}` });
       return preset;
     }),
@@ -2003,7 +2092,8 @@ const materialsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaMaterialPresetById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "プリセットが見つかりません" });
-      assertLinkSiteId(ctx, existing.siteId);
+      await assertMaterialPresetCompanyScope(ctx.companyId, existing);
+      if (ctx.genbaLink || existing.siteId != null) await assertSiteScope(ctx, existing.siteId);
       await genbaDb.deleteGenbaMaterialPreset(input.id);
       await safeGenbaAuditLog(uid(ctx), "genba.materials.removePreset", { entityId: input.id, note: `プリセットを削除: ${existing.workName}` });
       return { success: true as const };
@@ -2044,8 +2134,8 @@ const templatesRouter = router({
   saveTree: genbaStaffFieldProcedure
     .input(z.object({ tree: z.array(templateNodeSchema) }))
     .mutation(async ({ ctx, input }) => {
-      const rows = flattenTemplateTree(input.tree, null);
-      await genbaDb.replaceGenbaTaskTemplates(rows);
+      const rows = flattenTemplateTree(input.tree, null).map((r) => ({ ...r, companyId: ctx.companyId }));
+      await genbaDb.replaceGenbaTaskTemplates(rows, ctx.companyId);
       await safeGenbaAuditLog(uid(ctx), "genba.templates.saveTree", { note: `テンプレートを更新 (${rows.length}項目)` });
       return { success: true as const, count: rows.length };
     }),
@@ -2087,6 +2177,7 @@ const sharesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaShareById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "共有リンクが見つかりません" });
+      await assertSiteCompanyScope(ctx.companyId, existing.siteId);
       await genbaDb.deleteGenbaShare(input.id);
       await safeGenbaAuditLog(uid(ctx), "genba.shares.revoke", { entityId: input.id, note: `共有リンクを失効: ${existing.name}` });
       return { success: true as const };
@@ -2103,8 +2194,9 @@ const sharesRouter = router({
       assertGenbaEnabled();
       const notFound = () => new TRPCError({ code: "NOT_FOUND", message: "共有リンクが見つからないか、期限切れです" });
       const share = await genbaDb.getGenbaShareByToken(input.token);
-      if (!share) throw notFound();
-      if (share.expiresAt && new Date(share.expiresAt).getTime() < Date.now()) throw notFound();
+      // DBの照合順序に関係なく、bearer tokenは完全一致で扱う。
+      if (!share || share.token !== input.token) throw notFound();
+      if (share.expiresAt && new Date(share.expiresAt).getTime() <= Date.now()) throw notFound();
       const site = await genbaDb.getGenbaSiteById(share.siteId);
       if (!site || site.archived) throw notFound();
 
@@ -2194,6 +2286,7 @@ const budgetsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaBudgetAttendanceById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "出面記録が見つかりません" });
+      await assertSiteScope(ctx, existing.siteId);
       await genbaDb.deleteGenbaBudgetAttendance(input.id);
       await safeGenbaAuditLog(uid(ctx), "genba.budgets.removeManualAttendance", { entityId: input.id, note: "出面記録を削除" });
       return { success: true as const };
@@ -2318,6 +2411,7 @@ const dispatchesRouter = router({
       const id = nanoid(21);
       const date = input.date ?? toYmd(new Date())!;
       const uniqueIds = Array.from(new Set(input.userIds));
+      for (const userId of uniqueIds) await assertUserCompanyReference(ctx.companyId, userId);
       const assignees = uniqueIds.map((userId) => ({ id: nanoid(21), dispatchId: id, userId }));
       const dispatch = await genbaDb.createGenbaDispatch(
         { id, siteId: input.siteId, zoneId: input.zoneId, taskId: input.taskId, date, memo: input.memo?.trim() || null, byUserId: uid(ctx), done: false },
@@ -2333,7 +2427,7 @@ const dispatchesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaDispatchById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "手配が見つかりません" });
-      assertLinkSiteId(ctx, existing.siteId);
+      await assertSiteScope(ctx, existing.siteId);
       if (ctx.genbaRole === "worker") {
         const assignees = await genbaDb.listGenbaDispatchAssignees([input.id]);
         if (!assignees.some((a) => a.userId === uid(ctx))) {
@@ -2351,7 +2445,7 @@ const dispatchesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaDispatchById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "手配が見つかりません" });
-      assertLinkSiteId(ctx, existing.siteId);
+      await assertSiteScope(ctx, existing.siteId);
       await genbaDb.deleteGenbaDispatchCascade(input.id);
       await safeGenbaAuditLog(uid(ctx), "genba.dispatches.remove", { entityId: input.id, note: "急ぎ手配を削除" });
       return { success: true as const };
@@ -2367,13 +2461,23 @@ type ResolvedWorkerLink =
 /** トークン→リンク解決。無効化(ソフト)は disabled、期限切れは expired、それ以外の不備は invalid */
 async function resolveWorkerLink(token: string): Promise<ResolvedWorkerLink> {
   const link = await genbaDb.getGenbaWorkerLinkByToken(token);
-  if (!link) return { ok: false, reason: "invalid" };
+  if (!link || link.token !== token) return { ok: false, reason: "invalid" };
   if (!link.active) return { ok: false, reason: "disabled" };
-  if (link.expiresAt && link.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
+  if (link.expiresAt && link.expiresAt.getTime() <= Date.now()) return { ok: false, reason: "expired" };
   const worker = await genbaDb.getGenbaSiteWorkerById(link.siteWorkerId);
-  const site = worker ? await genbaDb.getGenbaSiteById(worker.siteId) : null;
+  if (!worker || worker.siteId !== link.siteId) return { ok: false, reason: "invalid" };
+  const site = await genbaDb.getGenbaSiteById(link.siteId);
   if (!worker || !site || site.archived) return { ok: false, reason: "invalid" };
   return { ok: true, link, worker, site };
+}
+
+/** 公開作業員リンクの返却契約。更新結果にもDB行を直接返さない。 */
+function workerLinkTaskDto(task: NonNullable<Awaited<ReturnType<typeof genbaDb.getGenbaTaskById>>>) {
+  return {
+    id: task.id, zoneId: task.zoneId, name: task.name, romaji: task.romaji,
+    status: task.status, percent: task.percent, dueDate: task.dueDate,
+    issueText: task.issueText, memo: task.memoVisible ? task.memo : null,
+  };
 }
 
 /** リンク主体が更新できるタスクID集合 (worker=自分の担当のみ / leader=現場全葉タスク) */
@@ -2485,6 +2589,7 @@ const workerLinksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaWorkerLinkById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "リンクが見つかりません" });
+      await assertSiteCompanyScope(ctx.companyId, existing.siteId);
       const link = await genbaDb.updateGenbaWorkerLink(input.id, { active: input.active });
       const worker = await genbaDb.getGenbaSiteWorkerById(existing.siteWorkerId);
       await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.setActive", { entityId: input.id, note: `作業員リンクを${input.active ? "有効化" : "無効化"}: ${worker?.displayName ?? existing.siteWorkerId}` });
@@ -2497,6 +2602,7 @@ const workerLinksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaWorkerLinkById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "リンクが見つかりません" });
+      await assertSiteCompanyScope(ctx.companyId, existing.siteId);
       const link = await genbaDb.updateGenbaWorkerLink(input.id, { role: input.role });
       await genbaDb.updateGenbaSiteWorkerRole(existing.siteWorkerId, input.role);
       await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.setRole", { entityId: input.id, note: `作業員リンクの権限を${input.role}へ変更` });
@@ -2509,6 +2615,7 @@ const workerLinksRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await genbaDb.getGenbaWorkerLinkById(input.id);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "リンクが見つかりません" });
+      await assertSiteCompanyScope(ctx.companyId, existing.siteId);
       const worker = await genbaDb.getGenbaSiteWorkerById(existing.siteWorkerId);
       await genbaDb.deleteGenbaWorkerLink(input.id);
       await safeGenbaAuditLog(uid(ctx), "genba.workerLinks.remove", { entityId: input.id, note: `作業員リンクを削除: ${worker?.displayName ?? existing.siteWorkerId}` });
@@ -2557,11 +2664,7 @@ const workerLinkRouter = router({
     const myTasks = tasks
       .filter((t) => editable.has(t.id))
       .map((t) => ({
-        id: t.id, zoneId: t.zoneId, zoneName: zoneName(t.zoneId),
-        name: t.name, romaji: t.romaji, status: t.status, percent: t.percent,
-        dueDate: t.dueDate, issueText: t.issueText,
-        // 作業員向けメモ (memoVisible のときだけ公開。非公開メモは返さない)
-        memo: t.memoVisible ? t.memo : null,
+        ...workerLinkTaskDto(t), zoneName: zoneName(t.zoneId),
       }))
       .sort((a, b) => a.zoneName.localeCompare(b.zoneName, "ja") || a.name.localeCompare(b.name, "ja"));
 
@@ -2609,13 +2712,13 @@ const workerLinkRouter = router({
       if (!resolved.ok) throw new TRPCError({ code: "FORBIDDEN", message: "このリンクは無効です。管理者に確認してください。" });
       const { worker, site } = resolved;
 
-      const existing = await genbaDb.getGenbaTaskById(input.taskId);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
       const { tasks } = await loadSiteTaskContext(site.id);
       const editable = await workerLinkEditableTaskIds(resolved, tasks);
       if (!editable.has(input.taskId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "この作業はあなたの担当ではありません" });
       }
+      const existing = await genbaDb.getGenbaTaskById(input.taskId);
+      if (!existing) throw new TRPCError({ code: "FORBIDDEN", message: "この作業はあなたの担当ではありません" });
 
       const photoKeys: string[] = [];
       if (input.status === "issue" && input.photos?.length) {
@@ -2648,8 +2751,8 @@ const workerLinkRouter = router({
       } as any);
 
       await safeGenbaAuditLog(worker.userId ?? null, "genba.workerLink.setStatus", { entityId: input.taskId, note: `${existing.name}: ${input.status} (リンク: ${worker.displayName})` });
-      await safeGenbaActivity(input.status === "issue" ? "issue" : "status", worker.userId ?? null, { taskId: input.taskId, taskName: existing.name, zoneId: existing.zoneId, status: input.status, viaWorkerLink: true });
-      return task;
+      await safeGenbaActivity(input.status === "issue" ? "issue" : "status", worker.userId ?? null, { taskId: input.taskId, taskName: existing.name, zoneId: existing.zoneId, status: input.status, viaWorkerLink: true }, isMultiTenantEnabled() ? (site as any).companyId : undefined);
+      return task ? workerLinkTaskDto(task) : null;
     }),
 
   /** コメント (返信イベント)。スコープは setStatus と同じ */
@@ -2660,11 +2763,11 @@ const workerLinkRouter = router({
       const resolved = await resolveWorkerLink(input.token);
       if (!resolved.ok) throw new TRPCError({ code: "FORBIDDEN", message: "このリンクは無効です。管理者に確認してください。" });
       const { worker, site } = resolved;
-      const existing = await genbaDb.getGenbaTaskById(input.taskId);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "作業が見つかりません" });
       const { tasks } = await loadSiteTaskContext(site.id);
       const editable = await workerLinkEditableTaskIds(resolved, tasks);
       if (!editable.has(input.taskId)) throw new TRPCError({ code: "FORBIDDEN", message: "この作業はあなたの担当ではありません" });
+      const existing = await genbaDb.getGenbaTaskById(input.taskId);
+      if (!existing) throw new TRPCError({ code: "FORBIDDEN", message: "この作業はあなたの担当ではありません" });
       const signature = worker.userId != null ? "" : `（${worker.displayName}・リンク入力）`;
       await genbaDb.createGenbaTaskEvent({
         id: nanoid(21), taskId: input.taskId, kind: "reply",
